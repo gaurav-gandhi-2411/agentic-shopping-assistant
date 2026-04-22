@@ -1,18 +1,21 @@
 """
-Build script: loads catalogue, builds retrieval indices.
-Phase 1: catalogue loading and parquet save.
-Phase 2: dense + sparse index building (stubs filled in later).
+Build script: loads catalogue, builds dense FAISS + sparse BM25 indices.
+Run once before starting the API or smoke tests.
 """
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.catalogue.loader import load_articles, build_searchable_text, load_config
+from src.retrieval.dense_search import DenseRetriever
+from src.retrieval.sparse_search import SparseRetriever
 
 
 def main():
     config = load_config()
+    save_dir = Path(config["catalogue"]["processed_dir"])
 
     print("Loading catalogue...")
     df = load_articles(config)
@@ -22,7 +25,6 @@ def main():
 
     df = build_searchable_text(df, config)
 
-    # Extended sanity stats
     print(f"\n--- Sanity stats ---")
     print(f"Total rows:               {len(df):,}")
     print(f"Non-null detail_desc:     {df['detail_desc'].notna().sum():,}")
@@ -34,6 +36,20 @@ def main():
     print(f"\nTop 10 colour_group_name by frequency:")
     for name, count in df["colour_group_name"].value_counts().head(10).items():
         print(f"  {name:<35} {count:>5}")
+
+    print("\n--- Building dense index ---")
+    t0 = time.time()
+    dense = DenseRetriever(config)
+    dense.build_index(df, save_dir)
+    print(f"Dense index built in {time.time() - t0:.1f}s")
+
+    print("\n--- Building sparse index ---")
+    t0 = time.time()
+    sparse = SparseRetriever(config)
+    sparse.build_index(df, save_dir)
+    print(f"Sparse index built in {time.time() - t0:.1f}s")
+
+    print("\nAll indices saved to", save_dir)
 
 
 if __name__ == "__main__":
