@@ -140,6 +140,7 @@ def build_graph(
     llm: LLMClient,
     memory: ConversationMemory,
     config: dict,
+    streaming_mode: bool = False,
 ):
     max_iterations = config["agent"]["max_iterations"]
     top_k = config["retrieval"]["final_k"]
@@ -260,6 +261,13 @@ def build_graph(
         question = plan.get("question", "Could you clarify your request?")
         result = clarify(question)
         answer = result["clarification_question"]
+        if streaming_mode:
+            # In streaming mode the API streams the answer; store it for the caller.
+            return {
+                "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                "final_answer": None,
+                "messages": [],
+            }
         return {
             "final_answer": answer,
             "messages": [{"role": "assistant", "content": answer}],
@@ -270,6 +278,14 @@ def build_graph(
             user_query=state["user_query"],
             items=_format_items_for_response(state.get("retrieved_items", [])),
         )
+        if streaming_mode:
+            # In streaming mode the API does the LLM call with token streaming;
+            # store the formatted prompt so the API can pick it up.
+            return {
+                "current_plan": json.dumps({"action": "pending_respond", "prompt": prompt}),
+                "final_answer": None,
+                "messages": [],
+            }
         answer = llm.generate(prompt)
         return {
             "final_answer": answer,
