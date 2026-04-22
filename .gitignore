@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+data/hm/
+data/processed/
+*.faiss
+*.pkl
+.ipynb_checkpoints/
+.DS_Store
+*.log
+.env

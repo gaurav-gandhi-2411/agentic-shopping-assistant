@@ -1,0 +1,35 @@
+catalogue:
+  articles_csv: "data/hm/articles.csv"
+  processed_dir: "data/processed"
+  sample_num_items: 20000
+  seed: 42
+
+retrieval:
+  dense_model: "sentence-transformers/all-MiniLM-L6-v2"
+  dense_batch_size: 128
+  dense_dim: 384
+  bm25_tokenizer: "lower_alpha"
+  rrf_k: 60
+  top_k: 20
+  final_k: 5
+
+llm:
+  provider: "ollama"
+  model: "llama3.1:8b"
+  host: "http://localhost:11434"
+  temperature: 0.2
+  max_tokens: 400
+  timeout_seconds: 60
+
+agent:
+  max_iterations: 6
+  enable_clarify_tool: true
+
+memory:
+  recent_turns: 6
+  summary_trigger_turns: 12
+
+api:
+  host: "127.0.0.1"
+  port: 8080
+  cors_origins: ["http://localhost:8501"]
