@@ -16,9 +16,10 @@ from pathlib import Path
 
 import streamlit as st
 
-# Make src/ importable whether running as `streamlit run spaces/app.py` (repo root
-# is cwd) or from inside the spaces/ directory during local testing.
-_REPO_ROOT = Path(__file__).parent.parent
+# Local dev: app.py lives in spaces/, src/ is one level up (repo root).
+# HF Space:  app.py is at container root alongside src/ (bundled at deploy time).
+_SPACES_DIR = Path(__file__).parent
+_REPO_ROOT = _SPACES_DIR.parent if (_SPACES_DIR.parent / "src").exists() else _SPACES_DIR
 sys.path.insert(0, str(_REPO_ROOT))
 
 from src.catalogue.loader import load_config
