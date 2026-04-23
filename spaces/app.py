@@ -4,8 +4,9 @@ HuggingFace Spaces entry point — folded single-process Streamlit app.
 The agent runs directly in the Streamlit process (no FastAPI / SSE layer).
 LLM: Groq (set GROQ_API_KEY as a Space secret).
 Data:  data/processed/{dense.faiss, dense_article_ids.npy,
-                        bm25.pkl, bm25_article_ids.npy, catalogue.parquet}
-       Upload these once with spaces/upload_artifacts.py.
+                        bm25.pkl, bm25_article_ids.npy, catalogue.parquet,
+                        images/}
+       Upload once with: python spaces/upload_artifacts.py --repo <user>/<space> --space
 """
 
 import json
@@ -40,14 +41,19 @@ config = load_config(_CONFIG_PATH)
 config["llm"]["provider"] = os.environ.get("LLM_PROVIDER", "groq")
 
 LLM_MODEL = config["llm"].get("groq_model", "llama-3.1-8b-instant")
-CORPUS_SIZE = config["catalogue"]["sample_num_items"]
 
+_SUGGESTIONS = [
+    "Show me something for the beach",
+    "Outfits for a date night",
+    "Minimalist winter essentials",
+    "Cosy loungewear in neutral tones",
+]
 
 # ---------------------------------------------------------------------------
 # Heavy components — loaded once, shared across all sessions
 # ---------------------------------------------------------------------------
 
-@st.cache_resource(show_spinner="Loading retrieval indices…")
+@st.cache_resource(show_spinner="Loading retrieval indices...")
 def _load_retrieval():
     import pandas as pd
     df = pd.read_parquet(_DATA_DIR / "catalogue.parquet")
@@ -66,7 +72,6 @@ def _init_session():
         retriever, df = _load_retrieval()
         llm = get_llm_client(config)
         memory = ConversationMemory(llm, config)
-        # streaming_mode=True: respond node defers LLM call so we can stream here
         st.session_state.agent = build_graph(
             retriever, df, llm, memory, config, streaming_mode=True
         )
@@ -85,20 +90,35 @@ def _init_session():
 # UI helpers
 # ---------------------------------------------------------------------------
 
+def _render_card(col, item: dict) -> None:
+    with col:
+        img_path = _DATA_DIR / item["image_url"] if item.get("image_url") else None
+        if img_path and img_path.exists():
+            st.image(str(img_path), width=150)
+        st.markdown(f"**{item['display_name']}**")
+        meta_parts = [
+            item.get("colour", ""),
+            item.get("product_type", ""),
+            item.get("department", ""),
+        ]
+        meta = " · ".join(p for p in meta_parts if p)
+        if meta:
+            st.caption(meta)
+        desc = item.get("detail_desc", "")
+        if desc:
+            with st.expander("Details", expanded=False):
+                st.write(desc[:300] + ("..." if len(desc) > 300 else ""))
+
+
 def _show_items(items: list[dict]) -> None:
     if not items:
         return
     st.markdown("---")
-    n = min(len(items), 5)
-    cols = st.columns(n)
-    for col, item in zip(cols, items[:n]):
-        with col:
-            st.markdown(f"**{item['display_name']}**")
-            st.caption(f"{item.get('colour', '')} · {item.get('product_type', '')}")
-            desc = item.get("detail_desc", "")
-            if desc:
-                with st.expander("Details", expanded=False):
-                    st.write(desc[:200] + ("…" if len(desc) > 200 else ""))
+    show = items[:5]
+    n_cols = min(len(show), 3)
+    cols = st.columns(n_cols)
+    for i, item in enumerate(show):
+        _render_card(cols[i % n_cols], item)
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +152,19 @@ with st.sidebar:
     st.caption("**System info**")
     st.caption(f"LLM: `{LLM_MODEL}`")
     st.caption("Retrieval: Hybrid (dense + BM25 with RRF)")
-    st.caption(f"Corpus: {CORPUS_SIZE:,} items")
+    _, _cat_df = _load_retrieval()
+    st.caption(f"Corpus: {len(_cat_df):,} items")
 
 st.title("🛍️ Agentic Shopping Assistant")
+
+# Prompt chips — shown only on fresh conversation
+if not st.session_state.history:
+    st.markdown("**Try asking:**")
+    chip_cols = st.columns(len(_SUGGESTIONS))
+    for col, prompt in zip(chip_cols, _SUGGESTIONS):
+        if col.button(prompt, use_container_width=True):
+            st.session_state.pending_query = prompt
+            st.rerun()
 
 # Chat history
 for msg in st.session_state.history:
@@ -144,11 +174,14 @@ for msg in st.session_state.history:
             _show_items(msg["items"])
 
 # ---------------------------------------------------------------------------
-# Chat input
+# Chat input — accepts both typed queries and chip button presses
 # ---------------------------------------------------------------------------
 
-if user_input := st.chat_input("Ask about anything in the store…"):
+_pending = st.session_state.pop("pending_query", None)
+_typed = st.chat_input("Ask about anything in the store...")
+user_input = _pending or _typed
 
+if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
@@ -166,7 +199,7 @@ if user_input := st.chat_input("Ask about anything in the store…"):
 
     with st.chat_message("assistant"):
         status_ph = st.empty()
-        status_ph.caption("🔎 Searching the catalogue…")
+        status_ph.caption("🔎 Searching the catalogue...")
 
         # Phase 1 — run the graph (routing + tool calls, no LLM respond yet)
         result = st.session_state.agent.invoke(initial_state)
@@ -183,13 +216,11 @@ if user_input := st.chat_input("Ask about anything in the store…"):
                 st.session_state.llm.generate_stream(prompt)
             )
         elif action == "pending_answer":
-            # clarify: short text, no LLM call needed
             text = plan.get("text", "")
             status_ph.empty()
             st.markdown(text)
             response_text = text
         else:
-            # Fallback — should not normally reach here
             status_ph.empty()
             response_text = result.get("final_answer", "")
             st.markdown(response_text)
@@ -197,7 +228,7 @@ if user_input := st.chat_input("Ask about anything in the store…"):
         if items:
             _show_items(items)
 
-    # Update session state for next turn
+    # Persist conversation state for next turn
     new_messages = conv["messages"] + [
         {"role": "user", "content": user_input},
         {"role": "assistant", "content": response_text or ""},
