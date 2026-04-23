@@ -8,6 +8,8 @@ A multi-turn conversational shopping assistant over the H&M fashion catalogue. C
 retrieval (dense + BM25 via Reciprocal Rank Fusion) with a LangGraph agent loop that orchestrates
 search, compare, filter, and outfit-bundling tools — all streamed through a single-process Streamlit app.
 
+🔗 **[Live Demo](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)**
+
 ---
 
 ## Motivation
