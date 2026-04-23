@@ -4,6 +4,7 @@ import re
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import apply_filter, clarify, compare_items, search_catalogue, suggest_outfit
 from src.llm.client import LLMClient
@@ -200,79 +201,6 @@ def build_graph(
         if col in catalogue_df.columns
     }
 
-    SEASONAL_PRODUCT_TYPES = {
-        "winter": {
-            "include": {"jacket", "coat", "sweater", "hoodie", "cardigan", "pullover",
-                        "scarf", "beanie", "gloves", "boots", "jumper"},
-            "exclude": {"shorts", "bikini", "swimsuit", "swimwear", "vest top",
-                        "tank top", "sandals", "flip flops", "summer dress"},
-        },
-        "summer": {
-            "include": {"shorts", "bikini", "swimsuit", "swimwear", "vest top",
-                        "tank top", "sandals", "sundress", "summer dress", "t-shirt"},
-            "exclude": {"coat", "parka", "wool jumper", "winter jacket",
-                        "scarf", "beanie", "boots"},
-        },
-        "spring": {
-            "include": {"light jacket", "cardigan", "blouse"},
-            "exclude": set(),
-        },
-        "autumn": {
-            "include": {"jacket", "cardigan", "sweater", "boots"},
-            "exclude": {"bikini", "swimsuit", "shorts"},
-        },
-        "fall": {
-            "include": {"jacket", "cardigan", "sweater", "boots"},
-            "exclude": {"bikini", "swimsuit", "shorts"},
-        },
-    }
-
-    OCCASION_EXCLUSIONS = {
-        "date night": {
-            "exclude_department": {"nightwear", "expressive lingerie", "lingerie",
-                                   "underwear", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "pyjamas",
-                                     "underwear bottom", "bra", "briefs",
-                                     "bikini", "swimsuit"},
-        },
-        "evening out": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra"},
-        },
-        "party": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra"},
-        },
-        "wedding": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra", "bikini"},
-        },
-        "cocktail": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra"},
-        },
-        "office": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra", "bikini", "shorts"},
-        },
-        "meeting": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra"},
-        },
-        "work": {
-            "exclude_department": {"nightwear", "lingerie", "swimwear"},
-            "exclude_product_type": {"night gown", "pajamas", "bra"},
-        },
-        "beach": {
-            "exclude_department": set(),
-            "exclude_product_type": {"coat", "heavy jacket", "sweater"},
-        },
-        "brunch": {
-            "exclude_department": {"nightwear", "lingerie"},
-            "exclude_product_type": {"night gown", "pajamas", "bra", "bikini"},
-        },
-    }
-
     def _is_refinement_search(
         query: str, prior_items: list[dict], filters: dict
     ) -> bool:
@@ -312,61 +240,29 @@ def build_graph(
                     merged = {**merged, facet_name: val}
                     break
 
-        # Detect season words for post-retrieval soft exclusion.
-        excluded_types: set[str] = set()
-        for season, types in SEASONAL_PRODUCT_TYPES.items():
-            if re.search(r"\b" + season + r"\b", query_lower):
-                excluded_types = types["exclude"]
-                break
-
-        # Detect occasion words for post-retrieval soft exclusion.
-        occasion_excludes_dept: set[str] = set()
-        occasion_excludes_type: set[str] = set()
-        for occ, occ_cfg in OCCASION_EXCLUSIONS.items():
-            if re.search(r"\b" + re.escape(occ) + r"\b", query_lower):
-                occasion_excludes_dept |= occ_cfg.get("exclude_department", set())
-                occasion_excludes_type |= occ_cfg.get("exclude_product_type", set())
-
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
 
-        # Fetch a larger pool on refinement turns so we have candidates to dedup.
-        fetch_k = top_k * 3 if (refinement and prior_ids) else top_k
-        result = search_catalogue(query, merged or None, retriever, fetch_k)
+        # Always fetch 20 candidates for the LLM reranker.
+        result = search_catalogue(query, merged or None, retriever, 20)
 
         # If filters produced no results (LLM invented an invalid value), retry
         # without filters and clear the bad accumulated filters so they don't
         # contaminate future turns.
         effective_filters = merged
         if not result["items"] and merged:
-            result = search_catalogue(query, None, retriever, fetch_k)
+            result = search_catalogue(query, None, retriever, 20)
             effective_filters = {}
 
-        # Combined soft exclusion: seasonal product types + occasion department/type.
-        # Falls back to the original list if fewer than 3 items survive (too aggressive).
-        if excluded_types or occasion_excludes_dept or occasion_excludes_type:
-            filtered_items = []
-            for item in result["items"]:
-                dept  = item.get("department", "").lower()
-                ptype = item.get("product_type", "").lower()
-                if dept in occasion_excludes_dept:
-                    continue
-                if any(ex in ptype for ex in occasion_excludes_type):
-                    continue
-                if any(ex in ptype for ex in excluded_types):
-                    continue
-                filtered_items.append(item)
-            if len(filtered_items) >= 3:
-                result["items"] = filtered_items
-
-        # For refinement turns: return items the user hasn't already seen.
-        # Fallback to unfiltered list if fewer than 2 fresh candidates exist.
+        # For refinement turns: exclude items the user has already seen before reranking.
+        candidates = result["items"]
         if refinement and prior_ids:
-            fresh = [it for it in result["items"] if it["article_id"] not in prior_ids]
-            items_out = fresh[:top_k] if len(fresh) >= 2 else result["items"][:top_k]
-        else:
-            items_out = result["items"][:top_k]
+            fresh = [it for it in candidates if it["article_id"] not in prior_ids]
+            if len(fresh) >= 2:
+                candidates = fresh
+
+        items_out = rerank(query, candidates, llm, top_k=top_k)
 
         update: dict = {
             "retrieved_items": items_out,
