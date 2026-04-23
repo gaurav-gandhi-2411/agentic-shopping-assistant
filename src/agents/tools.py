@@ -38,6 +38,7 @@ def compare_items(article_ids: list[str], catalogue_df: pd.DataFrame) -> dict:
                 "product_type": facets.get("product_type_name", ""),
                 "department": facets.get("department_name", ""),
                 "detail_desc": str(row["detail_desc"]),
+                "image_url": row.get("image_url", ""),
                 "score": 0.0,
             })
     return {"items": items, "article_ids": article_ids, "n_items": len(items)}
