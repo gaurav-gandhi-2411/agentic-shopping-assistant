@@ -60,6 +60,7 @@ class HybridRetriever:
                 "product_type": facets.get("product_type_name", ""),
                 "department": facets.get("department_name", ""),
                 "detail_desc": row["detail_desc"],
+                "image_url": row.get("image_url", ""),
                 "score": score,
             })
 
