@@ -226,6 +226,19 @@ def build_graph(
         # Merge accumulated state filters with any new filters the router specified.
         merged = {**state.get("filters", {}), **plan.get("filters", {})}
 
+        # Auto-extract facet filters from the query when the LLM omitted them.
+        # LLM-emitted filters take precedence (facets already in merged are skipped).
+        # Longest value matched first within each facet so "dark blue" beats "blue",
+        # "t-shirt" beats "shirt", etc.
+        query_lower = query.lower()
+        for facet_name, facet_vals in _valid_facet_values.items():
+            if facet_name in merged:
+                continue
+            for val in sorted(facet_vals, key=len, reverse=True):
+                if re.search(r"\b" + re.escape(val) + r"\b", query_lower):
+                    merged = {**merged, facet_name: val}
+                    break
+
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
