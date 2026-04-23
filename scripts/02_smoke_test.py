@@ -121,6 +121,45 @@ def main():
         filters2 = r.get("filters", filters2)
         retrieved2 = new_items
 
+    # -----------------------------------------------------------------------
+    # Outfit bundling scenario: show dress -> build outfit around it
+    # -----------------------------------------------------------------------
+    print("=" * 65)
+    print("SCENARIO: outfit bundling (black dress -> build an outfit around it)")
+
+    messages3: list[dict] = []
+    filters3: dict = {}
+    retrieved3: list[dict] = []
+
+    for turn_query in ("show me a black dress", "build an outfit around it"):
+        print(f"\nUser: {turn_query}")
+        r = agent.invoke({
+            "messages": messages3 + [{"role": "user", "content": turn_query}],
+            "user_query": turn_query,
+            "current_plan": None, "tool_calls": [],
+            "retrieved_items": retrieved3, "filters": filters3,
+            "final_answer": None, "iteration": 0,
+        })
+        tools_used3 = [list(t.keys())[0] for t in r.get("tool_calls", [])]
+        items3 = r.get("retrieved_items", [])
+        print(f"[tools: {tools_used3}]")
+        print(f"Items: {[it['display_name'] for it in items3]}")
+
+        if turn_query == "build an outfit around it":
+            assert "outfit" in tools_used3, (
+                f"FAIL: outfit tool not called. Tools: {tools_used3}"
+            )
+            assert len(items3) >= 2, (
+                f"FAIL: outfit should return seed + at least 1 complement (got {len(items3)})"
+            )
+            missing_key = [it["display_name"] for it in items3 if "image_url" not in it]
+            assert not missing_key, f"FAIL: items missing image_url key: {missing_key}"
+            print(f"[PASS: outfit called, {len(items3)} items, all have image_url key]")
+
+        messages3 = r.get("messages", messages3)
+        filters3 = r.get("filters", filters3)
+        retrieved3 = items3
+
 
 if __name__ == "__main__":
     main()

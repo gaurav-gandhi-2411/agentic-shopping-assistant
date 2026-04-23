@@ -109,9 +109,12 @@ def _render_card(col, item: dict, turn_index: int = 0) -> None:
             with st.expander("Details", expanded=False):
                 st.write(desc[:300] + ("..." if len(desc) > 300 else ""))
         aid = item.get("article_id", "")
-        btn_key = f"more_like_{aid}_{turn_index}"
-        if st.button("🔍 More like this", key=btn_key, use_container_width=True):
+        col_a, col_b = st.columns(2)
+        if col_a.button("🔍 More like this", key=f"more_like_{aid}_{turn_index}", use_container_width=True):
             st.session_state.pending_query = f"find more items similar to {item['display_name']}"
+            st.rerun()
+        if col_b.button("✨ Style this", key=f"outfit_{aid}_{turn_index}", use_container_width=True):
+            st.session_state.pending_query = f"build an outfit around {item['display_name']}"
             st.rerun()
 
 
