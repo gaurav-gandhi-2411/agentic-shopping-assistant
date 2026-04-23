@@ -32,11 +32,14 @@ def main():
     agent = build_graph(retriever, df, llm, memory, config)
     print("Agent ready.\n")
 
+    # (query, must_not_be_action) — set must_not_be to a string to assert that
+    # action never appears in tool_calls for that turn.
     test_queries = [
-        "show me some black jackets",
-        "something for summer, light and breathable",
-        "compare the first two you showed me",   # tests memory / retrieved_items carry-over
-        "anything in blue instead?",             # tests filter then re-search
+        ("show me some black jackets",              None),
+        ("something for summer, light and breathable", None),
+        ("something more casual",                   "clarify"),  # follow-up refinement — must search
+        ("compare the first two you showed me",     None),       # tests retrieved_items carry-over
+        ("anything in blue instead?",               None),       # tests filter then re-search
     ]
 
     # State persisted across turns
@@ -44,7 +47,7 @@ def main():
     filters: dict = {}
     retrieved_items: list[dict] = []
 
-    for query in test_queries:
+    for query, must_not_be in test_queries:
         print("=" * 65)
         print(f"User: {query}")
 
@@ -64,6 +67,13 @@ def main():
 
         print(f"Assistant: {answer}")
         print(f"[tools: {tools_used}]")
+
+        if must_not_be:
+            assert must_not_be not in tools_used, (
+                f"FAIL: router used '{must_not_be}' on query '{query}'. "
+                f"Tools: {tools_used}"
+            )
+            print(f"[PASS: '{must_not_be}' not triggered]")
         print()
 
         # Carry state forward for next turn
