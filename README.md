@@ -1,162 +1,204 @@
 # Agentic Shopping Assistant
 
-> A multi-turn conversational shopping assistant over a fashion catalogue. Combines hybrid retrieval (dense + BM25 with Reciprocal Rank Fusion) with a LangGraph agent that orchestrates search, compare, and filter tools — all powered by a local Llama 3.1 8B.
+A multi-turn conversational shopping assistant over the H&M fashion catalogue. Combines hybrid
+retrieval (dense + BM25 via Reciprocal Rank Fusion) with a LangGraph agent loop that orchestrates
+search, compare, filter, and outfit-bundling tools — all streamed through a single-process Streamlit app.
 
-🔗 **[Live Demo](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)** · 📸 **[Demo](#demo)**
+🔗 **[Live Demo](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)**
 
 ---
 
-## Motivation
+## Features
 
-Faceted search is efficient but unnatural. Customers actually ask things like *"show me something for a beach wedding, not too formal"* — a query that needs semantic understanding, attribute filtering, and conversation memory. This project explores a practical agentic approach to that problem using a real fashion dataset.
+| Feature | Example |
+|---|---|
+| Natural-language search | "show me something for a beach wedding, not too formal" |
+| Multi-turn refinement | "something more casual" / "in blue instead" |
+| Facet filtering | "only black ones" → applies `colour_group_name: Black` |
+| Item comparison | "compare the first two you showed me" |
+| Outfit bundling | "style this with accessories" / "build an outfit around it" |
+| Card UI with images | Thumbnail, metadata caption, expandable description per result |
+| One-click card actions | **More like this** and **Style this** buttons per card |
+| Prompt chips | Quick-start suggestions on a fresh session |
 
 ---
 
 ## Architecture
 
 ```
-User query
+User input
     │
     ▼
-┌─────────────────────────────────────────────────────┐
-│                  LangGraph Agent                    │
-│                                                     │
-│  ┌──────────┐     ┌────────┐  query+filters         │
-│  │  router  │────▶│ search │──────────────────────▶ HybridRetriever
-│  │  (LLM)   │     └────────┘                        │ FAISS (dense, MiniLM)
-│  │          │     ┌─────────┐                       │  ⊕
-│  │          │────▶│ compare │  article_ids          │ BM25Okapi (sparse)
-│  │          │     └─────────┘                       │  ↓ Reciprocal Rank Fusion
-│  │          │     ┌────────┐                        │ top-K results
-│  │          │────▶│ filter │  update facets         │
-│  │          │     └────────┘                        │
-│  │          │     ┌─────────┐                       │
-│  │          │────▶│ clarify │──▶ END (ask user)     │
-│  │          │     └─────────┘                       │
-│  │          │     ┌─────────┐                       │
-│  │          │────▶│ respond │──▶ LLM synthesis      │
-│  └──────────┘     └─────────┘         │             │
-│        ▲               │              ▼             │
-│        └───────────────┘       Streamed tokens      │
-│    (loop until respond/clarify)  (SSE → Streamlit)  │
-└─────────────────────────────────────────────────────┘
-         │
+┌────────────────────────────────────────────────────────┐
+│                    LangGraph Agent                     │
+│                                                        │
+│  START ──▶ router ──┬──▶ search  ──────────────────┐  │
+│            (LLM)    ├──▶ compare ──────────────────┤  │
+│                     ├──▶ filter  ──────────────────┤  │
+│                     ├──▶ outfit  ───────────────▶ END  │
+│                     ├──▶ clarify ───────────────▶ END  │
+│                     └──▶ respond ───────────────▶ END  │
+│                ▲                                    │  │
+│                └──────────── (loop) ────────────────┘  │
+└────────────────────────────────────────────────────────┘
+           │                        │
+     HybridRetriever             Groq LLM
+   (FAISS + BM25 / RRF)    (llama-3.1-8b-instant)
+           │
     ConversationMemory
-    (6-turn window + LLM summary of older turns)
+    (6-turn rolling window)
 ```
 
-### Design decisions
+### Components
 
-| Decision | Rationale |
+| Layer | Implementation |
 |---|---|
-| **Hybrid retrieval (dense + sparse + RRF)** | Fashion queries mix semantic intent ("comfy summer vibe") with lexical signals ("linen"). Neither retriever dominates; RRF fusion is parameter-free and robust. |
-| **Explicit LangGraph state machine** | Deterministic routing, inspectable state, and a hard iteration cap — avoids runaway agent loops. |
-| **Filter validation at the node level** | The 8B model invents filter values (e.g. `colour: "Lightweight"`) that silently zero out searches. Nodes reject values absent from the actual catalogue. |
-| **Ollama locally / Groq on HF Spaces** | Local dev is free and private. Groq's free tier provides fast inference for the hosted demo without a GPU. |
-| **Streaming via SSE** | Users see tokens within ~200 ms of the LLM starting. The routing phase (search/compare/filter) runs first; the final LLM response streams token-by-token. |
-| **Single-process Streamlit on Spaces** | FastAPI + Streamlit as two processes is fragile on free-tier Spaces. The hosted demo folds the agent directly into the Streamlit app. |
+| **LLM** | Groq `llama-3.1-8b-instant` (Space) · Ollama `llama3.1:8b` (local dev) |
+| **Dense retrieval** | FAISS `IndexFlatIP` · `all-MiniLM-L6-v2` (384-dim cosine) |
+| **Sparse retrieval** | BM25Okapi over cleaned product descriptions |
+| **Fusion** | Reciprocal Rank Fusion (k=60) over ranked dense + sparse lists |
+| **Agent loop** | LangGraph `StateGraph` — 6-iteration cap + deterministic loop guard |
+| **Outfit tool** | Rule-based complement selection with colour-compatibility heuristic |
+| **Memory** | Last 6 turns injected into the router prompt each iteration |
+| **UI** | Single-process Streamlit · `st.write_stream()` for token-by-token streaming |
+
+### Router
+
+The router LLM receives: conversation history, last tool used, retrieved item count, item IDs, and
+active filters. It outputs one JSON action object. Control flow has two enforcement layers:
+
+1. **Prompt-level STRICT RULES** — `filter → must search next`; `search with results → respond`;
+   `clarify` only on genuinely unanswerable queries
+2. **Code-level guard in `route_decision()`** — after `search` or `compare` with non-empty
+   `retrieved_items`, forces `respond` regardless of LLM output (eliminates 6-iteration loops)
+
+### Outfit bundling
+
+`suggest_outfit()` classifies the seed item (dress → jacket + accessories; bottom → top + outerwear;
+top → bottoms + outerwear), runs two complement searches, then post-filters by colour compatibility:
+neutral seeds/complements (black, white, grey, beige) are universally compatible; non-neutral seeds
+prefer same-palette complements, falling back to best relevance match if none found.
 
 ---
 
-## Dataset
+## Corpus
 
-[H&M Personalized Fashion Recommendations](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations) — 20,000-article sample (text only; no image embeddings in this project). 107 product types, 50 colour groups.
+**Live Space:** 1,800-item subset of the
+[H&M Personalized Fashion Recommendations](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations)
+dataset, selected by purchase count. Product images resized to 300 px JPEG-75.
+
+**Local:** Full 20,000-article sample (no images). Rebuild indices with
+`python scripts/01_build_retrieval.py`.
 
 ---
 
-## Tech stack
+## Setup
 
-`LangGraph` · `LangChain Core` · `Ollama` · `Groq` · `FAISS` · `rank-bm25` · `sentence-transformers` · `FastAPI` (SSE) · `Streamlit` · `HuggingFace Hub`
-
----
-
-## Running locally
-
-**Prerequisites:** Python 3.11+, [Ollama](https://ollama.com) with `llama3.1:8b` pulled.
+### Local dev (Ollama)
 
 ```bash
-# 1. Clone and create venv
 git clone https://github.com/gaurav-gandhi-2411/agentic-shopping-assistant
 cd agentic-shopping-assistant
-python -m venv .venv && .venv\Scripts\activate   # Windows
-# python -m venv .venv && source .venv/bin/activate  # macOS/Linux
-
-# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Add the H&M dataset
-# Download articles.csv from Kaggle and place at data/hm/articles.csv
-# (or symlink to an existing copy)
+# Pull local model
+ollama pull llama3.1:8b
 
-# 4. Build retrieval indices (one-time, ~2 min on CPU)
-python scripts/01_build_retrieval.py
+# Add H&M data: download articles.csv from Kaggle -> data/hm/articles.csv
+python scripts/01_build_retrieval.py   # ~2 min on CPU, one-time
 
-# 5. Start the API
-uvicorn api.main:app --host 127.0.0.1 --port 8080
-
-# 6. Start the UI (new terminal)
-streamlit run app/streamlit_chat.py
-```
-
-Open `http://localhost:8501`.
-
-**Run tests:**
-```bash
-pytest tests/
-```
-
-**Run the multi-turn smoke test:**
-```bash
+# Verify end-to-end
 python scripts/02_smoke_test.py
+
+# Launch
+streamlit run spaces/app.py
 ```
 
----
+### HuggingFace Space deploy
 
-## Retrieval sanity check
+```bash
+# 1. Build Space-optimised 1800-item subset + resized images (one-time)
+python scripts/03_build_image_subset.py
 
-Hybrid retrieval results on 4 representative queries (top-1 shown):
+# 2. Upload data artifacts to the Space repo
+python spaces/upload_artifacts.py --repo <user>/<space> --space
 
-| Query | Top result | Score |
-|---|---|---|
-| `"lightweight black summer jacket"` | Go light jacket (Black Jacket) | 0.0315 |
-| `"comfy hoodie for winter"` | COZY POP OVER HOODIE (Grey Hoodie) | 0.0263 |
-| `"elegant red dress"` | Rosa dress (Red Dress) | 0.0313 |
-| `"kids blue t-shirt"` | SIBLINGS tee (Dark Blue T-shirt) | 0.0311 |
+# 3. Deploy code (clone-overlay flow)
+DEPLOY=$(mktemp -d)
+git clone https://huggingface.co/spaces/<user>/<space> "$DEPLOY"
+cp spaces/app.py "$DEPLOY/app.py"
+cp config.yaml  "$DEPLOY/config.yaml"
+cp -r src/. "$DEPLOY/src/"          # note: src/. not src/ -- avoids nested src/src/
+git -C "$DEPLOY" add -A
+git -C "$DEPLOY" commit -m "deploy"
+git -C "$DEPLOY" push
+```
 
----
-
-## Smoke test — multi-turn conversation
-
-4-turn conversation showing search, semantic retrieval, compare, and filter:
-
-| Turn | Query | Agent tools | Response summary |
-|---|---|---|---|
-| 1 | *"show me some black jackets"* | `search ×2` | CS Whoa Jacket, Jacket Slim, Jennifer fancy Blazer |
-| 2 | *"something for summer, light and breathable"* | `search`, `filter_rejected`, `search` | Summer Selma blouse, SECTION MNY SPEED SUMMER SKIRT |
-| 3 | *"compare the first two you showed me"* | `compare ×1` | Side-by-side: Red strap dress vs Black sleeveless dress |
-| 4 | *"anything in blue instead?"* | `filter`, `search ×3` | Cat Tee, Suzie linnen Tee, RAVEN pocket tee (all blue) |
+Set `GROQ_API_KEY` as a Space secret (`Settings -> Variables and secrets`).
 
 ---
 
-## Demo
+## Known limitations
 
-> _Screenshot / GIF to be added after recording._
-
-<!-- Add demo.gif here: ![Demo](assets/demo.gif) -->
+- **No price or size data** — the H&M dataset excludes these; the agent clarifies rather than
+  fabricating an answer.
+- **Static catalogue** — the index is pre-built; new items require a full re-index and re-upload.
+- **Colour filter precision** — the router maps natural-language colour terms to exact catalogue
+  values (`"navy"` → `"Dark Blue"`). If the LLM picks an invalid value, the filter is silently
+  dropped and search runs unfiltered.
+- **Outfit suggestions are heuristic** — complement categories and colour matching are rule-based,
+  not learned from co-purchase data. Results are plausible but not fashion-expert quality.
+- **Single-session memory** — conversation history lives in Streamlit session state and resets on
+  page refresh or Space restart.
+- **1,800-item Space corpus** — the live demo runs on a purchase-count-selected subset for startup
+  speed; the full 20,000-item index is available locally.
 
 ---
 
 ## What I learned
 
-- **JSON parsers need brace-depth awareness.** The router prompt spec includes `"filters": {}` as part of the action JSON. A simple regex `[^{}]*` matched the inner empty object rather than the outer one, causing every filter action to fall back to search. The fix — walking character-by-character and tracking brace depth — is one of those bugs that's obvious in retrospect but only surfaces with real LLM output.
+**Deterministic code guards outperform prompt rules for agent control flow.**
+The router prompt had a STRICT RULE: after a search that returns results, output `respond`.
+The 8B model followed it roughly 70% of the time; on refinement queries it kept re-searching
+for all six iterations before hitting the hard cap. One line in `route_decision()` —
+`if last_tool in {"search", "compare"} and retrieved_items: return "respond"` — fixed it
+completely. For anything structurally important (loop termination, error containment), write a
+code-level guard; don't rely on a prompt instruction to hold under all inputs.
 
-- **Small models invent plausible-but-wrong attribute values.** `llama3.1:8b` would apply `colour_group_name: "Lightweight"`, a value that reads naturally but doesn't exist in the catalogue. Every subsequent filtered search returned zero results silently. The fix was to build a set of valid facet values at graph-construction time and reject invented values at the filter node — defence-in-depth rather than trusting the LLM to stay in-distribution.
+**Semantic similarity doesn't model "I've already seen these."**
+`"something more casual"` after `"show me summer dresses"` returned the same five dresses, because
+`cosine("casual summer dresses", "summer dresses") ≈ 0.99` in MiniLM's embedding space.
+The fix required explicit refinement detection (does the new query mention the dominant product
+type of prior results?), fetching a 3× candidate pool on refinement turns, then excluding prior
+article IDs. Retrieval systems don't intrinsically model user history — that's application logic.
 
-- **State-machine rules in the prompt beat abstract instructions.** "Use respond when you have enough context" was ignored half the time; "if `last_action` is `search` and `items_retrieved > 0`, output respond" was followed reliably. Exposing concrete state (last action, item count) and writing if-then rules rather than natural-language principles made the 8B model converge in 2–3 tool calls instead of 6.
+**Two-phase graph + stream is the right Streamlit pattern.**
+Running the full LangGraph graph first (all routing and tool calls, no LLM response) then streaming
+the final answer with `st.write_stream()` gives predictable progress indicators and avoids
+partial-state problems that arise when streaming mid-graph. The cost is that the "Searching..."
+spinner blocks until tool calls finish (~1-2 s), but for a shopping assistant that sequence is
+natural — the user expects results before commentary.
 
-- **SSE architecture on Windows has a non-obvious footgun.** The Ollama Python client's `stream=False` path triggers an internal runner crash on the Windows build (HTTP 500). There's no error in the Ollama logs — it just silently terminates. The fix is to always use the streaming path and collect chunks: `"".join(client.chat_stream(...))`. Equally reliable, and now the streaming and non-streaming code paths are unified.
+**`on_click` callbacks, not `pending_query + st.rerun()`, for injecting queries from buttons.**
+Setting `session_state.pending_query` then calling `st.rerun()` inside a button handler sets the
+value *after* `st.session_state.pop("pending_query", None)` has already run at the top of the same
+render pass, requiring two clicks. `on_click=callback` fires the callback *before* Streamlit reruns
+the script, so the value is already present when the script reads it — single click, no extra rerun,
+no flag needed.
 
-- **Free-tier deployment forces architectural simplicity.** The local design (FastAPI + Streamlit, two processes, SSE) is clean for development but fragile on a single-container free Space. Folding the agent directly into the Streamlit app removes the HTTP layer, halves the moving parts, and actually makes the code easier to read — a reminder that the deployment target should shape the design early.
+**Small models fabricate plausible-but-wrong catalogue values.**
+`llama3.1:8b` routinely output `colour_group_name: "Lightweight"` or `product_type_name:
+"Breathable"` — syntactically valid filter JSON, but values absent from the catalogue. Every
+downstream filtered search returned zero results with no visible error. The fix: build a set of
+valid values per facet at graph-construction time and silently reject out-of-vocabulary values
+in the filter node, falling back to an unfiltered search. Defence in depth over prompt instruction.
+
+**HuggingFace Spaces has non-obvious deployment traps.**
+`git subtree split --prefix=spaces` pushes `spaces/*` to the Space root but leaves `src/` behind —
+the app imports `src.*` and breaks on startup with a generic `ModuleNotFoundError`. The clone-overlay
+flow (clone Space repo → copy `src/` alongside `app.py` → push) is more explicit and repeatable.
+A second trap: `cp -r src "$DEPLOY/src"` when `$DEPLOY/src/` already exists creates
+`$DEPLOY/src/src/`; `cp -r src/. "$DEPLOY/src/"` copies contents only.
 
 ---
 
