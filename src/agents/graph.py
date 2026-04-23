@@ -5,7 +5,7 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.state import AgentState
-from src.agents.tools import apply_filter, clarify, compare_items, search_catalogue
+from src.agents.tools import apply_filter, clarify, compare_items, search_catalogue, suggest_outfit
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
 from src.retrieval.hybrid_search import HybridRetriever
@@ -18,6 +18,7 @@ decide the NEXT action. Respond with ONE of the following JSON objects and nothi
 {{"action": "search", "query": "<search string>", "filters": {{}}}}
 {{"action": "compare", "article_ids": ["<id1>", "<id2>"]}}
 {{"action": "filter", "key": "<facet>", "value": "<value>"}}
+{{"action": "outfit", "article_id": "<article_id>"}}
 {{"action": "clarify", "question": "<clarification for the user>"}}
 {{"action": "respond"}}
 
@@ -31,7 +32,11 @@ STRICT RULES — follow in order:
    Grey, Red, Blue, Light Blue, Dark Red, Light Pink, Beige, Light Beige, Dark Grey.
    Never use descriptive terms (e.g. "Lightweight", "Breathable") as filter values.
 6. Use "compare" when the user explicitly asks to compare items.
-7. Use "clarify" ONLY if the query is completely incomprehensible OR is missing info
+7. Use "outfit" when the user says "style this with", "what goes with", "build an outfit around",
+   "complete the look", or asks for complementary items. Look up the article_id of the seed item
+   from Current retrieved items by matching the item name the user refers to. If unclear, use
+   the first item in Current retrieved items.
+8. Use "clarify" ONLY if the query is completely incomprehensible OR is missing info
    so essential that no useful result is possible:
    - Gender ambiguity on a gender-neutral category ("a jacket" with no prior context)
    - Explicit request for price/size data the catalogue does not contain
@@ -42,7 +47,7 @@ STRICT RULES — follow in order:
    - Occasion words: "date night", "beach", "office", "brunch", "gym"
    - Vague adjectives of any kind — commit to a best-effort search; the user can refine
    Default rule: if you are not certain clarification is essential, output "search".
-8. NEVER repeat the same action twice in a row.
+9. NEVER repeat the same action twice in a row.
 
 Last action taken: {last_action}
 Items retrieved so far: {items_retrieved}
@@ -318,6 +323,35 @@ def build_graph(
             "messages": [{"role": "assistant", "content": answer}],
         }
 
+    def outfit_node(state: AgentState) -> dict:
+        plan = json.loads(state.get("current_plan") or "{}")
+        article_id = plan.get("article_id", "")
+
+        # Fallback: use first retrieved item when the LLM didn't extract an explicit ID.
+        if not article_id and state.get("retrieved_items"):
+            article_id = state["retrieved_items"][0]["article_id"]
+
+        result = suggest_outfit(article_id, catalogue_df, retriever)
+        seed = result.get("seed_item")
+        complements = result.get("complements", [])
+        rationale = result.get("outfit_rationale", "")
+
+        items_out = ([seed] if seed else []) + complements
+        answer = f"**Outfit suggestion**\n\n{rationale}"
+
+        update: dict = {
+            "retrieved_items": items_out,
+            "tool_calls": state.get("tool_calls", []) + [{"outfit": {"article_id": article_id}}],
+        }
+        if streaming_mode:
+            update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
+            update["final_answer"] = None
+            update["messages"] = []
+        else:
+            update["final_answer"] = answer
+            update["messages"] = [{"role": "assistant", "content": answer}]
+        return update
+
     def respond_node(state: AgentState) -> dict:
         prompt = RESPOND_PROMPT.format(
             user_query=state["user_query"],
@@ -365,7 +399,7 @@ def build_graph(
             action = plan.get("action", "search")
         except (json.JSONDecodeError, TypeError):
             action = "search"
-        valid = {"search", "compare", "filter", "clarify", "respond"}
+        valid = {"search", "compare", "filter", "clarify", "respond", "outfit"}
         return action if action in valid else "search"
 
     # ------------------------------------------------------------------
@@ -379,6 +413,7 @@ def build_graph(
     builder.add_node("compare", compare_node)
     builder.add_node("filter", filter_node)
     builder.add_node("clarify", clarify_node)
+    builder.add_node("outfit", outfit_node)
     builder.add_node("respond", respond_node)
 
     builder.add_edge(START, "router")
@@ -387,6 +422,7 @@ def build_graph(
     builder.add_edge("compare", "router")
     builder.add_edge("filter", "router")
     builder.add_edge("clarify", END)
+    builder.add_edge("outfit", END)
     builder.add_edge("respond", END)
 
     return builder.compile()
