@@ -2,7 +2,7 @@
 
 > A multi-turn conversational shopping assistant over a fashion catalogue. Combines hybrid retrieval (dense + BM25 with Reciprocal Rank Fusion) with a LangGraph agent that orchestrates search, compare, and filter tools — all powered by a local Llama 3.1 8B.
 
-🔗 **[Live Demo](https://huggingface.co/spaces/gaurav-gandhi-2411/agentic-shopping-assistant)** · 📸 **[Demo](#demo)**
+🔗 **[Live Demo](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)** · 📸 **[Demo](#demo)**
 
 ---
 
