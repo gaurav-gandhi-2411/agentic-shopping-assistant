@@ -90,7 +90,7 @@ def _init_session():
 # UI helpers
 # ---------------------------------------------------------------------------
 
-def _render_card(col, item: dict) -> None:
+def _render_card(col, item: dict, turn_index: int = 0) -> None:
     with col:
         img_path = _DATA_DIR / item["image_url"] if item.get("image_url") else None
         if img_path and img_path.exists():
@@ -108,9 +108,14 @@ def _render_card(col, item: dict) -> None:
         if desc:
             with st.expander("Details", expanded=False):
                 st.write(desc[:300] + ("..." if len(desc) > 300 else ""))
+        aid = item.get("article_id", "")
+        btn_key = f"more_like_{aid}_{turn_index}"
+        if st.button("🔍 More like this", key=btn_key, use_container_width=True):
+            st.session_state.pending_query = f"find more items similar to {item['display_name']}"
+            st.rerun()
 
 
-def _show_items(items: list[dict]) -> None:
+def _show_items(items: list[dict], turn_index: int = 0) -> None:
     if not items:
         return
     st.markdown("---")
@@ -118,7 +123,7 @@ def _show_items(items: list[dict]) -> None:
     n_cols = min(len(show), 3)
     cols = st.columns(n_cols)
     for i, item in enumerate(show):
-        _render_card(cols[i % n_cols], item)
+        _render_card(cols[i % n_cols], item, turn_index)
 
 
 # ---------------------------------------------------------------------------
@@ -167,11 +172,11 @@ if not st.session_state.history:
             st.rerun()
 
 # Chat history
-for msg in st.session_state.history:
+for _turn_i, msg in enumerate(st.session_state.history):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("items"):
-            _show_items(msg["items"])
+            _show_items(msg["items"], turn_index=_turn_i)
 
 # ---------------------------------------------------------------------------
 # Chat input — accepts both typed queries and chip button presses
@@ -226,7 +231,7 @@ if user_input:
             st.markdown(response_text)
 
         if items:
-            _show_items(items)
+            _show_items(items, turn_index=len(st.session_state.history))
 
     # Persist conversation state for next turn
     new_messages = conv["messages"] + [
