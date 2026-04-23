@@ -12,6 +12,27 @@ search, compare, filter, and outfit-bundling tools — all streamed through a si
 
 ---
 
+## Table of Contents
+
+- [Motivation](#motivation)
+- [Demo](#demo)
+- [Features](#features)
+- [Architecture](#architecture)
+  - [Components](#components)
+  - [Router](#router)
+  - [Outfit bundling](#outfit-bundling)
+- [Tech Stack](#tech-stack)
+- [Corpus](#corpus)
+- [Setup](#setup)
+  - [Local dev (Ollama)](#local-dev-ollama)
+  - [HuggingFace Space deploy](#huggingface-space-deploy)
+- [Project Structure](#project-structure)
+- [Known limitations](#known-limitations)
+- [What I learned](#what-i-learned)
+- [License](#license)
+
+---
+
 ## Motivation
 
 Modern recommender systems surface items efficiently but offer no conversational affordance — users can't refine results, compare options, or ask follow-up questions without resorting to faceted filters. This project explores whether an LLM-orchestrated agent can make a fashion catalogue feel like a conversation with a knowledgeable shop assistant: understanding vague queries, handling multi-turn refinement, comparing items, and suggesting complementary pieces.
