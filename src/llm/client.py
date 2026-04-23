@@ -1,8 +1,6 @@
 import os
 from typing import Iterator, Protocol
 
-import ollama
-
 
 class LLMClient(Protocol):
     def generate(self, prompt: str, system: str = None, **kwargs) -> str: ...
@@ -15,13 +13,17 @@ class OllamaClient:
     """Wraps ollama.Client. Messages use OpenAI-style {role, content}."""
 
     def __init__(self, config: dict):
+        try:
+            import ollama as _ollama_lib
+        except ImportError:
+            raise ImportError("ollama package not installed. Run: pip install ollama")
         self.config = config
         llm_cfg = config["llm"]
         self.model = llm_cfg["model"]
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         self.timeout = llm_cfg["timeout_seconds"]
-        self._client = ollama.Client(
+        self._client = _ollama_lib.Client(
             host=llm_cfg["host"],
             timeout=self.timeout,
         )
