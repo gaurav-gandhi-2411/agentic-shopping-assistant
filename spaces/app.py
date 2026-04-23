@@ -90,6 +90,10 @@ def _init_session():
 # UI helpers
 # ---------------------------------------------------------------------------
 
+def _set_pending_query(query: str) -> None:
+    st.session_state.pending_query = query
+
+
 def _render_card(col, item: dict, turn_index: int = 0) -> None:
     with col:
         img_path = _DATA_DIR / item["image_url"] if item.get("image_url") else None
@@ -110,12 +114,20 @@ def _render_card(col, item: dict, turn_index: int = 0) -> None:
                 st.write(desc[:300] + ("..." if len(desc) > 300 else ""))
         aid = item.get("article_id", "")
         col_a, col_b = st.columns(2)
-        if col_a.button("🔍 More like this", key=f"more_like_{aid}_{turn_index}", use_container_width=True):
-            st.session_state.pending_query = f"find more items similar to {item['display_name']}"
-            st.rerun()
-        if col_b.button("✨ Style this", key=f"outfit_{aid}_{turn_index}", use_container_width=True):
-            st.session_state.pending_query = f"build an outfit around {item['display_name']}"
-            st.rerun()
+        col_a.button(
+            "🔍 More like this",
+            key=f"more_like_{aid}_{turn_index}",
+            on_click=_set_pending_query,
+            args=(f"find more items similar to {item['display_name']}",),
+            use_container_width=True,
+        )
+        col_b.button(
+            "✨ Style this",
+            key=f"outfit_{aid}_{turn_index}",
+            on_click=_set_pending_query,
+            args=(f"build an outfit around {item['display_name']}",),
+            use_container_width=True,
+        )
 
 
 def _show_items(items: list[dict], turn_index: int = 0) -> None:
@@ -170,9 +182,12 @@ if not st.session_state.history:
     st.markdown("**Try asking:**")
     chip_cols = st.columns(len(_SUGGESTIONS))
     for col, prompt in zip(chip_cols, _SUGGESTIONS):
-        if col.button(prompt, use_container_width=True):
-            st.session_state.pending_query = prompt
-            st.rerun()
+        col.button(
+            prompt,
+            on_click=_set_pending_query,
+            args=(prompt,),
+            use_container_width=True,
+        )
 
 # Chat history
 for _turn_i, msg in enumerate(st.session_state.history):
