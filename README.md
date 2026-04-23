@@ -19,6 +19,24 @@ search, compare, filter, and outfit-bundling tools — all streamed through a si
 
 ---
 
+## Motivation
+
+Modern recommender systems surface items efficiently but offer no conversational affordance — users can't refine results, compare options, or ask follow-up questions without resorting to faceted filters. This project explores whether an LLM-orchestrated agent can make a fashion catalogue feel like a conversation with a knowledgeable shop assistant: understanding vague queries, handling multi-turn refinement, comparing items, and suggesting complementary pieces.
+
+Built entirely on consumer hardware with open-source tooling.
+
+---
+
+## Demo
+
+Screenshots to be added.
+
+| Natural-language search with card UI | Multi-turn refinement + compare | Outfit bundling |
+|---|---|---|
+| ![](docs/screenshots/01-search.png) | ![](docs/screenshots/02-compare.png) | ![](docs/screenshots/03-outfit.png) |
+
+---
+
 ## Features
 
 | Feature | Example |
@@ -36,7 +54,7 @@ search, compare, filter, and outfit-bundling tools — all streamed through a si
 
 ## Architecture
 
-```
+```text
 User input
     │
     ▼
@@ -89,6 +107,21 @@ active filters. It outputs one JSON action object. Control flow has two enforcem
 top → bottoms + outerwear), runs two complement searches, then post-filters by colour compatibility:
 neutral seeds/complements (black, white, grey, beige) are universally compatible; non-neutral seeds
 prefer same-palette complements, falling back to best relevance match if none found.
+
+---
+
+## Tech Stack
+
+| Component | Library |
+|---|---|
+| Agent framework | LangGraph StateGraph |
+| Dense retrieval | FAISS IndexFlatIP + sentence-transformers/all-MiniLM-L6-v2 |
+| Sparse retrieval | rank_bm25 (BM25Okapi) |
+| Fusion | Reciprocal Rank Fusion (k=60) |
+| LLM (production) | Groq API + LLaMA 3.1 8B |
+| LLM (local dev) | Ollama + LLaMA 3.1 8B |
+| UI | Streamlit (single-process) |
+| Deployment | HuggingFace Spaces (CPU basic) |
 
 ---
 
@@ -149,10 +182,40 @@ Set `GROQ_API_KEY` as a Space secret (`Settings -> Variables and secrets`).
 
 ---
 
+## Project Structure
+
+```text
+agentic-shopping-assistant/
+├── config.yaml
+├── requirements.txt
+├── src/
+│   ├── agents/
+│   │   ├── graph.py
+│   │   ├── state.py
+│   │   └── tools.py
+│   ├── retrieval/
+│   │   ├── dense_search.py
+│   │   ├── sparse_search.py
+│   │   └── hybrid_search.py
+│   ├── llm/client.py
+│   ├── memory/conversation.py
+│   └── catalogue/loader.py
+├── scripts/
+│   ├── 01_build_retrieval.py
+│   ├── 02_smoke_test.py
+│   └── 03_build_image_subset.py
+├── tests/
+└── spaces/
+    ├── app.py
+    ├── upload_artifacts.py
+    └── README.md
+```
+
+---
+
 ## Known limitations
 
-- **No price or size data** — the H&M dataset excludes these; the agent clarifies rather than
-  fabricating an answer.
+- Minor UX quirks — on rare occasions, "More like this" and "Style this" buttons require a second click due to Streamlit render timing; follow-up queries with very short prompts can occasionally surface overlapping items with the prior turn.
 - **Static catalogue** — the index is pre-built; new items require a full re-index and re-upload.
 - **Colour filter precision** — the router maps natural-language colour terms to exact catalogue
   values (`"navy"` → `"Dark Blue"`). If the LLM picks an invalid value, the filter is silently
