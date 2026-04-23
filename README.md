@@ -1,3 +1,14 @@
+---
+title: Agentic Shopping Assistant
+emoji: 🛍️
+colorFrom: purple
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.38.0
+app_file: app.py
+pinned: false
+---
+
 # Agentic Shopping Assistant
 
 A multi-turn conversational shopping assistant over the H&M fashion catalogue. Combines hybrid
