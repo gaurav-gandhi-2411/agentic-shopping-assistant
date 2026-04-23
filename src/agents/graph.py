@@ -200,6 +200,33 @@ def build_graph(
         if col in catalogue_df.columns
     }
 
+    SEASONAL_PRODUCT_TYPES = {
+        "winter": {
+            "include": {"jacket", "coat", "sweater", "hoodie", "cardigan", "pullover",
+                        "scarf", "beanie", "gloves", "boots", "jumper"},
+            "exclude": {"shorts", "bikini", "swimsuit", "swimwear", "vest top",
+                        "tank top", "sandals", "flip flops", "summer dress"},
+        },
+        "summer": {
+            "include": {"shorts", "bikini", "swimsuit", "swimwear", "vest top",
+                        "tank top", "sandals", "sundress", "summer dress", "t-shirt"},
+            "exclude": {"coat", "parka", "wool jumper", "winter jacket",
+                        "scarf", "beanie", "boots"},
+        },
+        "spring": {
+            "include": {"light jacket", "cardigan", "blouse"},
+            "exclude": set(),
+        },
+        "autumn": {
+            "include": {"jacket", "cardigan", "sweater", "boots"},
+            "exclude": {"bikini", "swimsuit", "shorts"},
+        },
+        "fall": {
+            "include": {"jacket", "cardigan", "sweater", "boots"},
+            "exclude": {"bikini", "swimsuit", "shorts"},
+        },
+    }
+
     def _is_refinement_search(
         query: str, prior_items: list[dict], filters: dict
     ) -> bool:
@@ -239,6 +266,13 @@ def build_graph(
                     merged = {**merged, facet_name: val}
                     break
 
+        # Detect season words for post-retrieval soft exclusion.
+        excluded_types: set[str] = set()
+        for season, types in SEASONAL_PRODUCT_TYPES.items():
+            if re.search(r"\b" + season + r"\b", query_lower):
+                excluded_types = types["exclude"]
+                break
+
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
@@ -254,6 +288,16 @@ def build_graph(
         if not result["items"] and merged:
             result = search_catalogue(query, None, retriever, fetch_k)
             effective_filters = {}
+
+        # Soft season exclusion: drop off-season product types from the ranked list.
+        # Falls back to the original list if fewer than 3 items survive (too aggressive).
+        if excluded_types:
+            seasonal_filtered = [
+                it for it in result["items"]
+                if not any(ex in it.get("product_type", "").lower() for ex in excluded_types)
+            ]
+            if len(seasonal_filtered) >= 3:
+                result["items"] = seasonal_filtered
 
         # For refinement turns: return items the user hasn't already seen.
         # Fallback to unfiltered list if fewer than 2 fresh candidates exist.
