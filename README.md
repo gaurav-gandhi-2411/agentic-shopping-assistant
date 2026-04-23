@@ -1,10 +1,12 @@
 # Agentic Shopping Assistant
 
+[![HuggingFace Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-blue)](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+
 A multi-turn conversational shopping assistant over the H&M fashion catalogue. Combines hybrid
 retrieval (dense + BM25 via Reciprocal Rank Fusion) with a LangGraph agent loop that orchestrates
 search, compare, filter, and outfit-bundling tools — all streamed through a single-process Streamlit app.
-
-🔗 **[Live Demo](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)**
 
 ---
 
