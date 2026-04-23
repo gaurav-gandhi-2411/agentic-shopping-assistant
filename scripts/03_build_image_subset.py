@@ -98,6 +98,26 @@ def select_quota_subset(tx_path: Path, img_root: Path) -> pd.DataFrame:
     raw = raw[raw["detail_desc"].fillna("").str.len() >= MIN_DESC_LEN].copy()
     print(f"  After quality filter (desc >={MIN_DESC_LEN} chars): {len(raw):,} items")
 
+    # Pet item exclusion — remove before quotas so pet items never fill any bucket.
+    # prod_name uses word-boundary regex (\bdog\b etc.) so compound words like
+    # "Bobcat", "Crumpet", "Bulldog", "Carpet" are not matched; standalone "Dog",
+    # "Cat", "Pet" as words are.
+    pn = raw["prod_name"].fillna("")
+    pet_mask = (
+        raw["department_name"].fillna("").str.contains(r"pet|dog|cat", case=False, regex=True)
+        | raw["product_group_name"].fillna("").str.contains(r"pet|dog", case=False, regex=True)
+        | raw["index_group_name"].fillna("").str.contains(r"pet|dog", case=False, regex=True)
+        | pn.str.contains(r"\bdog\b|\bcat\b|\bpet\b", case=False, regex=True)
+    )
+    n_pet = pet_mask.sum()
+    print(f"  Pet items removed: {n_pet:,}  (dept/group/name match)")
+    if n_pet:
+        print("  Sample removed:")
+        for _, r in raw[pet_mask].head(5).iterrows():
+            print(f"    {r['article_id']}  {r['prod_name']!r}  dept={r['department_name']!r}")
+    raw = raw[~pet_mask].copy()
+    print(f"  After pet filter: {len(raw):,} items")
+
     print("  Checking image existence...")
     t0 = time.time()
     raw["_has_img"] = raw["article_id"].apply(
@@ -374,7 +394,7 @@ def main():
         total_mb += mb
         print(f"  {label:<42} {mb:>6.1f} MB")
     print(f"  {'images/ folder':<42} {img_mb:>6.1f} MB")
-    print(f"  {'─'*52}")
+    print(f"  {'-'*52}")
     print(f"  {'TOTAL':<42} {total_mb:>6.1f} MB")
     budget = "within budget" if total_mb <= 50 else "EXCEEDS 50 MB BUDGET"
     print(f"  ({budget})")
