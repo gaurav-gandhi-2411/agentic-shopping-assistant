@@ -195,23 +195,58 @@ def build_graph(
         if col in catalogue_df.columns
     }
 
+    def _is_refinement_search(
+        query: str, prior_items: list[dict], filters: dict
+    ) -> bool:
+        """True when the new query refines rather than pivots from prior results.
+
+        Checks whether the dominant product_type of prior results appears in the
+        new search query string or in the inherited filters.  A pivot ("show me
+        shirts" after dresses) returns False so dedup is skipped.
+        """
+        if not prior_items:
+            return False
+        from collections import Counter
+        types = [it.get("product_type", "") for it in prior_items if it.get("product_type")]
+        if not types:
+            return False
+        dominant = Counter(types).most_common(1)[0][0].lower()
+        if dominant in query.lower():
+            return True
+        return any(str(v).lower() == dominant for v in filters.values())
+
     def search_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
         query = plan.get("query", state["user_query"])
         # Merge accumulated state filters with any new filters the router specified.
         merged = {**state.get("filters", {}), **plan.get("filters", {})}
-        result = search_catalogue(query, merged or None, retriever, top_k)
+
+        prior_items = state.get("retrieved_items", [])
+        prior_ids = {it["article_id"] for it in prior_items}
+        refinement = _is_refinement_search(query, prior_items, merged)
+
+        # Fetch a larger pool on refinement turns so we have candidates to dedup.
+        fetch_k = top_k * 3 if (refinement and prior_ids) else top_k
+        result = search_catalogue(query, merged or None, retriever, fetch_k)
 
         # If filters produced no results (LLM invented an invalid value), retry
         # without filters and clear the bad accumulated filters so they don't
         # contaminate future turns.
         effective_filters = merged
         if not result["items"] and merged:
-            result = search_catalogue(query, None, retriever, top_k)
+            result = search_catalogue(query, None, retriever, fetch_k)
             effective_filters = {}
 
+        # For refinement turns: return items the user hasn't already seen.
+        # Fallback to unfiltered list if fewer than 2 fresh candidates exist.
+        if refinement and prior_ids:
+            fresh = [it for it in result["items"] if it["article_id"] not in prior_ids]
+            items_out = fresh[:top_k] if len(fresh) >= 2 else result["items"][:top_k]
+        else:
+            items_out = result["items"][:top_k]
+
         update: dict = {
-            "retrieved_items": result["items"],
+            "retrieved_items": items_out,
             "iteration": state.get("iteration", 0) + 1,
             "tool_calls": state.get("tool_calls", []) + [
                 {"search": {"query": query, "filters": merged}}
@@ -310,6 +345,21 @@ def build_graph(
         # Hard cap: always respond if we've hit the iteration limit.
         if state.get("iteration", 0) >= max_iterations:
             return "respond"
+
+        # Deterministic loop-termination: after any tool that produces retrieved_items
+        # (search or compare), force respond regardless of what the LLM output.
+        # "filter" is intentionally excluded — it updates state.filters only; a search
+        # must follow to apply those filters before we can respond with fresh results.
+        tool_calls = state.get("tool_calls", [])
+        last_tool = "none"
+        for tc in reversed(tool_calls):
+            key = list(tc.keys())[0]
+            if key != "router_decision":
+                last_tool = key
+                break
+        if last_tool in {"search", "compare"} and state.get("retrieved_items"):
+            return "respond"
+
         try:
             plan = json.loads(state.get("current_plan") or "{}")
             action = plan.get("action", "search")
