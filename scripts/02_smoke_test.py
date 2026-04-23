@@ -81,6 +81,46 @@ def main():
         filters = result.get("filters", filters)
         retrieved_items = result.get("retrieved_items", retrieved_items)
 
+    # -----------------------------------------------------------------------
+    # Refinement dedup scenario: follow-up must return DIFFERENT items
+    # -----------------------------------------------------------------------
+    print("=" * 65)
+    print("SCENARIO: refinement dedup (summer dresses -> something more casual)")
+
+    messages2: list[dict] = []
+    filters2: dict = {}
+    retrieved2: list[dict] = []
+
+    for turn_query in ("show me summer dresses", "something more casual"):
+        print(f"\nUser: {turn_query}")
+        r = agent.invoke({
+            "messages": messages2 + [{"role": "user", "content": turn_query}],
+            "user_query": turn_query,
+            "current_plan": None, "tool_calls": [],
+            "retrieved_items": retrieved2, "filters": filters2,
+            "final_answer": None, "iteration": 0,
+        })
+        tools_used2 = [list(t.keys())[0] for t in r.get("tool_calls", [])]
+        new_items = r.get("retrieved_items", [])
+        print(f"[tools: {tools_used2}]")
+        print(f"Items: {[it['display_name'] for it in new_items]}")
+
+        if turn_query == "something more casual":
+            prev_ids = {it["article_id"] for it in retrieved2}
+            new_ids = {it["article_id"] for it in new_items}
+            overlap = len(prev_ids & new_ids)
+            assert overlap < len(prev_ids), (
+                f"FAIL: refinement returned identical items (overlap={overlap}/{len(prev_ids)})"
+            )
+            assert "clarify" not in tools_used2, (
+                f"FAIL: router over-clarified on follow-up. Tools: {tools_used2}"
+            )
+            print(f"[PASS: overlap={overlap}/{len(prev_ids)}, no clarify]")
+
+        messages2 = r.get("messages", messages2)
+        filters2 = r.get("filters", filters2)
+        retrieved2 = new_items
+
 
 if __name__ == "__main__":
     main()
