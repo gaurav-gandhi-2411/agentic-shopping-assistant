@@ -31,7 +31,17 @@ STRICT RULES — follow in order:
    Grey, Red, Blue, Light Blue, Dark Red, Light Pink, Beige, Light Beige, Dark Grey.
    Never use descriptive terms (e.g. "Lightweight", "Breathable") as filter values.
 6. Use "compare" when the user explicitly asks to compare items.
-7. Use "clarify" ONLY if the query is truly ambiguous.
+7. Use "clarify" ONLY if the query is completely incomprehensible OR is missing info
+   so essential that no useful result is possible:
+   - Gender ambiguity on a gender-neutral category ("a jacket" with no prior context)
+   - Explicit request for price/size data the catalogue does not contain
+   - Completely off-topic (not a shopping query at all)
+   Do NOT clarify for any of these — interpret and search instead:
+   - Follow-up refinements: "something more casual", "in blue", "cheaper", "simpler"
+   - Style words: "elegant", "minimal", "edgy", "relaxed", "chic"
+   - Occasion words: "date night", "beach", "office", "brunch", "gym"
+   - Vague adjectives of any kind — commit to a best-effort search; the user can refine
+   Default rule: if you are not certain clarification is essential, output "search".
 8. NEVER repeat the same action twice in a row.
 
 Last action taken: {last_action}
