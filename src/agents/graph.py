@@ -227,6 +227,52 @@ def build_graph(
         },
     }
 
+    OCCASION_EXCLUSIONS = {
+        "date night": {
+            "exclude_department": {"nightwear", "expressive lingerie", "lingerie",
+                                   "underwear", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "pyjamas",
+                                     "underwear bottom", "bra", "briefs",
+                                     "bikini", "swimsuit"},
+        },
+        "evening out": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra"},
+        },
+        "party": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra"},
+        },
+        "wedding": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra", "bikini"},
+        },
+        "cocktail": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra"},
+        },
+        "office": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra", "bikini", "shorts"},
+        },
+        "meeting": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra"},
+        },
+        "work": {
+            "exclude_department": {"nightwear", "lingerie", "swimwear"},
+            "exclude_product_type": {"night gown", "pajamas", "bra"},
+        },
+        "beach": {
+            "exclude_department": set(),
+            "exclude_product_type": {"coat", "heavy jacket", "sweater"},
+        },
+        "brunch": {
+            "exclude_department": {"nightwear", "lingerie"},
+            "exclude_product_type": {"night gown", "pajamas", "bra", "bikini"},
+        },
+    }
+
     def _is_refinement_search(
         query: str, prior_items: list[dict], filters: dict
     ) -> bool:
@@ -273,6 +319,14 @@ def build_graph(
                 excluded_types = types["exclude"]
                 break
 
+        # Detect occasion words for post-retrieval soft exclusion.
+        occasion_excludes_dept: set[str] = set()
+        occasion_excludes_type: set[str] = set()
+        for occ, occ_cfg in OCCASION_EXCLUSIONS.items():
+            if re.search(r"\b" + re.escape(occ) + r"\b", query_lower):
+                occasion_excludes_dept |= occ_cfg.get("exclude_department", set())
+                occasion_excludes_type |= occ_cfg.get("exclude_product_type", set())
+
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
@@ -289,15 +343,22 @@ def build_graph(
             result = search_catalogue(query, None, retriever, fetch_k)
             effective_filters = {}
 
-        # Soft season exclusion: drop off-season product types from the ranked list.
+        # Combined soft exclusion: seasonal product types + occasion department/type.
         # Falls back to the original list if fewer than 3 items survive (too aggressive).
-        if excluded_types:
-            seasonal_filtered = [
-                it for it in result["items"]
-                if not any(ex in it.get("product_type", "").lower() for ex in excluded_types)
-            ]
-            if len(seasonal_filtered) >= 3:
-                result["items"] = seasonal_filtered
+        if excluded_types or occasion_excludes_dept or occasion_excludes_type:
+            filtered_items = []
+            for item in result["items"]:
+                dept  = item.get("department", "").lower()
+                ptype = item.get("product_type", "").lower()
+                if dept in occasion_excludes_dept:
+                    continue
+                if any(ex in ptype for ex in occasion_excludes_type):
+                    continue
+                if any(ex in ptype for ex in excluded_types):
+                    continue
+                filtered_items.append(item)
+            if len(filtered_items) >= 3:
+                result["items"] = filtered_items
 
         # For refinement turns: return items the user hasn't already seen.
         # Fallback to unfiltered list if fewer than 2 fresh candidates exist.
