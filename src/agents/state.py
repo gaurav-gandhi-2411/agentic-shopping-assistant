@@ -19,3 +19,4 @@ class AgentState(TypedDict):
     final_answer: str | None
     iteration: int
     new_items_this_turn: bool | None   # True only when search/compare/outfit produced new items
+    out_of_catalogue: bool | None      # True when query is clearly outside H&M's product domain

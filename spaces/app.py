@@ -293,6 +293,7 @@ if user_input:
         "final_answer": None,
         "iteration": 0,
         "new_items_this_turn": False,
+        "out_of_catalogue": False,
     }
 
     with st.chat_message("assistant"):
