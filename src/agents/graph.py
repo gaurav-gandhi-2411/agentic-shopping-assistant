@@ -21,16 +21,48 @@ _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
 
-_OOC_KEYWORDS = re.compile(
-    r"\b(lipsticks?|mascaras?|eyeshadows?|eye\s+shadows?|foundations?|blush|"
-    r"concealers?|eyeliners?|nail\s+polishe?s?|nail\s+varnish|perfumes?|"
-    r"fragrances?|colognes?|deodorants?|moisturis\w+|skincare|serums?|"
-    r"make\s*up|makeups?|face\s+creams?|"
-    r"laptops?|computers?|smartphones?|tablets?|headphones?|cameras?|televisions?|"
-    r"sofas?|couches?|mattresses?|bookshelves?|"
-    r"recipes?|restaurants?)\b",
-    re.IGNORECASE,
-)
+# Structured OOC category map: category label → list of trigger words.
+# Checked in search_node BEFORE any retrieval; fires a canned "not in catalogue" response.
+# Structured OOC category map: checked in insertion order.
+# More specific categories (pet supplies, electronics) before broader ones (food) to
+# prevent "dog food" from matching "food" in the food/drink category.
+_OOC_CATEGORIES: dict[str, list[str]] = {
+    "pet supplies": [
+        "dog food", "cat food", "pet food", "pet supplies", "pet toy",
+        "dog collar", "cat litter", "pet treat",
+    ],
+    "electronics": [
+        "laptop", "computer", "smartphone", "tablet", "headphones", "camera",
+        "television", " tv ", "gadget", "phone case", "charger", "earphones",
+        "speaker", "monitor", "keyboard", "mouse",
+    ],
+    "beauty or cosmetics": [
+        "lipstick", "lipsticks", "mascara", "eyeshadow", "eye shadow",
+        "foundation", "concealer", "eyeliner", "nail polish", "nail varnish",
+        "perfume", "fragrance", "cologne", "deodorant", "moisturizer",
+        "moisturiser", "skincare", "serum", "serums", "makeup", "make up",
+        "face cream", "blush", "bronzer", "highlighter", "contour",
+        "bb cream", "cc cream", "toner", "face mask", "sheet mask",
+    ],
+    "home and furniture": [
+        "pillow", "bedsheet", "bed sheet", "towel", "blanket", "rug",
+        "curtain", "furniture", "vase", "candle", "sofa", "couch",
+        "mattress", "bookshelf", "lamp", "duvet", "comforter",
+    ],
+    "food and drink": [
+        " food ", "snack", "drink", "coffee", "tea", "recipe", "restaurant",
+        "grocery", "meal", "cuisine",
+    ],
+}
+
+
+def _detect_ooc(query: str) -> str | None:
+    """Return the OOC category label if query contains a known non-clothing keyword, else None."""
+    q = query.lower()
+    for category, words in _OOC_CATEGORIES.items():
+        if any(w in q for w in words):
+            return category
+    return None
 
 _LAST_N_RE = re.compile(r"\blast\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
 _FIRST_N_RE = re.compile(r"\b(?:first|top)\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
@@ -337,17 +369,18 @@ def build_graph(
         query = plan.get("query", raw_query)
 
         # Out-of-catalogue detection: keyword check on original user query.
-        # Uses keyword list rather than score threshold because MiniLM similarity
+        # Uses structured keyword list rather than score threshold — MiniLM similarity
         # is too noisy to separate in-catalogue from out-of-catalogue reliably.
-        if _OOC_KEYWORDS.search(raw_query):
-            print(f"[search] OOC detected: {raw_query!r}")
+        ooc_category = _detect_ooc(raw_query)
+        if ooc_category:
+            print(f"[search] OOC detected ({ooc_category!r}): {raw_query!r}")
             return {
                 "retrieved_items": [],
                 "new_items_this_turn": False,
                 "out_of_catalogue": True,
                 "iteration": state.get("iteration", 0) + 1,
                 "tool_calls": state.get("tool_calls", []) + [
-                    {"search_ooc": {"query": raw_query}}
+                    {"search_ooc": {"query": raw_query, "category": ooc_category}}
                 ],
             }
         # Merge accumulated state filters with any new filters the router specified.
@@ -599,11 +632,21 @@ def build_graph(
     def respond_node(state: AgentState) -> dict:
         # Out-of-catalogue shortcut: skip LLM, return a canned concise message.
         if state.get("out_of_catalogue"):
-            answer = (
-                f"I don't have that in this catalogue. "
-                f"I can help with clothing like dresses, tops, trousers, "
-                f"jackets, knitwear, and outerwear."
+            ooc_cat = next(
+                (tc["search_ooc"].get("category", "") for tc in state.get("tool_calls", [])
+                 if "search_ooc" in tc),
+                "",
             )
+            if ooc_cat:
+                answer = (
+                    f"I don't carry {ooc_cat} products — this catalogue is clothing only. "
+                    f"I can help with dresses, tops, trousers, jackets, knitwear, and accessories."
+                )
+            else:
+                answer = (
+                    "I don't have that in this catalogue. "
+                    "I can help with clothing like dresses, tops, trousers, jackets, and outerwear."
+                )
             if streaming_mode:
                 return {
                     "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
