@@ -178,6 +178,7 @@ def _make_state(messages, user_query, retrieved_items=None, filters=None):
         "iteration": 0,
         "new_items_this_turn": False,
         "out_of_catalogue": False,
+        "excluded_colours": [],
     }
 
 
