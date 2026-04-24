@@ -49,6 +49,22 @@ class DenseRetriever:
         instance.article_ids = np.load(str(save_dir / "dense_article_ids.npy"), allow_pickle=True)
         return instance
 
+    def search_by_id(self, article_id: str, top_k: int = 20) -> list[tuple[str, float]]:
+        """Return items similar to article_id using its stored FAISS embedding."""
+        pos_arr = np.where(self.article_ids == article_id)[0]
+        if len(pos_arr) == 0:
+            return []
+        pos = int(pos_arr[0])
+        vec = self.index.reconstruct(pos).reshape(1, -1)
+        scores, indices = self.index.search(vec, top_k + 1)  # +1 to skip seed itself
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if idx >= 0:
+                aid = str(self.article_ids[idx])
+                if aid != article_id:
+                    results.append((aid, float(score)))
+        return results[:top_k]
+
     def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
         query_vec = self.model.encode(
             [query], normalize_embeddings=True

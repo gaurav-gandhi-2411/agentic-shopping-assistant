@@ -95,6 +95,40 @@ def _set_pending_query(query: str) -> None:
     st.session_state.pending_query = query
 
 
+def _set_more_like_seed(article_id: str) -> None:
+    st.session_state.more_like_seed_id = article_id
+
+
+def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]]:
+    """Return (seed_name, similar_items) using stored FAISS embedding — no text search."""
+    retriever, _ = _load_retrieval()
+    cat = retriever.catalogue_df  # indexed by article_id
+
+    seed_name = cat.loc[seed_id]["display_name"] if seed_id in cat.index else seed_id
+    hits = retriever.dense.search_by_id(seed_id, top_k=top_k + 1)
+
+    items: list[dict] = []
+    for aid, score in hits:
+        if aid == seed_id or aid not in cat.index:
+            continue
+        row = cat.loc[aid]
+        facets = row["facets"] if isinstance(row["facets"], dict) else {}
+        items.append({
+            "article_id": aid,
+            "display_name": row["display_name"],
+            "colour": facets.get("colour_group_name", ""),
+            "product_type": facets.get("product_type_name", ""),
+            "department": facets.get("department_name", ""),
+            "detail_desc": row.get("detail_desc", ""),
+            "image_url": row.get("image_url", ""),
+            "score": score,
+        })
+        if len(items) >= top_k:
+            break
+
+    return seed_name, items
+
+
 def _render_card(col, item: dict, turn_index: int = 0) -> None:
     with col:
         img_path = _DATA_DIR / item["image_url"] if item.get("image_url") else None
@@ -118,8 +152,8 @@ def _render_card(col, item: dict, turn_index: int = 0) -> None:
         col_a.button(
             "🔍 More like this",
             key=f"more_like_{aid}_{turn_index}",
-            on_click=_set_pending_query,
-            args=(f"find more items similar to {item['display_name']}",),
+            on_click=_set_more_like_seed,
+            args=(aid,),
             use_container_width=True,
         )
         col_b.button(
@@ -202,8 +236,42 @@ for _turn_i, msg in enumerate(st.session_state.history):
 # ---------------------------------------------------------------------------
 
 _pending = st.session_state.pop("pending_query", None)
+_seed_id = st.session_state.pop("more_like_seed_id", None)
 _typed = st.chat_input("Ask about anything in the store...")
-user_input = _pending or _typed
+
+# ---------------------------------------------------------------------------
+# "More like this" — pure FAISS vector similarity, bypasses the agent entirely
+# ---------------------------------------------------------------------------
+if _seed_id:
+    seed_name, similar_items = _more_like_this_items(_seed_id)
+    user_text = f"More like {seed_name}"
+    response_text = f"Here are items similar to **{seed_name}**:"
+
+    conv = st.session_state.conv_state
+    with st.chat_message("user"):
+        st.markdown(user_text)
+    with st.chat_message("assistant"):
+        st.markdown(response_text)
+        if similar_items:
+            _show_items(similar_items, turn_index=len(st.session_state.history))
+
+    new_messages = conv["messages"] + [
+        {"role": "user", "content": user_text},
+        {"role": "assistant", "content": response_text},
+    ]
+    st.session_state.conv_state = {
+        "messages": new_messages,
+        "filters": conv["filters"],
+        "retrieved_items": similar_items,
+    }
+    st.session_state.history.append({"role": "user", "content": user_text})
+    st.session_state.history.append({
+        "role": "assistant",
+        "content": response_text,
+        "items": list(similar_items),
+    })
+
+user_input = None if _seed_id else (_pending or _typed)
 
 if user_input:
     with st.chat_message("user"):
