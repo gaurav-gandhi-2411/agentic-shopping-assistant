@@ -397,14 +397,14 @@ def print_summary(results: list[dict], total_time: float):
     if failed_recs:
         print(f"\nFailed ({len(failed_recs)}):")
         for r in failed_recs:
-            print(f"  ✗ {r['id']:<5}  failed: {r['failed']}")
+            print(f"  FAIL {r['id']:<5}  failed: {r['failed']}")
 
     # Error queries
     err_recs = [r for r in results if r["status"] == "ERROR"]
     if err_recs:
         print(f"\nErrors ({len(err_recs)}):")
         for r in err_recs:
-            print(f"  ✗ {r['id']:<5}  {r.get('error', '?')[:100]}")
+            print(f"  ERR  {r['id']:<5}  {r.get('error', '?')[:100]}")
 
     print("=" * 60)
 
@@ -473,12 +473,12 @@ def main():
 
         try:
             rec = run_query(agent, q)
-            icon = "✓" if rec["status"] == "PASS" else "✗"
+            icon = "PASS" if rec["status"] == "PASS" else rec["status"]
             fail_str = f"  FAILED: {rec['failed']}" if rec["failed"] else ""
-            print(f"          {icon} {rec['status']}  {rec['latency_total']:.1f}s  "
+            print(f"          [{icon}]  {rec['latency_total']:.1f}s  "
                   f"items={rec['n_items']}{fail_str}")
         except Exception as exc:
-            print(f"          ✗ ERROR: {exc!r}")
+            print(f"          [ERROR] {exc!r}")
             rec = {
                 "id": qid, "category": category, "query": q["query"],
                 "setup_turns": q.get("setup_turns", []),
@@ -504,7 +504,7 @@ def main():
         "results":       results,
     }
     json_path.write_text(json.dumps(payload, indent=2, default=str))
-    print(f"\nJSON saved → {json_path}")
+    print(f"\nJSON saved -> {json_path}")
 
     # Summary to console
     print_summary(results, total_time)
@@ -513,7 +513,7 @@ def main():
     from eval_report import generate_markdown
     md = generate_markdown(payload)
     md_path.write_text(md, encoding="utf-8")
-    print(f"MD   saved → {md_path}")
+    print(f"MD   saved -> {md_path}")
 
 
 if __name__ == "__main__":

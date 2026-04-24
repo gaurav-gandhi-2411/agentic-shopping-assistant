@@ -61,7 +61,7 @@ def generate_markdown(payload: dict) -> str:
               "| ID | Category | Status | Items | Latency | Failed Checks |",
               "|---|---|---|---|---|---|"]
     for r in results:
-        icon = "✅" if r["status"] == "PASS" else ("❌" if r["status"] == "FAIL" else "⚠️")
+        icon = "PASS" if r["status"] == "PASS" else ("FAIL" if r["status"] == "FAIL" else "ERR")
         fail_str = ", ".join(r.get("failed", [])) or "—"
         lat  = f"{r.get('latency_total', 0):.1f}s"
         lines.append(
@@ -114,7 +114,7 @@ def generate_markdown(payload: dict) -> str:
     # ── Per-query raw response (collapsed) ───────────────────────────────────
     lines += ["## Per-Query Raw Output", ""]
     for r in results:
-        icon = "✅" if r["status"] == "PASS" else ("❌" if r["status"] == "FAIL" else "⚠️")
+        icon = "PASS" if r["status"] == "PASS" else ("FAIL" if r["status"] == "FAIL" else "ERR")
         lines += [
             f"<details>",
             f"<summary>{icon} <strong>{r['id']}</strong> — {r['query']}</summary>",
@@ -166,7 +166,7 @@ def main():
     md_path  = json_path.with_suffix(".md")
     md_path.write_text(md, encoding="utf-8")
     print(md)
-    print(f"\n→ Saved to {md_path}")
+    print(f"\n-> Saved to {md_path}")
 
 
 if __name__ == "__main__":
