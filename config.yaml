@@ -21,7 +21,8 @@ llm:
   max_tokens: 400
   timeout_seconds: 60
   groq_model: "llama-3.1-8b-instant"
-  gemini_model: "gemini-2.0-flash-exp"
+  gemini_model: "gemini-2.0-flash-lite"
+  openrouter_model: "meta-llama/llama-3.1-8b-instruct:free"
 
 agent:
   max_iterations: 6

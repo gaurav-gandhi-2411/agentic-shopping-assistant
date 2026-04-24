@@ -429,7 +429,7 @@ def main():
     # API key is only required for live runs
     if not args.dry_run:
         _provider = os.environ.get("LLM_PROVIDER", "groq")
-        _key_map = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
+        _key_map = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
         _key_var = _key_map.get(_provider)
         if _key_var and not os.environ.get(_key_var):
             sys.exit(
