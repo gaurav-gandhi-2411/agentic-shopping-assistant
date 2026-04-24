@@ -4,6 +4,7 @@ import re
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.grounding import validate_response
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import apply_filter, clarify, compare_items, search_catalogue, suggest_outfit
@@ -50,6 +51,15 @@ STRICT RULES — follow in order:
    Default rule: if you are not certain clarification is essential, output "search".
 9. NEVER repeat the same action twice in a row.
 
+SEASONAL / OCCASION QUERY REWRITING:
+When constructing the search "query" field, always expand it with 2-3 relevant category words:
+- "winter" / "cold" / "snow" / "cosy" / "cozy": append "sweater coat jacket knitwear"
+- "summer" / "beach" / "hot" / "warm weather": append "dress t-shirt shorts"
+- "autumn" / "fall" / "rainy": append "jacket coat knitwear"
+- "office" / "work" / "meeting": append "blazer trousers shirt dress"
+- "date night" / "evening" / "cocktail": append "dress blouse elegant"
+Never pass the raw user query unchanged when a seasonal or occasion context is present.
+
 Last action taken: {last_action}
 Items retrieved so far: {items_retrieved}
 
@@ -68,14 +78,25 @@ Respond with ONLY the JSON object. No explanation."""
 
 
 RESPOND_PROMPT = """\
-You are a friendly, concise shopping assistant. The user asked: "{user_query}"
+You are a shopping assistant. Answer the user's question using ONLY the attributes \
+listed below for each item. Do not invent or infer any facts not present in the data.
 
-Here are the items we retrieved to help answer:
+STRICT RULES:
+- Do NOT mention price, cost, cheaper, expensive, affordable, budget, sale, or discount. \
+No price data exists. If asked about price, say "I don't have pricing information."
+- Do NOT mention size, fit, runs big/small, or true-to-size. No size data exists.
+- Do NOT claim fabric performance (breathable, sweat-wicking, waterproof, warm, cold) \
+unless those exact words appear in the item description below.
+- Do NOT compare items on attributes that are not listed (no price comparisons, no size comparisons).
+- Keep response to 2-3 sentences. Mention at most 2-3 items by name.
+- Use only facts directly from the provided item attributes.
+
+User question: "{user_query}"
+
+Available item attributes:
 {items}
 
-Write a helpful 2-4 sentence response that directly answers the user's question \
-and naturally weaves in the best 2-3 items. If the user asked for a comparison, \
-highlight the key differences. Do not invent attributes not in the retrieved items."""
+Write your response now."""
 
 
 def _format_items_brief(items: list[dict]) -> str:
@@ -95,12 +116,14 @@ def _format_items_for_response(items: list[dict]) -> str:
         return "No items retrieved."
     lines = []
     for item in items[:5]:
-        desc = item["detail_desc"]
-        short = desc[:120].rstrip() + "…" if len(desc) > 120 else desc
+        desc = item.get("detail_desc") or ""
+        short = desc[:150].rstrip() + "..." if len(desc) > 150 else desc
         lines.append(
-            f"- {item['display_name']}\n"
-            f"  Type: {item['product_type']}, Colour: {item['colour']}\n"
-            f"  {short}"
+            f"- display_name: {item.get('display_name', '')}\n"
+            f"  colour: {item.get('colour', '')} | "
+            f"type: {item.get('product_type', '')} | "
+            f"department: {item.get('department', '')}\n"
+            f"  description: {short}"
         )
     return "\n".join(lines)
 
@@ -367,19 +390,22 @@ def build_graph(
         return update
 
     def respond_node(state: AgentState) -> dict:
+        items = state.get("retrieved_items", [])
         prompt = RESPOND_PROMPT.format(
             user_query=state["user_query"],
-            items=_format_items_for_response(state.get("retrieved_items", [])),
+            items=_format_items_for_response(items),
         )
         if streaming_mode:
-            # In streaming mode the API does the LLM call with token streaming;
-            # store the formatted prompt so the API can pick it up.
+            # In streaming mode the app streams the LLM call; store the prompt for pickup.
             return {
                 "current_plan": json.dumps({"action": "pending_respond", "prompt": prompt}),
                 "final_answer": None,
                 "messages": [],
             }
         answer = llm.generate(prompt)
+        answer, flags = validate_response(answer, items)
+        if flags:
+            print(f"[grounding] flags={flags} query={state['user_query']!r}")
         return {
             "final_answer": answer,
             "messages": [{"role": "assistant", "content": answer}],
