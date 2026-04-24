@@ -13,6 +13,10 @@ from src.memory.conversation import ConversationMemory
 from src.retrieval.hybrid_search import HybridRetriever
 
 
+_COMPARE_INTENT = re.compile(
+    r"\bcompare\b|\bdifference\s+between\b|\bvs\b|\bversus\b", re.IGNORECASE
+)
+
 ROUTER_PROMPT = """\
 You are a shopping assistant planner. Given the conversation so far and the latest user query,
 decide the NEXT action. Respond with ONE of the following JSON objects and nothing else:
@@ -25,6 +29,9 @@ decide the NEXT action. Respond with ONE of the following JSON objects and nothi
 {{"action": "respond"}}
 
 STRICT RULES — follow in order:
+0. COMPARE PRIORITY (highest): If the user says "compare", "compare the", "compare those",
+   "difference between", "vs", or "versus" AND items_retrieved > 0 →
+   ALWAYS output {{"action": "compare", "article_ids": []}}. This overrides rules 1–9.
 1. If last_action is "compare"  →  you MUST output {{"action": "respond"}}
 2. If last_action is "filter"   →  you MUST output {{"action": "search", ...}}
 3. If items_retrieved > 0 AND last_action is "search"  →  output {{"action": "respond"}}
@@ -62,7 +69,9 @@ STRICT RULES — follow in order:
 SEASONAL / OCCASION QUERY REWRITING:
 When constructing the search "query" field, always expand it with 2-3 relevant category words:
 - "winter" / "cold" / "snow" / "cosy" / "cozy": append "sweater coat jacket knitwear"
-- "summer" / "beach" / "hot" / "warm weather": append "dress t-shirt shorts"
+- "beach" specifically: append "swimwear bikini cover-up sundress light dress"
+- "summer" generally (no beach): append "summer dress light top t-shirt"
+- Do NOT add "shorts" to beach or summer queries — "shorts" triggers athletic/sport matches.
 - "autumn" / "fall" / "rainy": append "jacket coat knitwear"
 - "office" / "work" / "meeting": append "blazer trousers shirt dress"
 - "date night" / "evening" / "cocktail": append "dress blouse elegant"
@@ -305,6 +314,7 @@ def build_graph(
 
         update: dict = {
             "retrieved_items": items_out,
+            "new_items_this_turn": True,
             "iteration": state.get("iteration", 0) + 1,
             "tool_calls": state.get("tool_calls", []) + [
                 {"search": {"query": query, "filters": merged}}
@@ -329,6 +339,7 @@ def build_graph(
         new_items = result["items"] if result["items"] else state.get("retrieved_items", [])
         return {
             "retrieved_items": new_items,
+            "new_items_this_turn": True,
             "iteration": state.get("iteration", 0) + 1,
             "tool_calls": state.get("tool_calls", []) + [
                 {"compare": {"article_ids": article_ids}}
@@ -394,6 +405,7 @@ def build_graph(
 
         update: dict = {
             "retrieved_items": items_out,
+            "new_items_this_turn": True,
             "tool_calls": state.get("tool_calls", []) + [{"outfit": {"article_id": article_id}}],
         }
         if streaming_mode:
@@ -447,7 +459,19 @@ def build_graph(
             if key != "router_decision":
                 last_tool = key
                 break
-        if last_tool in {"search", "compare"} and state.get("retrieved_items"):
+        # Compare-intent guard: user explicitly wants a comparison → force compare
+        # regardless of what the LLM plan says.  Skipped once compare already ran
+        # (last_tool == "compare") so we don't loop.
+        if (last_tool != "compare"
+                and _COMPARE_INTENT.search(state.get("user_query", ""))
+                and state.get("retrieved_items")):
+            return "compare"
+
+        # Always respond after compare, even if it returned no items
+        # (prevents infinite loops when compare is called with empty state).
+        if last_tool == "compare":
+            return "respond"
+        if last_tool == "search" and state.get("retrieved_items"):
             return "respond"
 
         try:

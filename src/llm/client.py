@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Iterator, Protocol
 
 
@@ -100,13 +101,21 @@ class GroqClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> str:
-        resp = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature if temperature is not None else self.default_temperature,
-            max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
-        )
-        return resp.choices[0].message.content
+        delays = [1.0, 3.0]
+        for attempt, delay in enumerate(delays + [None]):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature if temperature is not None else self.default_temperature,
+                    max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                )
+                return resp.choices[0].message.content
+            except Exception as exc:
+                if delay is None:
+                    raise
+                print(f"[groq] attempt {attempt + 1} failed: {exc!r}. Retrying in {delay}s...")
+                time.sleep(delay)
 
     def chat_stream(
         self,

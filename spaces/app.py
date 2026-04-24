@@ -219,6 +219,7 @@ if user_input:
         "filters": conv["filters"],
         "final_answer": None,
         "iteration": 0,
+        "new_items_this_turn": False,
     }
 
     with st.chat_message("assistant"):
@@ -226,19 +227,31 @@ if user_input:
         status_ph.caption("🔎 Searching the catalogue...")
 
         # Phase 1 — run the graph (routing + tool calls, no LLM respond yet)
-        result = st.session_state.agent.invoke(initial_state)
+        try:
+            result = st.session_state.agent.invoke(initial_state)
+        except Exception as exc:
+            status_ph.empty()
+            st.warning("Something went wrong — please try again in a moment.")
+            print(f"[agent] invoke error: {exc!r} query={user_input!r}")
+            st.stop()
 
         plan = json.loads(result.get("current_plan") or "{}")
         action = plan.get("action", "")
         items = result.get("retrieved_items", [])
+        new_items = result.get("new_items_this_turn", False)
 
         # Phase 2 — stream the LLM response
         if action == "pending_respond":
             prompt = plan["prompt"]
             status_ph.empty()
-            response_text = st.write_stream(
-                st.session_state.llm.generate_stream(prompt)
-            )
+            try:
+                response_text = st.write_stream(
+                    st.session_state.llm.generate_stream(prompt)
+                )
+            except Exception as exc:
+                response_text = "I'm having trouble generating a response right now — please try again."
+                st.markdown(response_text)
+                print(f"[groq] stream error: {exc!r} query={user_input!r}")
             cleaned, flags = validate_response(response_text or "", items)
             if flags:
                 print(f"[grounding] flags={flags} query={user_input!r}")
@@ -253,7 +266,7 @@ if user_input:
             response_text = result.get("final_answer", "")
             st.markdown(response_text)
 
-        if items:
+        if new_items and items:
             _show_items(items, turn_index=len(st.session_state.history))
 
     # Persist conversation state for next turn
@@ -271,5 +284,5 @@ if user_input:
     st.session_state.history.append({
         "role": "assistant",
         "content": response_text or "",
-        "items": list(items),
+        "items": list(items) if new_items else [],
     })
