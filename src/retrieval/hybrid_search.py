@@ -1,6 +1,40 @@
+import re
+
 import pandas as pd
 from .dense_search import DenseRetriever
 from .sparse_search import SparseRetriever
+
+
+_CATEGORY_SUFFIXES = frozenset({
+    "blouse", "shirt", "top", "tee", "t shirt", "tshirt",
+    "dress", "skirt", "trousers", "trouser", "pants", "jeans",
+    "jacket", "coat", "blazer", "sweater", "jumper",
+    "cardigan", "hoodie", "shoe", "shoes", "bag", "shorts",
+    "leggings", "tights", "vest", "bodysuit", "dungarees",
+    "jumpsuit", "playsuit", "bikini",
+})
+
+
+def normalize_prod_name(name: str) -> str:
+    """Normalize a product name for dedup.
+
+    Strips punctuation and trailing category-suffix words so that
+    'Gyda blouse' and 'Gyda!' both reduce to 'gyda', while
+    'Miami Slim' and 'Miami Slim HW' remain distinct.
+    """
+    if not name:
+        return ""
+    n = name.lower()
+    # Fuse hyphenated garment terms before general punct removal so
+    # "t-shirt" → "tshirt" (in suffixes) rather than "t" + "shirt" split.
+    n = re.sub(r"\bt-shirt\b", "tshirt", n)
+    # Replace remaining non-alphanumeric chars with spaces
+    n = re.sub(r"[^\w\s]", " ", n)
+    words = n.split()
+    # Remove trailing category suffixes (loop handles "slim trousers" → "slim")
+    while words and words[-1] in _CATEGORY_SUFFIXES:
+        words.pop()
+    return " ".join(words)
 
 
 class HybridRetriever:

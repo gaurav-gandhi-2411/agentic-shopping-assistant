@@ -27,7 +27,7 @@ from src.agents.grounding import validate_response
 from src.catalogue.loader import load_config
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.sparse_search import SparseRetriever
-from src.retrieval.hybrid_search import HybridRetriever
+from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 from src.llm.client import get_llm_client
 from src.memory.conversation import ConversationMemory
 from src.agents.graph import build_graph
@@ -161,7 +161,7 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
         }
 
     def _is_duplicate(it: dict) -> bool:
-        key = (it.get("prod_name", it["display_name"]).strip().lower(), it["colour"].lower())
+        key = (normalize_prod_name(it.get("prod_name", it["display_name"])), it["colour"].lower())
         if key in seen_prod_colour:
             return True
         seen_prod_colour.add(key)

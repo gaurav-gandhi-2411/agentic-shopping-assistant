@@ -10,7 +10,7 @@ from src.agents.state import AgentState
 from src.agents.tools import apply_filter, clarify, compare_items, search_catalogue, suggest_outfit
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
-from src.retrieval.hybrid_search import HybridRetriever
+from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 
 _COMPARE_INTENT = re.compile(
@@ -460,7 +460,7 @@ def build_graph(
         seen_prod: set[tuple[str, str]] = set()
         deduped: list[dict] = []
         for item in items_out:
-            key = (item.get("prod_name", item["display_name"]).strip().lower(), item["colour"].lower())
+            key = (normalize_prod_name(item.get("prod_name", item["display_name"])), item["colour"].lower())
             if key not in seen_prod:
                 seen_prod.add(key)
                 deduped.append(item)
@@ -469,7 +469,7 @@ def build_graph(
             for item in candidates:
                 if len(deduped) >= top_k:
                     break
-                key = (item.get("prod_name", item["display_name"]).strip().lower(), item["colour"].lower())
+                key = (normalize_prod_name(item.get("prod_name", item["display_name"])), item["colour"].lower())
                 if item["article_id"] not in seen_ids_dedup and key not in seen_prod:
                     seen_prod.add(key)
                     deduped.append(item)
