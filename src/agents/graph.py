@@ -21,6 +21,17 @@ _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
 
+_OOC_KEYWORDS = re.compile(
+    r"\b(lipsticks?|mascaras?|eyeshadows?|eye\s+shadows?|foundations?|blush|"
+    r"concealers?|eyeliners?|nail\s+polishe?s?|nail\s+varnish|perfumes?|"
+    r"fragrances?|colognes?|deodorants?|moisturis\w+|skincare|serums?|"
+    r"make\s*up|makeups?|face\s+creams?|"
+    r"laptops?|computers?|smartphones?|tablets?|headphones?|cameras?|televisions?|"
+    r"sofas?|couches?|mattresses?|bookshelves?|"
+    r"recipes?|restaurants?)\b",
+    re.IGNORECASE,
+)
+
 _LAST_N_RE = re.compile(r"\blast\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
 _FIRST_N_RE = re.compile(r"\b(?:first|top)\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
 _IDX_PAIR_RE = re.compile(r"\b(\d)\s+and\s+(\d)\b")
@@ -307,7 +318,23 @@ def build_graph(
 
     def search_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
-        query = plan.get("query", state["user_query"])
+        raw_query = state["user_query"]
+        query = plan.get("query", raw_query)
+
+        # Out-of-catalogue detection: keyword check on original user query.
+        # Uses keyword list rather than score threshold because MiniLM similarity
+        # is too noisy to separate in-catalogue from out-of-catalogue reliably.
+        if _OOC_KEYWORDS.search(raw_query):
+            print(f"[search] OOC detected: {raw_query!r}")
+            return {
+                "retrieved_items": [],
+                "new_items_this_turn": False,
+                "out_of_catalogue": True,
+                "iteration": state.get("iteration", 0) + 1,
+                "tool_calls": state.get("tool_calls", []) + [
+                    {"search_ooc": {"query": raw_query}}
+                ],
+            }
         # Merge accumulated state filters with any new filters the router specified.
         merged = {**state.get("filters", {}), **plan.get("filters", {})}
 
@@ -514,6 +541,24 @@ def build_graph(
         return update
 
     def respond_node(state: AgentState) -> dict:
+        # Out-of-catalogue shortcut: skip LLM, return a canned concise message.
+        if state.get("out_of_catalogue"):
+            answer = (
+                f"I don't have that in this catalogue. "
+                f"I can help with clothing like dresses, tops, trousers, "
+                f"jackets, knitwear, and outerwear."
+            )
+            if streaming_mode:
+                return {
+                    "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                    "final_answer": None,
+                    "messages": [],
+                }
+            return {
+                "final_answer": answer,
+                "messages": [{"role": "assistant", "content": answer}],
+            }
+
         items = state.get("retrieved_items", [])
         prompt = RESPOND_PROMPT.format(
             user_query=state["user_query"],
@@ -542,6 +587,10 @@ def build_graph(
     def route_decision(state: AgentState) -> str:
         # Hard cap: always respond if we've hit the iteration limit.
         if state.get("iteration", 0) >= max_iterations:
+            return "respond"
+
+        # Out-of-catalogue short-circuit: don't re-run search, go straight to respond.
+        if state.get("out_of_catalogue"):
             return "respond"
 
         # Deterministic loop-termination: after any tool that produces retrieved_items
