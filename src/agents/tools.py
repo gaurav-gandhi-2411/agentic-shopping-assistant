@@ -91,6 +91,7 @@ def suggest_outfit(
         "detail_desc": str(row["detail_desc"]),
         "image_url": row.get("image_url", ""),
         "score": 1.0,
+        "_role": "seed",
     }
 
     colour = seed_item["colour"].lower()
@@ -138,6 +139,7 @@ def suggest_outfit(
             chosen = random.choice(fallback_pool) if fallback_pool else None
 
         if chosen:
+            chosen["_role"] = "complement"
             complements.append(chosen)
             seen_ids.add(chosen["article_id"])
 
