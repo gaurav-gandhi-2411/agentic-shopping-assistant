@@ -99,21 +99,54 @@ def _set_more_like_seed(article_id: str) -> None:
     st.session_state.more_like_seed_id = article_id
 
 
+_NEUTRAL_COLOURS = frozenset({
+    "black", "white", "grey", "dark grey", "light grey",
+    "beige", "light beige", "dark beige",
+})
+# Dark tones that work together; excludes dark green/red (too colourful to count as "dark neutral")
+_COMPATIBLE_DARKS = frozenset({"black", "dark blue", "dark grey"})
+_COMPATIBLE_LIGHTS = frozenset({"white", "light grey", "light beige", "beige", "light pink", "light blue"})
+
+
+def _colour_compatible(seed_colour: str, item_colour: str) -> bool:
+    """True if item_colour is the same as seed or palette-compatible.
+
+    A neutral ITEM goes with any seed, but a neutral SEED does not mean we accept
+    any item — we still require same colour, neutral item, or same-family dark/light.
+    """
+    s, i = seed_colour.lower(), item_colour.lower()
+    if s == i:
+        return True
+    if i in _NEUTRAL_COLOURS:  # neutral item pairs with any seed
+        return True
+    if s in _COMPATIBLE_DARKS and i in _COMPATIBLE_DARKS:
+        return True
+    if s in _COMPATIBLE_LIGHTS and i in _COMPATIBLE_LIGHTS:
+        return True
+    return False
+
+
 def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]]:
-    """Return (seed_name, similar_items) using stored FAISS embedding — no text search."""
+    """Return (seed_name, similar_items) using stored FAISS embedding with colour filter."""
     retriever, _ = _load_retrieval()
     cat = retriever.catalogue_df  # indexed by article_id
 
-    seed_name = cat.loc[seed_id]["display_name"] if seed_id in cat.index else seed_id
-    hits = retriever.dense.search_by_id(seed_id, top_k=top_k + 1)
+    if seed_id not in cat.index:
+        return seed_id, []
+    seed_row = cat.loc[seed_id]
+    seed_facets = seed_row["facets"] if isinstance(seed_row["facets"], dict) else {}
+    seed_name = seed_row["display_name"]
+    seed_colour = seed_facets.get("colour_group_name", "").lower()
 
-    items: list[dict] = []
-    for aid, score in hits:
+    # Fetch generously so colour filtering still yields top_k results
+    hits = retriever.dense.search_by_id(seed_id, top_k=top_k * 4)
+
+    def _make_item(aid: str, score: float) -> dict | None:
         if aid == seed_id or aid not in cat.index:
-            continue
+            return None
         row = cat.loc[aid]
         facets = row["facets"] if isinstance(row["facets"], dict) else {}
-        items.append({
+        return {
             "article_id": aid,
             "display_name": row["display_name"],
             "colour": facets.get("colour_group_name", ""),
@@ -122,11 +155,44 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
             "detail_desc": row.get("detail_desc", ""),
             "image_url": row.get("image_url", ""),
             "score": score,
-        })
+        }
+
+    # Pass 1: same colour or palette-compatible
+    items: list[dict] = []
+    all_items: list[dict] = []
+    for aid, score in hits:
+        it = _make_item(aid, score)
+        if it is None:
+            continue
+        all_items.append(it)
+        if seed_colour and _colour_compatible(seed_colour, it["colour"].lower()):
+            items.append(it)
         if len(items) >= top_k:
             break
 
-    return seed_name, items
+    # Pass 2: backfill with neutral-coloured items only (palette-safe)
+    if len(items) < top_k:
+        seen = {it["article_id"] for it in items}
+        for it in all_items:
+            if it["article_id"] in seen:
+                continue
+            if it["colour"].lower() in _NEUTRAL_COLOURS:
+                items.append(it)
+                seen.add(it["article_id"])
+            if len(items) >= top_k:
+                break
+
+    # Pass 3: if still short, fill with any remaining by similarity order
+    if len(items) < top_k:
+        seen = {it["article_id"] for it in items}
+        for it in all_items:
+            if it["article_id"] not in seen:
+                items.append(it)
+                seen.add(it["article_id"])
+            if len(items) >= top_k:
+                break
+
+    return seed_name, items[:top_k]
 
 
 def _render_card(col, item: dict, turn_index: int = 0) -> None:
