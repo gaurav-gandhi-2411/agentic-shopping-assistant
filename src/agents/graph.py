@@ -555,9 +555,12 @@ def build_graph(
         seed = result.get("seed_item")
         complements = result.get("complements", [])
         rationale = result.get("outfit_rationale", "")
+        empty_slots = result.get("empty_slots", [])
 
         items_out = ([seed] if seed else []) + complements
         answer = f"**Outfit suggestion**\n\n{rationale}"
+        if empty_slots:
+            answer += "\n\n_Some outfit slots (e.g. shoes or accessories) have limited matching items in this catalogue._"
 
         update: dict = {
             "retrieved_items": items_out,

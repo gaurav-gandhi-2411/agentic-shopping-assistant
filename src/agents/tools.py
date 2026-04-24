@@ -112,6 +112,7 @@ def suggest_outfit(
     color_hint = "" if is_neutral else colour
 
     complements: list[dict] = []
+    empty_slots: list[str] = []
     seen_ids: set[str] = {seed_article_id}
 
     for cq in complement_queries:
@@ -141,7 +142,8 @@ def suggest_outfit(
         if colour_ok_pool:
             chosen = random.choice(colour_ok_pool)
         else:
-            # Fallback: random pick from first 3 non-seed, non-same-type items
+            # Fallback within the same query: pick any non-seed, non-same-type item
+            # (no cross-category backfill — slot stays empty if this also fails)
             fallback_pool = [
                 it for it in candidates[:5]
                 if it["article_id"] not in seen_ids
@@ -153,10 +155,12 @@ def suggest_outfit(
             chosen["_role"] = "complement"
             complements.append(chosen)
             seen_ids.add(chosen["article_id"])
+        else:
+            empty_slots.append(cq)
 
     print(
         f"[outfit] seed={seed_article_id} type={product_type} colour={colour} "
-        f"complements={[c['article_id'] for c in complements]}"
+        f"complements={[c['article_id'] for c in complements]} empty_slots={empty_slots}"
     )
     comp_names = [c["display_name"] for c in complements]
     if comp_names:
@@ -168,4 +172,5 @@ def suggest_outfit(
         "seed_item": seed_item,
         "complements": complements,
         "outfit_rationale": rationale,
+        "empty_slots": empty_slots,
     }
