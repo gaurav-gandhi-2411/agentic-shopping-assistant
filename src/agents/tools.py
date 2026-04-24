@@ -98,15 +98,31 @@ def suggest_outfit(
     colour = seed_item["colour"].lower()
     product_type = seed_item["product_type"].lower()
 
-    # Classify seed and pick what it pairs with; outerwear seeds get top + bottom, not another jacket
-    if any(t in product_type for t in _OUTERWEAR_TYPES):
-        complement_queries = ["top shirt blouse", "trousers jeans skirt"]
+    seed_is_outerwear = any(t in product_type for t in _OUTERWEAR_TYPES)
+
+    # Complement slot definitions: (search_query, human_readable_label).
+    # Outerwear seeds never get another outerwear slot.
+    if seed_is_outerwear:
+        complement_slots = [
+            ("top shirt blouse", "top"),
+            ("trousers jeans skirt", "bottom"),
+        ]
     elif any(t in product_type for t in _DRESS_TYPES):
-        complement_queries = ["jacket blazer coat", "bag accessories shoes"]
+        complement_slots = [
+            ("jacket cardigan blazer", "jacket"),
+            ("shoes sandals boots heels flat shoe", "shoes"),
+            ("bag handbag", "bag"),
+        ]
     elif any(t in product_type for t in _BOTTOM_TYPES):
-        complement_queries = ["top shirt blouse", "jacket blazer coat"]
-    else:
-        complement_queries = ["trousers jeans skirt", "jacket blazer coat"]
+        complement_slots = [
+            ("top shirt blouse", "top"),
+            ("jacket blazer coat cardigan", "jacket"),
+        ]
+    else:  # top/shirt/sweater/etc.
+        complement_slots = [
+            ("trousers jeans skirt", "bottom"),
+            ("jacket blazer coat cardigan", "jacket"),
+        ]
 
     is_neutral = colour in _NEUTRAL_COLOURS
     color_hint = "" if is_neutral else colour
@@ -115,7 +131,7 @@ def suggest_outfit(
     empty_slots: list[str] = []
     seen_ids: set[str] = {seed_article_id}
 
-    for cq in complement_queries:
+    for cq, slot_label in complement_slots:
         query = f"{cq} {color_hint}".strip()
         candidates = retriever.search(query, top_k=15)
 
@@ -124,9 +140,12 @@ def suggest_outfit(
         for item in candidates:
             if item["article_id"] in seen_ids:
                 continue
-            # Exclude items of the same product type as the seed
             item_type = item.get("product_type", "").lower()
+            # Exclude same product type as seed
             if product_type and product_type == item_type:
+                continue
+            # When seed is outerwear, exclude all outerwear-category complements
+            if seed_is_outerwear and any(t in item_type for t in _OUTERWEAR_TYPES):
                 continue
             item_colour = item.get("colour", "").lower()
             colour_ok = (
@@ -142,12 +161,12 @@ def suggest_outfit(
         if colour_ok_pool:
             chosen = random.choice(colour_ok_pool)
         else:
-            # Fallback within the same query: pick any non-seed, non-same-type item
-            # (no cross-category backfill — slot stays empty if this also fails)
+            # Fallback within the same query (no cross-category backfill)
             fallback_pool = [
                 it for it in candidates[:5]
                 if it["article_id"] not in seen_ids
                 and it.get("product_type", "").lower() != product_type
+                and not (seed_is_outerwear and any(t in it.get("product_type", "").lower() for t in _OUTERWEAR_TYPES))
             ]
             chosen = random.choice(fallback_pool) if fallback_pool else None
 
@@ -156,7 +175,7 @@ def suggest_outfit(
             complements.append(chosen)
             seen_ids.add(chosen["article_id"])
         else:
-            empty_slots.append(cq)
+            empty_slots.append(slot_label)
 
     print(
         f"[outfit] seed={seed_article_id} type={product_type} colour={colour} "

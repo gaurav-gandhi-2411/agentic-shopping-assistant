@@ -629,7 +629,8 @@ def build_graph(
         items_out = ([seed] if seed else []) + complements
         answer = f"**Outfit suggestion**\n\n{rationale}"
         if empty_slots:
-            answer += "\n\n_Some outfit slots (e.g. shoes or accessories) have limited matching items in this catalogue._"
+            slot_str = " and ".join(empty_slots)
+            answer += f"\n\n_Note: I couldn't find suitable {slot_str} to complete this look in the current catalogue._"
 
         update: dict = {
             "retrieved_items": items_out,
