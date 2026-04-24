@@ -21,6 +21,38 @@ _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
 
+_LAST_N_RE = re.compile(r"\blast\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
+_FIRST_N_RE = re.compile(r"\b(?:first|top)\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
+_IDX_PAIR_RE = re.compile(r"\b(\d)\s+and\s+(\d)\b")
+_ORD_PAIR_RE = re.compile(r"\b(\d)(?:st|nd|rd|th)\s+and\s+(\d)(?:st|nd|rd|th)\b", re.IGNORECASE)
+_WORD_TO_INT = {"two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _select_items_for_compare(user_query: str, items: list[dict]) -> list[dict]:
+    """Pick items from the retrieved list based on user's selection modifier."""
+    q = user_query.lower()
+    n = len(items)
+
+    m = _LAST_N_RE.search(q)
+    if m:
+        token = m.group(1).lower()
+        count = _WORD_TO_INT[token] if token in _WORD_TO_INT else int(token)
+        return items[max(0, n - count):]
+
+    m = _FIRST_N_RE.search(q)
+    if m:
+        token = m.group(1).lower()
+        count = _WORD_TO_INT[token] if token in _WORD_TO_INT else int(token)
+        return items[:count]
+
+    m = _ORD_PAIR_RE.search(q) or _IDX_PAIR_RE.search(q)
+    if m:
+        i, j = int(m.group(1)), int(m.group(2))
+        selected = [items[idx - 1] for idx in (i, j) if 1 <= idx <= n]
+        return selected if len(selected) == 2 else items[:2]
+
+    return items[:2]
+
 ROUTER_PROMPT = """\
 You are a shopping assistant planner. Given the conversation so far and the latest user query,
 decide the NEXT action. Respond with ONE of the following JSON objects and nothing else:
@@ -357,12 +389,28 @@ def build_graph(
     def compare_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
         article_ids = plan.get("article_ids", [])
+        retrieved = state.get("retrieved_items", [])
 
-        # Fallback: if the LLM didn't extract explicit IDs (e.g. "compare the first two"),
-        # use the first 2 items already stored in state — they are ranked by relevance and
-        # persist across turns, so this correctly references the last set shown to the user.
-        if not article_ids and state.get("retrieved_items"):
-            article_ids = [r["article_id"] for r in state["retrieved_items"][:2]]
+        # Parse selection modifier ("last two", "first two", "2 and 4", etc.)
+        # then override the LLM-extracted IDs so positional references are honoured.
+        if retrieved:
+            selected = _select_items_for_compare(state.get("user_query", ""), retrieved)
+            if selected:
+                article_ids = [it["article_id"] for it in selected]
+
+        # Edge case: not enough items to compare
+        if len(retrieved) < 2 and not article_ids:
+            answer = "I only have one item to compare — please search for more items first."
+            if streaming_mode:
+                return {
+                    "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                    "final_answer": None,
+                    "messages": [],
+                }
+            return {
+                "final_answer": answer,
+                "messages": [{"role": "assistant", "content": answer}],
+            }
 
         result = compare_items(article_ids, catalogue_df)
         # Keep existing items if compare found nothing (e.g. bad IDs)
