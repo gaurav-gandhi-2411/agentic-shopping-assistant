@@ -1,3 +1,5 @@
+import random
+
 import pandas as pd
 from src.retrieval.hybrid_search import HybridRetriever
 
@@ -110,10 +112,10 @@ def suggest_outfit(
 
     for cq in complement_queries:
         query = f"{cq} {color_hint}".strip()
-        candidates = retriever.search(query, top_k=10)
+        candidates = retriever.search(query, top_k=15)
 
-        # Prefer colour-compatible items (neutral seed/complement, or same palette)
-        chosen = None
+        # Collect up to 3 colour-compatible candidates, then randomly pick 1 for variety
+        colour_ok_pool: list[dict] = []
         for item in candidates:
             if item["article_id"] in seen_ids:
                 continue
@@ -124,20 +126,25 @@ def suggest_outfit(
                 or item_colour == colour
             )
             if colour_ok:
-                chosen = item
-                break
-
-        # Fallback: take best match regardless of colour
-        if chosen is None:
-            for item in candidates:
-                if item["article_id"] not in seen_ids:
-                    chosen = item
+                colour_ok_pool.append(item)
+                if len(colour_ok_pool) >= 3:
                     break
+
+        if colour_ok_pool:
+            chosen = random.choice(colour_ok_pool)
+        else:
+            # Fallback: random pick from first 3 non-seed items regardless of colour
+            fallback_pool = [it for it in candidates[:5] if it["article_id"] not in seen_ids]
+            chosen = random.choice(fallback_pool) if fallback_pool else None
 
         if chosen:
             complements.append(chosen)
             seen_ids.add(chosen["article_id"])
 
+    print(
+        f"[outfit] seed={seed_article_id} type={product_type} colour={colour} "
+        f"complements={[c['article_id'] for c in complements]}"
+    )
     comp_names = [c["display_name"] for c in complements]
     if comp_names:
         rationale = f"Paired **{seed_item['display_name']}** with {' and '.join(comp_names)}."
