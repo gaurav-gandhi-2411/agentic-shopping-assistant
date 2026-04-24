@@ -141,6 +141,8 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
     # Fetch generously so colour filtering still yields top_k results
     hits = retriever.dense.search_by_id(seed_id, top_k=top_k * 4)
 
+    seen_prod_colour: set[tuple[str, str]] = set()
+
     def _make_item(aid: str, score: float) -> dict | None:
         if aid == seed_id or aid not in cat.index:
             return None
@@ -148,6 +150,7 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
         facets = row["facets"] if isinstance(row["facets"], dict) else {}
         return {
             "article_id": aid,
+            "prod_name": row.get("prod_name", ""),
             "display_name": row["display_name"],
             "colour": facets.get("colour_group_name", ""),
             "product_type": facets.get("product_type_name", ""),
@@ -157,7 +160,14 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
             "score": score,
         }
 
-    # Pass 1: same colour or palette-compatible
+    def _is_duplicate(it: dict) -> bool:
+        key = (it.get("prod_name", it["display_name"]).strip().lower(), it["colour"].lower())
+        if key in seen_prod_colour:
+            return True
+        seen_prod_colour.add(key)
+        return False
+
+    # Pass 1: same colour or palette-compatible (dedup by prod_name+colour)
     items: list[dict] = []
     all_items: list[dict] = []
     for aid, score in hits:
@@ -165,30 +175,30 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
         if it is None:
             continue
         all_items.append(it)
-        if seed_colour and _colour_compatible(seed_colour, it["colour"].lower()):
+        if not _is_duplicate(it) and seed_colour and _colour_compatible(seed_colour, it["colour"].lower()):
             items.append(it)
         if len(items) >= top_k:
             break
 
-    # Pass 2: backfill with neutral-coloured items only (palette-safe)
+    # Pass 2: backfill with neutral-coloured items only (palette-safe, deduped)
     if len(items) < top_k:
-        seen = {it["article_id"] for it in items}
+        seen_ids = {it["article_id"] for it in items}
         for it in all_items:
-            if it["article_id"] in seen:
+            if it["article_id"] in seen_ids:
                 continue
-            if it["colour"].lower() in _NEUTRAL_COLOURS:
+            if it["colour"].lower() in _NEUTRAL_COLOURS and not _is_duplicate(it):
                 items.append(it)
-                seen.add(it["article_id"])
+                seen_ids.add(it["article_id"])
             if len(items) >= top_k:
                 break
 
-    # Pass 3: if still short, fill with any remaining by similarity order
+    # Pass 3: if still short, fill with any remaining by similarity order (deduped)
     if len(items) < top_k:
-        seen = {it["article_id"] for it in items}
+        seen_ids = {it["article_id"] for it in items}
         for it in all_items:
-            if it["article_id"] not in seen:
+            if it["article_id"] not in seen_ids and not _is_duplicate(it):
                 items.append(it)
-                seen.add(it["article_id"])
+                seen_ids.add(it["article_id"])
             if len(items) >= top_k:
                 break
 

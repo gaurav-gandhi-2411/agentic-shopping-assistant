@@ -406,6 +406,26 @@ def build_graph(
 
         items_out = rerank(query, candidates, llm, top_k=top_k)
 
+        # Dedup by (prod_name, colour): H&M lists same product in many colours;
+        # backfill from the wider candidates pool if dedup drops below top_k.
+        seen_prod: set[tuple[str, str]] = set()
+        deduped: list[dict] = []
+        for item in items_out:
+            key = (item.get("prod_name", item["display_name"]).strip().lower(), item["colour"].lower())
+            if key not in seen_prod:
+                seen_prod.add(key)
+                deduped.append(item)
+        if len(deduped) < top_k:
+            seen_ids_dedup = {it["article_id"] for it in deduped}
+            for item in candidates:
+                if len(deduped) >= top_k:
+                    break
+                key = (item.get("prod_name", item["display_name"]).strip().lower(), item["colour"].lower())
+                if item["article_id"] not in seen_ids_dedup and key not in seen_prod:
+                    seen_prod.add(key)
+                    deduped.append(item)
+        items_out = deduped
+
         # Beach/summer queries: cap at 2 items per product_type to ensure variety
         # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
         if _BEACH_SUMMER_RE.search(query):
