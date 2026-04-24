@@ -11,11 +11,19 @@ products, select the best 5 that match the full intent of the query.
 Ranking rules:
 - Occasion context: "date night" / "evening out" / "wedding" / "cocktail" → formal \
 or elegant wear; never sleepwear, underwear, or swimwear
-- Date night colour preference: strongly prefer rich, elegant colours — black, red, \
-dark red, dark blue, dark green, burgundy, emerald. Deprioritise casual neutrals: \
-beige, light beige, brown, camel, light brown. Casual types such as sweater, \
-sweatshirt, hoodie, t-shirt should be ranked last unless explicitly requested. \
-Pure white is acceptable for summer cocktail context.
+- Date night / evening / cocktail / wedding queries — apply ALL of these:
+  * Prefer rich, elegant colours: black, red, dark blue, dark red, burgundy, emerald, dark green, wine
+  * DIVERSITY REQUIRED: your 5 picks MUST include AT LEAST 2 distinct colour values. \
+Do NOT return 5 items in the same colour unless the query explicitly names one colour.
+  * Pure white acceptable for summer/cocktail context
+  * REJECT casual neutrals: beige, light beige, brown, camel, light brown, pastels — not date-night
+  * REJECT casual types: sweater, sweatshirt, hoodie, t-shirt — unless explicitly requested
+- Beach / pool / beach vacation queries:
+  * STRONGLY PREFER: swimwear, bikini, bikini top, bikini bottom, cover-up, sundress, beach dress, \
+light tank, board shorts, sarong
+  * AVOID: smart/cocktail/bodycon/shift dresses, formal blouses
+  * REJECT: beige/formal dresses — beach means leisure, not elegance
+  * Neutral-acceptable: light linen/cotton sundresses in light colours if beach-styled
 - Season context: "winter" / "autumn" / "fall" → warm items (coats, sweaters, boots); \
 never shorts, swimwear, or sandals. "summer" / "beach" → light items, swimwear; \
 never coats or heavy knitwear
@@ -29,6 +37,39 @@ infer a colour from style words
 Respond with ONLY valid JSON, no other text:
 {"selected": [i, j, k, l, m], "reasoning": "one sentence"}
 `selected` must contain exactly 5 distinct integers from the product numbers (1-indexed)."""
+
+
+_DATE_NIGHT_RE = re.compile(
+    r"\b(date\s+night|date-night|evening\s+out|evening|cocktail|wedding|gala)\b",
+    re.IGNORECASE,
+)
+
+
+def _enforce_colour_diversity(
+    selected: list[dict],
+    candidates: list[dict],
+    query: str,
+) -> list[dict]:
+    """Post-rerank check: for date-night queries, if all picks share one colour, swap
+    the lowest-ranked pick for the best different-colour candidate from the pool."""
+    if not _DATE_NIGHT_RE.search(query):
+        return selected
+    colours = [it.get("colour", "").lower() for it in selected]
+    if len(set(colours)) >= 2:
+        return selected  # already diverse
+    dominant = colours[0] if colours else ""
+    seen_ids = {it["article_id"] for it in selected}
+    for cand in candidates:
+        if cand["article_id"] in seen_ids:
+            continue
+        if cand.get("colour", "").lower() != dominant:
+            swapped = selected[:-1] + [cand]
+            print(
+                f"[reranker] colour-diversity swap: dropped {selected[-1]['article_id']} "
+                f"({selected[-1].get('colour','')}), added {cand['article_id']} ({cand.get('colour','')})"
+            )
+            return swapped
+    return selected  # no alternative found — keep as is
 
 
 def _format_candidates(items: list[dict]) -> str:
@@ -115,9 +156,11 @@ def rerank(
                 selected.append(it)
                 seen.add(it["article_id"])
 
-    final_ids = [it["article_id"] for it in selected[:top_k]]
+    selected = _enforce_colour_diversity(selected[:top_k], items, query)
+
+    final_ids = [it["article_id"] for it in selected]
     _log(query, retrieved_ids, llm_indices, final_ids, latency_ms, fallback)
-    return selected[:top_k]
+    return selected
 
 
 def _log(
