@@ -17,6 +17,10 @@ _COMPARE_INTENT = re.compile(
     r"\bcompare\b|\bdifference\s+between\b|\bvs\b|\bversus\b", re.IGNORECASE
 )
 
+_BEACH_SUMMER_RE = re.compile(
+    r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
+)
+
 ROUTER_PROMPT = """\
 You are a shopping assistant planner. Given the conversation so far and the latest user query,
 decide the NEXT action. Respond with ONE of the following JSON objects and nothing else:
@@ -311,6 +315,32 @@ def build_graph(
                 candidates = fresh
 
         items_out = rerank(query, candidates, llm, top_k=top_k)
+
+        # Beach/summer queries: cap at 2 items per product_type to ensure variety
+        # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
+        if _BEACH_SUMMER_RE.search(query):
+            diverse: list[dict] = []
+            type_counts: dict[str, int] = {}
+            seen_diverse = {it["article_id"] for it in diverse}
+            for item in items_out:
+                pt = item.get("product_type", "").lower()
+                if type_counts.get(pt, 0) < 2:
+                    diverse.append(item)
+                    type_counts[pt] = type_counts.get(pt, 0) + 1
+            # Fill remaining slots from the wider candidates pool if reranker gave few types
+            if len(diverse) < top_k:
+                seen_diverse = {it["article_id"] for it in diverse}
+                for item in candidates:
+                    if len(diverse) >= top_k:
+                        break
+                    if item["article_id"] in seen_diverse:
+                        continue
+                    pt = item.get("product_type", "").lower()
+                    if type_counts.get(pt, 0) < 2:
+                        diverse.append(item)
+                        type_counts[pt] = type_counts.get(pt, 0) + 1
+                        seen_diverse.add(item["article_id"])
+            items_out = diverse[:top_k]
 
         update: dict = {
             "retrieved_items": items_out,
