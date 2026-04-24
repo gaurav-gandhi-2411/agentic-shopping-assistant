@@ -427,12 +427,16 @@ def main():
     args = parser.parse_args()
 
     # API key is only required for live runs
-    if not args.dry_run and not os.environ.get("GROQ_API_KEY"):
-        sys.exit(
-            "GROQ_API_KEY missing — create a .env file with GROQ_API_KEY=your_key "
-            "or export it in your shell.\n"
-            "See .env.example for the expected format."
-        )
+    if not args.dry_run:
+        _provider = os.environ.get("LLM_PROVIDER", "groq")
+        _key_map = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
+        _key_var = _key_map.get(_provider)
+        if _key_var and not os.environ.get(_key_var):
+            sys.exit(
+                f"{_key_var} missing — create a .env file with {_key_var}=your_key "
+                f"or export it in your shell.\n"
+                "See .env.example for the expected format."
+            )
 
     yaml_path = Path(args.yaml)
     queries   = load_queries(yaml_path)
@@ -459,7 +463,8 @@ def main():
     print(f"Ready — {len(queries)} quer{'y' if len(queries) == 1 else 'ies'} queued.\n")
 
     _REPORTS_DIR.mkdir(exist_ok=True)
-    stem      = f"eval_results_{date.today().strftime('%Y%m%d')}"
+    _run_provider = os.environ.get("LLM_PROVIDER", "groq")
+    stem      = f"eval_results_{date.today().strftime('%Y%m%d')}_{_run_provider}"
     json_path = _versioned_path(_REPORTS_DIR, stem, ".json")
     md_path   = json_path.with_suffix(".md")
 
