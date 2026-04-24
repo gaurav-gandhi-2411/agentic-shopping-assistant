@@ -23,6 +23,7 @@ _SPACES_DIR = Path(__file__).parent
 _REPO_ROOT = _SPACES_DIR.parent if (_SPACES_DIR.parent / "src").exists() else _SPACES_DIR
 sys.path.insert(0, str(_REPO_ROOT))
 
+from src.agents.grounding import validate_response
 from src.catalogue.loader import load_config
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.sparse_search import SparseRetriever
@@ -238,6 +239,10 @@ if user_input:
             response_text = st.write_stream(
                 st.session_state.llm.generate_stream(prompt)
             )
+            cleaned, flags = validate_response(response_text or "", items)
+            if flags:
+                print(f"[grounding] flags={flags} query={user_input!r}")
+            response_text = cleaned
         elif action == "pending_answer":
             text = plan.get("text", "")
             status_ph.empty()
