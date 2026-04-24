@@ -185,4 +185,7 @@ def get_llm_client(config: dict) -> "OllamaClient | GroqClient":
     if provider == "gemini":
         from src.llm.gemini_client import GeminiClient
         return GeminiClient(config)
-    raise NotImplementedError(f"Unknown LLM provider: {provider!r}. Supported: ollama, groq, gemini")
+    if provider == "openrouter":
+        from src.llm.openrouter_client import OpenRouterClient
+        return OpenRouterClient(config)
+    raise NotImplementedError(f"Unknown LLM provider: {provider!r}. Supported: ollama, groq, gemini, openrouter")

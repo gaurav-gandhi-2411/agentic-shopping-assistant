@@ -4,37 +4,37 @@ from typing import Iterator
 
 
 class GeminiClient:
-    """Wraps google-generativeai for Gemini 2.0 Flash.
-    Requires: pip install google-generativeai  and  GEMINI_API_KEY env var."""
+    """Wraps google-genai for Gemini 2.0 Flash.
+    Requires: pip install google-genai  and  GEMINI_API_KEY env var."""
 
     def __init__(self, config: dict):
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types as _types
         except ImportError:
             raise ImportError(
-                "google-generativeai package not installed. Run: pip install google-generativeai"
+                "google-genai package not installed. Run: pip install google-genai"
             )
 
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable is not set")
 
-        genai.configure(api_key=api_key)
-
         llm_cfg = config["llm"]
-        self.model_name = llm_cfg.get("gemini_model", "gemini-2.0-flash-exp")
+        self.model_name = llm_cfg.get("gemini_model", "gemini-2.0-flash")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
-        self._genai = genai
+        self._client = genai.Client(api_key=api_key)
+        self._types = _types
 
-    def _get_model(self, temperature: float = None, max_tokens: int = None):
-        return self._genai.GenerativeModel(
-            model_name=self.model_name,
-            generation_config=self._genai.types.GenerationConfig(
-                temperature=temperature if temperature is not None else self.default_temperature,
-                max_output_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
-            ),
+    def _gen_config(self, temperature: float = None, max_tokens: int = None, system: str = None):
+        kwargs = dict(
+            temperature=temperature if temperature is not None else self.default_temperature,
+            max_output_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
         )
+        if system:
+            kwargs["system_instruction"] = system
+        return self._types.GenerateContentConfig(**kwargs)
 
     def chat(
         self,
@@ -42,18 +42,25 @@ class GeminiClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> str:
-        model = self._get_model(temperature, max_tokens)
-        gemini_messages = _to_gemini_messages(messages)
+        system, history, prompt = _split_messages(messages)
+        config = self._gen_config(temperature, max_tokens, system)
         delays = iter([1.0, 3.0])
         attempt = 0
         while True:
             try:
-                if gemini_messages["system"] and len(gemini_messages["history"]) == 0:
-                    # Single-turn with system prompt: send as combined user message
-                    response = model.generate_content(gemini_messages["prompt"])
+                if history:
+                    chat_session = self._client.chats.create(
+                        model=self.model_name,
+                        config=config,
+                        history=history,
+                    )
+                    response = chat_session.send_message(prompt)
                 else:
-                    chat_session = model.start_chat(history=gemini_messages["history"])
-                    response = chat_session.send_message(gemini_messages["prompt"])
+                    response = self._client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt,
+                        config=config,
+                    )
                 return response.text
             except Exception as exc:
                 attempt += 1
@@ -69,13 +76,21 @@ class GeminiClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> Iterator[str]:
-        model = self._get_model(temperature, max_tokens)
-        gemini_messages = _to_gemini_messages(messages)
-        if gemini_messages["history"]:
-            chat_session = model.start_chat(history=gemini_messages["history"])
-            stream = chat_session.send_message(gemini_messages["prompt"], stream=True)
+        system, history, prompt = _split_messages(messages)
+        config = self._gen_config(temperature, max_tokens, system)
+        if history:
+            chat_session = self._client.chats.create(
+                model=self.model_name,
+                config=config,
+                history=history,
+            )
+            stream = chat_session.send_message_stream(prompt)
         else:
-            stream = model.generate_content(gemini_messages["prompt"], stream=True)
+            stream = self._client.models.generate_content_stream(
+                model=self.model_name,
+                contents=prompt,
+                config=config,
+            )
         for chunk in stream:
             if chunk.text:
                 yield chunk.text
@@ -95,15 +110,16 @@ class GeminiClient:
         return self.chat_stream(messages, **kwargs)
 
 
-def _to_gemini_messages(messages: list[dict]) -> dict:
-    """Convert OpenAI-style messages to Gemini format.
+def _split_messages(messages: list[dict]) -> tuple[str | None, list, str]:
+    """Split OpenAI-style messages into (system_str, history_contents, prompt_str).
 
-    Returns dict with keys: system (str|None), history (list), prompt (str).
-    Gemini's multi-turn API uses alternating user/model roles; system content
-    is prepended to the first user message.
+    history_contents is a list of google.genai Content dicts for prior turns.
+    The last user message becomes the prompt string sent via send_message / generate_content.
     """
-    system_parts = []
-    history = []
+    from google.genai import types
+
+    system_parts: list[str] = []
+    history: list = []
     prompt = ""
 
     for msg in messages:
@@ -112,22 +128,14 @@ def _to_gemini_messages(messages: list[dict]) -> dict:
         if role == "system":
             system_parts.append(content)
         elif role == "user":
-            history.append({"role": "user", "parts": [content]})
+            history.append(types.Content(role="user", parts=[types.Part(text=content)]))
         elif role == "assistant":
-            history.append({"role": "model", "parts": [content]})
+            history.append(types.Content(role="model", parts=[types.Part(text=content)]))
 
-    if history:
-        # Prepend system content into the first user message
-        if system_parts and history[0]["role"] == "user":
-            system_prefix = "\n\n".join(system_parts) + "\n\n"
-            history[0]["parts"][0] = system_prefix + history[0]["parts"][0]
+    # Pop the last user turn to use as the live prompt
+    if history and history[-1].role == "user":
+        prompt = history[-1].parts[0].text
+        history = history[:-1]
 
-        # Last message is the current user turn (the prompt to send)
-        last = history[-1]
-        if last["role"] == "user":
-            prompt = last["parts"][0]
-            history = history[:-1]
-        else:
-            prompt = ""
-
-    return {"system": "\n\n".join(system_parts) if system_parts else None, "history": history, "prompt": prompt}
+    system = "\n\n".join(system_parts) if system_parts else None
+    return system, history, prompt
