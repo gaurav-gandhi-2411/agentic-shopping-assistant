@@ -415,20 +415,36 @@ def build_graph(
         # Always fetch 20 candidates for the LLM reranker.
         result = search_catalogue(query, merged or None, retriever, 20)
 
-        # If filters produced no results (LLM invented an invalid value), retry
-        # without filters and clear the bad accumulated filters so they don't
-        # contaminate future turns.
-        effective_filters = merged
-        if not result["items"] and merged:
-            result = search_catalogue(query, None, retriever, 20)
-            effective_filters = {}
-
-        # Gender-filter sparse-stock check: if gender was applied and fewer than 3
-        # items matched, warn in respond_node by flagging via tool_calls metadata.
+        # Gender filter is applied when it was extracted from this query (not inherited).
+        # Keep it explicit so we can handle zero-stock gracefully below.
         gender_filter_applied = "index_group_name" in merged and "index_group_name" not in {
             k: v for k, v in (state.get("filters") or {}).items()
         }
-        few_gender_results = gender_filter_applied and len(result["items"]) < 3
+        gender_value = merged.get("index_group_name", "") if gender_filter_applied else ""
+
+        # Filter retry logic: different behaviour for gender vs other filters.
+        effective_filters = merged
+        if not result["items"] and merged:
+            if gender_filter_applied:
+                # Gender filter produced 0 results — do NOT silently fall back to
+                # the other gender. Try dropping non-gender filters if any exist,
+                # keeping gender filter in place so the message stays accurate.
+                other_filters = {k: v for k, v in merged.items() if k != "index_group_name"}
+                if other_filters:
+                    gender_only = {"index_group_name": gender_value}
+                    retry = search_catalogue(query, gender_only, retriever, 20)
+                    result = retry
+                    effective_filters = gender_only
+                # If still 0 items (no menswear footwear at all) keep effective_filters=merged
+                # → respond_node will emit an explicit "no stock" message.
+            else:
+                # No gender filter — drop invalid facet filters (LLM invented bad values)
+                result = search_catalogue(query, None, retriever, 20)
+                effective_filters = {}
+
+        # Sparse/zero stock warning: fires when gender filter is applied and fewer
+        # than 5 items matched (including 0).
+        few_gender_results = gender_filter_applied and len(result["items"]) < 5
 
         # For refinement turns: exclude items the user has already seen before reranking.
         candidates = result["items"]
@@ -660,7 +676,7 @@ def build_graph(
 
         items = state.get("retrieved_items", [])
 
-        # Check if gender filter returned sparse results — append honest disclaimer.
+        # Check if gender filter returned sparse/zero results.
         few_gender = any(
             tc.get("search", {}).get("few_gender_results")
             for tc in state.get("tool_calls", [])
@@ -670,6 +686,24 @@ def build_graph(
              if tc.get("search", {}).get("few_gender_results")),
             "",
         )
+
+        # Zero-stock gender case: skip LLM, return a direct explicit message.
+        if few_gender and gender_group and not items:
+            answer = (
+                f"This catalogue has no {gender_group} items matching your query. "
+                f"The H&M {gender_group} range here is very limited — "
+                f"try the main H&M site for a broader selection."
+            )
+            if streaming_mode:
+                return {
+                    "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                    "final_answer": None,
+                    "messages": [],
+                }
+            return {
+                "final_answer": answer,
+                "messages": [{"role": "assistant", "content": answer}],
+            }
 
         prompt = RESPOND_PROMPT.format(
             user_query=state["user_query"],
