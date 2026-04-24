@@ -116,9 +116,20 @@ STRICT RULES — follow in order:
 3. If items_retrieved > 0 AND last_action is "search"  →  output {{"action": "respond"}}
 4. Use "search" for a new information need (first turn or after "filter").
 5. Use "filter" to narrow results by colour, type, etc. — only once per turn.
-   Filter values MUST be exact catalogue values. Valid colours: Black, White, Dark Blue,
-   Grey, Red, Blue, Light Blue, Dark Red, Light Pink, Beige, Light Beige, Dark Grey.
-   Never use descriptive terms (e.g. "Lightweight", "Breathable") as filter values.
+   Filter values MUST be exact catalogue values. Never use descriptive terms
+   (e.g. "Lightweight", "Breathable") as filter values.
+
+   FACET VOCABULARY (use exact capitalisation):
+   index_group_name: Ladieswear, Menswear, Divided, Baby/Children, Sport
+   department_name: (varies — do NOT filter by department, use index_group_name instead)
+   colour_group_name: Black, White, Off White, Dark Blue, Grey, Red, Blue,
+     Light Blue, Dark Red, Light Pink, Beige, Light Beige, Dark Grey, Light Grey,
+     Pink, Green, Dark Green, Yellow, Orange, Purple, Khaki, Brown, Turquoise
+   product_type_name (examples): Dress, Blouse, Blazer, Trousers, Jeans, Shorts,
+     Skirt, Coat, Jacket, Sweater, Cardigan, T-shirt, Top, Vest top, Leggings/Tights,
+     Swimwear bottom, Bikini top, Swimsuit, Pyjama set, Night gown, Hoodie, Robe
+   Use index_group_name "Divided" for teen/young-fashion brand queries.
+   Use index_group_name "Ladieswear" for women's clothing (NOT department_name).
 6. Use "compare" when the user explicitly asks to compare items.
 7. Use "outfit" when the user says "style this with", "what goes with", "build an outfit around",
    "complete the look", or asks for complementary items. Look up the article_id of the seed item
@@ -302,6 +313,18 @@ def build_graph(
                 last_action = key
                 break
 
+        # OOC short-circuit: if this is the first turn and the query is clearly
+        # out-of-catalogue, skip the LLM entirely and force a search→OOC path.
+        # This prevents the router LLM from choosing "respond" directly (bypassing
+        # search_node where out_of_catalogue=True is set and the canned message fires).
+        if not tool_calls and not state.get("out_of_catalogue"):
+            if _detect_ooc(state["user_query"]):
+                plan = {"action": "search", "query": state["user_query"]}
+                return {
+                    "current_plan": json.dumps(plan),
+                    "tool_calls": [{"router_decision": plan}],
+                }
+
         context = memory.get_context(state.get("messages", []))
         prompt = ROUTER_PROMPT.format(
             last_action=last_action,
@@ -317,6 +340,14 @@ def build_graph(
             "current_plan": json.dumps(parsed),
             "tool_calls": tool_calls + [{"router_decision": parsed}],
         }
+
+    _SLEEP_KEYWORDS: frozenset[str] = frozenset({
+        "sleep", "nightwear", "pyjama", "pajama", "pyjamas", "pajamas",
+        "nightgown", "night gown", "robe", "sleepwear", "loungewear", "night in",
+    })
+    _CHILD_KEYWORDS: frozenset[str] = frozenset({
+        "baby", "kid", "kids", "child", "children", "infant", "toddler",
+    })
 
     # Gender keyword → index_group_name value mapping.
     # Applied in search_node before the general auto-facet extractor so
@@ -363,6 +394,22 @@ def build_graph(
             return True
         return any(str(v).lower() == dominant for v in filters.values())
 
+    def _extract_excluded_colours(query: str, valid_colours: set[str]) -> list[str]:
+        """Parse negation phrases like 'not black', 'no white', 'but not dark blue'."""
+        q = query.lower()
+        excluded = []
+        negation_re = re.compile(
+            r"\b(?:not|no|without|except|but\s+not|other\s+than)\s+([\w\s]+)",
+            re.IGNORECASE,
+        )
+        for m in negation_re.finditer(q):
+            candidate = m.group(1).strip()
+            for colour in sorted(valid_colours, key=len, reverse=True):
+                if colour in candidate:
+                    excluded.append(colour)
+                    break
+        return excluded
+
     def search_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
         raw_query = state["user_query"]
@@ -394,6 +441,15 @@ def build_graph(
                 if re.search(pattern, raw_lower, re.IGNORECASE):
                     merged = {**merged, "index_group_name": group_val.lower()}
                     break
+
+        # Sleep/nightwear queries default to Ladieswear to avoid Baby/Children results
+        # (sleeping sacks, baby robes) unless the user explicitly asks for children's items.
+        if "index_group_name" not in merged:
+            raw_lower = raw_query.lower()
+            has_sleep = any(kw in raw_lower for kw in _SLEEP_KEYWORDS)
+            has_child = any(kw in raw_lower for kw in _CHILD_KEYWORDS)
+            if has_sleep and not has_child:
+                merged = {**merged, "index_group_name": "ladieswear"}
 
         # Auto-extract facet filters from the query when the LLM omitted them.
         # LLM-emitted filters take precedence (facets already in merged are skipped).
@@ -475,6 +531,17 @@ def build_graph(
                     deduped.append(item)
         items_out = deduped
 
+        # Negative colour filter: remove explicitly excluded colours when enough remain.
+        valid_colours_lower = _valid_facet_values.get("colour_group_name", set())
+        excluded_colours = _extract_excluded_colours(raw_query, valid_colours_lower)
+        if excluded_colours:
+            filtered_by_colour = [
+                it for it in items_out
+                if it.get("colour", "").lower() not in excluded_colours
+            ]
+            if len(filtered_by_colour) >= 3:
+                items_out = filtered_by_colour
+
         # Beach/summer queries: cap at 2 items per product_type to ensure variety
         # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
         if _BEACH_SUMMER_RE.search(query):
@@ -513,6 +580,8 @@ def build_graph(
         }
         if effective_filters != merged:
             update["filters"] = effective_filters
+        if excluded_colours:
+            update["excluded_colours"] = excluded_colours
         return update
 
     def compare_node(state: AgentState) -> dict:
@@ -553,10 +622,25 @@ def build_graph(
             ],
         }
 
+    # Remap values the LLM commonly puts on the wrong key.
+    # Maps (wrong_key, value_lower) → correct (key, canonical_value).
+    _FILTER_REMAP: dict[tuple[str, str], tuple[str, str]] = {
+        ("department_name", "divided"):     ("index_group_name", "Divided"),
+        ("department_name", "ladieswear"):  ("index_group_name", "Ladieswear"),
+        ("department_name", "menswear"):    ("index_group_name", "Menswear"),
+        ("department_name", "baby/children"): ("index_group_name", "Baby/Children"),
+        ("department_name", "sport"):       ("index_group_name", "Sport"),
+    }
+
     def filter_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
         key = plan.get("key", "")
         value = plan.get("value", "")
+
+        # Auto-remap known wrong-key values before validation.
+        remap_key = (key, value.lower())
+        if remap_key in _FILTER_REMAP:
+            key, value = _FILTER_REMAP[remap_key]
 
         # Reject filters whose value doesn't exist in the catalogue — prevents
         # the LLM from applying invented values (e.g. colour "Lightweight") that
