@@ -464,12 +464,25 @@ def build_graph(
                     merged = {**merged, facet_name: val}
                     break
 
+        # Negative colour filter: parse exclusions from user query now so we can
+        # apply them on the raw candidate pool before reranking.
+        valid_colours_lower = _valid_facet_values.get("colour_group_name", set())
+        excluded_colours = _extract_excluded_colours(raw_query, valid_colours_lower)
+
+        # The router LLM sometimes misreads "not black" as a positive colour filter.
+        # Detect and remove any colour filter whose value matches an excluded colour.
+        if excluded_colours and "colour_group_name" in merged:
+            if merged["colour_group_name"].lower() in excluded_colours:
+                merged = {k: v for k, v in merged.items() if k != "colour_group_name"}
+
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
 
-        # Always fetch 20 candidates for the LLM reranker.
-        result = search_catalogue(query, merged or None, retriever, 20)
+        # Fetch extra candidates when colour exclusion is active so the filtered
+        # pool still has enough items for the reranker (excluded colour may dominate).
+        fetch_k = 40 if excluded_colours else 20
+        result = search_catalogue(query, merged or None, retriever, fetch_k)
 
         # Gender filter is applied when it was extracted from this query (not inherited).
         # Keep it explicit so we can handle zero-stock gracefully below.
@@ -509,6 +522,17 @@ def build_graph(
             if len(fresh) >= 2:
                 candidates = fresh
 
+        # Apply negative colour exclusion on the candidate pool before reranking
+        # so the reranker never sees excluded-colour items. Guard: need at least 2
+        # non-excluded items to make a useful result (user can always refine further).
+        if excluded_colours:
+            colour_filtered = [
+                it for it in candidates
+                if it.get("colour", "").lower() not in excluded_colours
+            ]
+            if len(colour_filtered) >= 2:
+                candidates = colour_filtered
+
         items_out = rerank(query, candidates, llm, top_k=top_k)
 
         # Dedup by (prod_name, colour): H&M lists same product in many colours;
@@ -530,17 +554,6 @@ def build_graph(
                     seen_prod.add(key)
                     deduped.append(item)
         items_out = deduped
-
-        # Negative colour filter: remove explicitly excluded colours when enough remain.
-        valid_colours_lower = _valid_facet_values.get("colour_group_name", set())
-        excluded_colours = _extract_excluded_colours(raw_query, valid_colours_lower)
-        if excluded_colours:
-            filtered_by_colour = [
-                it for it in items_out
-                if it.get("colour", "").lower() not in excluded_colours
-            ]
-            if len(filtered_by_colour) >= 3:
-                items_out = filtered_by_colour
 
         # Beach/summer queries: cap at 2 items per product_type to ensure variety
         # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
