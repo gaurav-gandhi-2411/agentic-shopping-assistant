@@ -176,10 +176,13 @@ class GroqClient:
         return self.chat_stream(messages, **kwargs)
 
 
-def get_llm_client(config: dict) -> OllamaClient | GroqClient:
-    provider = config["llm"]["provider"]
+def get_llm_client(config: dict) -> "OllamaClient | GroqClient":
+    provider = os.environ.get("LLM_PROVIDER") or config["llm"]["provider"]
     if provider == "ollama":
         return OllamaClient(config)
     if provider == "groq":
         return GroqClient(config)
-    raise NotImplementedError(f"Unknown LLM provider: {provider!r}. Supported: ollama, groq")
+    if provider == "gemini":
+        from src.llm.gemini_client import GeminiClient
+        return GeminiClient(config)
+    raise NotImplementedError(f"Unknown LLM provider: {provider!r}. Supported: ollama, groq, gemini")
