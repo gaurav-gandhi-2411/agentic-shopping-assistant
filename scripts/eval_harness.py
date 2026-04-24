@@ -2,13 +2,15 @@
 """Evaluation harness for the Agentic Shopping Assistant.
 
 Usage:
-    python scripts/eval_harness.py --dry-run           # validate YAML only
-    python scripts/eval_harness.py                     # run all 32 queries live
-    python scripts/eval_harness.py --query-id TB3      # run one query
+    python scripts/eval_harness.py --dry-run                         # validate YAML only
+    python scripts/eval_harness.py                                   # run all 32 queries
+    python scripts/eval_harness.py --provider groq --query-id C1 C2  # specific provider + ids
+    python scripts/eval_harness.py --provider openrouter --resume reports/eval_results_..._groq_v1.json
 """
 import argparse
 import json
 import os
+import random
 import sys
 import time
 import statistics
@@ -19,6 +21,14 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
+
+# Per-provider inter-query sleep (seconds); OpenRouter gets +0-2s jitter on top
+_PROVIDER_DELAY = {
+    "groq":        3.0,
+    "openrouter":  5.0,
+    "gemini":      2.0,
+    "ollama":      0.5,
+}
 
 # ── path setup ───────────────────────────────────────────────────────────────
 _SCRIPTS_DIR = Path(__file__).parent
@@ -31,7 +41,6 @@ _REPORTS_DIR = _ROOT / "reports"
 _YAML_PATH = _SCRIPTS_DIR / "eval_queries.yaml"
 _CONFIG_PATH = str(_ROOT / "config.yaml")
 
-INTER_QUERY_DELAY = 2.0  # seconds between queries (Groq rate-limit buffer)
 
 KNOWN_CHECK_KEYS = {
     "n_results_min",
@@ -139,7 +148,7 @@ def dry_run(queries: list[dict], df) -> bool:
 
 # ── agent component loader ────────────────────────────────────────────────────
 
-def build_components():
+def build_components(provider: str | None = None):
     from src.catalogue.loader import load_config
     from src.retrieval.dense_search import DenseRetriever
     from src.retrieval.sparse_search import SparseRetriever
@@ -149,7 +158,9 @@ def build_components():
     from src.agents.graph import build_graph
 
     config = load_config(_CONFIG_PATH)
-    config["llm"]["provider"] = os.environ.get("LLM_PROVIDER", "groq")
+    _provider = provider or os.environ.get("LLM_PROVIDER", "groq")
+    config["llm"]["provider"] = _provider
+    os.environ["LLM_PROVIDER"] = _provider  # ensure client factory picks it up
 
     print("Loading retrieval indices...")
     df = _load_catalogue_df(_DATA_DIR)
@@ -337,6 +348,7 @@ def run_query(agent, query_spec: dict) -> dict:
         "query":          main_query,
         "setup_turns":    setup_turns,
         "status":         overall,
+        "provider":       os.environ.get("LLM_PROVIDER", "groq"),
         "checks":         check_results,
         "passed":         passed,
         "failed":         failed,
@@ -420,11 +432,19 @@ def main():
     parser = argparse.ArgumentParser(description="Eval harness for the Shopping Assistant")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate YAML only — no agent or LLM calls")
+    parser.add_argument("--provider", choices=["groq", "gemini", "openrouter", "ollama"],
+                        help="LLM provider (overrides LLM_PROVIDER env var and config.yaml)")
     parser.add_argument("--query-id", metavar="ID", nargs="+",
                         help="Run one or more queries by id (e.g. C1 TB3 N1)")
+    parser.add_argument("--resume", metavar="JSON_PATH",
+                        help="Merge into an existing results JSON, skipping already-completed queries")
     parser.add_argument("--yaml", default=str(_YAML_PATH),
                         help="Path to eval_queries.yaml")
     args = parser.parse_args()
+
+    # --provider overrides env / config
+    if args.provider:
+        os.environ["LLM_PROVIDER"] = args.provider
 
     # API key is only required for live runs
     if not args.dry_run:
@@ -457,18 +477,38 @@ def main():
         ok     = dry_run(queries, df_chk)
         sys.exit(0 if ok else 1)
 
+    # ── RESUME: load existing results, skip completed queries ─────────────────
+    existing_results: list[dict] = []
+    if args.resume:
+        resume_path = Path(args.resume)
+        existing_payload = json.loads(resume_path.read_text(encoding="utf-8"))
+        existing_results = existing_payload.get("results", [])
+        skip_ids = {r["id"] for r in existing_results if r["status"] in ("PASS", "FAIL")}
+        before = len(queries)
+        queries = [q for q in queries if q["id"] not in skip_ids]
+        print(f"Resuming from {resume_path.name}: "
+              f"{len(existing_results)} existing results, "
+              f"skipping {before - len(queries)} completed, "
+              f"{len(queries)} remaining.\n")
+
     # ── LIVE RUN ──────────────────────────────────────────────────────────────
+    _run_provider = os.environ.get("LLM_PROVIDER", "groq")
+    inter_delay   = _PROVIDER_DELAY.get(_run_provider, 2.0)
+
     print("Building agent components...")
     agent, llm, config = build_components()
-    print(f"Ready — {len(queries)} quer{'y' if len(queries) == 1 else 'ies'} queued.\n")
+    print(f"Ready — {len(queries)} quer{'y' if len(queries) == 1 else 'ies'} queued "
+          f"[provider={_run_provider}, delay={inter_delay}s].\n")
 
     _REPORTS_DIR.mkdir(exist_ok=True)
-    _run_provider = os.environ.get("LLM_PROVIDER", "groq")
-    stem      = f"eval_results_{date.today().strftime('%Y%m%d')}_{_run_provider}"
+    if args.resume:
+        stem = f"eval_results_{date.today().strftime('%Y%m%d')}_merged"
+    else:
+        stem = f"eval_results_{date.today().strftime('%Y%m%d')}_{_run_provider}"
     json_path = _versioned_path(_REPORTS_DIR, stem, ".json")
     md_path   = json_path.with_suffix(".md")
 
-    results = []
+    new_results = []
     t_start = time.perf_counter()
 
     for i, q in enumerate(queries, 1):
@@ -490,31 +530,44 @@ def main():
                 "id": qid, "category": category, "query": q["query"],
                 "setup_turns": q.get("setup_turns", []),
                 "status": "ERROR", "error": repr(exc),
+                "provider": _run_provider,
                 "checks": {}, "passed": [], "failed": [], "skipped": [],
                 "n_items": 0, "response_text": "", "tool_calls": [],
                 "filters": {}, "out_of_catalogue": False,
                 "latency_main": 0.0, "latency_setup": [], "latency_total": 0.0,
             }
 
-        results.append(rec)
+        new_results.append(rec)
 
         if i < len(queries):
-            time.sleep(INTER_QUERY_DELAY)
+            sleep_time = inter_delay
+            if _run_provider == "openrouter":
+                sleep_time += random.uniform(0, 2.0)
+            time.sleep(sleep_time)
 
     total_time = time.perf_counter() - t_start
+
+    # Merge with existing results (if --resume), preserving YAML order
+    all_results = new_results
+    if existing_results:
+        yaml_order = {q["id"]: idx for idx, q in enumerate(load_queries(yaml_path))}
+        all_results = sorted(
+            existing_results + new_results,
+            key=lambda r: yaml_order.get(r["id"], 999),
+        )
 
     # Save JSON
     payload = {
         "run_date":      date.today().isoformat(),
-        "n_queries":     len(results),
+        "n_queries":     len(all_results),
         "total_time_s":  round(total_time, 1),
-        "results":       results,
+        "results":       all_results,
     }
-    json_path.write_text(json.dumps(payload, indent=2, default=str))
+    json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     print(f"\nJSON saved -> {json_path}")
 
     # Summary to console
-    print_summary(results, total_time)
+    print_summary(all_results, total_time)
 
     # Generate markdown report
     from eval_report import generate_markdown
