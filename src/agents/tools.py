@@ -1,7 +1,7 @@
 import random
 
 import pandas as pd
-from src.retrieval.hybrid_search import HybridRetriever
+from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 
 VALID_FACET_KEYS = {
@@ -130,12 +130,15 @@ def suggest_outfit(
     complements: list[dict] = []
     empty_slots: list[str] = []
     seen_ids: set[str] = {seed_article_id}
+    seen_prod_colour: set[tuple[str, str]] = set()
+    # Pre-seed with the seed item so it can't appear as a complement under any alias
+    seen_prod_colour.add((normalize_prod_name(seed_item.get("prod_name", seed_item["display_name"])), colour))
 
     for cq, slot_label in complement_slots:
         query = f"{cq} {color_hint}".strip()
         candidates = retriever.search(query, top_k=15)
 
-        # Collect up to 3 colour-compatible candidates, then randomly pick 1 for variety
+        # Collect up to 3 colour-compatible, non-duplicate candidates; pick 1 randomly
         colour_ok_pool: list[dict] = []
         for item in candidates:
             if item["article_id"] in seen_ids:
@@ -146,6 +149,10 @@ def suggest_outfit(
                 continue
             # When seed is outerwear, exclude all outerwear-category complements
             if seed_is_outerwear and any(t in item_type for t in _OUTERWEAR_TYPES):
+                continue
+            # Dedup: skip if same normalized prod_name + colour already chosen
+            item_key = (normalize_prod_name(item.get("prod_name", item["display_name"])), item.get("colour", "").lower())
+            if item_key in seen_prod_colour:
                 continue
             item_colour = item.get("colour", "").lower()
             colour_ok = (
@@ -167,6 +174,7 @@ def suggest_outfit(
                 if it["article_id"] not in seen_ids
                 and it.get("product_type", "").lower() != product_type
                 and not (seed_is_outerwear and any(t in it.get("product_type", "").lower() for t in _OUTERWEAR_TYPES))
+                and (normalize_prod_name(it.get("prod_name", it["display_name"])), it.get("colour", "").lower()) not in seen_prod_colour
             ]
             chosen = random.choice(fallback_pool) if fallback_pool else None
 
@@ -174,6 +182,7 @@ def suggest_outfit(
             chosen["_role"] = "complement"
             complements.append(chosen)
             seen_ids.add(chosen["article_id"])
+            seen_prod_colour.add((normalize_prod_name(chosen.get("prod_name", chosen["display_name"])), chosen.get("colour", "").lower()))
         else:
             empty_slots.append(slot_label)
 
