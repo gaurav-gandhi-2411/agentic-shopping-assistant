@@ -131,6 +131,11 @@ def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]
 
 def _render_card(col, item: dict, turn_index: int = 0) -> None:
     with col:
+        role = item.get("_role", "")
+        if role == "seed":
+            st.caption("**Starting item**")
+        elif role == "complement":
+            st.caption("Pair with")
         img_path = _DATA_DIR / item["image_url"] if item.get("image_url") else None
         if img_path and img_path.exists():
             st.image(str(img_path), width=150)
