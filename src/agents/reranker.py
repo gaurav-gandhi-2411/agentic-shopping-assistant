@@ -19,11 +19,13 @@ Do NOT return 5 items in the same colour unless the query explicitly names one c
   * REJECT casual neutrals: beige, light beige, brown, camel, light brown, pastels — not date-night
   * REJECT casual types: sweater, sweatshirt, hoodie, t-shirt — unless explicitly requested
 - Beach / pool / beach vacation queries:
-  * STRONGLY PREFER: swimwear, bikini, bikini top, bikini bottom, cover-up, sundress, beach dress, \
-light tank, board shorts, sarong
-  * AVOID: smart/cocktail/bodycon/shift dresses, formal blouses
-  * REJECT: beige/formal dresses — beach means leisure, not elegance
-  * Neutral-acceptable: light linen/cotton sundresses in light colours if beach-styled
+  * STRONGLY PREFER: swimwear, bikini, bikini top, bikini bottom, swimsuit, cover-up, sundress, \
+beach dress, light tank, board shorts, sarong, flip-flops, beach bag
+  * HARD REJECT — do NOT select even if they appear relevant:
+    - Any dress described as bodycon, shift, midi, formal, cocktail, structured, or tailored
+    - Formal blouses, blazers, trousers, jeans, coats, knitwear, heavy sweaters
+    - Any beige / dark beige / sand-coloured item that is NOT swimwear or a casual sundress
+  * Neutral-acceptable: light linen or cotton sundress in white/light colours if clearly casual
 - Season context: "winter" / "autumn" / "fall" → warm items (coats, sweaters, boots); \
 never shorts, swimwear, or sandals. "summer" / "beach" → light items, swimwear; \
 never coats or heavy knitwear
