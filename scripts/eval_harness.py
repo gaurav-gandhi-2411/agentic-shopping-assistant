@@ -420,8 +420,8 @@ def main():
     parser = argparse.ArgumentParser(description="Eval harness for the Shopping Assistant")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate YAML only — no agent or LLM calls")
-    parser.add_argument("--query-id", metavar="ID",
-                        help="Run a single query by id (e.g. C1, TB3)")
+    parser.add_argument("--query-id", metavar="ID", nargs="+",
+                        help="Run one or more queries by id (e.g. C1 TB3 N1)")
     parser.add_argument("--yaml", default=str(_YAML_PATH),
                         help="Path to eval_queries.yaml")
     args = parser.parse_args()
@@ -438,9 +438,10 @@ def main():
     queries   = load_queries(yaml_path)
 
     if args.query_id:
-        queries = [q for q in queries if q["id"] == args.query_id]
+        ids_wanted = set(args.query_id)
+        queries = [q for q in queries if q["id"] in ids_wanted]
         if not queries:
-            print(f"No query with id {args.query_id!r}")
+            print(f"No queries matching ids: {', '.join(sorted(ids_wanted))}")
             sys.exit(1)
 
     # ── DRY RUN ──────────────────────────────────────────────────────────────
