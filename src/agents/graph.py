@@ -41,14 +41,22 @@ STRICT RULES — follow in order:
 8. Use "clarify" ONLY if the query is completely incomprehensible OR is missing info
    so essential that no useful result is possible:
    - Gender ambiguity on a gender-neutral category ("a jacket" with no prior context)
-   - Explicit request for price/size data the catalogue does not contain
    - Completely off-topic (not a shopping query at all)
    Do NOT clarify for any of these — interpret and search instead:
    - Follow-up refinements: "something more casual", "in blue", "cheaper", "simpler"
    - Style words: "elegant", "minimal", "edgy", "relaxed", "chic"
    - Occasion words: "date night", "beach", "office", "brunch", "gym"
    - Vague adjectives of any kind — commit to a best-effort search; the user can refine
-   Default rule: if you are not certain clarification is essential, output "search".
+
+   AVAILABLE DATA — the system has: display_name, colour_group_name, product_type_name,
+   department_name, detail_desc (short product description).
+   The system does NOT have: price, size, material/fabric composition, weight, fit,
+   in-stock status, seller rating.
+   When the user asks about an attribute the system does not have (price, fabric, size,
+   fit, stock, rating), output {{"action": "respond"}} — do NOT clarify. The respond layer
+   will deliver the "I don't have that information" message using its grounding rules.
+
+   Default rule: if you are not certain clarification is essential, output "respond" or "search".
 9. NEVER repeat the same action twice in a row.
 
 SEASONAL / OCCASION QUERY REWRITING:
@@ -90,6 +98,14 @@ unless those exact words appear in the item description below.
 - Do NOT compare items on attributes that are not listed (no price comparisons, no size comparisons).
 - Keep response to 2-3 sentences. Mention at most 2-3 items by name.
 - Use only facts directly from the provided item attributes.
+
+MISSING ATTRIBUTE HANDLING — if the user asked about something we don't have:
+- fabric / material / composition → "I don't have fabric information for these items — \
+check the product details on the site."
+- price / cost / sale → "I don't have pricing information — check the product page."
+- size / fit / sizing → "I don't have size or fit information — check the product page."
+- stock / availability → "I don't have stock information — check the product page."
+Follow with one optional sentence about what IS visible (colour, type, description excerpt).
 
 User question: "{user_query}"
 
