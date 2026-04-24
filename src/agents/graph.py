@@ -78,7 +78,7 @@ When constructing the search "query" field, always expand it with 2-3 relevant c
 - Do NOT add "shorts" to beach or summer queries — "shorts" triggers athletic/sport matches.
 - "autumn" / "fall" / "rainy": append "jacket coat knitwear"
 - "office" / "work" / "meeting": append "blazer trousers shirt dress"
-- "date night" / "evening" / "cocktail": append "dress blouse elegant"
+- "date night" / "evening" / "cocktail": append "dress blouse blazer evening elegant"
 Never pass the raw user query unchanged when a seasonal or occasion context is present.
 
 Last action taken: {last_action}
@@ -424,6 +424,24 @@ def build_graph(
         # Fallback: use first retrieved item when the LLM didn't extract an explicit ID.
         if not article_id and state.get("retrieved_items"):
             article_id = state["retrieved_items"][0]["article_id"]
+
+        # Guard: if still no seed (e.g. "outfits for date night" misrouted here with no
+        # prior items), return a graceful prompt rather than "Item not found."
+        if not article_id:
+            answer = (
+                "To build an outfit, click 'Style this' on a specific item — "
+                "or tell me which item you'd like to style."
+            )
+            if streaming_mode:
+                return {
+                    "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                    "final_answer": None,
+                    "messages": [],
+                }
+            return {
+                "final_answer": answer,
+                "messages": [{"role": "assistant", "content": answer}],
+            }
 
         result = suggest_outfit(article_id, catalogue_df, retriever)
         seed = result.get("seed_item")

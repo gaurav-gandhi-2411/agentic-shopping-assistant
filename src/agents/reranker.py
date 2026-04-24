@@ -11,6 +11,11 @@ products, select the best 5 that match the full intent of the query.
 Ranking rules:
 - Occasion context: "date night" / "evening out" / "wedding" / "cocktail" → formal \
 or elegant wear; never sleepwear, underwear, or swimwear
+- Date night colour preference: strongly prefer rich, elegant colours — black, red, \
+dark red, dark blue, dark green, burgundy, emerald. Deprioritise casual neutrals: \
+beige, light beige, brown, camel, light brown. Casual types such as sweater, \
+sweatshirt, hoodie, t-shirt should be ranked last unless explicitly requested. \
+Pure white is acceptable for summer cocktail context.
 - Season context: "winter" / "autumn" / "fall" → warm items (coats, sweaters, boots); \
 never shorts, swimwear, or sandals. "summer" / "beach" → light items, swimwear; \
 never coats or heavy knitwear
