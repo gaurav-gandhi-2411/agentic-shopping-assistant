@@ -1,6 +1,17 @@
 import os
+import re
 import time
 from typing import Iterator, Protocol
+
+
+def _parse_retry_after(exc_str: str) -> float:
+    """Extract 'Please try again in Xm Ys' from a Groq rate-limit error string."""
+    m = re.search(r"try again in\s+(?:(\d+)m)?(\d+(?:\.\d+)?)s", exc_str)
+    if m:
+        minutes = int(m.group(1)) if m.group(1) else 0
+        seconds = float(m.group(2))
+        return minutes * 60 + seconds
+    return 0.0
 
 
 class LLMClient(Protocol):
@@ -101,8 +112,13 @@ class GroqClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> str:
-        delays = [1.0, 3.0]
-        for attempt, delay in enumerate(delays + [None]):
+        # Separate TPD (daily) retries from TPM (per-minute) backoff.
+        # TPD: parse "try again in Xm Ys" and wait the full duration (up to 10 times).
+        # TPM and other errors: use a short fixed backoff (1s, 3s), then raise.
+        tpd_retries = 0
+        tpm_delays = iter([1.0, 3.0])
+        attempt = 0
+        while True:
             try:
                 resp = self._client.chat.completions.create(
                     model=self.model,
@@ -112,9 +128,19 @@ class GroqClient:
                 )
                 return resp.choices[0].message.content
             except Exception as exc:
+                attempt += 1
+                exc_str = str(exc)
+                if ("tokens per day" in exc_str or "(TPD)" in exc_str) and tpd_retries < 10:
+                    tpd_retries += 1
+                    wait = _parse_retry_after(exc_str)
+                    wait = max(wait, 60.0)  # minimum 60s for TPD
+                    print(f"[groq] attempt {attempt} failed: {exc!r}. TPD limit — waiting {wait:.0f}s...")
+                    time.sleep(wait + 2)
+                    continue
+                delay = next(tpm_delays, None)
                 if delay is None:
                     raise
-                print(f"[groq] attempt {attempt + 1} failed: {exc!r}. Retrying in {delay}s...")
+                print(f"[groq] attempt {attempt} failed: {exc!r}. Retrying in {delay}s...")
                 time.sleep(delay)
 
     def chat_stream(
