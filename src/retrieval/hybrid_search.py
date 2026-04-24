@@ -55,6 +55,7 @@ class HybridRetriever:
 
             results.append({
                 "article_id": article_id,
+                "prod_name": row.get("prod_name", ""),
                 "display_name": row["display_name"],
                 "colour": facets.get("colour_group_name", ""),
                 "product_type": facets.get("product_type_name", ""),
