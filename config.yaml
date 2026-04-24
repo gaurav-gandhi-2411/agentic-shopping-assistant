@@ -22,7 +22,7 @@ llm:
   timeout_seconds: 60
   groq_model: "llama-3.1-8b-instant"
   gemini_model: "gemini-2.0-flash-lite"
-  openrouter_model: "meta-llama/llama-3.1-8b-instruct:free"
+  openrouter_model: "google/gemma-3-27b-it:free"
 
 agent:
   max_iterations: 6
