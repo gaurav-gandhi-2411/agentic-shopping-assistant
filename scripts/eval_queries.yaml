@@ -1,0 +1,395 @@
+# scripts/eval_queries.yaml
+# 32-query evaluation suite for the Agentic Shopping Assistant.
+# All product_type_name and colour_group_name values verified against
+# data/processed/catalogue.parquet (20,000 items, 107 unique product types).
+#
+# checks keys:
+#   n_results_min              – minimum item count returned by the agent
+#   colour_match               – ≥50% of returned items must carry one of these colours
+#   colour_absent              – NO returned item may carry any of these colours
+#   category_present           – at least 1 returned item must match one of these product_type_name values
+#   category_present_or_empty_ack – as above, OR response text must contain at least 1 style_criteria term
+#   category_absent            – 0 returned items may match any of these product_type_name values
+#   no_hallucination_keywords  – these strings must NOT appear in the response text (case-insensitive)
+#   ooc_expected               – true → agent should respond with OOC message and return 0 items
+#   tool_expected              – tool name the harness expects to appear in state["tool_calls"]
+#   filter_applied             – dict that must be a subset of state["filters"] after the turn
+#   style_criteria             – any 1 of these strings must appear in the response text (case-insensitive)
+
+version: "1.0"
+queries:
+
+  # ── Colour (C1–C5) ──────────────────────────────────────────────────────────
+
+  - id: C1
+    category: colour
+    query: "Show me black dresses"
+    checks:
+      n_results_min: 3
+      colour_match: ["Black"]
+      category_present: ["Dress"]
+
+  - id: C2
+    category: colour
+    query: "I want something in dark blue"
+    checks:
+      n_results_min: 3
+      colour_match: ["Dark Blue"]
+
+  - id: C3
+    category: colour
+    query: "Find me light beige or cream-coloured tops"
+    checks:
+      n_results_min: 2
+      colour_match: ["Light Beige", "Beige", "Off White"]
+
+  - id: C4
+    category: colour
+    query: "White trousers please"
+    checks:
+      n_results_min: 2
+      colour_match: ["White", "Off White"]
+      category_present: ["Trousers"]
+
+  - id: C5
+    category: colour
+    query: "What grey items do you have?"
+    checks:
+      n_results_min: 3
+      colour_match: ["Grey", "Dark Grey", "Light Grey"]
+
+  # ── Occasion (O1–O5) ────────────────────────────────────────────────────────
+
+  - id: O1
+    category: occasion
+    query: "What should I wear to a beach holiday?"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Swimwear bottom"
+        - "Bikini top"
+        - "Swimwear top"
+        - "Swimsuit"
+      category_absent:
+        - "Blazer"
+        - "Coat"
+        - "Pyjama set"
+        - "Night gown"
+      style_criteria: ["beach", "swim", "holiday", "sun"]
+
+  - id: O2
+    category: occasion
+    query: "I need something to wear to a job interview"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Blazer"
+        - "Trousers"
+        - "Dress"
+        - "Blouse"
+      category_absent:
+        - "Swimwear bottom"
+        - "Bikini top"
+        - "Night gown"
+        - "Pyjama set"
+        - "Shorts"
+        - "Vest top"
+      style_criteria: ["professional", "smart", "formal", "interview", "business", "polished"]
+
+  - id: O3
+    category: occasion
+    query: "Outfit ideas for a date night out"
+    checks:
+      n_results_min: 3
+      category_absent:
+        - "Swimwear bottom"
+        - "Pyjama set"
+        - "Night gown"
+      style_criteria: ["date", "evening", "dinner", "night", "romantic"]
+
+  - id: O4
+    category: occasion
+    query: "Something relaxed for a casual weekend brunch"
+    checks:
+      n_results_min: 3
+      category_absent:
+        - "Blazer"
+        - "Swimwear bottom"
+        - "Night gown"
+        - "Pyjama set"
+      style_criteria: ["casual", "relaxed", "easy", "comfortable", "weekend", "brunch"]
+
+  - id: O5
+    category: occasion
+    query: "What would work for a summer garden party?"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Dress"
+        - "Blouse"
+        - "Skirt"
+      category_absent:
+        - "Coat"
+        - "Pyjama set"
+        - "Night gown"
+      style_criteria: ["summer", "garden", "party", "floral", "light", "feminine"]
+
+  # ── Season (S1–S5) ──────────────────────────────────────────────────────────
+
+  - id: S1
+    category: season
+    query: "Winter wardrobe essentials — I need warmth"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Coat"
+        - "Jacket"
+        - "Sweater"
+        - "Cardigan"
+      category_absent:
+        - "Swimwear bottom"
+        - "Bikini top"
+        - "Shorts"
+      style_criteria: ["warm", "winter", "cosy", "layer", "cold"]
+
+  - id: S2
+    category: season
+    query: "Light outfits for hot summer weather"
+    checks:
+      n_results_min: 3
+      category_absent:
+        - "Coat"
+        - "Pyjama set"
+        - "Night gown"
+      style_criteria: ["summer", "light", "airy", "cool", "hot", "warm"]
+
+  - id: S3
+    category: season
+    query: "Cosy autumn pieces I can layer"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Cardigan"
+        - "Sweater"
+        - "Jacket"
+      category_absent:
+        - "Swimwear bottom"
+        - "Bikini top"
+      style_criteria: ["autumn", "layer", "cosy", "warm", "knitwear", "knit"]
+
+  - id: S4
+    category: season
+    query: "Fresh and light spring outfits"
+    checks:
+      n_results_min: 3
+      category_absent:
+        - "Coat"
+        - "Pyjama set"
+        - "Night gown"
+      style_criteria: ["spring", "light", "fresh", "floral", "pastel"]
+
+  - id: S5
+    category: season
+    query: "Warm-destination holiday wardrobe — pool and beach ready"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Swimwear bottom"
+        - "Bikini top"
+        - "Swimwear top"
+        - "Swimsuit"
+      category_absent:
+        - "Coat"
+        - "Pyjama set"
+        - "Night gown"
+      style_criteria: ["beach", "pool", "swim", "holiday", "sun", "resort"]
+
+  # ── Style (ST1–ST5) ─────────────────────────────────────────────────────────
+
+  - id: ST1
+    category: style
+    query: "Minimalist wardrobe pieces in neutral tones"
+    checks:
+      n_results_min: 3
+      colour_match:
+        - "Black"
+        - "White"
+        - "Off White"
+        - "Grey"
+        - "Dark Grey"
+        - "Light Grey"
+        - "Beige"
+        - "Light Beige"
+      style_criteria: ["minimal", "neutral", "clean", "simple", "pared-back", "understated"]
+
+  - id: ST2
+    category: style
+    query: "Classic smart-casual looks"
+    checks:
+      n_results_min: 3
+      style_criteria: ["classic", "smart", "casual", "timeless", "versatile", "clean"]
+
+  - id: ST3
+    category: style
+    query: "Feminine and flowy pieces"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Dress"
+        - "Blouse"
+        - "Skirt"
+      style_criteria: ["feminine", "flowy", "soft", "delicate", "floaty", "romantic"]
+
+  - id: ST4
+    category: style
+    query: "Cosy loungewear for a night in"
+    checks:
+      n_results_min: 3
+      category_present:
+        - "Pyjama set"
+        - "Night gown"
+        - "Leggings/Tights"
+        - "Sweater"
+        - "Hoodie"
+        - "Cardigan"
+      category_absent: []
+      style_criteria: ["cosy", "lounge", "comfortable", "relaxed", "soft", "home"]
+
+  - id: ST5
+    category: style
+    query: "Effortless everyday basics I can mix and match"
+    checks:
+      n_results_min: 3
+      style_criteria: ["basic", "everyday", "versatile", "wardrobe", "staple", "easy"]
+
+  # ── Negation (N1–N5) ────────────────────────────────────────────────────────
+
+  - id: N1
+    category: negation
+    query: "Show me dresses but not black ones"
+    checks:
+      n_results_min: 3
+      category_present: ["Dress"]
+      colour_absent: ["Black"]
+
+  - id: N2
+    category: negation
+    query: "Casual tops please — nothing formal or blazer-style"
+    checks:
+      n_results_min: 3
+      category_absent: ["Blazer"]
+      style_criteria: ["casual", "relaxed", "easy", "everyday"]
+
+  - id: N3
+    category: negation
+    query: "Show me trousers please, but no shorts"
+    checks:
+      n_results_min: 2
+      category_present: ["Trousers"]
+      category_absent: ["Shorts"]
+
+  - id: N4
+    category: negation
+    query: "Something comfortable to sleep in but not a full pyjama set"
+    checks:
+      n_results_min: 2
+      category_present:
+        - "Night gown"
+        - "Robe"
+        - "Pyjama bottom"
+        - "Pyjama jumpsuit/playsuit"
+      category_absent: ["Pyjama set"]
+
+  - id: N5
+    category: negation
+    query: "Lightweight summer bottoms — not skirts, just shorts or trousers"
+    checks:
+      n_results_min: 2
+      category_present:
+        - "Shorts"
+        - "Trousers"
+        - "Leggings/Tights"
+      category_absent: ["Skirt"]
+
+  # ── Tool Behaviour (TB1–TB7) ─────────────────────────────────────────────────
+
+  - id: TB1
+    category: tool_behaviour
+    query: "Do you sell dog food or pet supplies?"
+    checks:
+      n_results_min: 0
+      ooc_expected: true
+      no_hallucination_keywords:
+        - "Royal Canin"
+        - "Pedigree"
+        - "Purina"
+        - "kibble"
+        - "wet food"
+        - "pet food"
+
+  - id: TB2
+    category: tool_behaviour
+    query: "Can you compare the first two results?"
+    setup_turns:
+      - "Show me black blazers"
+    checks:
+      n_results_min: 2
+      tool_expected: "compare"
+      style_criteria: ["compare", "versus", "vs", "difference", "both", "contrast"]
+
+  - id: TB3
+    category: tool_behaviour
+    query: "Build me a complete outfit around the first item"
+    setup_turns:
+      - "Find me a dark blue dress"
+    checks:
+      n_results_min: 2
+      tool_expected: "outfit"
+      style_criteria: ["outfit", "pair", "complement", "style", "complete", "look"]
+
+  - id: TB4
+    category: tool_behaviour
+    query: "Show only Divided items from that search"
+    setup_turns:
+      - "Show me casual dresses"
+    checks:
+      n_results_min: 1
+      tool_expected: "filter"
+      filter_applied: {"index_group_name": "Divided"}
+
+  - id: TB5
+    category: tool_behaviour
+    query: "Do you carry laptops or consumer electronics?"
+    checks:
+      n_results_min: 0
+      ooc_expected: true
+      no_hallucination_keywords:
+        - "MacBook"
+        - "laptop"
+        - "processor"
+        - "RAM"
+        - "SSD"
+        - "GPU"
+        - "CPU"
+        - "gigabyte"
+        - "terabyte"
+
+  - id: TB6
+    category: tool_behaviour
+    # Catalogue has 99 Menswear Jacket items — tests gender-filtered retrieval.
+    # Agent should return jackets, response should acknowledge menswear context.
+    query: "Show me men's jackets"
+    checks:
+      n_results_min: 0
+      category_present_or_empty_ack: ["Jacket"]
+      style_criteria: ["men", "menswear", "jacket", "limited", "womenswear"]
+
+  - id: TB7
+    category: tool_behaviour
+    query: "Style this around the first one"
+    setup_turns:
+      - "Show me a red dress"
+    checks:
+      n_results_min: 2
+      tool_expected: "outfit"
+      style_criteria: ["outfit", "pair", "complement", "complete", "Starting item"]
