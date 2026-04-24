@@ -286,6 +286,21 @@ def build_graph(
             "tool_calls": tool_calls + [{"router_decision": parsed}],
         }
 
+    # Gender keyword → index_group_name value mapping.
+    # Applied in search_node before the general auto-facet extractor so
+    # gender intent in the query always wins over ambiguous facet matches.
+    _GENDER_MAP: dict[str, str] = {
+        r"\bmen\b": "Menswear", r"\bmens\b": "Menswear",
+        r"\bman\b": "Menswear", r"\bmale\b": "Menswear",
+        r"\bwomen\b": "Ladieswear", r"\bwomens\b": "Ladieswear",
+        r"\bwoman\b": "Ladieswear", r"\bfemale\b": "Ladieswear",
+        r"\bladies\b": "Ladieswear", r"\bladieswear\b": "Ladieswear",
+        r"\bkid\b": "Baby/Children", r"\bkids\b": "Baby/Children",
+        r"\bchild\b": "Baby/Children", r"\bchildren\b": "Baby/Children",
+        r"\bbaby\b": "Baby/Children",
+        r"\bteen\b": "Divided", r"\bteens\b": "Divided",
+    }
+
     # Build a set of valid values per facet once at graph-construction time.
     _valid_facet_values: dict[str, set[str]] = {
         col: set(catalogue_df[col].dropna().str.lower().unique())
@@ -338,6 +353,15 @@ def build_graph(
         # Merge accumulated state filters with any new filters the router specified.
         merged = {**state.get("filters", {}), **plan.get("filters", {})}
 
+        # Gender keyword extraction — applied before general auto-facet so explicit
+        # gender words ("men's shoes", "women's jacket") always set the right group.
+        if "index_group_name" not in merged:
+            raw_lower = raw_query.lower()
+            for pattern, group_val in _GENDER_MAP.items():
+                if re.search(pattern, raw_lower, re.IGNORECASE):
+                    merged = {**merged, "index_group_name": group_val.lower()}
+                    break
+
         # Auto-extract facet filters from the query when the LLM omitted them.
         # LLM-emitted filters take precedence (facets already in merged are skipped).
         # Longest value matched first within each facet so "dark blue" beats "blue",
@@ -365,6 +389,13 @@ def build_graph(
         if not result["items"] and merged:
             result = search_catalogue(query, None, retriever, 20)
             effective_filters = {}
+
+        # Gender-filter sparse-stock check: if gender was applied and fewer than 3
+        # items matched, warn in respond_node by flagging via tool_calls metadata.
+        gender_filter_applied = "index_group_name" in merged and "index_group_name" not in {
+            k: v for k, v in (state.get("filters") or {}).items()
+        }
+        few_gender_results = gender_filter_applied and len(result["items"]) < 3
 
         # For refinement turns: exclude items the user has already seen before reranking.
         candidates = result["items"]
@@ -401,13 +432,15 @@ def build_graph(
                         seen_diverse.add(item["article_id"])
             items_out = diverse[:top_k]
 
+        search_meta: dict = {"query": query, "filters": merged}
+        if few_gender_results:
+            search_meta["few_gender_results"] = True
+            search_meta["gender_group"] = merged.get("index_group_name", "")
         update: dict = {
             "retrieved_items": items_out,
             "new_items_this_turn": True,
             "iteration": state.get("iteration", 0) + 1,
-            "tool_calls": state.get("tool_calls", []) + [
-                {"search": {"query": query, "filters": merged}}
-            ],
+            "tool_calls": state.get("tool_calls", []) + [{"search": search_meta}],
         }
         if effective_filters != merged:
             update["filters"] = effective_filters
@@ -560,10 +593,27 @@ def build_graph(
             }
 
         items = state.get("retrieved_items", [])
+
+        # Check if gender filter returned sparse results — append honest disclaimer.
+        few_gender = any(
+            tc.get("search", {}).get("few_gender_results")
+            for tc in state.get("tool_calls", [])
+        )
+        gender_group = next(
+            (tc["search"].get("gender_group", "") for tc in state.get("tool_calls", [])
+             if tc.get("search", {}).get("few_gender_results")),
+            "",
+        )
+
         prompt = RESPOND_PROMPT.format(
             user_query=state["user_query"],
             items=_format_items_for_response(items),
         )
+        if few_gender and gender_group:
+            prompt += (
+                f"\n\nNote: this catalogue has limited {gender_group} stock. "
+                f"Mention this briefly at the end of your response."
+            )
         if streaming_mode:
             # In streaming mode the app streams the LLM call; store the prompt for pickup.
             return {
