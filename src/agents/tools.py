@@ -18,6 +18,7 @@ _NEUTRAL_COLOURS = frozenset({
 
 _BOTTOM_TYPES = frozenset({"trousers", "jeans", "shorts", "skirt", "leggings"})
 _DRESS_TYPES = frozenset({"dress", "jumpsuit", "playsuit", "dungarees"})
+_OUTERWEAR_TYPES = frozenset({"jacket", "coat", "blazer", "cardigan", "waistcoat", "parka", "anorak"})
 
 
 def search_catalogue(
@@ -97,8 +98,10 @@ def suggest_outfit(
     colour = seed_item["colour"].lower()
     product_type = seed_item["product_type"].lower()
 
-    # Classify seed and pick what it pairs with
-    if any(t in product_type for t in _DRESS_TYPES):
+    # Classify seed and pick what it pairs with; outerwear seeds get top + bottom, not another jacket
+    if any(t in product_type for t in _OUTERWEAR_TYPES):
+        complement_queries = ["top shirt blouse", "trousers jeans skirt"]
+    elif any(t in product_type for t in _DRESS_TYPES):
         complement_queries = ["jacket blazer coat", "bag accessories shoes"]
     elif any(t in product_type for t in _BOTTOM_TYPES):
         complement_queries = ["top shirt blouse", "jacket blazer coat"]
@@ -120,6 +123,10 @@ def suggest_outfit(
         for item in candidates:
             if item["article_id"] in seen_ids:
                 continue
+            # Exclude items of the same product type as the seed
+            item_type = item.get("product_type", "").lower()
+            if product_type and product_type == item_type:
+                continue
             item_colour = item.get("colour", "").lower()
             colour_ok = (
                 is_neutral
@@ -134,8 +141,12 @@ def suggest_outfit(
         if colour_ok_pool:
             chosen = random.choice(colour_ok_pool)
         else:
-            # Fallback: random pick from first 3 non-seed items regardless of colour
-            fallback_pool = [it for it in candidates[:5] if it["article_id"] not in seen_ids]
+            # Fallback: random pick from first 3 non-seed, non-same-type items
+            fallback_pool = [
+                it for it in candidates[:5]
+                if it["article_id"] not in seen_ids
+                and it.get("product_type", "").lower() != product_type
+            ]
             chosen = random.choice(fallback_pool) if fallback_pool else None
 
         if chosen:
