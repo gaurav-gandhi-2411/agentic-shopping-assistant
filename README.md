@@ -160,7 +160,7 @@ The harness is reproducible — run via:
 python scripts/eval_harness.py --provider groq
 ```
 
-Detailed report: [`reports/eval_results_20260425_ollama_v1.md`](reports/eval_results_20260425_ollama_v1.md)
+Detailed report: [`reports/eval_latest_ollama.md`](reports/eval_latest_ollama.md)
 
 ---
 
