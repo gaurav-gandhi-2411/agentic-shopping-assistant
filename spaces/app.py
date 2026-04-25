@@ -463,7 +463,7 @@ if user_input:
             status_ph.empty()
             exc_str = str(exc)
             if "rate_limit_exceeded" in exc_str or "tokens per day" in exc_str.lower() or "RateLimitError" in type(exc).__name__:
-                st.warning("⏳ The AI service has hit its daily token limit. Please try again in a few hours when the rolling window resets. (Groq free-tier: 500k tokens/day)")
+                st.warning("⏳ The AI service is temporarily unavailable due to high usage. Please try again in a few hours.")
             elif "ConnectionError" in type(exc).__name__ or "Timeout" in exc_str:
                 st.warning("🔌 Connection issue with the AI service. Please retry in a moment.")
             else:
