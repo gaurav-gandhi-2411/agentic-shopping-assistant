@@ -142,25 +142,26 @@ prefer same-palette complements, falling back to best relevance match if none fo
 
 ## Evaluation
 
-A 32-query automated test suite covering 6 categories: colour, occasion, season, style, negation, and tool behaviour. Each query has programmatic pass criteria — no manual review.
+A 32-query automated test suite covering 6 categories: colour, occasion, season, style, negation, and tool behaviour. Each query has programmatic pass criteria evaluated without manual review.
 
-| Category | Pass Rate | Notes |
+| Category | Queries | Notes |
 |---|---|---|
-| Colour (5) | 5/5 (100%) | Exact colour match in retrieval |
-| Occasion (5) | 5/5 (100%) | Date night, beach, office, brunch, garden party |
-| Season (5) | 5/5 (100%) | Winter outerwear, summer light, autumn layers |
-| Style (5) | 5/5 (100%) | CIELAB colour-distance scoring for neutral-tone queries |
-| Negation (5) | 5/5 (100%) | "not black", "no shorts", "other than dresses" |
-| Tool behaviour (7) | 7/7 (100%) | Compare, outfit, filter, OOC detection |
-| **Total** | **32/32 (100%)** | |
+| Colour | 5 | Exact colour match in retrieval |
+| Occasion | 5 | Date night, beach, office, brunch, garden party |
+| Season | 5 | Winter outerwear, summer light, autumn layers |
+| Style | 5 | Minimalist, smart-casual, feminine, loungewear, basics |
+| Negation | 5 | "not black", "no shorts", "other than dresses" |
+| Tool behaviour | 7 | Compare, outfit, filter, OOC detection, gender facets |
 
-The harness is reproducible — run via:
+During evaluation, the style category surfaced a colour-tone matching issue: queries like "minimalist wardrobe in neutral tones" returned items the LLM considered tonally compatible but which fell outside a strict neutral palette. The fix: CIELAB ΔE 2000 colour-distance scoring — items are accepted if their perceptual colour distance from the neutral palette is within a configurable threshold, rather than requiring exact colour name matches. This approach mirrors how human perception works and is more robust to catalogue vocabulary variation.
+
+The harness is reproducible:
 
 ```bash
 python scripts/eval_harness.py --provider groq
 ```
 
-Detailed report: [`reports/eval_latest_ollama.md`](reports/eval_latest_ollama.md)
+Detailed results: [`reports/eval_baseline_groq.md`](reports/eval_baseline_groq.md)
 
 ---
 
@@ -320,8 +321,8 @@ lines; the eval check mirrors the ≥50% threshold used by the existing `colour_
 **Building an evaluation harness is more valuable than fixing bugs ad-hoc.**
 Before the harness, every "fix" felt subjective ("does it work better now?"). After: 32 programmatic
 criteria with pass/fail signal. The harness caught 5 specific failures with clear root causes
-(negation handling, OOC bypass, baby-item leakage, facet vocabulary confusion), guiding fixes that
-improved 27/32 → 32/32. In production, this kind of evaluation pipeline is what separates
+(negation handling, OOC bypass, baby-item leakage, facet vocabulary confusion), and guided targeted
+fixes for each. In production, this kind of evaluation pipeline is what separates
 "ship it" from "we hope it works."
 
 **HuggingFace Spaces has non-obvious deployment traps.**
