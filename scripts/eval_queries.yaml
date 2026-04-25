@@ -211,15 +211,17 @@ queries:
     query: "Minimalist wardrobe pieces in neutral tones"
     checks:
       n_results_min: 3
-      colour_match:
-        - "Black"
-        - "White"
-        - "Off White"
-        - "Grey"
-        - "Dark Grey"
-        - "Light Grey"
-        - "Beige"
-        - "Light Beige"
+      colour_tone_compatible:
+        palette:
+          - "Black"
+          - "White"
+          - "Off White"
+          - "Grey"
+          - "Dark Grey"
+          - "Light Grey"
+          - "Beige"
+          - "Light Beige"
+        max_delta_e: 25
       style_criteria: ["minimal", "neutral", "clean", "simple", "pared-back", "understated"]
 
   - id: ST2
