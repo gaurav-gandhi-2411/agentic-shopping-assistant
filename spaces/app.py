@@ -103,6 +103,83 @@ _NEUTRAL_COLOURS = frozenset({
     "black", "white", "grey", "dark grey", "light grey",
     "beige", "light beige", "dark beige",
 })
+
+# Tonal-style queries trigger CIELAB post-filter: (palette, max_delta_e)
+TONAL_STYLE_PALETTES: dict[str, tuple[list[str] | None, float]] = {
+    "minimalist": (
+        ["Black", "White", "Off White", "Grey", "Dark Grey", "Light Grey", "Beige", "Light Beige"],
+        25,
+    ),
+    "neutral": (
+        ["Black", "White", "Off White", "Grey", "Dark Grey", "Light Grey", "Beige", "Light Beige"],
+        25,
+    ),
+    "earth tone": (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
+    "earth tones": (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
+    "monochrome": (None, 15),
+}
+
+
+def _get_tonal_spec(query: str) -> tuple[list[str] | None, float] | None:
+    """Return (palette, max_delta_e) if query contains a tonal keyword, else None."""
+    q_lower = query.lower()
+    for keyword, spec in TONAL_STYLE_PALETTES.items():
+        if keyword in q_lower:
+            return spec
+    return None
+
+
+def _filter_by_tonal_compatibility(
+    items: list[dict],
+    palette: list[str],
+    max_delta_e: float,
+) -> list[dict]:
+    from src.utils.colour_lab import COLOUR_TO_LAB, delta_e_2000
+    palette_labs = [COLOUR_TO_LAB[c] for c in palette if c in COLOUR_TO_LAB]
+    if not palette_labs:
+        return items
+    result = []
+    for item in items:
+        item_lab = COLOUR_TO_LAB.get(item.get("colour", ""))
+        if item_lab is None:
+            result.append(item)  # unknown colour: include
+            continue
+        if min(delta_e_2000(item_lab, p_lab) for p_lab in palette_labs) <= max_delta_e:
+            result.append(item)
+    return result
+
+
+def _tonal_backfill(
+    filtered: list[dict],
+    user_query: str,
+    palette: list[str],
+    max_delta_e: float,
+    target: int = 5,
+) -> list[dict]:
+    """Re-retrieve up to `target` tonal items if filtered pool is too small."""
+    from src.utils.colour_lab import COLOUR_TO_LAB, delta_e_2000
+    retriever_obj, _ = _load_retrieval()
+    candidates = retriever_obj.search(user_query, top_k=25)
+    palette_labs = [COLOUR_TO_LAB[c] for c in palette if c in COLOUR_TO_LAB]
+    seen_ids = {it["article_id"] for it in filtered}
+    seen_keys = {
+        (normalize_prod_name(it.get("prod_name", it.get("display_name", ""))), it.get("colour", "").lower())
+        for it in filtered
+    }
+    for cand in candidates:
+        if len(filtered) >= target:
+            break
+        if cand["article_id"] in seen_ids:
+            continue
+        key = (normalize_prod_name(cand.get("prod_name", cand.get("display_name", ""))), cand.get("colour", "").lower())
+        if key in seen_keys:
+            continue
+        cand_lab = COLOUR_TO_LAB.get(cand.get("colour", ""))
+        if cand_lab is None or (palette_labs and min(delta_e_2000(cand_lab, p) for p in palette_labs) <= max_delta_e):
+            filtered.append(cand)
+            seen_ids.add(cand["article_id"])
+            seen_keys.add(key)
+    return filtered
 # Dark tones that work together; excludes dark green/red (too colourful to count as "dark neutral")
 _COMPATIBLE_DARKS = frozenset({"black", "dark blue", "dark grey"})
 _COMPATIBLE_LIGHTS = frozenset({"white", "light grey", "light beige", "beige", "light pink", "light blue"})
@@ -389,6 +466,18 @@ if user_input:
         action = plan.get("action", "")
         items = result.get("retrieved_items", [])
         new_items = result.get("new_items_this_turn", False)
+
+        # Post-reranker tonal filter — only for queries with tonal style keywords
+        if new_items and items:
+            tonal_spec = _get_tonal_spec(user_input)
+            if tonal_spec is not None:
+                palette, max_de = tonal_spec
+                if palette is not None:
+                    filtered = _filter_by_tonal_compatibility(items, palette, max_de)
+                    if len(filtered) < 3:
+                        filtered = _tonal_backfill(filtered, user_input, palette, max_de)
+                    if len(filtered) >= 3:
+                        items = filtered[:5]
 
         # Phase 2 — stream the LLM response
         if action == "pending_respond":

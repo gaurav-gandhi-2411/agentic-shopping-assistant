@@ -46,6 +46,7 @@ KNOWN_CHECK_KEYS = {
     "n_results_min",
     "colour_match",
     "colour_absent",
+    "colour_tone_compatible",
     "category_present",
     "category_present_or_empty_ack",
     "category_absent",
@@ -115,6 +116,17 @@ def dry_run(queries: list[dict], df) -> bool:
             for colour in checks.get(key, []):
                 if colour.lower() not in all_colours:
                     errors.append(f"[{qid}] {key}: colour not in catalogue: {colour!r}")
+
+        # colour_tone_compatible: must be a dict with palette (list) and max_delta_e (number)
+        if "colour_tone_compatible" in checks:
+            spec = checks["colour_tone_compatible"]
+            if not isinstance(spec, dict):
+                errors.append(f"[{qid}] colour_tone_compatible: must be a dict")
+            else:
+                if "palette" not in spec or not isinstance(spec["palette"], list):
+                    errors.append(f"[{qid}] colour_tone_compatible: missing or invalid 'palette' list")
+                if "max_delta_e" not in spec or not isinstance(spec["max_delta_e"], (int, float)):
+                    errors.append(f"[{qid}] colour_tone_compatible: missing or invalid 'max_delta_e' number")
 
         # Product-type value validation
         for key in ("category_present", "category_absent", "category_present_or_empty_ack"):
@@ -199,6 +211,41 @@ def _invoke(agent, state) -> tuple[dict, float]:
     return result, time.perf_counter() - t0
 
 
+# ── CIELAB tonal evaluator ────────────────────────────────────────────────────
+
+def _eval_colour_tone_compatible(
+    items: list[dict],
+    palette: list[str],
+    max_delta_e: float,
+) -> tuple[bool, str | None]:
+    """Return (passed, failure_detail).
+
+    Mirrors the colour_match ≥50% threshold but uses CIELAB deltaE distance
+    instead of exact name matching, so tonally-close colours (e.g. Light Pink,
+    Greyish Beige) count as compatible even if their name isn't in the palette.
+    """
+    from src.utils.colour_lab import COLOUR_TO_LAB, delta_e_2000
+    palette_labs = [COLOUR_TO_LAB[c] for c in palette if c in COLOUR_TO_LAB]
+    if not palette_labs:
+        return True, None
+    n_compatible = 0
+    violations: list[str] = []
+    for item in items:
+        item_colour = item.get("colour", "")
+        item_lab = COLOUR_TO_LAB.get(item_colour)
+        if item_lab is None:
+            n_compatible += 1  # unknown colour: benefit of the doubt
+            continue
+        min_dist = min(delta_e_2000(item_lab, p_lab) for p_lab in palette_labs)
+        if min_dist <= max_delta_e:
+            n_compatible += 1
+        else:
+            violations.append(f"{item_colour} (ΔE {min_dist:.1f} > {max_delta_e})")
+    if (n_compatible / len(items)) < 0.5:
+        return False, ", ".join(violations)
+    return True, None
+
+
 # ── check evaluators ──────────────────────────────────────────────────────────
 
 def evaluate_checks(checks: dict, result: dict, response_text: str) -> dict[str, Any]:
@@ -229,6 +276,19 @@ def evaluate_checks(checks: dict, result: dict, response_text: str) -> dict[str,
         ev["colour_absent"] = not any(
             it.get("colour", "").lower() in forbidden for it in items
         )
+
+    # colour_tone_compatible: all items must be within CIELAB deltaE of a palette
+    if "colour_tone_compatible" in checks:
+        if not items:
+            ev["colour_tone_compatible"] = "SKIP"
+        else:
+            spec = checks["colour_tone_compatible"]
+            passed, details = _eval_colour_tone_compatible(
+                items, spec.get("palette", []), spec.get("max_delta_e", 25)
+            )
+            ev["colour_tone_compatible"] = passed
+            if details:
+                ev["_colour_tone_failures"] = details
 
     # category_present: at least 1 item must have one of these product types
     if "category_present" in checks:
