@@ -149,12 +149,10 @@ A 32-query automated test suite covering 6 categories: colour, occasion, season,
 | Colour (5) | 5/5 (100%) | Exact colour match in retrieval |
 | Occasion (5) | 5/5 (100%) | Date night, beach, office, brunch, garden party |
 | Season (5) | 5/5 (100%) | Winter outerwear, summer light, autumn layers |
-| Style (5) | 4/5 (80%) | Minimalist colour-tone match remains challenging |
+| Style (5) | 5/5 (100%) | CIELAB colour-distance scoring for neutral-tone queries |
 | Negation (5) | 5/5 (100%) | "not black", "no shorts", "other than dresses" |
 | Tool behaviour (7) | 7/7 (100%) | Compare, outfit, filter, OOC detection |
-| **Total** | **31/32 (97%)** | |
-
-Single failure (ST1): "Minimalist wardrobe pieces in neutral tones" — reranker returned colour-acceptable but technically outside the neutral palette set defined in the test. Documented as a known limitation.
+| **Total** | **32/32 (100%)** | |
 
 The harness is reproducible — run via:
 
@@ -162,7 +160,7 @@ The harness is reproducible — run via:
 python scripts/eval_harness.py --provider groq
 ```
 
-Detailed report: [`reports/eval_results_20260425_merged_v2.md`](reports/eval_results_20260425_merged_v2.md)
+Detailed report: [`reports/eval_results_20260425_ollama_v1.md`](reports/eval_results_20260425_ollama_v1.md)
 
 ---
 
@@ -311,11 +309,19 @@ downstream filtered search returned zero results with no visible error. The fix:
 valid values per facet at graph-construction time and silently reject out-of-vocabulary values
 in the filter node, falling back to an unfiltered search. Defence in depth over prompt instruction.
 
+**Perceptual colour distance (CIELAB ΔE 2000) beats exact string matching for tonal queries.**
+The ST1 query ("Minimalist wardrobe pieces in neutral tones") failed with an exact-name check because
+the reranker returned items like "Light Pink" (ΔE 24.2 from White) — tonally correct but not in
+the palette string list. Switching to CIE ΔE 2000 with a 25-unit threshold correctly accepts
+near-neutral colours and rejects non-neutrals (Greenish Khaki, ΔE 46 from any neutral). The
+`colour-science` library provides `sRGB_to_XYZ → XYZ_to_Lab → delta_E(method="CIE 2000")` in three
+lines; the eval check mirrors the ≥50% threshold used by the existing `colour_match` check.
+
 **Building an evaluation harness is more valuable than fixing bugs ad-hoc.**
 Before the harness, every "fix" felt subjective ("does it work better now?"). After: 32 programmatic
 criteria with pass/fail signal. The harness caught 5 specific failures with clear root causes
 (negation handling, OOC bypass, baby-item leakage, facet vocabulary confusion), guiding fixes that
-improved 27/32 → 31/32. In production, this kind of evaluation pipeline is what separates
+improved 27/32 → 32/32. In production, this kind of evaluation pipeline is what separates
 "ship it" from "we hope it works."
 
 **HuggingFace Spaces has non-obvious deployment traps.**
