@@ -1,0 +1,1062 @@
+{
+  "run_date": "2026-04-25",
+  "n_queries": 32,
+  "total_time_s": 902.5,
+  "results": [
+    {
+      "id": "C1",
+      "category": "colour",
+      "query": "Show me black dresses",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true,
+        "category_present": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match",
+        "category_present"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Here are the black dresses we have:\n\n* J Ingrid (Black Dress) is a short-sleeved dress in soft jersey. * Bingo (Black Dress) is a short dress in a textured weave. * Santa Monica (Black Dress) is a short, A-line dress in an airy cotton weave. All of these dresses are black.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 35.16,
+      "latency_setup": [],
+      "latency_total": 35.16
+    },
+    {
+      "id": "C2",
+      "category": "colour",
+      "query": "I want something in dark blue",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "The BEE TEE, Lova Linen v neck, FORTUNA, and Stripe LS Tee are all dark blue. All of these items are t-shirts except for the NOEL price tank BB ES which is a vest top. They come in Dark Blue colour.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 26.75,
+      "latency_setup": [],
+      "latency_total": 26.75
+    },
+    {
+      "id": "C3",
+      "category": "colour",
+      "query": "Find me light beige or cream-coloured tops",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on the available items, I would recommend the \"Lime bikini\" or the \"Thora top\", both of which are light beige coloured tops. The \"Saffron (1)\" is also a light beige top option. All three items have a light beige colour and are classified as tops.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 28.27,
+      "latency_setup": [],
+      "latency_total": 28.27
+    },
+    {
+      "id": "C4",
+      "category": "colour",
+      "query": "White trousers please",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true,
+        "category_present": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match",
+        "category_present"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "We have white trousers available from Victoria Pull-On TRS and Fia Woven Dungaree. Both items are made of viscose weave and woven fabric respectively. The Victoria Pull-On TRS has an airy viscose weave, while the Fia Woven Dungaree is in woven fabric. (Note: I've only mentioned two items as per your request)",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 17.33,
+      "latency_setup": [],
+      "latency_total": 17.33
+    },
+    {
+      "id": "C5",
+      "category": "colour",
+      "query": "What grey items do you have?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "We have several grey items available, including the Ring Pack Jose (Grey Ring), NOEL price tank BB ES (Grey Vest top), Jay Tech Slim Jogger (Grey Trousers), Braces Tweed 3-Clip (Grey Other accessories), and Bag Buster Bum Bag (Grey Bag). These items are all in the colour grey.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 26.71,
+      "latency_setup": [],
+      "latency_total": 26.71
+    },
+    {
+      "id": "O1",
+      "category": "occasion",
+      "query": "What should I wear to a beach holiday?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a beach holiday, you may consider the B August Lace Beach Dress (Black Sarong) or the B Verbena Kaftan (Black Sarong), both of which are described as short beach dresses and kaftans. The description excerpt mentions \"airy cotton weave\" for the B August Lace Beach Dress.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 29.17,
+      "latency_setup": [],
+      "latency_total": 29.17
+    },
+    {
+      "id": "O2",
+      "category": "occasion",
+      "query": "I need something to wear to a job interview",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a job interview, I would recommend considering the Nora shirt dress (Light Yellow Dress) or the Nora dress(1) (Black Dress). Both are dresses that might be suitable for an interview setting. The Light Yellow Dress is made from airy cotton poplin and has a collar, V-neck, and cap sleeves.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 27.67,
+      "latency_setup": [],
+      "latency_total": 27.67
+    },
+    {
+      "id": "O3",
+      "category": "occasion",
+      "query": "Outfit ideas for a date night out",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a date night out, you might consider pairing the Nightinggale blouse with a matching black outfit or the Darling off shoulder top for a bold red look. The RR 37 1 Blazer dress is also a great option as it's a complete outfit in one piece. The Nightinggale blouse features inset lace trims and a small, frilled collar, while the Darling off shoulder top has lace details on its sleeves.",
+      "tool_calls": [
+        "router_decision",
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 33.05,
+      "latency_setup": [],
+      "latency_total": 33.05
+    },
+    {
+      "id": "O4",
+      "category": "occasion",
+      "query": "Something relaxed for a casual weekend brunch",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a casual weekend brunch, I'd recommend the Wave Relaxed Shorts (Black Shorts) or the Daybyday HW (White Shorts). Both are shorts with an elasticated waist for comfort. The Wave Relaxed Shorts have a linen blend fabric and side pockets, while the Daybyday HW has woven fabric with pleats at the front.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 36.13,
+      "latency_setup": [],
+      "latency_total": 36.13
+    },
+    {
+      "id": "O5",
+      "category": "occasion",
+      "query": "What would work for a summer garden party?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a summer garden party, I would recommend the Garden Soho (Light Orange Dress) or the Summer dress (Black Dress). Both are dresses that might be suitable for an outdoor event. The Garden Soho has layers and tie-top shoulder straps, while the Summer dress has a sheen to it.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 29.1,
+      "latency_setup": [],
+      "latency_total": 29.1
+    },
+    {
+      "id": "S1",
+      "category": "season",
+      "query": "Winter wardrobe essentials \u00e2\u20ac\u201d I need warmth",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For warmth, I would recommend the Merlin sweater or the Puff sweater. Both have descriptions that mention being \"soft\" and having long sleeves, which could provide extra warmth. I don't have fabric performance details beyond what's listed in the product description. (Note: colour information is visible for all items)",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 26.81,
+      "latency_setup": [],
+      "latency_total": 26.81
+    },
+    {
+      "id": "S2",
+      "category": "season",
+      "query": "Light outfits for hot summer weather",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For hot summer weather, I would recommend the SUMMER Top (White T-shirt) or the id (White T-shirt), both of which have fast-drying mesh or COOLMAX functional fabric. The SUMMER STRAP DRESS_09-090 and Summer strap dress are also available, but they don't explicitly mention being suitable for hot weather. Both the SUMMER Top and id White T-shirts are white in colour.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 29.45,
+      "latency_setup": [],
+      "latency_total": 29.45
+    },
+    {
+      "id": "S3",
+      "category": "season",
+      "query": "Cosy autumn pieces I can layer",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For layering, I'd recommend considering the Fine knit (Black Sweater) or the Wales sweater (Dark Blue Sweater). Both are jumpers with long sleeves that can be layered under other clothing. The Fine knit has a fine-knit slub cotton fabric and dropped shoulders. (Note: colour information is visible for these items.)",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 27.53,
+      "latency_setup": [],
+      "latency_total": 27.53
+    },
+    {
+      "id": "S4",
+      "category": "season",
+      "query": "Fresh and light spring outfits",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a fresh and light spring outfit, you might consider the US springbreak Agnes body (Light Purple Top) or the SPRING houndstooth crewneck (Black Sweater). Both of these items are made from soft materials that could be suitable for spring weather. The US springbreak Agnes body is described as having a \"soft cotton jersey\" and the SPRING houndstooth crewneck has a \"soft wool blend\".",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 31.5,
+      "latency_setup": [],
+      "latency_total": 31.5
+    },
+    {
+      "id": "S5",
+      "category": "season",
+      "query": "Warm-destination holiday wardrobe \u00e2\u20ac\u201d pool and beach ready",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a warm-destination holiday wardrobe, I'd recommend the Scuba Gooding JR Brief (Light Yellow Swimwear bottom) or the REBOUNDER tie tanga (Light Beige Swimwear bottom) for pool and beach activities. Both are swimwear bottoms with low waist designs. The Scuba Gooding JR Brief is made of scuba fabric, while the REBOUNDER tie tanga has ties at the sides.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {
+        "index_group_name": "ladieswear"
+      },
+      "out_of_catalogue": false,
+      "latency_main": 31.54,
+      "latency_setup": [],
+      "latency_total": 31.54
+    },
+    {
+      "id": "ST1",
+      "category": "style",
+      "query": "Minimalist wardrobe pieces in neutral tones",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_tone_compatible": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_tone_compatible",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on your request for minimalist wardrobe pieces in neutral tones, I would recommend the Black Dress and White Flat shoe. Both of these items feature neutral colours: black and white respectively. The Black Dress is a sleeveless, calf-length dress made from soft viscose jersey.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 25.09,
+      "latency_setup": [],
+      "latency_total": 25.09
+    },
+    {
+      "id": "ST2",
+      "category": "style",
+      "query": "Classic smart-casual looks",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "The Fine knit (Black Sweater) and TY FAIRISLE SWEATER (Black Sweater) both have classic smart-casual looks due to their fine-knit and jacquard knit fabrics respectively. The Tuck cropped sweater (Dark Red Sweater) also has a similar look with its soft, loose knit. All three items are sweaters from the Knitwear department.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 30.87,
+      "latency_setup": [],
+      "latency_total": 30.87
+    },
+    {
+      "id": "ST3",
+      "category": "style",
+      "query": "Feminine and flowy pieces",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on the available items, I would recommend the Bonnie flowy blouse in Light Blue or Dark Blue, as they both have a flowy design with a V-neck and 3/4-length raglan sleeves. These blouses are described as airy and modal weave, which suggests a lightweight and comfortable fabric. The description excerpt for these blouses mentions \"airy\" and \"modal weave\", indicating a feminine and flowy style.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 29.89,
+      "latency_setup": [],
+      "latency_total": 29.89
+    },
+    {
+      "id": "ST4",
+      "category": "style",
+      "query": "Cosy loungewear for a night in",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": "SKIP",
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [
+        "category_absent"
+      ],
+      "n_items": 5,
+      "response_text": "For a night in, I'd recommend our Dina (Off White Sweater) or stuvsta (Black Sweater), both of which are loungewear items with a sweater type. They have rib knit fabrics that might be cozy for lounging around. The Dina sweater is a fitted top with short sleeves, and the stuvsta sweater has a turtle neck and long sleeves.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {
+        "index_group_name": "ladieswear"
+      },
+      "out_of_catalogue": false,
+      "latency_main": 32.37,
+      "latency_setup": [],
+      "latency_total": 32.37
+    },
+    {
+      "id": "ST5",
+      "category": "style",
+      "query": "Effortless everyday basics I can mix and match",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 4,
+      "response_text": "For effortless everyday basics, I'd recommend the Ronny R-Neck (Light Grey T-shirt) and ERIK TANKTOP (Dark Grey Vest top). Both are from the Basics department and have a simple design that can be mixed and matched with other items. The Ronny R-Neck is a Light Grey Jersey T-shirt, while the ERIK TANKTOP is a Dark Grey Vest top in cotton jersey.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 20.0,
+      "latency_setup": [],
+      "latency_total": 20.0
+    },
+    {
+      "id": "N1",
+      "category": "negation",
+      "query": "Show me dresses but not black ones",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "colour_absent": true,
+        "category_present": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_absent",
+        "category_present"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Here are the dresses that aren't black:\n\n* Rania tee dress J (White Dress)\n* Washington dress (White Dress)\n* Cherry dress w (Yellow Dress)\n* JILL TIERD DRESS (Yellow Dress)\n\nThese dresses come in white and yellow colours. They all have short sleeves, except for the Cherry dress which has 3/4-length sleeves with slits at the c...",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 29.59,
+      "latency_setup": [],
+      "latency_total": 29.59
+    },
+    {
+      "id": "N2",
+      "category": "negation",
+      "query": "Casual tops please \u00e2\u20ac\u201d nothing formal or blazer-style",
+      "setup_turns": [],
+      "status": "FAIL",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": false,
+        "category_absent": false,
+        "style_criteria": true
+      },
+      "passed": [
+        "style_criteria"
+      ],
+      "failed": [
+        "n_results_min",
+        "category_absent"
+      ],
+      "skipped": [],
+      "n_items": 2,
+      "response_text": "I'd be happy to help you find some casual tops! Based on what I have, it seems like neither of these blazers are suitable for a casual look. The Burt Skinny Blazer is described as a single-breasted jacket with narrow notch lapels and a decorative buttonhole, which suggests a more formal design. The Nick Super Skinny Blz also has a similar description, mentioning two-button Jacket with narrow notch lapels. Both of these blazers are in Dark Red and Black colours respectively.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 21.74,
+      "latency_setup": [],
+      "latency_total": 21.74
+    },
+    {
+      "id": "N3",
+      "category": "negation",
+      "query": "Show me trousers please, but no shorts",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Here are some trousers that match your request:\n\n* Adina Jsy Pull-on TRS (Black Trousers) - These are black trousers with straight, wide legs. * Victoria (1) (Black Trousers) - These are also black trousers with tapered legs. I don't have fabric information for these items \u2014 check the product details on the site.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 26.88,
+      "latency_setup": [],
+      "latency_total": 26.88
+    },
+    {
+      "id": "N4",
+      "category": "negation",
+      "query": "Something comfortable to sleep in but not a full pyjama set",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on the attributes provided, I would recommend the Li Highwaist brief 2pk (White Underwear bottom) as something comfortable to sleep in. It's described as having soft, organic cotton jersey fabric with a high waist and gathered side seams for a comfortable fit. The Victoria n-slip (J) (Dark Blue Night gown) is also an option, but it's a full night gown which might be more than what you're looking for. Visible details: The Li Highwaist brief 2pk comes in White colour, while the Victoria n-slip has Dark Blue and the Holly fancy sleeping 2pk has Black.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 35.4,
+      "latency_setup": [],
+      "latency_total": 35.4
+    },
+    {
+      "id": "N5",
+      "category": "negation",
+      "query": "Lightweight summer bottoms \u00e2\u20ac\u201d not skirts, just shorts or trousers",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 4,
+      "response_text": "Based on the attributes provided, I can recommend the Brooklyn summer cargo shorts or the Chilli shorts for lightweight summer bottoms. Both are classified as \"shorts\" and have a lightweight fabric description. The Brooklyn summer cargo shorts are made of cotton weave with an elasticated drawstring waist, while the Chilli shorts are in lightweight sweatshirt fabric with an elasticated drawstring waist.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 29.26,
+      "latency_setup": [],
+      "latency_total": 29.26
+    },
+    {
+      "id": "TB1",
+      "category": "tool_behaviour",
+      "query": "Do you sell dog food or pet supplies?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "no_hallucination_keywords": true,
+        "ooc_expected": true
+      },
+      "passed": [
+        "n_results_min",
+        "no_hallucination_keywords",
+        "ooc_expected"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 0,
+      "response_text": "I don't carry pet supplies products \u2014 this catalogue is clothing only. I can help with dresses, tops, trousers, jackets, knitwear, and accessories.",
+      "tool_calls": [
+        "router_decision",
+        "search_ooc",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": true,
+      "latency_main": 2.71,
+      "latency_setup": [],
+      "latency_total": 2.71
+    },
+    {
+      "id": "TB2",
+      "category": "tool_behaviour",
+      "query": "Can you compare the first two results?",
+      "setup_turns": [
+        "Show me black blazers"
+      ],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "tool_expected": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "tool_expected",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 2,
+      "response_text": "Both the Seven blz (Black Blazer) and Ryan long seersucker blz (Black Blazer) are black blazers. They both have a type of \"Blazer\" and are in the department of \"Blazer\". Their descriptions mention features such as notch lapels, chest pockets, and inner pockets.",
+      "tool_calls": [
+        "router_decision",
+        "compare",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 16.58,
+      "latency_setup": [
+        14.13
+      ],
+      "latency_total": 30.71
+    },
+    {
+      "id": "TB3",
+      "category": "tool_behaviour",
+      "query": "Build me a complete outfit around the first item",
+      "setup_turns": [
+        "Find me a dark blue dress"
+      ],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "tool_expected": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "tool_expected",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 4,
+      "response_text": "**Outfit suggestion**\n\nPaired **J Ingrid (Dark Blue Dress)** with Capri blazer (Dark Blue Blazer) and Nicke knit shoe (Dark Blue Other shoe) and BOXY bag (White Bag).",
+      "tool_calls": [
+        "router_decision",
+        "outfit"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 5.16,
+      "latency_setup": [
+        25.24
+      ],
+      "latency_total": 30.4
+    },
+    {
+      "id": "TB4",
+      "category": "tool_behaviour",
+      "query": "Show only Divided items from that search",
+      "setup_turns": [
+        "Show me casual dresses"
+      ],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "tool_expected": true,
+        "filter_applied": true
+      },
+      "passed": [
+        "n_results_min",
+        "tool_expected",
+        "filter_applied"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 4,
+      "response_text": "Here are the Divided items from the search:\n\n* Sierra bodycon (Black Dress) - This is a fitted, strapless dress in black. * SS London dress (Black Dress) - This is a short dress in a patterned viscose weave with a V-neck and elastic cuffs on the sleeves.",
+      "tool_calls": [
+        "router_decision",
+        "filter",
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {
+        "index_group_name": "Divided"
+      },
+      "out_of_catalogue": false,
+      "latency_main": 21.61,
+      "latency_setup": [
+        25.13
+      ],
+      "latency_total": 46.74
+    },
+    {
+      "id": "TB5",
+      "category": "tool_behaviour",
+      "query": "Do you carry laptops or consumer electronics?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "no_hallucination_keywords": true,
+        "ooc_expected": true
+      },
+      "passed": [
+        "n_results_min",
+        "no_hallucination_keywords",
+        "ooc_expected"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 0,
+      "response_text": "I don't carry electronics products \u2014 this catalogue is clothing only. I can help with dresses, tops, trousers, jackets, knitwear, and accessories.",
+      "tool_calls": [
+        "router_decision",
+        "search_ooc",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": true,
+      "latency_main": 2.72,
+      "latency_setup": [],
+      "latency_total": 2.72
+    },
+    {
+      "id": "TB6",
+      "category": "tool_behaviour",
+      "query": "Show me men's jackets",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "category_present_or_empty_ack": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present_or_empty_ack",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Here are some men's jackets:\n\n* Opac coat (Black Coat) is a coat with a stand-up collar and buttons down the front. * It has diagonal, welt front pockets, two inner pockets, and is made from a felted wool blend. Note that I've only mentioned items that match the \"jacket\" type.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {
+        "index_group_name": "menswear"
+      },
+      "out_of_catalogue": false,
+      "latency_main": 26.41,
+      "latency_setup": [],
+      "latency_total": 26.41
+    },
+    {
+      "id": "TB7",
+      "category": "tool_behaviour",
+      "query": "Style this around the first one",
+      "setup_turns": [
+        "Show me a red dress"
+      ],
+      "status": "PASS",
+      "provider": "ollama",
+      "checks": {
+        "n_results_min": true,
+        "tool_expected": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "tool_expected",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 4,
+      "response_text": "**Outfit suggestion**\n\nPaired **Factory girl (Red Dress)** with Polka jsy blazer (Black Blazer) and Elena heeled boot (Red Boots) and Day tote (Black Bag).",
+      "tool_calls": [
+        "router_decision",
+        "outfit"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 5.13,
+      "latency_setup": [
+        23.71
+      ],
+      "latency_total": 28.84
+    }
+  ]
+}
