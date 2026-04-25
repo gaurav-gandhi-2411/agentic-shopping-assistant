@@ -1,0 +1,653 @@
+{
+  "run_date": "2026-04-25",
+  "n_queries": 20,
+  "total_time_s": 85.9,
+  "results": [
+    {
+      "id": "C1",
+      "category": "colour",
+      "query": "Show me black dresses",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true,
+        "category_present": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match",
+        "category_present"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on your request, I can show you the following black dresses: Jill l/s dress w, Selma dress, SS London dress, Banjo dress, and Tyler dress. They are all dresses in the black colour. The Jill l/s dress w has a V-neck, covered buttons down the front, and long sleeves with frilled cuffs.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 817.88,
+      "latency_setup": [],
+      "latency_total": 817.88
+    },
+    {
+      "id": "C2",
+      "category": "colour",
+      "query": "I want something in dark blue",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "You can consider the BEE TEE (Dark Blue T-shirt), Lova Linen v neck (Dark Blue T-shirt), or NOEL price tank BB ES (Dark Blue Vest top) as they are all dark blue. These items are all T-shirts or a similar type of top. They are all in dark blue, a colour that matches your preference.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 940.81,
+      "latency_setup": [],
+      "latency_total": 940.81
+    },
+    {
+      "id": "C3",
+      "category": "colour",
+      "query": "Find me light beige or cream-coloured tops",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on your request, I found the following light beige or cream-coloured tops: Strap top 2p (Light Beige Vest top), Thora top (Light Beige Top), Jennifer (Light Beige Vest top), Saffron (1) (Light Beige Top), and Mia (Light Beige Vest top). All of these tops are light beige in colour, with Strap top 2p and Jennifer being vest tops, and Thora, Saffron (1), and Mia being tops.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 881.63,
+      "latency_setup": [],
+      "latency_total": 881.63
+    },
+    {
+      "id": "C4",
+      "category": "colour",
+      "query": "White trousers please",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true,
+        "category_present": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match",
+        "category_present"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "We have three options for white trousers: Victoria Pull-On TRS, Fia Woven Dungaree, and Perrie Slim Mom Denim TRS. These options are all trousers in white. The Victoria Pull-On TRS has an airy viscose weave, while the Fia Woven Dungaree is made of woven fabric.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 622.02,
+      "latency_setup": [],
+      "latency_total": 622.02
+    },
+    {
+      "id": "C5",
+      "category": "colour",
+      "query": "What grey items do you have?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": true
+      },
+      "passed": [
+        "n_results_min",
+        "colour_match"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "We have the following grey items: Ring Pack Jose (Grey Ring), NOEL price tank BB ES (Grey Vest top), Jay Tech Slim Jogger (Grey Trousers), Didier fancy 3p (Grey Scarf), and SPD WHALTON tee (Grey T-shirt). These items are a ring, vest top, trousers, scarf, and t-shirt respectively.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 940.3,
+      "latency_setup": [],
+      "latency_total": 940.3
+    },
+    {
+      "id": "O1",
+      "category": "occasion",
+      "query": "What should I wear to a beach holiday?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a beach holiday, you may consider the Beach Please Push Bra (Dark Orange Bikini top) or the Hollywell Bay Swimsuit (Black Swimsuit) as they are both bikini tops and swimsuits, which are suitable for beach activities. Both of these items are from the Swimwear department. The Beach Please Push Bra (Dark Orange Bikini top) is a lined bikini top with adjustable shoulder straps, while the Hollywell Bay Swimsuit (Black Swimsuit) has a V-neck at the front and back with wide shoulder straps.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 955.23,
+      "latency_setup": [],
+      "latency_total": 955.23
+    },
+    {
+      "id": "O2",
+      "category": "occasion",
+      "query": "I need something to wear to a job interview",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a job interview, I would recommend the Orly dress or the Rocky tunic. Both are dresses, which might be a good fit for a formal occasion. The Orly dress is a knee-length dress in an airy viscose weave, while the Rocky tunic is a woven fabric tunic with a V-neck and dropped shoulders.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 1021.82,
+      "latency_setup": [],
+      "latency_total": 1021.82
+    },
+    {
+      "id": "O3",
+      "category": "occasion",
+      "query": "Outfit ideas for a date night out",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a date night out, I would recommend pairing the Ginger romantic blouse with a pair of elegant pants or a skirt. The Junior blouse could also be a great option, its fitted lace design adding a touch of sophistication. The Stardust linen blouse is another choice, its linen weave giving it a romantic and effortless look. The Ginger romantic blouse is a White Blouse with a cotton weave and embroidered details.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 909.56,
+      "latency_setup": [],
+      "latency_total": 909.56
+    },
+    {
+      "id": "O4",
+      "category": "occasion",
+      "query": "Something relaxed for a casual weekend brunch",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a casual weekend brunch, I would recommend the Wave Relaxed Shorts or the Daybyday HW. Both of these options are shorts with elasticated waists, which can provide a relaxed fit. The Wave Relaxed Shorts are made from a linen blend, while the Daybyday HW are made from woven fabric.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 925.45,
+      "latency_setup": [],
+      "latency_total": 925.45
+    },
+    {
+      "id": "O5",
+      "category": "occasion",
+      "query": "What would work for a summer garden party?",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a summer garden party, I would recommend the Florence party top (Light Orange Blouse) or the Festival dress (Light Orange Dress). Both items have a light and airy feel to them, with the Florence party top featuring glittery tulle and the Festival dress having a transparent mesh and tulle skirt. The Festival dress also has a unique design with a seam at the waist and a short frill trim.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 993.76,
+      "latency_setup": [],
+      "latency_total": 993.76
+    },
+    {
+      "id": "S1",
+      "category": "season",
+      "query": "Winter wardrobe essentials \u00e2\u20ac\u201d I need warmth",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For warmth, I would recommend the Tuck cropped sweater and the Puff sweater. Both are jumpers in a soft, fine knit, which may provide some warmth. The Tuck cropped sweater has ribbing at the cuffs and hem, while the Puff sweater has ribbing around the neckline, cuffs, and hem.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 775.77,
+      "latency_setup": [],
+      "latency_total": 775.77
+    },
+    {
+      "id": "S2",
+      "category": "season",
+      "query": "Light outfits for hot summer weather",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For hot summer weather, I recommend the Summer strap dress (Red Dress) and the Summer dress (Black Dress). Both are short dresses made of soft jersey. The Summer strap dress has a V-neck and flared skirt, while the Summer dress has a sleeveless design with ties at the front.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 781.56,
+      "latency_setup": [],
+      "latency_total": 781.56
+    },
+    {
+      "id": "S3",
+      "category": "season",
+      "query": "Cosy autumn pieces I can layer",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a cosy autumn layering option, consider the Tuck cropped sweater or the Puff sweater. Both are jumpers in a soft knit with ribbing at the cuffs and hem. The Tuck cropped sweater has a longer back, while the Puff sweater has a relaxed fit with gently dropped shoulders.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 965.87,
+      "latency_setup": [],
+      "latency_total": 965.87
+    },
+    {
+      "id": "S4",
+      "category": "season",
+      "query": "Fresh and light spring outfits",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a fresh and light spring outfit, you might consider the US springbreak Agnes body (Light Purple Top) or the SPRING SET (Light Turquoise T-shirt). Both of these items are tops and are described as being in soft jersey. The US springbreak Agnes body (Light Purple Top) is a light purple top with narrow shoulder straps and press-studs at the crotch.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 874.34,
+      "latency_setup": [],
+      "latency_total": 874.34
+    },
+    {
+      "id": "S5",
+      "category": "season",
+      "query": "Warm-destination holiday wardrobe \u00e2\u20ac\u201d pool and beach ready",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "category_absent",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "For a warm-destination holiday wardrobe that's pool and beach ready, I would recommend the Sahara Hotnights Swimsuit and the Desert Top. Both of these items are designed for swimwear and are fully lined for comfort. The Sahara Hotnights Swimsuit features a one-shoulder design with a cut-out mid section, while the Desert Top has removable inserts and adjustable shoulder straps.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 2.53,
+      "latency_setup": [],
+      "latency_total": 2.53
+    },
+    {
+      "id": "ST1",
+      "category": "style",
+      "query": "Minimalist wardrobe pieces in neutral tones",
+      "setup_turns": [],
+      "status": "FAIL",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "colour_match": false,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "style_criteria"
+      ],
+      "failed": [
+        "colour_match"
+      ],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on the available items, it seems that the Black Dress, Light Green Dress, and Greenish Khaki Dress are all in neutral tones. These dresses are all in solid colours and do not have any bold patterns. The Black Dress is a solid black colour, the Light Green Dress is a light green colour, and the Greenish Khaki Dress is a muted greenish khaki colour.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 32.72,
+      "latency_setup": [],
+      "latency_total": 32.72
+    },
+    {
+      "id": "ST2",
+      "category": "style",
+      "query": "Classic smart-casual looks",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "These items are all part of the Knitwear department, which suggests they could fit into a classic smart-casual look. The Fine knit (Black Sweater) and TY FAIRISLE SWEATER (Black Sweater) both have a jumper style with ribbing around the neckline, cuffs, and hem. They are both black sweaters.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 44.68,
+      "latency_setup": [],
+      "latency_total": 44.68
+    },
+    {
+      "id": "ST3",
+      "category": "style",
+      "query": "Feminine and flowy pieces",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 5,
+      "response_text": "Based on the available items, it seems that the Bonnie flowy blouse in Light Blue and Dark Blue are feminine and flowy pieces, as they both have a flowy description and are blouses. The Bonnie flowy blouse in Light Blue is described as an \"airy blouse in a modal weave\" and the Bonnie flowy blouse in Dark Blue is described as an \"airy modal weave\". Visible details for these items include the Light Blue and Dark Blue colours, and the fact that they are both blouses.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 761.15,
+      "latency_setup": [],
+      "latency_total": 761.15
+    },
+    {
+      "id": "ST4",
+      "category": "style",
+      "query": "Cosy loungewear for a night in",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "category_present": true,
+        "category_absent": "SKIP",
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "category_present",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [
+        "category_absent"
+      ],
+      "n_items": 5,
+      "response_text": "For a night in, I recommend the Harrison (Black Sweater) or the stuvsta (Black Sweater) as both are short-sleeved jumpers in a soft, fine-knit viscose blend. They also have ribbing around the neckline, sleeves, and hem. Both are in black, a classic colour for loungewear.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 950.48,
+      "latency_setup": [],
+      "latency_total": 950.48
+    },
+    {
+      "id": "ST5",
+      "category": "style",
+      "query": "Effortless everyday basics I can mix and match",
+      "setup_turns": [],
+      "status": "PASS",
+      "provider": "groq",
+      "checks": {
+        "n_results_min": true,
+        "style_criteria": true
+      },
+      "passed": [
+        "n_results_min",
+        "style_criteria"
+      ],
+      "failed": [],
+      "skipped": [],
+      "n_items": 4,
+      "response_text": "For effortless everyday basics you can mix and match, I recommend the Ronny R-Neck (Light Grey T-shirt) and the ERIK TANKTOP (Dark Grey Vest top). Both are Basics items and can be paired with each other. They are both T-shirts and Vest tops, respectively, and are described as Jersey T-shirts and Vest tops in cotton jersey.",
+      "tool_calls": [
+        "router_decision",
+        "search",
+        "router_decision"
+      ],
+      "filters": {},
+      "out_of_catalogue": false,
+      "latency_main": 591.58,
+      "latency_setup": [],
+      "latency_total": 591.58
+    }
+  ]
+}
