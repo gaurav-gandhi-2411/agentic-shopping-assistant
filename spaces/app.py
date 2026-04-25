@@ -41,7 +41,10 @@ _DATA_DIR = _REPO_ROOT / "data" / "processed"
 config = load_config(_CONFIG_PATH)
 config["llm"]["provider"] = os.environ.get("LLM_PROVIDER", "groq")
 
-LLM_MODEL = config["llm"].get("groq_model", "llama-3.1-8b-instant")
+LLM_PROVIDER = config["llm"]["provider"]
+_llm_model_key = "model" if LLM_PROVIDER == "ollama" else f"{LLM_PROVIDER}_model"
+LLM_MODEL = config["llm"].get(_llm_model_key, "llama-3.1-8b-instant")
+LLM_LABEL = f"{LLM_PROVIDER.capitalize()} · {LLM_MODEL}"
 
 _SUGGESTIONS = [
     "Show me something for the beach",
@@ -363,7 +366,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption("**System info**")
-    st.caption(f"LLM: `{LLM_MODEL}`")
+    st.caption(f"Powered by: `{LLM_LABEL}`")
     st.caption("Retrieval: Hybrid (dense + BM25 with RRF)")
     _, _cat_df = _load_retrieval()
     st.caption(f"Corpus: {len(_cat_df):,} items")
@@ -458,7 +461,13 @@ if user_input:
             result = st.session_state.agent.invoke(initial_state)
         except Exception as exc:
             status_ph.empty()
-            st.warning("Something went wrong — please try again in a moment.")
+            exc_str = str(exc)
+            if "rate_limit_exceeded" in exc_str or "tokens per day" in exc_str.lower() or "RateLimitError" in type(exc).__name__:
+                st.warning("⏳ The AI service has hit its daily token limit. Please try again in a few hours when the rolling window resets. (Groq free-tier: 500k tokens/day)")
+            elif "ConnectionError" in type(exc).__name__ or "Timeout" in exc_str:
+                st.warning("🔌 Connection issue with the AI service. Please retry in a moment.")
+            else:
+                st.error(f"Something went wrong: {type(exc).__name__}. Please try again or report if this persists.")
             print(f"[agent] invoke error: {exc!r} query={user_input!r}")
             st.stop()
 
