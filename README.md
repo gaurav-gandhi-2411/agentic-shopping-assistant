@@ -22,6 +22,7 @@ search, compare, filter, and outfit-bundling tools — all streamed through a si
   - [Router](#router)
   - [Outfit bundling](#outfit-bundling)
 - [Tech Stack](#tech-stack)
+- [Evaluation](#evaluation)
 - [Corpus](#corpus)
 - [Setup](#setup)
   - [Local dev (Ollama)](#local-dev-ollama)
@@ -139,6 +140,32 @@ prefer same-palette complements, falling back to best relevance match if none fo
 
 ---
 
+## Evaluation
+
+A 32-query automated test suite covering 6 categories: colour, occasion, season, style, negation, and tool behaviour. Each query has programmatic pass criteria — no manual review.
+
+| Category | Pass Rate | Notes |
+|---|---|---|
+| Colour (5) | 5/5 (100%) | Exact colour match in retrieval |
+| Occasion (5) | 5/5 (100%) | Date night, beach, office, brunch, garden party |
+| Season (5) | 5/5 (100%) | Winter outerwear, summer light, autumn layers |
+| Style (5) | 4/5 (80%) | Minimalist colour-tone match remains challenging |
+| Negation (5) | 5/5 (100%) | "not black", "no shorts", "other than dresses" |
+| Tool behaviour (7) | 7/7 (100%) | Compare, outfit, filter, OOC detection |
+| **Total** | **31/32 (97%)** | |
+
+Single failure (ST1): "Minimalist wardrobe pieces in neutral tones" — reranker returned colour-acceptable but technically outside the neutral palette set defined in the test. Documented as a known limitation.
+
+The harness is reproducible — run via:
+
+```bash
+python scripts/eval_harness.py --provider groq
+```
+
+Detailed report: [`reports/eval_results_20260425_merged_v2.md`](reports/eval_results_20260425_merged_v2.md)
+
+---
+
 ## Corpus
 
 **Live Space:** 1,800-item subset of the
@@ -217,7 +244,10 @@ agentic-shopping-assistant/
 ├── scripts/
 │   ├── 01_build_retrieval.py
 │   ├── 02_smoke_test.py
-│   └── 03_build_image_subset.py
+│   ├── 03_build_image_subset.py
+│   ├── eval_harness.py          # 32-query automated test suite
+│   └── eval_queries.yaml        # query definitions and pass criteria
+├── reports/                     # eval results (JSON + Markdown)
 ├── tests/
 └── spaces/
     ├── app.py
@@ -280,6 +310,13 @@ no flag needed.
 downstream filtered search returned zero results with no visible error. The fix: build a set of
 valid values per facet at graph-construction time and silently reject out-of-vocabulary values
 in the filter node, falling back to an unfiltered search. Defence in depth over prompt instruction.
+
+**Building an evaluation harness is more valuable than fixing bugs ad-hoc.**
+Before the harness, every "fix" felt subjective ("does it work better now?"). After: 32 programmatic
+criteria with pass/fail signal. The harness caught 5 specific failures with clear root causes
+(negation handling, OOC bypass, baby-item leakage, facet vocabulary confusion), guiding fixes that
+improved 27/32 → 31/32. In production, this kind of evaluation pipeline is what separates
+"ship it" from "we hope it works."
 
 **HuggingFace Spaces has non-obvious deployment traps.**
 `git subtree split --prefix=spaces` pushes `spaces/*` to the Space root but leaves `src/` behind —
