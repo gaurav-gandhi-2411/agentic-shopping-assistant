@@ -76,7 +76,7 @@
 {"query": "Item 1 vs. Item 3", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "compare", "id": "para_030_2", "source": "paraphrase"}
 {"query": "I need a jacket for them", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_049", "source": "seed"}
 {"query": "Can you show me a side-by-side comparison of the last two results?", "last_action": "search", "items_retrieved": 5, "active_filters": {"colour_group_name": "Black"}, "route": "compare", "id": "para_033_1", "source": "paraphrase"}
-{"query": "What are my top fashion shopping options?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_051_4", "source": "paraphrase"}
+{"query": "What are my top fashion shopping options?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_051_4", "source": "paraphrase"}
 {"query": "Do you have a recommendation?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "para_022_3", "source": "paraphrase"}
 {"query": "xyz abc foo bar", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "edge_048", "source": "edge"}
 {"query": "Tops without any floral patterns", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "edge_029", "source": "edge"}
