@@ -295,6 +295,7 @@ def build_graph(
     memory: ConversationMemory,
     config: dict,
     streaming_mode: bool = False,
+    router_backend=None,
 ):
     max_iterations = config["agent"]["max_iterations"]
     top_k = config["retrieval"]["final_k"]
@@ -304,19 +305,10 @@ def build_graph(
     # ------------------------------------------------------------------
 
     def router_node(state: AgentState) -> dict:
-        # Extract the last non-router tool action to give the model explicit state cues.
+        # OOC short-circuit: shared regardless of router backend — skip both LLM and
+        # classifier for clearly out-of-catalogue queries; force search so search_node
+        # sets out_of_catalogue=True and respond_node fires the canned message.
         tool_calls = state.get("tool_calls", [])
-        last_action = "none"
-        for tc in reversed(tool_calls):
-            key = list(tc.keys())[0]
-            if key != "router_decision":
-                last_action = key
-                break
-
-        # OOC short-circuit: if this is the first turn and the query is clearly
-        # out-of-catalogue, skip the LLM entirely and force a search→OOC path.
-        # This prevents the router LLM from choosing "respond" directly (bypassing
-        # search_node where out_of_catalogue=True is set and the canned message fires).
         if not tool_calls and not state.get("out_of_catalogue"):
             if _detect_ooc(state["user_query"]):
                 plan = {"action": "search", "query": state["user_query"]}
@@ -325,21 +317,7 @@ def build_graph(
                     "tool_calls": [{"router_decision": plan}],
                 }
 
-        context = memory.get_context(state.get("messages", []))
-        prompt = ROUTER_PROMPT.format(
-            last_action=last_action,
-            items_retrieved=len(state.get("retrieved_items", [])),
-            retrieved_summary=_format_items_brief(state.get("retrieved_items", [])),
-            current_filters=json.dumps(state.get("filters", {})),
-            user_query=state["user_query"],
-            conversation=_format_messages(context),
-        )
-        raw = llm.generate(prompt)
-        parsed = _parse_router_response(raw, state["user_query"])
-        return {
-            "current_plan": json.dumps(parsed),
-            "tool_calls": tool_calls + [{"router_decision": parsed}],
-        }
+        return router_backend.decide(state)
 
     _SLEEP_KEYWORDS: frozenset[str] = frozenset({
         "sleep", "nightwear", "pyjama", "pajama", "pyjamas", "pajamas",
@@ -373,6 +351,20 @@ def build_graph(
         ]
         if col in catalogue_df.columns
     }
+
+    # Router backend — created here if not injected so the graph is self-contained.
+    if router_backend is None:
+        from src.agents.router import get_router_backend
+        router_backend = get_router_backend(
+            config=config,
+            llm=llm,
+            memory=memory,
+            catalogue_df=catalogue_df,
+            prompt_template=ROUTER_PROMPT,
+            format_items_brief=_format_items_brief,
+            format_messages=_format_messages,
+            parse_response=_parse_router_response,
+        )
 
     def _is_refinement_search(
         query: str, prior_items: list[dict], filters: dict

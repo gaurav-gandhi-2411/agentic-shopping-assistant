@@ -160,7 +160,7 @@ def dry_run(queries: list[dict], df) -> bool:
 
 # ── agent component loader ────────────────────────────────────────────────────
 
-def build_components(provider: str | None = None):
+def build_components(provider: str | None = None, router: str | None = None):
     from src.catalogue.loader import load_config
     from src.retrieval.dense_search import DenseRetriever
     from src.retrieval.sparse_search import SparseRetriever
@@ -174,6 +174,11 @@ def build_components(provider: str | None = None):
     config["llm"]["provider"] = _provider
     os.environ["LLM_PROVIDER"] = _provider  # ensure client factory picks it up
 
+    # Override router provider from CLI flag
+    if router:
+        config.setdefault("router", {})["provider"] = router
+    os.environ["ROUTER_PROVIDER"] = config.get("router", {}).get("provider", "llm")
+
     print("Loading retrieval indices...")
     df = _load_catalogue_df(_DATA_DIR)
     dense  = DenseRetriever.load(config, _DATA_DIR)
@@ -182,7 +187,18 @@ def build_components(provider: str | None = None):
 
     llm    = get_llm_client(config)
     memory = ConversationMemory(llm, config)
-    agent  = build_graph(retriever, df, llm, memory, config, streaming_mode=False)
+
+    router_backend = None
+    if config.get("router", {}).get("provider") == "distilbert":
+        from src.agents.router import DistilBERTRouterBackend
+        from pathlib import Path
+        model_path = Path(config["router"].get("distilbert_model_path", "models/distilbert_router"))
+        if not model_path.is_absolute():
+            model_path = _ROOT / model_path
+        print(f"Loading DistilBERT router from {model_path} ...")
+        router_backend = DistilBERTRouterBackend(model_path, df)
+
+    agent = build_graph(retriever, df, llm, memory, config, streaming_mode=False, router_backend=router_backend)
 
     return agent, llm, config
 
@@ -409,6 +425,7 @@ def run_query(agent, query_spec: dict) -> dict:
         "setup_turns":    setup_turns,
         "status":         overall,
         "provider":       os.environ.get("LLM_PROVIDER", "groq"),
+        "router":         os.environ.get("ROUTER_PROVIDER", "llm"),
         "checks":         check_results,
         "passed":         passed,
         "failed":         failed,
@@ -494,6 +511,8 @@ def main():
                         help="Validate YAML only — no agent or LLM calls")
     parser.add_argument("--provider", choices=["groq", "gemini", "openrouter", "ollama"],
                         help="LLM provider (overrides LLM_PROVIDER env var and config.yaml)")
+    parser.add_argument("--router", choices=["llm", "distilbert"],
+                        help="Router backend (overrides config.yaml router.provider)")
     parser.add_argument("--query-id", metavar="ID", nargs="+",
                         help="Run one or more queries by id (e.g. C1 TB3 N1)")
     parser.add_argument("--resume", metavar="JSON_PATH",
@@ -556,9 +575,10 @@ def main():
     inter_delay   = _PROVIDER_DELAY.get(_run_provider, 2.0)
 
     print("Building agent components...")
-    agent, llm, config = build_components()
+    agent, llm, config = build_components(router=args.router)
+    _router_label = config.get("router", {}).get("provider", "llm")
     print(f"Ready — {len(queries)} quer{'y' if len(queries) == 1 else 'ies'} queued "
-          f"[provider={_run_provider}, delay={inter_delay}s].\n")
+          f"[provider={_run_provider}, router={_router_label}, delay={inter_delay}s].\n")
 
     _REPORTS_DIR.mkdir(exist_ok=True)
     if args.resume:

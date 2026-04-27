@@ -27,6 +27,7 @@ from huggingface_hub import HfApi
 _REPO_ROOT = Path(__file__).parent.parent
 _LOCAL_DIR = _REPO_ROOT / "data" / "processed"
 _REMOTE_PREFIX = "data/processed"
+_DB_MODEL_DIR = _REPO_ROOT / "models" / "distilbert_router"
 
 # Default (20k): local filename -> remote path (same name)
 _DEFAULT_ARTIFACTS = [
@@ -45,6 +46,24 @@ _SPACE_ARTIFACTS = [
     ("bm25_space_article_ids.npy",  f"{_REMOTE_PREFIX}/bm25_article_ids.npy"),
     ("catalogue_space.parquet",     f"{_REMOTE_PREFIX}/catalogue.parquet"),
 ]
+
+
+def upload_model(repo_id: str, token: str | None = None) -> None:
+    """Upload the DistilBERT router model files to the Space."""
+    if not _DB_MODEL_DIR.exists():
+        raise FileNotFoundError(
+            f"{_DB_MODEL_DIR} not found — run scripts/train_router_distilbert.py first"
+        )
+    api = HfApi(token=token)
+    print(f"Uploading DistilBERT router model to {repo_id}/models/distilbert_router/ ...")
+    api.upload_folder(
+        folder_path=str(_DB_MODEL_DIR),
+        path_in_repo="models/distilbert_router",
+        repo_id=repo_id,
+        repo_type="space",
+    )
+    print("done")
+    print(f"\nModel uploaded to https://huggingface.co/spaces/{repo_id}")
 
 
 def upload(repo_id: str, space_mode: bool = False, token: str | None = None) -> None:
@@ -97,8 +116,15 @@ if __name__ == "__main__":
         help="Upload Space-optimised 1800-item subset + images (uses _space-suffixed local files)",
     )
     parser.add_argument(
+        "--model", action="store_true",
+        help="Upload DistilBERT router model (models/distilbert_router/) to the Space",
+    )
+    parser.add_argument(
         "--token", default=os.environ.get("HF_TOKEN"),
         help="HuggingFace token (defaults to HF_TOKEN env var or cached login)",
     )
     args = parser.parse_args()
-    upload(args.repo, space_mode=args.space, token=args.token)
+    if args.model:
+        upload_model(args.repo, token=args.token)
+    else:
+        upload(args.repo, space_mode=args.space, token=args.token)

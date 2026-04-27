@@ -30,7 +30,7 @@ from src.retrieval.sparse_search import SparseRetriever
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 from src.llm.client import get_llm_client
 from src.memory.conversation import ConversationMemory
-from src.agents.graph import build_graph
+from src.agents.graph import build_graph, _detect_ooc
 
 # ---------------------------------------------------------------------------
 # Config — override provider to groq for Spaces
@@ -45,6 +45,9 @@ LLM_PROVIDER = config["llm"]["provider"]
 _llm_model_key = "model" if LLM_PROVIDER == "ollama" else f"{LLM_PROVIDER}_model"
 LLM_MODEL = config["llm"].get(_llm_model_key, "llama-3.1-8b-instant")
 LLM_LABEL = f"{LLM_PROVIDER.capitalize()} · {LLM_MODEL}"
+
+_DB_MODEL_PATH = _REPO_ROOT / config.get("router", {}).get("distilbert_model_path", "models/distilbert_router")
+_DB_AVAILABLE = _DB_MODEL_PATH.exists()
 
 _SUGGESTIONS = [
     "Show me something for the beach",
@@ -67,19 +70,43 @@ def _load_retrieval():
     return retriever, df
 
 
+@st.cache_resource(show_spinner="Loading DistilBERT router...")
+def _load_distilbert_backend():
+    from src.agents.router import DistilBERTRouterBackend
+    _, df = _load_retrieval()
+    return DistilBERTRouterBackend(_DB_MODEL_PATH, df)
+
+
 # ---------------------------------------------------------------------------
 # Per-session agent (memory is stateful — must not be shared across users)
 # ---------------------------------------------------------------------------
 
 def _init_session():
+    # Rebuild agent if the router provider changed mid-session.
+    selected_router = st.session_state.get("router_provider", "llm")
+    if st.session_state.get("_active_router") != selected_router:
+        st.session_state.pop("agent", None)
+        st.session_state["_active_router"] = selected_router
+        # Also reset conversation so history matches the new router's behaviour.
+        st.session_state.pop("conversation_id", None)
+        st.session_state.pop("history", None)
+        st.session_state.pop("conv_state", None)
+
     if "agent" not in st.session_state:
         retriever, df = _load_retrieval()
         llm = get_llm_client(config)
         memory = ConversationMemory(llm, config)
+
+        router_backend = None
+        if selected_router == "distilbert" and _DB_AVAILABLE:
+            router_backend = _load_distilbert_backend()
+
         st.session_state.agent = build_graph(
-            retriever, df, llm, memory, config, streaming_mode=True
+            retriever, df, llm, memory, config,
+            streaming_mode=True, router_backend=router_backend,
         )
         st.session_state.llm = llm
+
     if "conversation_id" not in st.session_state:
         st.session_state.conversation_id = str(uuid.uuid4())
     if "history" not in st.session_state:
@@ -357,6 +384,30 @@ with st.sidebar:
         "The assistant searches, compares, and filters items for you."
     )
     st.divider()
+
+    # Router selector
+    st.markdown("**Router**")
+    _router_options = ["LLM (Groq)", "Classifier (DistilBERT)"]
+    if not _DB_AVAILABLE:
+        _router_options = ["LLM (Groq)"]
+    _router_idx = 1 if st.session_state.get("router_provider") == "distilbert" and _DB_AVAILABLE else 0
+    _router_choice = st.selectbox(
+        "Routing engine",
+        _router_options,
+        index=_router_idx,
+        label_visibility="collapsed",
+    )
+    _new_router = "distilbert" if _router_choice == "Classifier (DistilBERT)" else "llm"
+    if _new_router != st.session_state.get("router_provider", "llm"):
+        st.session_state.router_provider = _new_router
+        st.rerun()
+
+    if st.session_state.get("router_provider") == "distilbert":
+        st.success("⚡ Local classifier — ~31ms latency")
+    else:
+        st.info("🤖 Groq llama-3.1-8b-instant — 1–2s latency")
+
+    st.divider()
     if st.button("🔄 Reset conversation", use_container_width=True):
         st.session_state.conversation_id = str(uuid.uuid4())
         st.session_state.history = []
@@ -366,7 +417,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption("**System info**")
-    st.caption(f"Powered by: `{LLM_LABEL}`")
+    st.caption(f"LLM: `{LLM_LABEL}`")
     st.caption("Retrieval: Hybrid (dense + BM25 with RRF)")
     _, _cat_df = _load_retrieval()
     st.caption(f"Corpus: {len(_cat_df):,} items")
