@@ -48,22 +48,51 @@ _SPACE_ARTIFACTS = [
 ]
 
 
-def upload_model(repo_id: str, token: str | None = None) -> None:
-    """Upload the DistilBERT router model files to the Space."""
+_DB_SMALL_FILES = [
+    "config.json", "tokenizer.json", "tokenizer_config.json", "training_log.json"
+]
+
+
+def upload_model(repo_id: str, token: str | None = None, small_only: bool = False) -> None:
+    """Upload DistilBERT router model to the Space.
+
+    --model            : full upload (model.safetensors + small files, requires LFS quota)
+    --model --small    : config + tokenizer only (no binary, for storage-constrained Spaces)
+    """
     if not _DB_MODEL_DIR.exists():
         raise FileNotFoundError(
             f"{_DB_MODEL_DIR} not found — run scripts/train_router_distilbert.py first"
         )
     api = HfApi(token=token)
-    print(f"Uploading DistilBERT router model to {repo_id}/models/distilbert_router/ ...")
-    api.upload_folder(
-        folder_path=str(_DB_MODEL_DIR),
-        path_in_repo="models/distilbert_router",
-        repo_id=repo_id,
-        repo_type="space",
-    )
-    print("done")
-    print(f"\nModel uploaded to https://huggingface.co/spaces/{repo_id}")
+
+    if small_only:
+        print("Uploading DistilBERT config + tokenizer files only (no model binary) ...")
+        for fname in _DB_SMALL_FILES:
+            local = _DB_MODEL_DIR / fname
+            if not local.exists():
+                print(f"  SKIP {fname} (not found)")
+                continue
+            remote = f"models/distilbert_router/{fname}"
+            print(f"  {fname} -> {remote} ...", end=" ", flush=True)
+            api.upload_file(
+                path_or_fileobj=str(local),
+                path_in_repo=remote,
+                repo_id=repo_id,
+                repo_type="space",
+            )
+            print("done")
+    else:
+        print(f"Uploading full DistilBERT model to {repo_id}/models/distilbert_router/ ...")
+        api.upload_folder(
+            folder_path=str(_DB_MODEL_DIR),
+            path_in_repo="models/distilbert_router",
+            repo_id=repo_id,
+            repo_type="space",
+        )
+    print(f"\nModel files uploaded to https://huggingface.co/spaces/{repo_id}")
+    if small_only:
+        print("NOTE: model.safetensors was NOT uploaded. DistilBERT router will be unavailable")
+        print("      in the Space until the full model file is present. Local dev works normally.")
 
 
 def upload(repo_id: str, space_mode: bool = False, token: str | None = None) -> None:
@@ -120,11 +149,15 @@ if __name__ == "__main__":
         help="Upload DistilBERT router model (models/distilbert_router/) to the Space",
     )
     parser.add_argument(
+        "--small", action="store_true",
+        help="With --model: upload config/tokenizer only, skip model.safetensors (for storage-limited Spaces)",
+    )
+    parser.add_argument(
         "--token", default=os.environ.get("HF_TOKEN"),
         help="HuggingFace token (defaults to HF_TOKEN env var or cached login)",
     )
     args = parser.parse_args()
     if args.model:
-        upload_model(args.repo, token=args.token)
+        upload_model(args.repo, token=args.token, small_only=args.small)
     else:
         upload(args.repo, space_mode=args.space, token=args.token)

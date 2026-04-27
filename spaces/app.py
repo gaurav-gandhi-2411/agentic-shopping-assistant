@@ -47,7 +47,8 @@ LLM_MODEL = config["llm"].get(_llm_model_key, "llama-3.1-8b-instant")
 LLM_LABEL = f"{LLM_PROVIDER.capitalize()} · {LLM_MODEL}"
 
 _DB_MODEL_PATH = _REPO_ROOT / config.get("router", {}).get("distilbert_model_path", "models/distilbert_router")
-_DB_AVAILABLE = _DB_MODEL_PATH.exists()
+# Requires the full model file — config/tokenizer alone is not enough to run inference
+_DB_AVAILABLE = (_DB_MODEL_PATH / "model.safetensors").exists()
 
 _SUGGESTIONS = [
     "Show me something for the beach",
