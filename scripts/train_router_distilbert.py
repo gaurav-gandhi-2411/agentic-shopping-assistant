@@ -151,7 +151,7 @@ def main() -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     trainer.save_model(str(MODEL_DIR))
     tokenizer.save_pretrained(str(MODEL_DIR))
-    print(f"\nBest model saved → {MODEL_DIR}")
+    print(f"\nBest model saved -> {MODEL_DIR}")
 
     # Full test-set evaluation using trainer (for consistency with training loop)
     print("\nEvaluating on test set …")
@@ -178,7 +178,7 @@ def main() -> None:
         "test_examples": len(test_raw),
     }
     log_path.write_text(json.dumps(log, indent=2), encoding="utf-8")
-    print(f"\nTraining log → {log_path}")
+    print(f"\nTraining log -> {log_path}")
 
 
 if __name__ == "__main__":
