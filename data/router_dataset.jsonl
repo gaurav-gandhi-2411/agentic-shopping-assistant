@@ -309,7 +309,7 @@
 {"query": "Show me some stylish products, please", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_051_1", "source": "paraphrase"}
 {"query": "I need help with fashion shopping", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_051_2", "source": "paraphrase"}
 {"query": "Can you assist with styling and buying", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_051_3", "source": "paraphrase"}
-{"query": "What are my top fashion shopping options?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_051_4", "source": "paraphrase"}
+{"query": "What are my top fashion shopping options?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_051_4", "source": "paraphrase"}
 {"query": "I need a gift but have no idea what they like", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_052", "source": "seed"}
 {"query": "Do you have any gift ideas since I don't know what they're into?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_052_0", "source": "paraphrase"}
 {"query": "I'm stumped – can you suggest something for a gift?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_052_1", "source": "paraphrase"}
