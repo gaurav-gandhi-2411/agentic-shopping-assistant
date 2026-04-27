@@ -28,6 +28,10 @@ agent:
   max_iterations: 6
   enable_clarify_tool: true
 
+router:
+  provider: "llm"                          # "llm" or "distilbert"
+  distilbert_model_path: "models/distilbert_router"
+
 memory:
   recent_turns: 6
   summary_trigger_turns: 12
