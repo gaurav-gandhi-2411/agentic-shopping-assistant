@@ -417,7 +417,8 @@ with st.sidebar:
         st.rerun()
 
     if st.session_state.get("router_provider") == "cascade":
-        st.success("🚀 Cascade — DistilBERT primary, LLM fallback at conf < 0.70")
+        _cascade_threshold = config.get("router", {}).get("cascade_threshold", 0.80)
+        st.success(f"🚀 Cascade — DistilBERT primary, LLM fallback at conf < {_cascade_threshold:.2f}")
     elif st.session_state.get("router_provider") == "distilbert":
         st.success("⚡ Local classifier — ~31ms latency")
     else:
@@ -583,6 +584,35 @@ if user_input:
 
         if new_items and items:
             _show_items(items, turn_index=len(st.session_state.history))
+
+        # Routing visualization
+        _tool_calls = result.get("tool_calls", [])
+        _router_decision = next(
+            (tc.get("router_decision") for tc in _tool_calls if "router_decision" in tc),
+            {},
+        )
+        if _router_decision:
+            _router_provider = st.session_state.get("router_provider", "llm")
+            _db_conf = _router_decision.get("_db_confidence")
+            _escalated = _router_decision.get("_cascade_escalated", False)
+            _route = _router_decision.get("action", "unknown")
+            with st.expander("How was this routed?", expanded=False):
+                if _router_provider == "llm":
+                    st.markdown(f"**Router:** LLM only (Groq)")
+                    st.markdown(f"**Action:** `{_route}`")
+                elif _router_provider == "distilbert":
+                    _conf_str = f"{_db_conf:.3f}" if _db_conf is not None else "n/a"
+                    st.markdown(f"**Router:** DistilBERT only")
+                    st.markdown(f"**Confidence:** {_conf_str}")
+                    st.markdown(f"**Action:** `{_route}`")
+                elif _router_provider == "cascade":
+                    _thresh = config.get("router", {}).get("cascade_threshold", 0.80)
+                    _decision = "LLM fallback" if _escalated else "DistilBERT (kept)"
+                    _conf_str = f"{_db_conf:.3f}" if _db_conf is not None else "n/a"
+                    st.markdown(f"**Router:** Cascade")
+                    st.markdown(f"**DistilBERT confidence:** {_conf_str} (threshold: {_thresh:.2f})")
+                    st.markdown(f"**Decision:** {_decision}")
+                    st.markdown(f"**Action:** `{_route}`")
 
     # Persist conversation state for next turn
     new_messages = conv["messages"] + [
