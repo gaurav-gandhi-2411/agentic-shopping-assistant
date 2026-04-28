@@ -34,7 +34,8 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
     "electronics": [
         "laptop", "computer", "smartphone", "tablet", "headphones", "camera",
         "television", " tv ", "gadget", "phone case", "charger", "earphones",
-        "speaker", "monitor", "keyboard", "mouse",
+        "earbuds", "speaker", "monitor", "keyboard", "mouse", "fitness tracker",
+        "smartwatch", "smart watch",
     ],
     "beauty or cosmetics": [
         "lipstick", "lipsticks", "mascara", "eyeshadow", "eye shadow",
@@ -43,6 +44,8 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
         "moisturiser", "skincare", "serum", "serums", "makeup", "make up",
         "face cream", "blush", "bronzer", "highlighter", "contour",
         "bb cream", "cc cream", "toner", "face mask", "sheet mask",
+        "cleanser", "face wash", "shampoo", "conditioner", "body lotion",
+        "body wash", "sunscreen", "sunblock",
     ],
     "home and furniture": [
         "pillow", "bedsheet", "bed sheet", "towel", "blanket", "rug",

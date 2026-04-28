@@ -197,8 +197,67 @@ class DistilBERTRouterBackend:
 
 
 # ---------------------------------------------------------------------------
+# Cascade router backend
+# ---------------------------------------------------------------------------
+
+class CascadeRouterBackend:
+    """DistilBERT-primary with LLM escalation for low-confidence predictions.
+
+    For each query, DistilBERT runs first. If its softmax confidence is below
+    `threshold`, the LLM router is called instead. Tracks escalation rate via
+    the `stats()` method.
+    """
+
+    def __init__(
+        self,
+        distilbert: DistilBERTRouterBackend,
+        llm: LLMRouterBackend,
+        threshold: float = 0.70,
+    ):
+        self._db  = distilbert
+        self._llm = llm
+        self.threshold = threshold
+        self.distilbert_count = 0
+        self.escalation_count = 0
+
+    def decide(self, state: dict) -> dict:
+        result = self._db.decide(state)
+        plan   = json.loads(result["current_plan"])
+        confidence = plan.get("_db_confidence", 1.0)
+
+        if confidence < self.threshold:
+            self.escalation_count += 1
+            llm_result = self._llm.decide(state)
+            llm_plan   = json.loads(llm_result["current_plan"])
+            llm_plan["_cascade_escalated"] = True
+            llm_plan["_db_confidence"]     = confidence
+            llm_result["current_plan"]     = json.dumps(llm_plan)
+            return llm_result
+
+        self.distilbert_count += 1
+        return result
+
+    def stats(self) -> dict:
+        total = self.distilbert_count + self.escalation_count
+        return {
+            "total":            total,
+            "distilbert_only":  self.distilbert_count,
+            "escalated_to_llm": self.escalation_count,
+            "escalation_rate":  self.escalation_count / total if total > 0 else 0.0,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
+def _resolve_model_path(config: dict) -> Path:
+    raw = config.get("router", {}).get("distilbert_model_path", "models/distilbert_router")
+    p = Path(raw)
+    if not p.is_absolute():
+        p = Path(__file__).parent.parent.parent / raw
+    return p
+
 
 def get_router_backend(
     config: dict,
@@ -209,22 +268,28 @@ def get_router_backend(
     format_items_brief: Callable = None,
     format_messages: Callable = None,
     parse_response: Callable = None,
-) -> LLMRouterBackend | DistilBERTRouterBackend:
+) -> "LLMRouterBackend | DistilBERTRouterBackend | CascadeRouterBackend":
     provider = config.get("router", {}).get("provider", "llm")
-    if provider == "distilbert":
-        raw_path = config["router"].get("distilbert_model_path", "models/distilbert_router")
-        model_path = Path(raw_path)
-        if not model_path.is_absolute():
-            # Resolve relative to repo root (two levels above this file: src/agents/router.py)
-            model_path = Path(__file__).parent.parent.parent / raw_path
+
+    if provider in ("distilbert", "cascade"):
+        model_path = _resolve_model_path(config)
         if not model_path.exists():
             import warnings
             warnings.warn(
-                f"[router] distilbert provider selected but model not found at {model_path}. "
+                f"[router] {provider!r} provider selected but model not found at {model_path}. "
                 "Falling back to LLM router.",
                 stacklevel=2,
             )
         else:
-            return DistilBERTRouterBackend(model_path, catalogue_df)
+            db_backend = DistilBERTRouterBackend(model_path, catalogue_df)
+            if provider == "distilbert":
+                return db_backend
+            # cascade: wrap DistilBERT with LLM fallback
+            llm_backend = LLMRouterBackend(
+                llm, memory, prompt_template,
+                format_items_brief, format_messages, parse_response,
+            )
+            threshold = config.get("router", {}).get("cascade_threshold", 0.70)
+            return CascadeRouterBackend(db_backend, llm_backend, threshold)
 
     return LLMRouterBackend(llm, memory, prompt_template, format_items_brief, format_messages, parse_response)

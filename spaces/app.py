@@ -101,6 +101,9 @@ def _init_session():
         router_backend = None
         if selected_router == "distilbert" and _DB_AVAILABLE:
             router_backend = _load_distilbert_backend()
+        elif selected_router == "cascade" and _DB_AVAILABLE:
+            # Pass None — the factory inside build_graph builds cascade from config
+            config["router"]["provider"] = "cascade"
 
         st.session_state.agent = build_graph(
             retriever, df, llm, memory, config,
@@ -388,22 +391,34 @@ with st.sidebar:
 
     # Router selector
     st.markdown("**Router**")
-    _router_options = ["LLM (Groq)", "Classifier (DistilBERT)"]
-    if not _DB_AVAILABLE:
+    if _DB_AVAILABLE:
+        _router_options = ["LLM (Groq)", "Classifier (DistilBERT)", "Cascade (DB + LLM fallback)"]
+    else:
         _router_options = ["LLM (Groq)"]
-    _router_idx = 1 if st.session_state.get("router_provider") == "distilbert" and _DB_AVAILABLE else 0
+    _cur_router = st.session_state.get("router_provider", "llm")
+    _router_idx = (
+        2 if _cur_router == "cascade" and _DB_AVAILABLE else
+        1 if _cur_router == "distilbert" and _DB_AVAILABLE else
+        0
+    )
     _router_choice = st.selectbox(
         "Routing engine",
         _router_options,
         index=_router_idx,
         label_visibility="collapsed",
     )
-    _new_router = "distilbert" if _router_choice == "Classifier (DistilBERT)" else "llm"
+    _new_router = (
+        "cascade"    if _router_choice == "Cascade (DB + LLM fallback)" else
+        "distilbert" if _router_choice == "Classifier (DistilBERT)" else
+        "llm"
+    )
     if _new_router != st.session_state.get("router_provider", "llm"):
         st.session_state.router_provider = _new_router
         st.rerun()
 
-    if st.session_state.get("router_provider") == "distilbert":
+    if st.session_state.get("router_provider") == "cascade":
+        st.success("🚀 Cascade — DistilBERT primary, LLM fallback at conf < 0.70")
+    elif st.session_state.get("router_provider") == "distilbert":
         st.success("⚡ Local classifier — ~31ms latency")
     else:
         st.info("🤖 Groq llama-3.1-8b-instant — 1–2s latency")
