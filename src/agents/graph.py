@@ -45,7 +45,7 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
         "face cream", "blush", "bronzer", "highlighter", "contour",
         "bb cream", "cc cream", "toner", "face mask", "sheet mask",
         "cleanser", "face wash", "shampoo", "conditioner", "body lotion",
-        "body wash", "sunscreen", "sunblock",
+        "body wash", "sunscreen", "sunblock", "skin care", "hair care", "haircare",
     ],
     "home and furniture": [
         "pillow", "bedsheet", "bed sheet", "towel", "blanket", "rug",
@@ -142,6 +142,11 @@ STRICT RULES — follow in order:
    so essential that no useful result is possible:
    - Gender ambiguity on a gender-neutral category ("a jacket" with no prior context)
    - Completely off-topic (not a shopping query at all)
+   - Pure help-seeking with no product intent: "I need help with fashion",
+     "I need help with fashion shopping", "I'm not sure what I'm looking for",
+     "where do I even start", "can you guide me", "give me some fashion advice",
+     "help me with my wardrobe" — these have no searchable product query. Ask
+     a short guiding question (e.g. "What's the occasion?").
    Do NOT clarify for any of these — interpret and search instead:
    - Follow-up refinements: "something more casual", "in blue", "cheaper", "simpler"
    - Style words: "elegant", "minimal", "edgy", "relaxed", "chic"
