@@ -1,11 +1,9 @@
 {
-  "test_f1_macro": 0.8263,
-  "best_val_f1_macro": 0.846,
-  "best_epoch": 7,
+  "best_metric": 0.8859259259259259,
+  "best_model_checkpoint": "C:\\Users\\gaura\\ml-projects\\agentic-shopping-assistant\\models\\distilbert_router\\checkpoints\\checkpoint-120",
+  "test_f1_macro": 0.8344973544973544,
   "num_train_epochs": 8,
-  "train_examples": 294,
-  "val_examples": 37,
-  "test_examples": 37,
-  "train_runtime_seconds": 23.71,
-  "device": "cuda"
+  "train_examples": 310,
+  "val_examples": 39,
+  "test_examples": 39
 }

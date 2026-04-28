@@ -366,3 +366,23 @@
 {"query": "I need a gift idea, no other constraints", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "edge_047", "source": "edge"}
 {"query": "xyz abc foo bar", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "edge_048", "source": "edge"}
 {"query": "Something for someone special", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "edge_049", "source": "edge"}
+{"query": "I'm shopping for a birthday gift but I'm not sure what to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_053", "source": "seed"}
+{"query": "What should I get as a birthday present? I genuinely have no idea", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_053_0", "source": "paraphrase"}
+{"query": "Birthday gift needed but I'm completely clueless on what to choose", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_053_1", "source": "paraphrase"}
+{"query": "Shopping for a birthday, I can't decide what category to even start with", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_053_2", "source": "paraphrase"}
+{"query": "I'd like to find something nice for my sister but I'm not sure what she'd like", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_054", "source": "seed"}
+{"query": "I want to buy something for a friend but have no clue what they'd want", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_054_0", "source": "paraphrase"}
+{"query": "My friend needs a gift from here — she has varied tastes and I need guidance", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_054_1", "source": "paraphrase"}
+{"query": "I need to buy something for a family member but have no idea what to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_054_2", "source": "paraphrase"}
+{"query": "I want to find something stylish but I'm not sure what type of thing", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_055", "source": "seed"}
+{"query": "Looking for something fashionable, just not sure what category to start in", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_055_0", "source": "paraphrase"}
+{"query": "I'd like something nice, I'm open to suggestions if you can help narrow it down", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_055_1", "source": "paraphrase"}
+{"query": "Show me something stylish — I don't really have a specific item in mind", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_055_2", "source": "paraphrase"}
+{"query": "I need fashion advice but I'm not sure what I'm looking for", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_056", "source": "seed"}
+{"query": "Can you help me decide what to buy? I'm overwhelmed and not sure where to start", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_056_0", "source": "paraphrase"}
+{"query": "Could you give me some direction? I want to update my wardrobe but I'm lost", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_056_1", "source": "paraphrase"}
+{"query": "I'm looking for styling help but I don't know what type of item I need", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_056_2", "source": "paraphrase"}
+{"query": "I'm not sure what I want — can you ask me some questions to help?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_057", "source": "seed"}
+{"query": "I'd like to refresh my wardrobe but I'm unsure what I'm looking for", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_057_0", "source": "paraphrase"}
+{"query": "Help me decide — I'm not sure if I want a top, dress, or something else", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_057_1", "source": "paraphrase"}
+{"query": "I want something new but I genuinely can't decide what to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_057_2", "source": "paraphrase"}

@@ -188,17 +188,9 @@ def build_components(provider: str | None = None, router: str | None = None):
     llm    = get_llm_client(config)
     memory = ConversationMemory(llm, config)
 
-    router_backend = None
-    if config.get("router", {}).get("provider") == "distilbert":
-        from src.agents.router import DistilBERTRouterBackend
-        from pathlib import Path
-        model_path = Path(config["router"].get("distilbert_model_path", "models/distilbert_router"))
-        if not model_path.is_absolute():
-            model_path = _ROOT / model_path
-        print(f"Loading DistilBERT router from {model_path} ...")
-        router_backend = DistilBERTRouterBackend(model_path, df)
-
-    agent = build_graph(retriever, df, llm, memory, config, streaming_mode=False, router_backend=router_backend)
+    # Let the factory in build_graph handle all router types via config.
+    # Passing router_backend=None triggers get_router_backend() inside build_graph.
+    agent = build_graph(retriever, df, llm, memory, config, streaming_mode=False, router_backend=None)
 
     return agent, llm, config
 
@@ -511,7 +503,7 @@ def main():
                         help="Validate YAML only — no agent or LLM calls")
     parser.add_argument("--provider", choices=["groq", "gemini", "openrouter", "ollama"],
                         help="LLM provider (overrides LLM_PROVIDER env var and config.yaml)")
-    parser.add_argument("--router", choices=["llm", "distilbert"],
+    parser.add_argument("--router", choices=["llm", "distilbert", "cascade"],
                         help="Router backend (overrides config.yaml router.provider)")
     parser.add_argument("--query-id", metavar="ID", nargs="+",
                         help="Run one or more queries by id (e.g. C1 TB3 N1)")

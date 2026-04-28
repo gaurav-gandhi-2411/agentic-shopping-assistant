@@ -29,8 +29,9 @@ agent:
   enable_clarify_tool: true
 
 router:
-  provider: "llm"                          # "llm" or "distilbert"
+  provider: "llm"                          # "llm" | "distilbert" | "cascade"
   distilbert_model_path: "models/distilbert_router"
+  cascade_threshold: 0.70                  # escalate to LLM below this confidence
 
 memory:
   recent_turns: 6
