@@ -82,6 +82,11 @@ all queries at or above the 0.70 threshold (median 0.735), so at the current thr
 functionally equivalent to DistilBERT-only for routing — the reranker LLM call is the only API call per
 query. The LLM fallback remains available as a safety net for genuinely uncertain queries in production.
 
+**Threshold updated to 0.80 (2026-04-28):** Production analysis on the 39-item test set showed 1 wrong
+DistilBERT prediction between 0.70–0.80 ("Show me face creams" @ 0.773, an OOC miss caught upstream).
+Raising to 0.80 gives 100% DB accuracy on kept queries at the cost of ~5% more escalations. See
+`reports/threshold_analysis.md` for the full sweep.
+
 Cascade genuine failures — DistilBERT confidence ≥ 0.70 but prediction wrong:
 
 | Query | Confidence | Failure mode | Root cause |
