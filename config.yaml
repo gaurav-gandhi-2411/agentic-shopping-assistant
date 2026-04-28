@@ -31,7 +31,7 @@ agent:
 router:
   provider: "llm"                          # "llm" | "distilbert" | "cascade"
   distilbert_model_path: "models/distilbert_router"
-  cascade_threshold: 0.70                  # escalate to LLM below this confidence
+  cascade_threshold: 0.80                  # escalate to LLM below this confidence
 
 memory:
   recent_turns: 6
