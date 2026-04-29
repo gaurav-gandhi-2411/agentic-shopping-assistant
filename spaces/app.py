@@ -148,9 +148,18 @@ TONAL_STYLE_PALETTES: dict[str, tuple[list[str] | None, float]] = {
         ["Black", "White", "Off White", "Grey", "Dark Grey", "Light Grey", "Beige", "Light Beige"],
         25,
     ),
-    "earth tone": (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
+    "earth tone":  (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
     "earth tones": (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
-    "monochrome": (None, 15),
+    "monochrome":  (None, 15),
+    # Style-language colours not in catalogue — mapped to nearest catalogue colour groups
+    "cream":      (["Off White", "Light Beige", "Beige", "White", "Light Yellow"], 20),
+    "ivory":      (["Off White", "White", "Light Beige"], 18),
+    "champagne":  (["Light Beige", "Gold", "Beige", "Off White"], 22),
+    "blush":      (["Light Pink", "Pink"], 20),
+    "sage":       (["Light Green", "Green", "Greenish Khaki"], 22),
+    "terracotta": (["Orange", "Dark Orange", "Light Orange", "Brown"], 22),
+    "dusty pink": (["Light Pink", "Pink", "Greyish Beige"], 22),
+    "lavender":   (["Light Purple", "Purple"], 22),
 }
 
 
