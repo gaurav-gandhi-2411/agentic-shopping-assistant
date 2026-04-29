@@ -232,6 +232,11 @@ class CascadeRouterBackend:
             llm_plan["_cascade_escalated"] = True
             llm_plan["_db_confidence"]     = confidence
             llm_result["current_plan"]     = json.dumps(llm_plan)
+            # Patch tool_calls so the visualization can read _db_confidence
+            for tc in llm_result.get("tool_calls", []):
+                if "router_decision" in tc:
+                    tc["router_decision"]["_cascade_escalated"] = True
+                    tc["router_decision"]["_db_confidence"]     = confidence
             return llm_result
 
         self.distilbert_count += 1
