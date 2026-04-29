@@ -85,8 +85,19 @@ class LLMRouterBackend:
 class DistilBERTRouterBackend:
     """Fine-tuned 6-class DistilBERT classifier."""
 
-    _CLARIFY_QUESTION = "I'd love to help! Could you tell me a bit more about what you're looking for?"
+    _CLARIFY_QUESTIONS: tuple[str, ...] = (
+        "What kind of item are you looking for — a dress, top, jacket, or something else?",
+        "Happy to help! What style or occasion are you shopping for today?",
+        "Could you tell me more about what you have in mind?",
+        "What are you hoping to find? I can search by style, occasion, or item type.",
+        "I'd love to help narrow it down — what's the occasion or vibe you're going for?",
+    )
     _MAX_LENGTH = 128
+
+    def _clarify_question(self, user_query: str) -> str:
+        if len(user_query.strip()) <= 5:
+            return "I'm not sure I understood that — could you describe what you're looking for?"
+        return self._CLARIFY_QUESTIONS[hash(user_query) % len(self._CLARIFY_QUESTIONS)]
 
     def __init__(self, model_path: str | Path, catalogue_df=None):
         path = Path(model_path)
@@ -180,7 +191,7 @@ class DistilBERTRouterBackend:
         elif route == "compare":
             plan = {"action": "compare", "article_ids": []}
         elif route == "clarify":
-            plan = {"action": "clarify", "question": self._CLARIFY_QUESTION}
+            plan = {"action": "clarify", "question": self._clarify_question(user_query)}
         elif route == "outfit":
             first_id = ""
             if state.get("retrieved_items"):

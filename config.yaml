@@ -31,7 +31,10 @@ agent:
 router:
   provider: "llm"                          # "llm" | "distilbert" | "cascade"
   distilbert_model_path: "models/distilbert_router"
-  cascade_threshold: 0.80                  # escalate to LLM below this confidence
+  # NOTE: 0.65 is calibrated to current production input distribution.
+  # See reports/cascade_calibration.md for analysis.
+  # When DistilBERT is retrained with stateful examples, recalibrate this threshold.
+  cascade_threshold: 0.65                  # escalate to LLM below this confidence
 
 memory:
   recent_turns: 6
