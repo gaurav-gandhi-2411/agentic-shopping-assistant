@@ -508,6 +508,14 @@ def build_graph(
             if merged["colour_group_name"].lower() in excluded_colours:
                 merged = {k: v for k, v in merged.items() if k != "colour_group_name"}
 
+        # Normalise plural/simplified product types and department aliases so
+        # LLM-emitted values like "dresses" or "jumpsuit" hit the catalogue.
+        remapped: dict[str, str] = {}
+        for fk, fv in merged.items():
+            new_fk, new_fv = _FILTER_REMAP.get((fk, fv.lower()), (fk, fv))
+            remapped[new_fk] = new_fv
+        merged = remapped
+
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
@@ -676,6 +684,34 @@ def build_graph(
         ("department_name", "menswear"):    ("index_group_name", "Menswear"),
         ("department_name", "baby/children"): ("index_group_name", "Baby/Children"),
         ("department_name", "sport"):       ("index_group_name", "Sport"),
+        # Plural → canonical product_type_name (LLM uses plural forms, catalogue uses singular)
+        ("product_type_name", "dresses"):       ("product_type_name", "Dress"),
+        ("product_type_name", "blazers"):       ("product_type_name", "Blazer"),
+        ("product_type_name", "shirts"):        ("product_type_name", "Shirt"),
+        ("product_type_name", "skirts"):        ("product_type_name", "Skirt"),
+        ("product_type_name", "tops"):          ("product_type_name", "Top"),
+        ("product_type_name", "bags"):          ("product_type_name", "Bag"),
+        ("product_type_name", "sweaters"):      ("product_type_name", "Sweater"),
+        ("product_type_name", "jackets"):       ("product_type_name", "Jacket"),
+        ("product_type_name", "coats"):         ("product_type_name", "Coat"),
+        ("product_type_name", "blouses"):       ("product_type_name", "Blouse"),
+        ("product_type_name", "cardigans"):     ("product_type_name", "Cardigan"),
+        ("product_type_name", "hoodies"):       ("product_type_name", "Hoodie"),
+        ("product_type_name", "swimsuits"):     ("product_type_name", "Swimsuit"),
+        ("product_type_name", "scarves"):       ("product_type_name", "Scarf"),
+        # Simplified form → canonical (LLM omits the "/playsuit" or "/tights" part)
+        ("product_type_name", "jumpsuit"):      ("product_type_name", "Jumpsuit/Playsuit"),
+        ("product_type_name", "jumpsuits"):     ("product_type_name", "Jumpsuit/Playsuit"),
+        ("product_type_name", "playsuit"):      ("product_type_name", "Jumpsuit/Playsuit"),
+        ("product_type_name", "playsuits"):     ("product_type_name", "Jumpsuit/Playsuit"),
+        ("product_type_name", "leggings"):      ("product_type_name", "Leggings/Tights"),
+        ("product_type_name", "tights"):        ("product_type_name", "Leggings/Tights"),
+        # T-shirt variants
+        ("product_type_name", "t-shirts"):      ("product_type_name", "T-shirt"),
+        ("product_type_name", "tshirt"):        ("product_type_name", "T-shirt"),
+        ("product_type_name", "tshirts"):       ("product_type_name", "T-shirt"),
+        # Polo shirt
+        ("product_type_name", "polo shirts"):   ("product_type_name", "Polo Shirt"),
     }
 
     def filter_node(state: AgentState) -> dict:
