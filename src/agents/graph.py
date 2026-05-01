@@ -137,13 +137,19 @@ STRICT RULES — follow in order:
    "black blazers", "grey trousers"), include both in filters to prevent type leakage:
    {{"action": "search", "query": "red dress", "filters": {{"colour_group_name": "Red", "product_type_name": "Dress"}}}}
 6. Use "compare" when the user explicitly asks to compare items.
-7. Use "outfit" ONLY for explicit outfit-building requests: "style this with", "what goes with",
-   "build an outfit around", "complete the look", "what should I pair with this", "put together
-   an outfit for me". Look up the article_id of the seed item from Current retrieved items by
-   matching the item name the user refers to. If unclear, use the first item.
-   Do NOT use "outfit" for suitability questions: "which one works for beach day", "which of
-   these suits an interview", "is this appropriate for X" — use "filter" or "respond" instead.
-   "outfit" is reserved for explicit pairing/outfit-building requests only.
+7. Use "outfit" ONLY when a seed item is available:
+   (a) items_retrieved > 0 (user has prior results to style around), OR
+   (b) user explicitly references a specific shown item ("style this", "what goes with the
+       Riviera", "complete this look")
+   Look up the article_id from Current retrieved items by matching the name. If unclear, use
+   the first item.
+   For fresh occasion/event requests with NO prior items, use SEARCH to find a hero item first:
+   - "build me a complete outfit for a wedding" (items_retrieved=0) → {{"action": "search", "query": "wedding dress elegant formal"}}
+   - "put together a date night outfit" (items_retrieved=0) → {{"action": "search", "query": "date night dress blouse evening"}}
+   - "style this dress" (items_retrieved > 0) → outfit
+   - "complete the look" (after a search) → outfit
+   Do NOT use "outfit" for suitability questions ("which works for beach day", "is this
+   appropriate for X") — use "respond" instead.
 8. Use "clarify" ONLY when there is NO actionable signal — no product type, no occasion, no
    style word, nothing to search on:
    - Completely unrecognisable input (random characters, meaningless text with no fashion signal)
@@ -246,6 +252,12 @@ BAD example (do not write like this):
 "I'd recommend the Riviera dress SS or the Gloss dress as both are dresses. They have \
 different styles, with the Riviera dress having a viscose weave and lace trims, while the \
 Gloss dress is made of stretch jersey with a pull-on waistband and a V-neck."
+
+OCCASION NUDGE:
+If the user's query is for an outfit for a specific event or occasion (wedding, date night, \
+beach holiday, brunch, work event, party) — rather than a simple product search — add one \
+brief closing line: "Pick one and I can put together a complete look around it." \
+Skip this line for generic product searches like "show me black dresses" or "I want a blazer".
 
 User question: "{user_query}"
 
