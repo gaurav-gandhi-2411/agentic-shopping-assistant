@@ -410,6 +410,12 @@ def run_query(agent, query_spec: dict) -> dict:
     skipped = [k for k, v in check_results.items() if v == "SKIP"]
     overall = "FAIL" if failed else "PASS"
 
+    _tcs = result.get("tool_calls", [])
+    _router_plans = [tc["router_decision"] for tc in _tcs if "router_decision" in tc
+                     and isinstance(tc["router_decision"], dict)]
+    _cascade_escalated = any(p.get("_cascade_escalated", False) for p in _router_plans)
+    _db_confidence = next((p.get("_db_confidence") for p in _router_plans), None)
+
     return {
         "id":             query_spec["id"],
         "category":       query_spec.get("category", ""),
@@ -424,7 +430,9 @@ def run_query(agent, query_spec: dict) -> dict:
         "skipped":        skipped,
         "n_items":        len(result.get("retrieved_items", [])),
         "response_text":  response_text[:600],
-        "tool_calls":     [list(tc.keys())[0] for tc in result.get("tool_calls", [])],
+        "tool_calls":     [list(tc.keys())[0] for tc in _tcs],
+        "cascade_escalated": _cascade_escalated,
+        "db_confidence":  _db_confidence,
         "filters":        result.get("filters", {}),
         "out_of_catalogue": bool(result.get("out_of_catalogue")),
         "latency_main":   round(main_lat, 2),
@@ -487,6 +495,21 @@ def print_summary(results: list[dict], total_time: float):
         print(f"\nErrors ({len(err_recs)}):")
         for r in err_recs:
             print(f"  ERR  {r['id']:<5}  {r.get('error', '?')[:100]}")
+
+    # Cascade-specific breakdown
+    if any(r.get("router") == "cascade" for r in results):
+        escalated = [r for r in results if r.get("cascade_escalated")]
+        db_only   = [r for r in results if not r.get("cascade_escalated") and r.get("status") in ("PASS","FAIL","ERROR")]
+        esc_pass  = sum(1 for r in escalated if r["status"] == "PASS")
+        db_pass   = sum(1 for r in db_only   if r["status"] == "PASS")
+        confidences = [r["db_confidence"] for r in results if r.get("db_confidence") is not None]
+        conf_median = statistics.median(confidences) if confidences else 0.0
+        print(f"\nCascade breakdown:")
+        print(f"  DistilBERT-only:  {len(db_only):2d} queries  {db_pass}/{len(db_only)} PASS")
+        print(f"  Escalated to LLM: {len(escalated):2d} queries  {esc_pass}/{len(escalated)} PASS")
+        print(f"  Escalation rate:  {len(escalated)/n*100:.0f}%  ({len(escalated)}/{n})")
+        print(f"  Confidence (median): {conf_median:.3f}")
+        print(f"  Escalated queries: {[r['id'] for r in escalated]}")
 
     print("=" * 60)
 
@@ -628,6 +651,22 @@ def main():
             key=lambda r: yaml_order.get(r["id"], 999),
         )
 
+    # Compute cascade summary if applicable
+    cascade_summary: dict = {}
+    if _router_label == "cascade":
+        esc = [r for r in all_results if r.get("cascade_escalated")]
+        db  = [r for r in all_results if not r.get("cascade_escalated")]
+        confs = [r["db_confidence"] for r in all_results if r.get("db_confidence") is not None]
+        cascade_summary = {
+            "escalated_count":    len(esc),
+            "db_only_count":      len(db),
+            "escalation_rate":    round(len(esc) / len(all_results), 3) if all_results else 0,
+            "escalated_pass":     sum(1 for r in esc if r["status"] == "PASS"),
+            "db_only_pass":       sum(1 for r in db  if r["status"] == "PASS"),
+            "confidence_median":  round(statistics.median(confs), 4) if confs else None,
+            "escalated_ids":      [r["id"] for r in esc],
+        }
+
     # Save JSON
     payload = {
         "run_date":      date.today().isoformat(),
@@ -635,6 +674,8 @@ def main():
         "total_time_s":  round(total_time, 1),
         "results":       all_results,
     }
+    if cascade_summary:
+        payload["cascade_stats"] = cascade_summary
     json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     print(f"\nJSON saved -> {json_path}")
 

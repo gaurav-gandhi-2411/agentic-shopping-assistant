@@ -1,0 +1,65 @@
+{
+  "model": "v1",
+  "test_set": "v2_stateful",
+  "n": 123,
+  "accuracy": 0.7967,
+  "macro_f1": 0.7925,
+  "per_class_f1": {
+    "clarify": 0.8182,
+    "compare": 0.8421,
+    "filter": 0.8235,
+    "outfit": 0.7059,
+    "respond": 0.7273,
+    "search": 0.8381
+  },
+  "confusion_matrix": {
+    "clarify": {
+      "clarify": 9,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 3,
+      "search": 1
+    },
+    "compare": {
+      "clarify": 0,
+      "compare": 8,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 3,
+      "search": 0
+    },
+    "filter": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 7,
+      "outfit": 0,
+      "respond": 0,
+      "search": 2
+    },
+    "outfit": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 6,
+      "respond": 2,
+      "search": 3
+    },
+    "respond": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 24,
+      "search": 3
+    },
+    "search": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 1,
+      "outfit": 0,
+      "respond": 7,
+      "search": 44
+    }
+  }
+}

@@ -130,10 +130,9 @@ class DistilBERTRouterBackend:
 
     @staticmethod
     def _encode(query: str, last_action: str, items_retrieved: int, active_filters: dict) -> str:
-        return (
-            f"query: {query} | last_action: {last_action} "
-            f"| items: {items_retrieved} | filters: {json.dumps(active_filters)}"
-        )
+        # Must match DistilBERTRouter.encode_input exactly — model was trained on this format.
+        from src.agents.distilbert_router import DistilBERTRouter
+        return DistilBERTRouter.encode_input(query, last_action, items_retrieved, active_filters)
 
     def _predict(self, text: str) -> tuple[str, float]:
         inputs = self._tokenizer(

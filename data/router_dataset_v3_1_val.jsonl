@@ -1,0 +1,139 @@
+{"query": "What styles of swimsuits are available for summer?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_003_2", "source": "paraphrase"}
+{"query": "Help me figure out my style", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_098", "source": "contrastive"}
+{"query": "[Can you] tell me about the return process?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "respond", "id": "para_025_4", "source": "paraphrase"}
+{"query": "More like these please", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_103a", "source": "augmented"}
+{"query": "Knitwear suggestions for autumnal dressing", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_008_2", "source": "paraphrase"}
+{"query": "What styles of swimsuits are available for summer?", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_021", "source": "augmented"}
+{"query": "Show me some stylish products, please", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_014", "source": "augmented"}
+{"query": "[Can you] tell me about the return process?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_059", "source": "augmented"}
+{"query": "I'm looking for a dark blue item, please.", "last_action": "outfit", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_out_to_srch_017", "source": "augmented"}
+{"query": "Compare the last two items from your previous findings", "last_action": "filter", "items_retrieved": 6, "active_filters": {"colour_group_name": "White"}, "route": "compare", "id": "aug_cmp_actf_033", "source": "augmented"}
+{"query": "Can you recommend a jacket for someone else?", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_002", "source": "augmented"}
+{"query": "Find me some grey knit clothing items.", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_086a", "source": "augmented"}
+{"query": "What kind of fabric is this dress constructed from?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "para_017_3", "source": "paraphrase"}
+{"query": "I'll go with the first one", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_068", "source": "augmented"}
+{"query": "What styles of swimsuits are available for summer?", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_021b", "source": "augmented"}
+{"query": "Workwear but nothing too corporate or stiff", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_110b", "source": "augmented"}
+{"query": "I need fashion advice but I'm not sure what I'm looking for", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_042", "source": "augmented"}
+{"query": "Can I try this in a different size?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Light Pink"}, "route": "respond", "id": "aug_resp_i3_023", "source": "augmented"}
+{"query": "I need a gift for my colleague", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_016", "source": "contrastive"}
+{"query": "Assist me in building an ensemble around that jacket", "last_action": "filter", "items_retrieved": 4, "active_filters": {"product_type_name": "Dress"}, "route": "outfit", "id": "aug_out_actf_032", "source": "augmented"}
+{"query": "Find me something elegant for a date night", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_042b", "source": "augmented"}
+{"query": "White pants would be great, thanks.", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_068b", "source": "augmented"}
+{"query": "I'll go with the first one", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Red"}, "route": "respond", "id": "aug_resp_i3_068", "source": "augmented"}
+{"query": "What other sizes are there?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Dark Blue"}, "route": "respond", "id": "aug_resp_i3_022", "source": "augmented"}
+{"query": "Can I get this in a larger/smaller size?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "para_019_1", "source": "paraphrase"}
+{"query": "White pants would be great, thanks.", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_068", "source": "augmented"}
+{"query": "What other sizes are there?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "para_019_3", "source": "paraphrase"}
+{"query": "I'm shopping for a birthday gift but I'm not sure what to get", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_030", "source": "augmented"}
+{"query": "Get something nice for my friend's birthday", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "edge_046", "source": "edge"}
+{"query": "Put together an outfit that matches the aesthetic of the first dress", "last_action": "filter", "items_retrieved": 4, "active_filters": {"colour_group_name": "Red"}, "route": "outfit", "id": "aug_out_actf_041", "source": "augmented"}
+{"query": "I'm looking for a dark blue item, please.", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_001_1", "source": "paraphrase"}
+{"query": "Put together an outfit that matches the aesthetic of the first dress", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "outfit", "id": "para_048_4", "source": "paraphrase"}
+{"query": "Filter to dark blue", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "filter", "id": "para_040_4", "source": "paraphrase"}
+{"query": "Can you show me Divided items from this search?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Dark Blue"}, "route": "filter", "id": "aug_filt_actf_004a", "source": "augmented"}
+{"query": "Find me some grey knit clothing items.", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_014_1", "source": "paraphrase"}
+{"query": "More like these please", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_023", "source": "augmented"}
+{"query": "How much will I be paying for this?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "White"}, "route": "respond", "id": "aug_resp_i3_003", "source": "augmented"}
+{"query": "Looking for streetwear inspired pieces", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_040", "source": "contrastive"}
+{"query": "White pants would be great, thanks.", "last_action": "outfit", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_out_to_srch_004", "source": "augmented"}
+{"query": "How much do these cost?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Black"}, "route": "respond", "id": "aug_resp_i3_000", "source": "augmented"}
+{"query": "Knitwear suggestions for autumnal dressing", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_051a", "source": "augmented"}
+{"query": "What kind of swimwear do you carry for summer?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_003_3", "source": "paraphrase"}
+{"query": "What styles of swimsuits are available for summer?", "last_action": "outfit", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_out_to_srch_038", "source": "augmented"}
+{"query": "How much will I be paying for this?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "para_016_2", "source": "paraphrase"}
+{"query": "Can I get a laptop here?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Blue"}, "route": "respond", "id": "aug_resp_i3_073", "source": "augmented"}
+{"query": "Can I try this in a different size?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "para_019_4", "source": "paraphrase"}
+{"query": "How do the first and second items compare?", "last_action": "filter", "items_retrieved": 6, "active_filters": {"colour_group_name": "Dark Blue"}, "route": "compare", "id": "aug_cmp_actf_028", "source": "augmented"}
+{"query": "What are the main differences between this and that?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "compare", "id": "para_029_4", "source": "paraphrase"}
+{"query": "I'm shopping for a birthday gift but I'm not sure what to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_053", "source": "seed"}
+{"query": "Looking for prints and patterns for spring", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_038", "source": "contrastive"}
+{"query": "Get something nice for my friend's birthday", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_026", "source": "augmented"}
+{"query": "I need to buy something for a family member but have no idea what to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_054_2", "source": "paraphrase"}
+{"query": "What styles of swimsuits are available for summer?", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_021a", "source": "augmented"}
+{"query": "[Can you] tell me about the return process?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Light Pink"}, "route": "respond", "id": "aug_resp_i3_059", "source": "augmented"}
+{"query": "Limit the search to only blazers", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Light Pink"}, "route": "filter", "id": "aug_filt_actf_041a", "source": "augmented"}
+{"query": "I need basic neutral outfits", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_012_1", "source": "paraphrase"}
+{"query": "Find me something elegant for a date night", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_042", "source": "augmented"}
+{"query": "What kind of fabric is this dress constructed from?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Dark Blue"}, "route": "respond", "id": "aug_resp_i3_010", "source": "augmented"}
+{"query": "Get something trendy for a teenager", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_068", "source": "contrastive"}
+{"query": "Can I get a laptop here?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "respond", "id": "edge_001", "source": "edge"}
+{"query": "Assist me in building an ensemble around that jacket", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "outfit", "id": "para_047_1", "source": "paraphrase"}
+{"query": "What other sizes are there?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_022", "source": "augmented"}
+{"query": "Compare the last two items from your previous findings", "last_action": "search", "items_retrieved": 5, "active_filters": {"colour_group_name": "Black"}, "route": "compare", "id": "para_033_2", "source": "paraphrase"}
+{"query": "What's trending right now in fashion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_080", "source": "contrastive"}
+{"query": "I need basic neutral outfits", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_074b", "source": "augmented"}
+{"query": "What kind of fabric is this dress constructed from?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_010", "source": "augmented"}
+{"query": "Show me some stylish products, please", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_051_1", "source": "paraphrase"}
+{"query": "Find me something elegant for a date night", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "seed_007", "source": "seed"}
+{"query": "I'm looking for a dark blue item, please.", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_008b", "source": "augmented"}
+{"query": "Could you give me some direction? I want to update my wardrobe but I'm lost", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_044", "source": "augmented"}
+{"query": "Do you have this in a different size?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "seed_019", "source": "seed"}
+{"query": "Find me a good winter coat for the season please.", "last_action": "compare", "items_retrieved": 6, "active_filters": {}, "route": "search", "id": "aug_cmp_to_srch_001", "source": "augmented"}
+{"query": "Can you show me Divided items from this search?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "filter", "id": "para_035_3", "source": "paraphrase"}
+{"query": "I need basic neutral outfits", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_074a", "source": "augmented"}
+{"query": "How do the first and second items compare?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "compare", "id": "para_032_3", "source": "paraphrase"}
+{"query": "Help me build an outfit around that jacket", "last_action": "filter", "items_retrieved": 4, "active_filters": {"colour_group_name": "Dark Blue"}, "route": "outfit", "id": "aug_out_actf_030", "source": "augmented"}
+{"query": "I'm not sure what I want \u2014 can you ask me some questions to help?", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_046", "source": "augmented"}
+{"query": "What kind of swimwear do you carry for summer?", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_022", "source": "augmented"}
+{"query": "Can I try this in a different size?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_023", "source": "augmented"}
+{"query": "How much do these cost?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "seed_016", "source": "seed"}
+{"query": "What else would look good with this blazer?", "last_action": "filter", "items_retrieved": 4, "active_filters": {"colour_group_name": "Blue"}, "route": "outfit", "id": "aug_out_actf_027", "source": "augmented"}
+{"query": "Something summery for my friend's birthday", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_064", "source": "contrastive"}
+{"query": "White pants would be great, thanks.", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_068a", "source": "augmented"}
+{"query": "What are the most popular items right now", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_091", "source": "contrastive"}
+{"query": "How much do these cost?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_000", "source": "augmented"}
+{"query": "I'm looking for a dark blue item, please.", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_008", "source": "augmented"}
+{"query": "Update the results with the current filters in place", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_092b", "source": "augmented"}
+{"query": "More like these please", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_103b", "source": "augmented"}
+{"query": "Can I get this in a larger/smaller size?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Red"}, "route": "respond", "id": "aug_resp_i3_020", "source": "augmented"}
+{"query": "How much will I be paying for this?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_003", "source": "augmented"}
+{"query": "Can you show me Divided items from this search?", "last_action": "search", "items_retrieved": 7, "active_filters": {}, "route": "filter", "id": "aug_filt_srch_004b", "source": "augmented"}
+{"query": "What kind of swimwear do you carry for summer?", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_022b", "source": "augmented"}
+{"query": "What else would look good with this blazer?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "outfit", "id": "para_046_2", "source": "paraphrase"}
+{"query": "Update the results with the current filters in place", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_092a", "source": "augmented"}
+{"query": "Could you give me some direction? I want to update my wardrobe but I'm lost", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_056_1", "source": "paraphrase"}
+{"query": "More like these please", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "edge_019", "source": "edge"}
+{"query": "Knitwear suggestions for autumnal dressing", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_051b", "source": "augmented"}
+{"query": "What would complement the blazer?", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "outfit", "id": "para_046_0", "source": "paraphrase"}
+{"query": "Filter to dark blue", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Light Pink"}, "route": "filter", "id": "aug_filt_actf_035a", "source": "augmented"}
+{"query": "More like these please", "last_action": "outfit", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_out_to_srch_000", "source": "augmented"}
+{"query": "Update the results with the current filters in place", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_092", "source": "augmented"}
+{"query": "More like these please", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "edge_018", "source": "edge"}
+{"query": "Looking for anything that might suit me", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_050", "source": "contrastive"}
+{"query": "Limit the search to only blazers", "last_action": "search", "items_retrieved": 7, "active_filters": {}, "route": "filter", "id": "aug_filt_srch_041b", "source": "augmented"}
+{"query": "Find me a good winter coat for the season please.", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_014a", "source": "augmented"}
+{"query": "Find me a good winter coat for the season please.", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_014b", "source": "augmented"}
+{"query": "I'm looking for a dark blue item, please.", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_008a", "source": "augmented"}
+{"query": "I'm not sure what I want \u2014 can you ask me some questions to help?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_057", "source": "seed"}
+{"query": "Filter to dark blue", "last_action": "search", "items_retrieved": 7, "active_filters": {}, "route": "filter", "id": "aug_filt_srch_035b", "source": "augmented"}
+{"query": "What kind of swimwear do you carry for summer?", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_022a", "source": "augmented"}
+{"query": "More like these please", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_103", "source": "augmented"}
+{"query": "I need basic neutral outfits", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_074", "source": "augmented"}
+{"query": "Find me some grey knit clothing items.", "last_action": "respond", "items_retrieved": 1, "active_filters": {}, "route": "search", "id": "aug_resp_srch_086b", "source": "augmented"}
+{"query": "I need to buy something for a family member but have no idea what to get", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "clarify", "id": "aug_resp_clry_037", "source": "augmented"}
+{"query": "Can I get this in a larger/smaller size?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_020", "source": "augmented"}
+{"query": "Find me a good winter coat for the season please.", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_002_1", "source": "paraphrase"}
+{"query": "Find me some grey knit clothing items.", "last_action": "compare", "items_retrieved": 6, "active_filters": {}, "route": "search", "id": "aug_cmp_to_srch_010", "source": "augmented"}
+{"query": "Find me something elegant for a date night", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_042a", "source": "augmented"}
+{"query": "What would complement the blazer?", "last_action": "filter", "items_retrieved": 4, "active_filters": {"colour_group_name": "White", "product_type_name": "Top"}, "route": "outfit", "id": "aug_out_actf_025", "source": "augmented"}
+{"query": "Find me a good winter coat for the season please.", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_014", "source": "augmented"}
+{"query": "More like these please", "last_action": "compare", "items_retrieved": 6, "active_filters": {}, "route": "search", "id": "aug_cmp_to_srch_037", "source": "augmented"}
+{"query": "Find me some grey knit clothing items.", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_086", "source": "augmented"}
+{"query": "Workwear but nothing too corporate or stiff", "last_action": "compare", "items_retrieved": 6, "active_filters": {}, "route": "search", "id": "aug_cmp_to_srch_011", "source": "augmented"}
+{"query": "Limit the search to only blazers", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "filter", "id": "para_041_4", "source": "paraphrase"}
+{"query": "Can I get a laptop here?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_073", "source": "augmented"}
+{"query": "Do you have this in a different size?", "last_action": "search", "items_retrieved": 1, "active_filters": {}, "route": "respond", "id": "aug_resp_i1_018", "source": "augmented"}
+{"query": "Shopping for my mom's anniversary", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_070", "source": "contrastive"}
+{"query": "Workwear but nothing too corporate or stiff", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "edge_032", "source": "edge"}
+{"query": "Do you have this in a different size?", "last_action": "filter", "items_retrieved": 3, "active_filters": {"colour_group_name": "Black"}, "route": "respond", "id": "aug_resp_i3_018", "source": "augmented"}
+{"query": "Can you recommend a jacket for someone else?", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "para_049_1", "source": "paraphrase"}
+{"query": "Update the results with the current filters in place", "last_action": "filter", "items_retrieved": 0, "active_filters": {"index_group_name": "Divided"}, "route": "search", "id": "para_015_1", "source": "paraphrase"}
+{"query": "Help me build an outfit around that jacket", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "outfit", "id": "seed_047", "source": "seed"}
+{"query": "White pants would be great, thanks.", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "para_011_1", "source": "paraphrase"}
+{"query": "What are the main differences between this and that?", "last_action": "filter", "items_retrieved": 6, "active_filters": {"colour_group_name": "Light Pink"}, "route": "compare", "id": "aug_cmp_actf_011", "source": "augmented"}
+{"query": "Workwear but nothing too corporate or stiff", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_110", "source": "augmented"}
+{"query": "Workwear but nothing too corporate or stiff", "last_action": "respond", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "aug_resp_srch_110a", "source": "augmented"}
+{"query": "I'll go with the first one", "last_action": "outfit", "items_retrieved": 4, "active_filters": {}, "route": "respond", "id": "para_027_1", "source": "paraphrase"}
+{"query": "Knitwear suggestions for autumnal dressing", "last_action": "clarify", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "aug_clry_srch_051", "source": "augmented"}
+{"query": "I need fashion advice but I'm not sure what I'm looking for", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "seed_056", "source": "seed"}
