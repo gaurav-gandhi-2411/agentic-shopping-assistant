@@ -1,0 +1,20 @@
+{"query": "i need new clothes for my new job", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_00", "source": "ood"}
+{"query": "shopping for my mom's anniversary", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "ood_01", "source": "ood"}
+{"query": "what's trending right now in fashion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_02", "source": "ood"}
+{"query": "show me what other people are wearing", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_03", "source": "ood"}
+{"query": "i'm tired of my current style", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "ood_04", "source": "ood"}
+{"query": "can you help me find something special", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "ood_05", "source": "ood"}
+{"query": "i want to look professional but not boring", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_06", "source": "ood"}
+{"query": "outfits for a beach wedding in italy", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_07", "source": "ood"}
+{"query": "i hate everything in my closet", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "ood_08", "source": "ood"}
+{"query": "what should i wear tomorrow", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "ood_09", "source": "ood"}
+{"query": "i need pieces that work for both work and weekends", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_10", "source": "ood"}
+{"query": "minimalist wardrobe basics", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_11", "source": "ood"}
+{"query": "show me sustainable brands", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "respond", "id": "ood_12", "source": "ood"}
+{"query": "vintage 70s style", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_13", "source": "ood"}
+{"query": "athleisure recommendations", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_14", "source": "ood"}
+{"query": "korean fashion trends", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "ood_15", "source": "ood"}
+{"query": "what's the difference between these dresses", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "compare", "id": "ood_16", "source": "ood"}
+{"query": "filter to under $50", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "ood_17", "source": "ood"}
+{"query": "i changed my mind, show me something else", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "search", "id": "ood_18", "source": "ood"}
+{"query": "are these on sale", "last_action": "search", "items_retrieved": 5, "active_filters": {}, "route": "respond", "id": "ood_19", "source": "ood"}

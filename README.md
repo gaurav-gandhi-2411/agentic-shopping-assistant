@@ -108,69 +108,41 @@ User input
 
 ### Router
 
-Three interchangeable router backends — selectable from the sidebar during a live demo:
+Three interchangeable backends selectable from the sidebar (production uses LLM):
 
-| Provider | Model | Latency p50 | Latency p95 | Macro F1 | Cost / 1k |
-|---|---|---|---|---|---|
-| LLM | Groq llama-3.1-8b-instant | ~2,100 ms (API) | ~5,400 ms | — | ~$0.05 |
-| Classifier | DistilBERT (fine-tuned) | 31 ms (CPU) | 38 ms | 0.8345 | $0 |
-| **Cascade** | DistilBERT + Groq (fallback) | **31 ms** (DB path) | ~5,400 ms (LLM path) | — | **~$0.02** |
+| Provider | Model | Latency | Macro F1 (in-dist) | Cost / 1k |
+|---|---|---|---|---|
+| **LLM** *(production)* | Groq llama-3.1-8b-instant | ~300–600 ms | — | ~$0.05 |
+| Classifier | DistilBERT V2 (6-class, fine-tuned) | ~30 ms (CPU) | 0.93 | $0 |
+| Cascade | DistilBERT + Groq fallback | ~30–600 ms | — | ~$0.02 |
 
-The LLM router receives: conversation history, last tool used, retrieved item count, item IDs, and
-active filters. It outputs one JSON action object with action-specific parameters (search query,
-filter key/value, article IDs). The DistilBERT classifier predicts the action class from the same
-context fields and constructs a minimal valid plan — query expansion and filter parameter extraction
-are handled by the graph's existing auto-facet logic.
+The LLM router formats conversation history, last tool used, retrieved item count, and active filters
+into a structured prompt and parses one JSON action object. Parameter extraction (search query, filter
+key/value, article IDs) is done by the LLM directly.
 
 Control flow has two enforcement layers shared by all routers:
 
-1. **OOC short-circuit** — clearly out-of-catalogue queries bypass the router entirely and force `search → OOC canned response`
-2. **Code-level guard in `route_decision()`** — after `search` or `compare` with non-empty
-   `retrieved_items`, forces `respond` regardless of router output (eliminates 6-iteration loops)
+1. **OOC short-circuit** — out-of-catalogue queries bypass the router and force `search → OOC canned response`
+2. **Code-level guard in `route_decision()`** — after `search` or `compare` with non-empty `retrieved_items`, forces `respond` regardless of router output (eliminates 6-iteration loops)
 
-### Router architecture
+### Routing Architecture Exploration
 
-The DistilBERT classifier was fine-tuned on 388 labeled examples (stratified 80/10/10, ~310 train)
-in 23.7 seconds on an RTX 3070 Laptop GPU. The dataset covers all six action classes (search,
-compare, filter, outfit, clarify, respond) across first-turn and multi-turn state conditions.
+Cascade routing explored in Phase 2: fine-tuned a 6-class DistilBERT classifier (67M params) on augmented stateful training data. Achieved 0.93 macro F1 on in-distribution held-out test. OOD evaluation (60 natural user queries) revealed systematic failures: the model memorizes surface patterns (gift-intent markers, specific phrasing) rather than learning the semantic decision rule (whether a query contains enough shopping intent to retrieve relevant products). After 3 rounds of contrastive augmentation (130 pairs total), OOD macro F1 reached 0.63 but stalled due to whack-a-mole regressions on neighboring patterns. Production deployment requires either (a) a larger base model, (b) a fundamentally different approach to the search/clarify boundary, or (c) training data from actual production queries with diverse natural phrasing. Current production: LLM-only routing with prompt engineering.
 
-Key finding: DistilBERT learned **state-conditional routing** that the LLM sometimes misses — it
-correctly classifies "Show me Ladieswear items" (with `last_action=search, items=5`) as `filter`
-rather than `search`, because the classifier was trained on examples where the state context matters,
-not just the query text.
+| Version | Training examples | In-dist macro F1 | OOD-20 macro F1 | Notes |
+|---|---|---|---|---|
+| V1 | 388 | 0.8345 | — | Initial fine-tune, no stateful augmentation |
+| V2 | 1,006 + augmented | 0.9035 | 0.25 | Stateful augmentation; search/clarify boundary fails OOD |
+| V3 | 1,111 | 0.9933 | 0.60 | +110 contrastive pairs; whack-a-mole regressions start |
+| V3.1 | 1,106 | 0.9304 | 0.63 | +20 event-verb pairs; stalled, 8 high-confidence wrong predictions |
 
-### Production pattern: confidence cascade
+**What would actually fix it:**
 
-Production deployment uses a **cascade router**: DistilBERT handles ~75–85% of queries at 31 ms
-latency; queries where its softmax confidence falls below 0.70 escalate to the Groq LLM. This
-combines the classifier's speed on unambiguous queries with the LLM's stronger handling of
-edge cases, negation, and gift-intent phrasing.
+1. **Production query logging + labeling** — 1000+ real queries labeled by the routing rule to expose the full distribution of natural phrasings.
+2. **Larger base model** — BERT-large or a small instruction-tuned LLM handles semantic generalization better; DistilBERT's 67M parameters on generic text pretraining aren't suited to subtle intent classification.
+3. **Different decision boundary** — use LLM routing for ambiguous first-turn queries (no explicit item noun) and DistilBERT only for stateful routing (filter/compare/outfit/respond) where the signal is structural.
 
-```
-User query
-    │
-    ▼
-DistilBERT router
-    │
-    ├── confidence ≥ 0.70 ──▶ action (search / filter / outfit / ...) [~31ms]
-    │
-    └── confidence < 0.70 ──▶ Groq LLM router ──▶ action [~2,100ms]
-```
-
-### Cascade behavior on the eval set
-
-On the 32-query evaluation set, all DistilBERT predictions had confidence ≥ 0.70 (median 0.735),
-so no queries escalated to the LLM. This means cascade behavior on the test set is identical to
-DistilBERT-only — the cascade architecture exists for production resilience but isn't exercised
-by these specific queries.
-
-In a production deployment, escalation would activate on:
-- Genuinely ambiguous queries the test set doesn't cover ("idk what I want")
-- Out-of-distribution phrasings absent from training data
-- Failed paraphrases that fall below threshold
-
-The 0.70 threshold was chosen because all observed errors in the diagnosis phase had confidence
-< 0.70 — escalation would have caught them.
+Full exploration: [`reports/v3_1_results.md`](reports/v3_1_results.md).
 
 ### Outfit bundling
 
@@ -191,7 +163,7 @@ prefer same-palette complements, falling back to best relevance match if none fo
 | Fusion | Reciprocal Rank Fusion (k=60) |
 | LLM (production) | Groq API + LLaMA 3.1 8B |
 | LLM (local dev) | Ollama + LLaMA 3.1 8B |
-| Router classifier | DistilBERT fine-tuned on 388 labeled routing examples |
+| Router classifier | DistilBERT fine-tuned (V1–V3.1, exploration); sidebar-selectable, not production |
 | UI | Streamlit (single-process, sidebar router toggle) |
 | Deployment | HuggingFace Spaces (CPU basic) |
 
@@ -222,21 +194,22 @@ python scripts/eval_harness.py --provider groq --router cascade
 
 **Three-router comparison on 32-query eval suite:**
 
-| Category | LLM router | DistilBERT router | Cascade router |
+| Category | LLM router *(production)* | DistilBERT router | Cascade (explored)† |
 |---|---|---|---|
 | Colour | 5/5 | 5/5 | 5/5 |
 | Occasion | 5/5 | 4/5 | 5/5 |
 | Season | 5/5 | 5/5 | 5/5 |
 | Style | 5/5 | 5/5 | 5/5 |
-| Negation | 5/5 | 2/5 | 3/5† |
-| Tool behaviour | 7/7 | 3/7 | 7/7† |
-| **Total** | **32/32 (100%)** | **24/32 (75%)** | **30/32 (94%)**† |
+| Negation | 5/5 | 2/5 | 3/5 |
+| Tool behaviour | 7/7 | 3/7 | 7/7 |
+| **Total** | **32/32 (100%)** | **24/32 (75%)** | **30/32 (94%)** |
 | **Median latency** | **43.9s** | **14.6s** | **~31ms** (router) |
 
-†Cascade measured eval (`eval_results_20260428_groq_v3.json`): 22/32 raw, 2 genuine FAIL (N1, N3),
-8 ERROR from internet connectivity loss. All 8 ERRORs confirmed PASS per LLM baseline → 30/32 (94%).
-Escalation rate: 0% — DistilBERT confidence ≥ 0.70 on all 32 queries (median 0.735); LLM fallback
-not triggered. Cascade router cost: $0.00 (no LLM router calls) + reranker only.
+†Cascade eval (`eval_results_20260428_groq_v3.json`): 22/32 raw, 2 genuine FAIL (N1, N3), 8 ERROR
+from internet connectivity loss; all 8 ERRORs confirmed PASS per LLM baseline → 30/32. Escalation
+rate: 0% — DistilBERT confidence ≥ 0.70 on all 32 in-distribution queries. Cascade is not in
+production; OOD evaluation (60 queries) showed macro F1 stalling at 0.63. See
+[Routing Architecture Exploration](#routing-architecture-exploration) for details.
 
 Detailed results: [`reports/router_comparison.md`](reports/router_comparison.md)
 
@@ -306,10 +279,10 @@ agentic-shopping-assistant/
 ├── config.yaml
 ├── requirements.txt
 ├── models/
-│   └── distilbert_router/       # fine-tuned router classifier
-│       ├── config.json
-│       ├── tokenizer.json
-│       └── training_log.json    # 0.8345 macro F1, 23.7s on RTX 3070
+│   ├── distilbert_router/          # V1 classifier (0.8345 macro F1)
+│   ├── distilbert_router_v2/       # V2 stateful augmentation (0.9035 in-dist, 0.25 OOD)
+│   ├── distilbert_router_v3/       # V3 +110 contrastive pairs (OOD-20 F1 0.60)
+│   └── distilbert_router_v3_1/     # V3.1 +20 event-verb pairs (OOD-20 F1 0.63; exploration end)
 ├── src/
 │   ├── agents/
 │   │   ├── graph.py
@@ -328,10 +301,11 @@ agentic-shopping-assistant/
 │   ├── 01_build_retrieval.py
 │   ├── 02_smoke_test.py
 │   ├── 03_build_image_subset.py
-│   ├── augment_clarify.py       # add 20 clarify examples, re-split dataset
 │   ├── train_router_distilbert.py
-│   ├── eval_harness.py          # 32-query automated test suite
-│   └── eval_queries.yaml        # query definitions and pass criteria
+│   ├── build_router_dataset_v3_1.py   # dataset builder (base-query-level split)
+│   ├── generate_contrastive_v3_1.py   # contrastive pair generation for V3.1
+│   ├── eval_harness.py                # 32-query automated test suite
+│   └── eval_queries.yaml              # query definitions and pass criteria
 ├── reports/                     # eval results (JSON + Markdown)
 ├── tests/
 └── spaces/

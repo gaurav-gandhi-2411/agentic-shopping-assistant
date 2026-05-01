@@ -1,0 +1,33 @@
+{
+  "v1_macro_f1_fresh_test": 0.8345,
+  "v1_macro_f1_stateful_test": 0.7925,
+  "v2_macro_f1_stateful_test": 0.9035,
+  "v1_accuracy_stateful": 0.7967,
+  "v2_accuracy_stateful": 0.916,
+  "per_class_comparison": {
+    "clarify": {
+      "v1_stateful": 0.8182,
+      "v2_stateful": 0.5556
+    },
+    "compare": {
+      "v1_stateful": 0.8421,
+      "v2_stateful": 1.0
+    },
+    "filter": {
+      "v1_stateful": 0.8235,
+      "v2_stateful": 1.0
+    },
+    "outfit": {
+      "v1_stateful": 0.7059,
+      "v2_stateful": 1.0
+    },
+    "respond": {
+      "v1_stateful": 0.7273,
+      "v2_stateful": 0.9474
+    },
+    "search": {
+      "v1_stateful": 0.8381,
+      "v2_stateful": 0.918
+    }
+  }
+}

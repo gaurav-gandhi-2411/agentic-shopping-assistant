@@ -1,0 +1,110 @@
+{"query": "I need new clothes for my new job", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_000", "source": "contrastive"}
+{"query": "I need something for a job interview", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_001", "source": "contrastive"}
+{"query": "I need a dress for a wedding reception", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_002", "source": "contrastive"}
+{"query": "I need warm clothes for a ski trip", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_003", "source": "contrastive"}
+{"query": "I need something casual for the weekend", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_004", "source": "contrastive"}
+{"query": "I need office wear for my internship", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_005", "source": "contrastive"}
+{"query": "I need gym clothes for my fitness routine", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_006", "source": "contrastive"}
+{"query": "I need comfortable clothes for traveling", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_007", "source": "contrastive"}
+{"query": "I need a jacket for autumn weather", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_008", "source": "contrastive"}
+{"query": "I need summer clothes for my holiday", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_009", "source": "contrastive"}
+{"query": "I need smart casual clothes for a dinner out", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_010", "source": "contrastive"}
+{"query": "I need a formal outfit for a black tie event", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_011", "source": "contrastive"}
+{"query": "I need loungewear for working from home", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_012", "source": "contrastive"}
+{"query": "I need running gear for my marathon training", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_013", "source": "contrastive"}
+{"query": "I need evening wear for a charity gala", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_014", "source": "contrastive"}
+{"query": "I need something for my sister", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_015", "source": "contrastive"}
+{"query": "I need a gift for my colleague", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_016", "source": "contrastive"}
+{"query": "I need help finding the right thing", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_017", "source": "contrastive"}
+{"query": "I need something for next weekend", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_018", "source": "contrastive"}
+{"query": "I need fashion advice", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_019", "source": "contrastive"}
+{"query": "I need something for a gift", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_020", "source": "contrastive"}
+{"query": "I need help with what to wear", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_021", "source": "contrastive"}
+{"query": "I need something special but I'm not sure what", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_022", "source": "contrastive"}
+{"query": "I need to get something for an occasion coming up", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_023", "source": "contrastive"}
+{"query": "I need help choosing something for them", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_024", "source": "contrastive"}
+{"query": "I need something but don't know where to start", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_025", "source": "contrastive"}
+{"query": "I need to buy something but I don't know what", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_026", "source": "contrastive"}
+{"query": "I need something for my partner", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_027", "source": "contrastive"}
+{"query": "I need to get them a treat but have no idea what", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_028", "source": "contrastive"}
+{"query": "I need to pick something out but I'm completely lost", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_029", "source": "contrastive"}
+{"query": "Looking for a summer dress under knee length", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_030", "source": "contrastive"}
+{"query": "Looking for running shoes for marathon training", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_031", "source": "contrastive"}
+{"query": "Looking for a warm jacket for winter", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_032", "source": "contrastive"}
+{"query": "Looking for casual jeans for everyday wear", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_033", "source": "contrastive"}
+{"query": "Looking for work attire that's professional but comfortable", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_034", "source": "contrastive"}
+{"query": "Looking for something black and elegant for a dinner party", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_035", "source": "contrastive"}
+{"query": "Looking for athletic wear for yoga", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_036", "source": "contrastive"}
+{"query": "Looking for a trench coat under a hundred pounds", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_037", "source": "contrastive"}
+{"query": "Looking for prints and patterns for spring", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_038", "source": "contrastive"}
+{"query": "Looking for minimalist everyday basics", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_039", "source": "contrastive"}
+{"query": "Looking for streetwear inspired pieces", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_040", "source": "contrastive"}
+{"query": "Looking for a bold statement piece for a party", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_041", "source": "contrastive"}
+{"query": "Looking for trending items this season", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_042", "source": "contrastive"}
+{"query": "Looking for what's popular in knitwear right now", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_043", "source": "contrastive"}
+{"query": "Looking for high waisted trousers in dark colors", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_044", "source": "contrastive"}
+{"query": "Looking for something nice", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_045", "source": "contrastive"}
+{"query": "Looking for a gift", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_046", "source": "contrastive"}
+{"query": "Looking for something for my mum", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_047", "source": "contrastive"}
+{"query": "Looking for something fashionable, not sure where to start", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_048", "source": "contrastive"}
+{"query": "Looking for something to wear but unsure what", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_049", "source": "contrastive"}
+{"query": "Looking for anything that might suit me", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_050", "source": "contrastive"}
+{"query": "Looking for something for a special occasion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_051", "source": "contrastive"}
+{"query": "Looking for a gift for someone who has everything", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_052", "source": "contrastive"}
+{"query": "Looking for something different", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_053", "source": "contrastive"}
+{"query": "Looking for the right thing but not sure what I want", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_054", "source": "contrastive"}
+{"query": "Looking for ideas", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_055", "source": "contrastive"}
+{"query": "Looking for a surprise gift with no restrictions", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_056", "source": "contrastive"}
+{"query": "Looking for something perfect for them", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_057", "source": "contrastive"}
+{"query": "Looking for whatever you'd recommend", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_058", "source": "contrastive"}
+{"query": "Looking for something I'll know when I see it", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_059", "source": "contrastive"}
+{"query": "A gift for my sister who loves boho style", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_060", "source": "contrastive"}
+{"query": "Something for my girlfriend who likes minimalist fashion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_061", "source": "contrastive"}
+{"query": "A birthday gift for a teenage girl into streetwear", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_062", "source": "contrastive"}
+{"query": "Get something smart for a business event", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_063", "source": "contrastive"}
+{"query": "Something summery for my friend's birthday", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_064", "source": "contrastive"}
+{"query": "Holiday gifts in the accessories category", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_065", "source": "contrastive"}
+{"query": "A gift for someone who loves vintage clothing", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_066", "source": "contrastive"}
+{"query": "Something casual and cool as a birthday surprise", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_067", "source": "contrastive"}
+{"query": "Get something trendy for a teenager", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_068", "source": "contrastive"}
+{"query": "Anniversary gift for someone who loves sustainable fashion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_069", "source": "contrastive"}
+{"query": "Shopping for my mom's anniversary", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_070", "source": "contrastive"}
+{"query": "A gift for my boss", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_071", "source": "contrastive"}
+{"query": "Something nice for my friend's birthday", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_072", "source": "contrastive"}
+{"query": "A present for someone special", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_073", "source": "contrastive"}
+{"query": "Get something for my colleague's farewell", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_074", "source": "contrastive"}
+{"query": "A gift for someone I don't know very well", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_075", "source": "contrastive"}
+{"query": "Birthday shopping, need ideas", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_076", "source": "contrastive"}
+{"query": "A surprise gift, no hints given", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_077", "source": "contrastive"}
+{"query": "Something my partner will love", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_078", "source": "contrastive"}
+{"query": "A gift without knowing what they'd want", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_079", "source": "contrastive"}
+{"query": "What's trending right now in fashion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_080", "source": "contrastive"}
+{"query": "Show me what other people are wearing", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_081", "source": "contrastive"}
+{"query": "What's popular this season", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_082", "source": "contrastive"}
+{"query": "Show me the latest arrivals", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_083", "source": "contrastive"}
+{"query": "What styles are in right now", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_084", "source": "contrastive"}
+{"query": "I want to look professional but not boring", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_085", "source": "contrastive"}
+{"query": "What's hot right now for spring", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_086", "source": "contrastive"}
+{"query": "Show me what's new this week", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_087", "source": "contrastive"}
+{"query": "What are people wearing to work these days", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_088", "source": "contrastive"}
+{"query": "I want to look stylish and put together", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_089", "source": "contrastive"}
+{"query": "Show me current street style", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_090", "source": "contrastive"}
+{"query": "What are the most popular items right now", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_091", "source": "contrastive"}
+{"query": "I want to dress like I know fashion", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_092", "source": "contrastive"}
+{"query": "What styles should I be wearing this year", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_093", "source": "contrastive"}
+{"query": "Show me what's fashionable in casual wear", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "search", "id": "contrast_094", "source": "contrastive"}
+{"query": "What should I wear tomorrow", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_095", "source": "contrastive"}
+{"query": "What are my options", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_096", "source": "contrastive"}
+{"query": "What do you recommend", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_097", "source": "contrastive"}
+{"query": "Help me figure out my style", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_098", "source": "contrastive"}
+{"query": "Can you give me fashion advice", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_099", "source": "contrastive"}
+{"query": "Tell me what I should buy", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_100", "source": "contrastive"}
+{"query": "What would look good on me", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_101", "source": "contrastive"}
+{"query": "What's a good choice for me", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_102", "source": "contrastive"}
+{"query": "Can you help me decide what to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_103", "source": "contrastive"}
+{"query": "What should I be buying", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_104", "source": "contrastive"}
+{"query": "I don't know what I want", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_105", "source": "contrastive"}
+{"query": "Help me figure out what to wear to the party", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_106", "source": "contrastive"}
+{"query": "What's the right thing to get", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_107", "source": "contrastive"}
+{"query": "I need advice on what to wear", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_108", "source": "contrastive"}
+{"query": "Help me choose something", "last_action": "none", "items_retrieved": 0, "active_filters": {}, "route": "clarify", "id": "contrast_109", "source": "contrastive"}

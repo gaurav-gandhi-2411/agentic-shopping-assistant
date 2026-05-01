@@ -31,10 +31,10 @@ agent:
 router:
   provider: "llm"                          # "llm" | "distilbert" | "cascade"
   distilbert_model_path: "models/distilbert_router"
-  # NOTE: 0.65 is calibrated to current production input distribution.
-  # See reports/cascade_calibration.md for analysis.
-  # When DistilBERT is retrained with stateful examples, recalibrate this threshold.
-  cascade_threshold: 0.65                  # escalate to LLM below this confidence
+  # cascade_threshold is UI-only; not used in production (provider: "llm").
+  # Phase 2 cascade exploration (V2/V3/V3.1) stalled at OOD macro F1 0.63.
+  # See reports/v3_1_results.md for the full exploration story.
+  cascade_threshold: 0.65                  # UI sidebar only — not in production path
 
 memory:
   recent_turns: 6

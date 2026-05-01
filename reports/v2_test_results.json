@@ -1,0 +1,70 @@
+{
+  "model": "v2",
+  "test_set": "v2_stateful",
+  "n": 131,
+  "accuracy": 0.916,
+  "macro_f1": 0.9035,
+  "per_class_f1": {
+    "clarify": 0.5556,
+    "compare": 1.0,
+    "filter": 1.0,
+    "outfit": 1.0,
+    "respond": 0.9474,
+    "search": 0.918
+  },
+  "confusion_matrix": {
+    "clarify": {
+      "clarify": 5,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 1,
+      "search": 2
+    },
+    "compare": {
+      "clarify": 0,
+      "compare": 10,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 0,
+      "search": 0
+    },
+    "filter": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 9,
+      "outfit": 0,
+      "respond": 0,
+      "search": 0
+    },
+    "outfit": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 4,
+      "respond": 0,
+      "search": 0
+    },
+    "respond": {
+      "clarify": 0,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 36,
+      "search": 0
+    },
+    "search": {
+      "clarify": 5,
+      "compare": 0,
+      "filter": 0,
+      "outfit": 0,
+      "respond": 3,
+      "search": 56
+    }
+  },
+  "train_examples": 1006,
+  "val_examples": 120,
+  "best_val_f1": 0.8398,
+  "best_checkpoint": "C:\\Users\\gaura\\ml-projects\\agentic-shopping-assistant\\models\\distilbert_router_v2\\checkpoints\\checkpoint-504",
+  "training_time_sec": 35.8
+}

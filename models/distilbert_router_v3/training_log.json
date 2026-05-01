@@ -1,0 +1,19 @@
+{
+  "best_val_f1": 1.0,
+  "best_checkpoint": "C:\\Users\\gaura\\ml-projects\\agentic-shopping-assistant\\models\\distilbert_router_v3\\checkpoints\\checkpoint-420",
+  "test_f1_macro": 0.9933,
+  "test_accuracy": 0.9919,
+  "num_train_epochs": 8,
+  "train_examples": 1111,
+  "val_examples": 132,
+  "test_examples": 124,
+  "training_time_sec": 55.0,
+  "per_class_f1": {
+    "clarify": 0.9714,
+    "compare": 1.0,
+    "filter": 1.0,
+    "outfit": 1.0,
+    "respond": 1.0,
+    "search": 0.9885
+  }
+}
