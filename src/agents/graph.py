@@ -42,7 +42,7 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
         "foundation", "concealer", "eyeliner", "nail polish", "nail varnish",
         "perfume", "fragrance", "cologne", "deodorant", "moisturizer",
         "moisturiser", "skincare", "serum", "serums", "makeup", "make up",
-        "face cream", "blush", "bronzer", "highlighter", "contour",
+        "face cream", "bronzer", "highlighter", "contour",
         "bb cream", "cc cream", "toner", "face mask", "sheet mask",
         "cleanser", "face wash", "shampoo", "conditioner", "body lotion",
         "body wash", "sunscreen", "sunblock", "skin care", "hair care", "haircare",
