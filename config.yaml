@@ -29,12 +29,7 @@ agent:
   enable_clarify_tool: true
 
 router:
-  provider: "llm"                          # "llm" | "distilbert" | "cascade"
-  distilbert_model_path: "models/distilbert_router"
-  # cascade_threshold is UI-only; not used in production (provider: "llm").
-  # Phase 2 cascade exploration (V2/V3/V3.1) stalled at OOD macro F1 0.63.
-  # See reports/v3_1_results.md for the full exploration story.
-  cascade_threshold: 0.65                  # UI sidebar only — not in production path
+  provider: "llm"
 
 memory:
   recent_turns: 6

@@ -644,8 +644,7 @@ def build_graph(
             "iteration": state.get("iteration", 0) + 1,
             "tool_calls": state.get("tool_calls", []) + [{"search": search_meta}],
         }
-        if effective_filters != merged:
-            update["filters"] = effective_filters
+        update["filters"] = effective_filters
         if excluded_colours:
             update["excluded_colours"] = excluded_colours
         return update
