@@ -411,10 +411,6 @@ def run_query(agent, query_spec: dict) -> dict:
     overall = "FAIL" if failed else "PASS"
 
     _tcs = result.get("tool_calls", [])
-    _router_plans = [tc["router_decision"] for tc in _tcs if "router_decision" in tc
-                     and isinstance(tc["router_decision"], dict)]
-    _cascade_escalated = any(p.get("_cascade_escalated", False) for p in _router_plans)
-    _db_confidence = next((p.get("_db_confidence") for p in _router_plans), None)
 
     return {
         "id":             query_spec["id"],
@@ -431,8 +427,6 @@ def run_query(agent, query_spec: dict) -> dict:
         "n_items":        len(result.get("retrieved_items", [])),
         "response_text":  response_text[:600],
         "tool_calls":     [list(tc.keys())[0] for tc in _tcs],
-        "cascade_escalated": _cascade_escalated,
-        "db_confidence":  _db_confidence,
         "filters":        result.get("filters", {}),
         "out_of_catalogue": bool(result.get("out_of_catalogue")),
         "latency_main":   round(main_lat, 2),
@@ -453,6 +447,18 @@ def _versioned_path(directory: Path, stem: str, suffix: str) -> Path:
 
 # ── summary printer ───────────────────────────────────────────────────────────
 
+def _fmt_lat(seconds: float) -> str:
+    """Format a latency value; shows Xm Ys for values >= 60s.
+
+    High values (hundreds of seconds) typically indicate Groq TPD rate-limit
+    retry sleeps included in perf_counter wall time — not actual inference time.
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(seconds, 60)
+    return f"{int(m)}m {s:.1f}s"
+
+
 def print_summary(results: list[dict], total_time: float):
     n      = len(results)
     pass_n = sum(1 for r in results if r["status"] == "PASS")
@@ -462,7 +468,7 @@ def print_summary(results: list[dict], total_time: float):
     print(f"\n{'='*60}")
     print(f"RESULTS: {pass_n}/{n} PASS  |  {fail_n} FAIL  |  {err_n} ERROR  "
           f"|  {pass_n/n*100:.0f}%")
-    print(f"Total elapsed: {total_time:.1f}s")
+    print(f"Total elapsed: {_fmt_lat(total_time)}")
 
     # By category
     cats = defaultdict(list)
@@ -474,13 +480,13 @@ def print_summary(results: list[dict], total_time: float):
         p = sum(1 for r in recs if r["status"] == "PASS")
         print(f"  {cat:<18}  {p}/{len(recs)}")
 
-    # Latency stats (exclude ERROR rows)
+    # Latency stats (exclude ERROR rows; values include rate-limit retry sleeps)
     lats = sorted(r["latency_total"] for r in results if r.get("latency_total", 0) > 0)
     if lats:
         p95 = lats[max(0, int(len(lats) * 0.95) - 1)]
-        print(f"\nLatency (total incl. setup): "
-              f"median={statistics.median(lats):.1f}s  "
-              f"min={lats[0]:.1f}s  max={lats[-1]:.1f}s  p95={p95:.1f}s")
+        print(f"\nLatency (wall time incl. setup + any rate-limit retries): "
+              f"median={_fmt_lat(statistics.median(lats))}  "
+              f"min={_fmt_lat(lats[0])}  max={_fmt_lat(lats[-1])}  p95={_fmt_lat(p95)}")
 
     # Failed queries
     failed_recs = [r for r in results if r["status"] == "FAIL"]
@@ -495,21 +501,6 @@ def print_summary(results: list[dict], total_time: float):
         print(f"\nErrors ({len(err_recs)}):")
         for r in err_recs:
             print(f"  ERR  {r['id']:<5}  {r.get('error', '?')[:100]}")
-
-    # Cascade-specific breakdown
-    if any(r.get("router") == "cascade" for r in results):
-        escalated = [r for r in results if r.get("cascade_escalated")]
-        db_only   = [r for r in results if not r.get("cascade_escalated") and r.get("status") in ("PASS","FAIL","ERROR")]
-        esc_pass  = sum(1 for r in escalated if r["status"] == "PASS")
-        db_pass   = sum(1 for r in db_only   if r["status"] == "PASS")
-        confidences = [r["db_confidence"] for r in results if r.get("db_confidence") is not None]
-        conf_median = statistics.median(confidences) if confidences else 0.0
-        print(f"\nCascade breakdown:")
-        print(f"  DistilBERT-only:  {len(db_only):2d} queries  {db_pass}/{len(db_only)} PASS")
-        print(f"  Escalated to LLM: {len(escalated):2d} queries  {esc_pass}/{len(escalated)} PASS")
-        print(f"  Escalation rate:  {len(escalated)/n*100:.0f}%  ({len(escalated)}/{n})")
-        print(f"  Confidence (median): {conf_median:.3f}")
-        print(f"  Escalated queries: {[r['id'] for r in escalated]}")
 
     print("=" * 60)
 
@@ -526,8 +517,8 @@ def main():
                         help="Validate YAML only — no agent or LLM calls")
     parser.add_argument("--provider", choices=["groq", "gemini", "openrouter", "ollama"],
                         help="LLM provider (overrides LLM_PROVIDER env var and config.yaml)")
-    parser.add_argument("--router", choices=["llm", "distilbert", "cascade"],
-                        help="Router backend (overrides config.yaml router.provider)")
+    parser.add_argument("--router", choices=["llm"],
+                        help="Router backend (only 'llm' is supported)")
     parser.add_argument("--query-id", metavar="ID", nargs="+",
                         help="Run one or more queries by id (e.g. C1 TB3 N1)")
     parser.add_argument("--resume", metavar="JSON_PATH",
@@ -617,7 +608,7 @@ def main():
             rec = run_query(agent, q)
             icon = "PASS" if rec["status"] == "PASS" else rec["status"]
             fail_str = f"  FAILED: {rec['failed']}" if rec["failed"] else ""
-            print(f"          [{icon}]  {rec['latency_total']:.1f}s  "
+            print(f"          [{icon}]  {_fmt_lat(rec['latency_total'])}  "
                   f"items={rec['n_items']}{fail_str}")
         except Exception as exc:
             print(f"          [ERROR] {exc!r}")
@@ -651,22 +642,6 @@ def main():
             key=lambda r: yaml_order.get(r["id"], 999),
         )
 
-    # Compute cascade summary if applicable
-    cascade_summary: dict = {}
-    if _router_label == "cascade":
-        esc = [r for r in all_results if r.get("cascade_escalated")]
-        db  = [r for r in all_results if not r.get("cascade_escalated")]
-        confs = [r["db_confidence"] for r in all_results if r.get("db_confidence") is not None]
-        cascade_summary = {
-            "escalated_count":    len(esc),
-            "db_only_count":      len(db),
-            "escalation_rate":    round(len(esc) / len(all_results), 3) if all_results else 0,
-            "escalated_pass":     sum(1 for r in esc if r["status"] == "PASS"),
-            "db_only_pass":       sum(1 for r in db  if r["status"] == "PASS"),
-            "confidence_median":  round(statistics.median(confs), 4) if confs else None,
-            "escalated_ids":      [r["id"] for r in esc],
-        }
-
     # Save JSON
     payload = {
         "run_date":      date.today().isoformat(),
@@ -674,8 +649,6 @@ def main():
         "total_time_s":  round(total_time, 1),
         "results":       all_results,
     }
-    if cascade_summary:
-        payload["cascade_stats"] = cascade_summary
     json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     print(f"\nJSON saved -> {json_path}")
 

@@ -46,10 +46,6 @@ _llm_model_key = "model" if LLM_PROVIDER == "ollama" else f"{LLM_PROVIDER}_model
 LLM_MODEL = config["llm"].get(_llm_model_key, "llama-3.1-8b-instant")
 LLM_LABEL = f"{LLM_PROVIDER.capitalize()} · {LLM_MODEL}"
 
-_DB_MODEL_PATH = _REPO_ROOT / config.get("router", {}).get("distilbert_model_path", "models/distilbert_router")
-# Requires the full model file — config/tokenizer alone is not enough to run inference
-_DB_AVAILABLE = (_DB_MODEL_PATH / "model.safetensors").exists()
-
 _SUGGESTIONS = [
     "Show me something for the beach",
     "Outfits for a date night",
@@ -71,43 +67,18 @@ def _load_retrieval():
     return retriever, df
 
 
-@st.cache_resource(show_spinner="Loading DistilBERT router...")
-def _load_distilbert_backend():
-    from src.agents.router import DistilBERTRouterBackend
-    _, df = _load_retrieval()
-    return DistilBERTRouterBackend(_DB_MODEL_PATH, df)
-
-
 # ---------------------------------------------------------------------------
 # Per-session agent (memory is stateful — must not be shared across users)
 # ---------------------------------------------------------------------------
 
 def _init_session():
-    # Rebuild agent if the router provider changed mid-session.
-    selected_router = st.session_state.get("router_provider", "llm")
-    if st.session_state.get("_active_router") != selected_router:
-        st.session_state.pop("agent", None)
-        st.session_state["_active_router"] = selected_router
-        # Also reset conversation so history matches the new router's behaviour.
-        st.session_state.pop("conversation_id", None)
-        st.session_state.pop("history", None)
-        st.session_state.pop("conv_state", None)
-
     if "agent" not in st.session_state:
         retriever, df = _load_retrieval()
         llm = get_llm_client(config)
         memory = ConversationMemory(llm, config)
-
-        router_backend = None
-        if selected_router == "distilbert" and _DB_AVAILABLE:
-            router_backend = _load_distilbert_backend()
-        elif selected_router == "cascade" and _DB_AVAILABLE:
-            # Pass None — the factory inside build_graph builds cascade from config
-            config["router"]["provider"] = "cascade"
-
         st.session_state.agent = build_graph(
             retriever, df, llm, memory, config,
-            streaming_mode=True, router_backend=router_backend,
+            streaming_mode=True,
         )
         st.session_state.llm = llm
 
@@ -397,42 +368,7 @@ with st.sidebar:
         "The assistant searches, compares, and filters items for you."
     )
     st.divider()
-
-    # Router selector
-    st.markdown("**Router**")
-    if _DB_AVAILABLE:
-        _router_options = ["LLM (Groq)", "Classifier (DistilBERT)", "Cascade (DB + LLM fallback)"]
-    else:
-        _router_options = ["LLM (Groq)"]
-    _cur_router = st.session_state.get("router_provider", "llm")
-    _router_idx = (
-        2 if _cur_router == "cascade" and _DB_AVAILABLE else
-        1 if _cur_router == "distilbert" and _DB_AVAILABLE else
-        0
-    )
-    _router_choice = st.selectbox(
-        "Routing engine",
-        _router_options,
-        index=_router_idx,
-        label_visibility="collapsed",
-    )
-    _new_router = (
-        "cascade"    if _router_choice == "Cascade (DB + LLM fallback)" else
-        "distilbert" if _router_choice == "Classifier (DistilBERT)" else
-        "llm"
-    )
-    if _new_router != st.session_state.get("router_provider", "llm"):
-        st.session_state.router_provider = _new_router
-        st.rerun()
-
-    if st.session_state.get("router_provider") == "cascade":
-        _cascade_threshold = config.get("router", {}).get("cascade_threshold", 0.80)
-        st.success(f"🚀 Cascade — DistilBERT primary, LLM fallback at conf < {_cascade_threshold:.2f}")
-    elif st.session_state.get("router_provider") == "distilbert":
-        st.success("⚡ Local classifier — ~31ms latency")
-    else:
-        st.info("🤖 Groq llama-3.1-8b-instant — 1–2s latency")
-
+    st.info("🤖 Groq llama-3.1-8b-instant — 1–2s latency")
     st.divider()
     if st.button("🔄 Reset conversation", use_container_width=True):
         st.session_state.conversation_id = str(uuid.uuid4())
@@ -601,27 +537,10 @@ if user_input:
             {},
         )
         if _router_decision:
-            _router_provider = st.session_state.get("router_provider", "llm")
-            _db_conf = _router_decision.get("_db_confidence")
-            _escalated = _router_decision.get("_cascade_escalated", False)
             _route = _router_decision.get("action", "unknown")
             with st.expander("How was this routed?", expanded=False):
-                if _router_provider == "llm":
-                    st.markdown(f"**Router:** LLM only (Groq)")
-                    st.markdown(f"**Action:** `{_route}`")
-                elif _router_provider == "distilbert":
-                    _conf_str = f"{_db_conf:.3f}" if _db_conf is not None else "n/a"
-                    st.markdown(f"**Router:** DistilBERT only")
-                    st.markdown(f"**Confidence:** {_conf_str}")
-                    st.markdown(f"**Action:** `{_route}`")
-                elif _router_provider == "cascade":
-                    _thresh = config.get("router", {}).get("cascade_threshold", 0.80)
-                    _decision = "LLM fallback" if _escalated else "DistilBERT (kept)"
-                    _conf_str = f"{_db_conf:.3f}" if _db_conf is not None else "n/a"
-                    st.markdown(f"**Router:** Cascade")
-                    st.markdown(f"**DistilBERT confidence:** {_conf_str} (threshold: {_thresh:.2f})")
-                    st.markdown(f"**Decision:** {_decision}")
-                    st.markdown(f"**Action:** `{_route}`")
+                st.markdown(f"**Router:** LLM (Groq)")
+                st.markdown(f"**Action:** `{_route}`")
 
     # Persist conversation state for next turn
     new_messages = conv["messages"] + [

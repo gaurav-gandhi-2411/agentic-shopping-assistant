@@ -12,6 +12,14 @@ from collections import defaultdict
 from pathlib import Path
 
 
+def _fmt_lat(seconds: float) -> str:
+    """Format latency; shows Xm Ys for values >= 60s (high values indicate rate-limit retries)."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(seconds, 60)
+    return f"{int(m)}m {s:.1f}s"
+
+
 def generate_markdown(payload: dict) -> str:
     results    = payload["results"]
     run_date   = payload.get("run_date", "?")
@@ -35,8 +43,8 @@ def generate_markdown(payload: dict) -> str:
         "",
         f"**{pass_n}/{n} PASS ({rate:.0f}%)** &nbsp;|&nbsp; "
         f"{fail_n} FAIL &nbsp;|&nbsp; {err_n} ERROR &nbsp;|&nbsp; "
-        f"Total: {total_time:.0f}s &nbsp;|&nbsp; "
-        f"Latency median {lat_median:.1f}s  p95 {lat_p95:.1f}s  max {lat_max:.1f}s",
+        f"Total: {_fmt_lat(total_time)} &nbsp;|&nbsp; "
+        f"Latency median {_fmt_lat(lat_median)}  p95 {_fmt_lat(lat_p95)}  max {_fmt_lat(lat_max)}",
         "",
     ]
 
@@ -63,7 +71,7 @@ def generate_markdown(payload: dict) -> str:
     for r in results:
         icon = "PASS" if r["status"] == "PASS" else ("FAIL" if r["status"] == "FAIL" else "ERR")
         fail_str = ", ".join(r.get("failed", [])) or "—"
-        lat  = f"{r.get('latency_total', 0):.1f}s"
+        lat  = _fmt_lat(r.get('latency_total', 0))
         lines.append(
             f"| {r['id']} | {r.get('category', '')} | {icon} {r['status']} "
             f"| {r['n_items']} | {lat} | {fail_str} |"
@@ -80,7 +88,7 @@ def generate_markdown(payload: dict) -> str:
                 f"**Status:** {r['status']}  |  "
                 f"**Category:** {r.get('category', '?')}  |  "
                 f"**Items:** {r['n_items']}  |  "
-                f"**Latency:** {r.get('latency_total', 0):.1f}s",
+                f"**Latency:** {_fmt_lat(r.get('latency_total', 0))}",
                 "",
             ]
             if r["status"] == "ERROR":
@@ -124,8 +132,8 @@ def generate_markdown(payload: dict) -> str:
             f"- **Tools:** {', '.join(r.get('tool_calls', []))}",
             f"- **Filters:** {r.get('filters', {})}",
             f"- **OOC:** {r.get('out_of_catalogue', False)}",
-            f"- **Latency:** {r.get('latency_total', 0):.1f}s "
-            f"(setup: {r.get('latency_setup', [])}  main: {r.get('latency_main', 0):.1f}s)",
+            f"- **Latency:** {_fmt_lat(r.get('latency_total', 0))} "
+            f"(setup: {r.get('latency_setup', [])}  main: {_fmt_lat(r.get('latency_main', 0))})",
             "",
             "**Response:**",
             "",

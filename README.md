@@ -77,8 +77,8 @@ User input
 │                    LangGraph Agent                     │
 │                                                        │
 │  START ──▶ router ──┬──▶ search  ──────────────────┐  │
-│       (LLM / DB /  ├──▶ compare ──────────────────┤  │
-│        Cascade)    ├──▶ filter  ──────────────────┤  │
+│         (LLM)      ├──▶ compare ──────────────────┤  │
+│                    ├──▶ filter  ──────────────────┤  │
 │                     ├──▶ outfit  ───────────────▶ END  │
 │                     ├──▶ clarify ───────────────▶ END  │
 │                     └──▶ respond ───────────────▶ END  │
@@ -108,41 +108,14 @@ User input
 
 ### Router
 
-Three interchangeable backends selectable from the sidebar (production uses LLM):
-
-| Provider | Model | Latency | Macro F1 (in-dist) | Cost / 1k |
-|---|---|---|---|---|
-| **LLM** *(production)* | Groq llama-3.1-8b-instant | ~300–600 ms | — | ~$0.05 |
-| Classifier | DistilBERT V2 (6-class, fine-tuned) | ~30 ms (CPU) | 0.93 | $0 |
-| Cascade | DistilBERT + Groq fallback | ~30–600 ms | — | ~$0.02 |
-
 The LLM router formats conversation history, last tool used, retrieved item count, and active filters
 into a structured prompt and parses one JSON action object. Parameter extraction (search query, filter
 key/value, article IDs) is done by the LLM directly.
 
-Control flow has two enforcement layers shared by all routers:
+Control flow has two enforcement layers:
 
 1. **OOC short-circuit** — out-of-catalogue queries bypass the router and force `search → OOC canned response`
 2. **Code-level guard in `route_decision()`** — after `search` or `compare` with non-empty `retrieved_items`, forces `respond` regardless of router output (eliminates 6-iteration loops)
-
-### Routing Architecture Exploration
-
-Cascade routing explored in Phase 2: fine-tuned a 6-class DistilBERT classifier (67M params) on augmented stateful training data. Achieved 0.93 macro F1 on in-distribution held-out test. OOD evaluation (60 natural user queries) revealed systematic failures: the model memorizes surface patterns (gift-intent markers, specific phrasing) rather than learning the semantic decision rule (whether a query contains enough shopping intent to retrieve relevant products). After 3 rounds of contrastive augmentation (130 pairs total), OOD macro F1 reached 0.63 but stalled due to whack-a-mole regressions on neighboring patterns. Production deployment requires either (a) a larger base model, (b) a fundamentally different approach to the search/clarify boundary, or (c) training data from actual production queries with diverse natural phrasing. Current production: LLM-only routing with prompt engineering.
-
-| Version | Training examples | In-dist macro F1 | OOD-20 macro F1 | Notes |
-|---|---|---|---|---|
-| V1 | 388 | 0.8345 | — | Initial fine-tune, no stateful augmentation |
-| V2 | 1,006 + augmented | 0.9035 | 0.25 | Stateful augmentation; search/clarify boundary fails OOD |
-| V3 | 1,111 | 0.9933 | 0.60 | +110 contrastive pairs; whack-a-mole regressions start |
-| V3.1 | 1,106 | 0.9304 | 0.63 | +20 event-verb pairs; stalled, 8 high-confidence wrong predictions |
-
-**What would actually fix it:**
-
-1. **Production query logging + labeling** — 1000+ real queries labeled by the routing rule to expose the full distribution of natural phrasings.
-2. **Larger base model** — BERT-large or a small instruction-tuned LLM handles semantic generalization better; DistilBERT's 67M parameters on generic text pretraining aren't suited to subtle intent classification.
-3. **Different decision boundary** — use LLM routing for ambiguous first-turn queries (no explicit item noun) and DistilBERT only for stateful routing (filter/compare/outfit/respond) where the signal is structural.
-
-Full exploration: [`reports/v3_1_results.md`](reports/v3_1_results.md).
 
 ### Outfit bundling
 
@@ -163,8 +136,7 @@ prefer same-palette complements, falling back to best relevance match if none fo
 | Fusion | Reciprocal Rank Fusion (k=60) |
 | LLM (production) | Groq API + LLaMA 3.1 8B |
 | LLM (local dev) | Ollama + LLaMA 3.1 8B |
-| Router classifier | DistilBERT fine-tuned (V1–V3.1, exploration); sidebar-selectable, not production |
-| UI | Streamlit (single-process, sidebar router toggle) |
+| UI | Streamlit (single-process) |
 | Deployment | HuggingFace Spaces (CPU basic) |
 
 ---
@@ -184,34 +156,25 @@ A 32-query automated test suite covering 6 categories: colour, occasion, season,
 
 During evaluation, the style category surfaced a colour-tone matching issue: queries like "minimalist wardrobe in neutral tones" returned items the LLM considered tonally compatible but which fell outside a strict neutral palette. The fix: CIELAB ΔE 2000 colour-distance scoring — items are accepted if their perceptual colour distance from the neutral palette is within a configurable threshold, rather than requiring exact colour name matches. This approach mirrors how human perception works and is more robust to catalogue vocabulary variation.
 
-The harness is reproducible and supports all three router backends:
+**32-query eval suite (LLM router, Groq):**
+
+| Category | Queries | Result |
+|---|---|---|
+| Colour | 5 | 5/5 |
+| Occasion | 5 | 5/5 |
+| Season | 5 | 5/5 |
+| Style | 5 | 5/5 |
+| Negation | 5 | 5/5 |
+| Tool behaviour | 7 | 7/7 |
+| **Total** | **32** | **32/32 (100%)** |
+
+Detailed results: [`reports/eval_baseline_groq.md`](reports/eval_baseline_groq.md)
+
+Run with:
 
 ```bash
 python scripts/eval_harness.py --provider groq --router llm
-python scripts/eval_harness.py --provider groq --router distilbert
-python scripts/eval_harness.py --provider groq --router cascade
 ```
-
-**Three-router comparison on 32-query eval suite:**
-
-| Category | LLM router *(production)* | DistilBERT router | Cascade (explored)† |
-|---|---|---|---|
-| Colour | 5/5 | 5/5 | 5/5 |
-| Occasion | 5/5 | 4/5 | 5/5 |
-| Season | 5/5 | 5/5 | 5/5 |
-| Style | 5/5 | 5/5 | 5/5 |
-| Negation | 5/5 | 2/5 | 3/5 |
-| Tool behaviour | 7/7 | 3/7 | 7/7 |
-| **Total** | **32/32 (100%)** | **24/32 (75%)** | **30/32 (94%)** |
-| **Median latency** | **43.9s** | **14.6s** | **~31ms** (router) |
-
-†Cascade eval (`eval_results_20260428_groq_v3.json`): 22/32 raw, 2 genuine FAIL (N1, N3), 8 ERROR
-from internet connectivity loss; all 8 ERRORs confirmed PASS per LLM baseline → 30/32. Escalation
-rate: 0% — DistilBERT confidence ≥ 0.70 on all 32 in-distribution queries. Cascade is not in
-production; OOD evaluation (60 queries) showed macro F1 stalling at 0.63. See
-[Routing Architecture Exploration](#routing-architecture-exploration) for details.
-
-Detailed results: [`reports/router_comparison.md`](reports/router_comparison.md)
 
 ---
 
@@ -278,16 +241,10 @@ Set `GROQ_API_KEY` as a Space secret (`Settings -> Variables and secrets`).
 agentic-shopping-assistant/
 ├── config.yaml
 ├── requirements.txt
-├── models/
-│   ├── distilbert_router/          # V1 classifier (0.8345 macro F1)
-│   ├── distilbert_router_v2/       # V2 stateful augmentation (0.9035 in-dist, 0.25 OOD)
-│   ├── distilbert_router_v3/       # V3 +110 contrastive pairs (OOD-20 F1 0.60)
-│   └── distilbert_router_v3_1/     # V3.1 +20 event-verb pairs (OOD-20 F1 0.63; exploration end)
 ├── src/
 │   ├── agents/
 │   │   ├── graph.py
-│   │   ├── router.py            # LLMRouterBackend + DistilBERTRouterBackend + CascadeRouterBackend
-│   │   ├── distilbert_router.py # inference wrapper (LABEL_MAP, NUM_LABELS)
+│   │   ├── router.py            # LLMRouterBackend
 │   │   ├── state.py
 │   │   └── tools.py
 │   ├── retrieval/
