@@ -1,9 +1,13 @@
-import re
+import logging
 import pickle
+import re
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from rank_bm25 import BM25Okapi
+
+logger = logging.getLogger(__name__)
 
 
 class SparseRetriever:
@@ -16,7 +20,7 @@ class SparseRetriever:
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"Building BM25 index over {len(catalogue_df):,} articles...")
+        logger.info("Building BM25 index over %d articles…", len(catalogue_df))
         tokenized = [self._tokenize(t) for t in catalogue_df["search_text"].tolist()]
         self.bm25 = BM25Okapi(tokenized)
         self.article_ids = catalogue_df["article_id"].values.astype(str)
@@ -24,7 +28,7 @@ class SparseRetriever:
         with open(save_dir / "bm25.pkl", "wb") as f:
             pickle.dump(self.bm25, f)
         np.save(str(save_dir / "bm25_article_ids.npy"), self.article_ids)
-        print("BM25 index saved.")
+        logger.info("BM25 index saved.")
 
     @classmethod
     def load(cls, config: dict, save_dir: Path) -> "SparseRetriever":

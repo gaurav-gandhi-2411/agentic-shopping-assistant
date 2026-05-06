@@ -1,7 +1,10 @@
+import logging
 import random
 
 import pandas as pd
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
+
+logger = logging.getLogger(__name__)
 
 
 VALID_FACET_KEYS = {
@@ -186,9 +189,10 @@ def suggest_outfit(
         else:
             empty_slots.append(slot_label)
 
-    print(
-        f"[outfit] seed={seed_article_id} type={product_type} colour={colour} "
-        f"complements={[c['article_id'] for c in complements]} empty_slots={empty_slots}"
+    logger.debug(
+        "[outfit] seed=%s type=%s colour=%s complements=%s empty_slots=%s",
+        seed_article_id, product_type, colour,
+        [c["article_id"] for c in complements], empty_slots,
     )
     comp_names = [c["display_name"] for c in complements]
     if comp_names:

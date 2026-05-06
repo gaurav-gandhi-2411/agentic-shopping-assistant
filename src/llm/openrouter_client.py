@@ -1,6 +1,9 @@
+import logging
 import os
 import time
 from typing import Iterator
+
+logger = logging.getLogger(__name__)
 
 
 def _rate_limit_wait(exc) -> float:
@@ -70,13 +73,13 @@ class OpenRouterClient:
                 if status == 429 and ratelimit_retries < 10:
                     ratelimit_retries += 1
                     wait = _rate_limit_wait(exc)
-                    print(f"[openrouter] attempt {attempt} rate-limited. Waiting {wait:.0f}s...")
+                    logger.warning("[openrouter] attempt %d rate-limited. Waiting %.0fs…", attempt, wait)
                     time.sleep(wait)
                     continue
                 delay = next(other_delays, None)
                 if delay is None:
                     raise
-                print(f"[openrouter] attempt {attempt} failed: {exc!r}. Retrying in {delay}s...")
+                logger.warning("[openrouter] attempt %d failed: %r. Retrying in %.1fs…", attempt, exc, delay)
                 time.sleep(delay)
 
     def chat_stream(

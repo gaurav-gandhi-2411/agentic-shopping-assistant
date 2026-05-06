@@ -1,6 +1,9 @@
+import logging
 import os
 import time
 from typing import Iterator
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
@@ -67,7 +70,7 @@ class GeminiClient:
                 delay = next(delays, None)
                 if delay is None:
                     raise
-                print(f"[gemini] attempt {attempt} failed: {exc!r}. Retrying in {delay}s...")
+                logger.warning("[gemini] attempt %d failed: %r. Retrying in %.1fs…", attempt, exc, delay)
                 time.sleep(delay)
 
     def chat_stream(

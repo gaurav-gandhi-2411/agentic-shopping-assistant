@@ -1,7 +1,10 @@
+import logging
 import os
 import re
 import time
 from typing import Iterator, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_retry_after(exc_str: str) -> float:
@@ -134,13 +137,13 @@ class GroqClient:
                     tpd_retries += 1
                     wait = _parse_retry_after(exc_str)
                     wait = max(wait, 60.0)  # minimum 60s for TPD
-                    print(f"[groq] attempt {attempt} failed: {exc!r}. TPD limit — waiting {wait:.0f}s...")
+                    logger.warning("[groq] attempt %d failed: %r. TPD limit — waiting %.0fs…", attempt, exc, wait)
                     time.sleep(wait + 2)
                     continue
                 delay = next(tpm_delays, None)
                 if delay is None:
                     raise
-                print(f"[groq] attempt {attempt} failed: {exc!r}. Retrying in {delay}s...")
+                logger.warning("[groq] attempt %d failed: %r. Retrying in %.1fs…", attempt, exc, delay)
                 time.sleep(delay)
 
     def chat_stream(

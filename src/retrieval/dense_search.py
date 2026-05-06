@@ -1,8 +1,12 @@
-import numpy as np
+import logging
+
 import faiss
+import numpy as np
 import pandas as pd
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+
+logger = logging.getLogger(__name__)
 
 
 class DenseRetriever:
@@ -20,7 +24,7 @@ class DenseRetriever:
         texts = catalogue_df["search_text"].tolist()
         batch_size = self.config["retrieval"]["dense_batch_size"]
 
-        print(f"Encoding {len(texts):,} articles with {self.config['retrieval']['dense_model']}...")
+        logger.info("Encoding %d articles with %s…", len(texts), self.config["retrieval"]["dense_model"])
         embeddings = self.model.encode(
             texts,
             batch_size=batch_size,
@@ -36,7 +40,7 @@ class DenseRetriever:
 
         faiss.write_index(self.index, str(save_dir / "dense.faiss"))
         np.save(str(save_dir / "dense_article_ids.npy"), self.article_ids)
-        print(f"Dense index saved: {self.index.ntotal:,} vectors, dim={dim}")
+        logger.info("Dense index saved: %d vectors, dim=%d", self.index.ntotal, dim)
 
     @classmethod
     def load(cls, config: dict, save_dir: Path) -> "DenseRetriever":
