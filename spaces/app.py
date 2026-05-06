@@ -1,50 +1,32 @@
-"""
-HuggingFace Spaces entry point — folded single-process Streamlit app.
+"""Streamlit thin client for the Shopping Assistant API.
 
-The agent runs directly in the Streamlit process (no FastAPI / SSE layer).
-LLM: Groq (set GROQ_API_KEY as a Space secret).
-Data:  data/processed/{dense.faiss, dense_article_ids.npy,
-                        bm25.pkl, bm25_article_ids.npy, catalogue.parquet,
-                        images/}
-       Upload once with: python spaces/upload_artifacts.py --repo <user>/<space> --space
-"""
+Connects to the API via WebSocket (/chat/stream) for agent turns and via
+HTTP (GET /catalogue/{id}/similar) for "More like this".  No src.* imports —
+all agent and retrieval logic lives behind the API.
 
-import json
+Configuration
+-------------
+BACKEND_URL : str
+    WebSocket base URL of the API.  Default: ws://localhost:8000
+    Production example: wss://your-app.fly.dev
+"""
+from __future__ import annotations
+
 import os
-import sys
-import uuid
 from pathlib import Path
 
+import httpx
 import streamlit as st
 
-# Local dev: app.py lives in spaces/, src/ is one level up (repo root).
-# HF Space:  app.py is at container root alongside src/ (bundled at deploy time).
-_SPACES_DIR = Path(__file__).parent
-_REPO_ROOT = _SPACES_DIR.parent if (_SPACES_DIR.parent / "src").exists() else _SPACES_DIR
-sys.path.insert(0, str(_REPO_ROOT))
-
-from src.agents.grounding import validate_response
-from src.catalogue.loader import load_config
-from src.retrieval.dense_search import DenseRetriever
-from src.retrieval.sparse_search import SparseRetriever
-from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
-from src.llm.client import get_llm_client
-from src.memory.conversation import ConversationMemory
-from src.agents.graph import build_graph, _detect_ooc
+import spaces.ws_client as ws_client
 
 # ---------------------------------------------------------------------------
-# Config — override provider to groq for Spaces
+# Config
 # ---------------------------------------------------------------------------
-_CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
-_DATA_DIR = _REPO_ROOT / "data" / "processed"
 
-config = load_config(_CONFIG_PATH)
-config["llm"]["provider"] = os.environ.get("LLM_PROVIDER", "groq")
+BACKEND_URL: str = os.environ.get("BACKEND_URL", "ws://localhost:8000")
 
-LLM_PROVIDER = config["llm"]["provider"]
-_llm_model_key = "model" if LLM_PROVIDER == "ollama" else f"{LLM_PROVIDER}_model"
-LLM_MODEL = config["llm"].get(_llm_model_key, "llama-3.1-8b-instant")
-LLM_LABEL = f"{LLM_PROVIDER.capitalize()} · {LLM_MODEL}"
+_HTTP_BASE = BACKEND_URL.replace("wss://", "https://").replace("ws://", "http://")
 
 _SUGGESTIONS = [
     "Show me something for the beach",
@@ -53,48 +35,33 @@ _SUGGESTIONS = [
     "Cosy loungewear in neutral tones",
 ]
 
-# ---------------------------------------------------------------------------
-# Heavy components — loaded once, shared across all sessions
-# ---------------------------------------------------------------------------
-
-@st.cache_resource(show_spinner="Loading retrieval indices...")
-def _load_retrieval():
-    import pandas as pd
-    df = pd.read_parquet(_DATA_DIR / "catalogue.parquet")
-    dense = DenseRetriever.load(config, _DATA_DIR)
-    sparse = SparseRetriever.load(config, _DATA_DIR)
-    retriever = HybridRetriever(dense, sparse, df, config)
-    return retriever, df
+_TOOL_LABELS: dict[str, str] = {
+    "search": "Searching the catalogue…",
+    "filter": "Applying filters…",
+    "search_ooc": "Checking catalogue scope…",
+    "outfit": "Building outfit…",
+    "clarify": "Clarifying your request…",
+}
 
 
 # ---------------------------------------------------------------------------
-# Per-session agent (memory is stateful — must not be shared across users)
+# Session-state helpers
 # ---------------------------------------------------------------------------
 
-def _init_session():
-    if "agent" not in st.session_state:
-        retriever, df = _load_retrieval()
-        llm = get_llm_client(config)
-        memory = ConversationMemory(llm, config)
-        st.session_state.agent = build_graph(
-            retriever, df, llm, memory, config,
-            streaming_mode=True,
-        )
-        st.session_state.llm = llm
-
+def _init_session() -> None:
     if "conversation_id" not in st.session_state:
-        st.session_state.conversation_id = str(uuid.uuid4())
+        st.session_state.conversation_id = None  # filled after first session frame
     if "history" not in st.session_state:
         st.session_state.history: list[dict] = []
-    if "conv_state" not in st.session_state:
-        st.session_state.conv_state = {
-            "messages": [], "filters": {}, "retrieved_items": [],
-        }
+    if "last_filters" not in st.session_state:
+        st.session_state.last_filters: dict = {}
 
 
-# ---------------------------------------------------------------------------
-# UI helpers
-# ---------------------------------------------------------------------------
+def _reset_conversation() -> None:
+    st.session_state.conversation_id = None
+    st.session_state.history = []
+    st.session_state.last_filters = {}
+
 
 def _set_pending_query(query: str) -> None:
     st.session_state.pending_query = query
@@ -104,209 +71,53 @@ def _set_more_like_seed(article_id: str) -> None:
     st.session_state.more_like_seed_id = article_id
 
 
-_NEUTRAL_COLOURS = frozenset({
-    "black", "white", "grey", "dark grey", "light grey",
-    "beige", "light beige", "dark beige",
-})
+# ---------------------------------------------------------------------------
+# API helpers
+# ---------------------------------------------------------------------------
 
-# Tonal-style queries trigger CIELAB post-filter: (palette, max_delta_e)
-TONAL_STYLE_PALETTES: dict[str, tuple[list[str] | None, float]] = {
-    "minimalist": (
-        ["Black", "White", "Off White", "Grey", "Dark Grey", "Light Grey", "Beige", "Light Beige"],
-        25,
-    ),
-    "neutral": (
-        ["Black", "White", "Off White", "Grey", "Dark Grey", "Light Grey", "Beige", "Light Beige"],
-        25,
-    ),
-    "earth tone":  (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
-    "earth tones": (["Beige", "Light Beige", "Dark Beige", "Greyish Beige", "Yellowish Brown"], 25),
-    "monochrome":  (None, 15),
-    # Style-language colours not in catalogue — mapped to nearest catalogue colour groups
-    "cream":      (["Off White", "Light Beige", "Beige", "White", "Light Yellow"], 20),
-    "ivory":      (["Off White", "White", "Light Beige"], 18),
-    "champagne":  (["Light Beige", "Gold", "Beige", "Off White"], 22),
-    "blush":      (["Light Pink", "Pink"], 20),
-    "sage":       (["Light Green", "Green", "Greenish Khaki"], 22),
-    "terracotta": (["Orange", "Dark Orange", "Light Orange", "Brown"], 22),
-    "dusty pink": (["Light Pink", "Pink", "Greyish Beige"], 22),
-    "lavender":   (["Light Purple", "Purple"], 22),
-}
+def _item_image_url(item: dict) -> str | None:
+    iu = item.get("image_url")
+    if not iu:
+        return None
+    if iu.startswith(("http://", "https://")):
+        return iu
+    # Relative path served via the API's /images static mount
+    return f"{_HTTP_BASE.rstrip('/')}/{iu.lstrip('/')}"
 
 
-def _get_tonal_spec(query: str) -> tuple[list[str] | None, float] | None:
-    """Return (palette, max_delta_e) if query contains a tonal keyword, else None."""
-    q_lower = query.lower()
-    for keyword, spec in TONAL_STYLE_PALETTES.items():
-        if keyword in q_lower:
-            return spec
-    return None
-
-
-def _filter_by_tonal_compatibility(
-    items: list[dict],
-    palette: list[str],
-    max_delta_e: float,
-) -> list[dict]:
-    from src.utils.colour_lab import COLOUR_TO_LAB, delta_e_2000
-    palette_labs = [COLOUR_TO_LAB[c] for c in palette if c in COLOUR_TO_LAB]
-    if not palette_labs:
-        return items
-    result = []
-    for item in items:
-        item_lab = COLOUR_TO_LAB.get(item.get("colour", ""))
-        if item_lab is None:
-            result.append(item)  # unknown colour: include
-            continue
-        if min(delta_e_2000(item_lab, p_lab) for p_lab in palette_labs) <= max_delta_e:
-            result.append(item)
-    return result
-
-
-def _tonal_backfill(
-    filtered: list[dict],
-    user_query: str,
-    palette: list[str],
-    max_delta_e: float,
-    target: int = 5,
-) -> list[dict]:
-    """Re-retrieve up to `target` tonal items if filtered pool is too small."""
-    from src.utils.colour_lab import COLOUR_TO_LAB, delta_e_2000
-    retriever_obj, _ = _load_retrieval()
-    candidates = retriever_obj.search(user_query, top_k=25)
-    palette_labs = [COLOUR_TO_LAB[c] for c in palette if c in COLOUR_TO_LAB]
-    seen_ids = {it["article_id"] for it in filtered}
-    seen_keys = {
-        (normalize_prod_name(it.get("prod_name", it.get("display_name", ""))), it.get("colour", "").lower())
-        for it in filtered
-    }
-    for cand in candidates:
-        if len(filtered) >= target:
-            break
-        if cand["article_id"] in seen_ids:
-            continue
-        key = (normalize_prod_name(cand.get("prod_name", cand.get("display_name", ""))), cand.get("colour", "").lower())
-        if key in seen_keys:
-            continue
-        cand_lab = COLOUR_TO_LAB.get(cand.get("colour", ""))
-        if cand_lab is None or (palette_labs and min(delta_e_2000(cand_lab, p) for p in palette_labs) <= max_delta_e):
-            filtered.append(cand)
-            seen_ids.add(cand["article_id"])
-            seen_keys.add(key)
-    return filtered
-# Dark tones that work together; excludes dark green/red (too colourful to count as "dark neutral")
-_COMPATIBLE_DARKS = frozenset({"black", "dark blue", "dark grey"})
-_COMPATIBLE_LIGHTS = frozenset({"white", "light grey", "light beige", "beige", "light pink", "light blue"})
-
-
-def _colour_compatible(seed_colour: str, item_colour: str) -> bool:
-    """True if item_colour is the same as seed or palette-compatible.
-
-    A neutral ITEM goes with any seed, but a neutral SEED does not mean we accept
-    any item — we still require same colour, neutral item, or same-family dark/light.
-    """
-    s, i = seed_colour.lower(), item_colour.lower()
-    if s == i:
-        return True
-    if i in _NEUTRAL_COLOURS:  # neutral item pairs with any seed
-        return True
-    if s in _COMPATIBLE_DARKS and i in _COMPATIBLE_DARKS:
-        return True
-    if s in _COMPATIBLE_LIGHTS and i in _COMPATIBLE_LIGHTS:
-        return True
-    return False
-
-
-def _more_like_this_items(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]]:
-    """Return (seed_name, similar_items) using stored FAISS embedding with colour filter."""
-    retriever, _ = _load_retrieval()
-    cat = retriever.catalogue_df  # indexed by article_id
-
-    if seed_id not in cat.index:
+def _more_like_this(seed_id: str, top_k: int = 5) -> tuple[str, list[dict]]:
+    """Call GET /catalogue/{id}/similar and return (seed_display_name, items)."""
+    try:
+        resp = httpx.get(
+            f"{_HTTP_BASE}/catalogue/{seed_id}/similar",
+            params={"k": top_k},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        items = resp.json()
+        # Fetch seed display name for the response header
+        seed_resp = httpx.get(f"{_HTTP_BASE}/catalogue/{seed_id}", timeout=5.0)
+        seed_name = seed_resp.json().get("display_name", seed_id) if seed_resp.is_success else seed_id
+        return seed_name, items
+    except Exception as exc:
+        st.error(f"Could not load similar items: {exc}")
         return seed_id, []
-    seed_row = cat.loc[seed_id]
-    seed_facets = seed_row["facets"] if isinstance(seed_row["facets"], dict) else {}
-    seed_name = seed_row["display_name"]
-    seed_colour = seed_facets.get("colour_group_name", "").lower()
 
-    # Fetch generously so colour filtering still yields top_k results
-    hits = retriever.dense.search_by_id(seed_id, top_k=top_k * 4)
 
-    seen_prod_colour: set[tuple[str, str]] = set()
-
-    def _make_item(aid: str, score: float) -> dict | None:
-        if aid == seed_id or aid not in cat.index:
-            return None
-        row = cat.loc[aid]
-        facets = row["facets"] if isinstance(row["facets"], dict) else {}
-        return {
-            "article_id": aid,
-            "prod_name": row.get("prod_name", ""),
-            "display_name": row["display_name"],
-            "colour": facets.get("colour_group_name", ""),
-            "product_type": facets.get("product_type_name", ""),
-            "department": facets.get("department_name", ""),
-            "detail_desc": row.get("detail_desc", ""),
-            "image_url": row.get("image_url", ""),
-            "score": score,
-        }
-
-    def _is_duplicate(it: dict) -> bool:
-        key = (normalize_prod_name(it.get("prod_name", it["display_name"])), it["colour"].lower())
-        if key in seen_prod_colour:
-            return True
-        seen_prod_colour.add(key)
-        return False
-
-    # Pass 1: same colour or palette-compatible (dedup by prod_name+colour)
-    items: list[dict] = []
-    all_items: list[dict] = []
-    for aid, score in hits:
-        it = _make_item(aid, score)
-        if it is None:
-            continue
-        all_items.append(it)
-        if not _is_duplicate(it) and seed_colour and _colour_compatible(seed_colour, it["colour"].lower()):
-            items.append(it)
-        if len(items) >= top_k:
-            break
-
-    # Pass 2: backfill with neutral-coloured items only (palette-safe, deduped)
-    if len(items) < top_k:
-        seen_ids = {it["article_id"] for it in items}
-        for it in all_items:
-            if it["article_id"] in seen_ids:
-                continue
-            if it["colour"].lower() in _NEUTRAL_COLOURS and not _is_duplicate(it):
-                items.append(it)
-                seen_ids.add(it["article_id"])
-            if len(items) >= top_k:
-                break
-
-    # Pass 3: if still short, fill with any remaining by similarity order (deduped)
-    if len(items) < top_k:
-        seen_ids = {it["article_id"] for it in items}
-        for it in all_items:
-            if it["article_id"] not in seen_ids and not _is_duplicate(it):
-                items.append(it)
-                seen_ids.add(it["article_id"])
-            if len(items) >= top_k:
-                break
-
-    return seed_name, items[:top_k]
-
+# ---------------------------------------------------------------------------
+# UI helpers
+# ---------------------------------------------------------------------------
 
 def _render_card(col, item: dict, turn_index: int = 0) -> None:
     with col:
-        role = item.get("_role", "")
-        if role == "seed":
-            st.caption("**Starting item**")
-        elif role == "complement":
-            st.caption("Pair with")
-        img_path = _DATA_DIR / item["image_url"] if item.get("image_url") else None
-        if img_path and img_path.exists():
-            st.image(str(img_path), width=150)
-        st.markdown(f"**{item['display_name']}**")
+        img_url = _item_image_url(item)
+        if img_url:
+            try:
+                st.image(img_url, width=150)
+            except Exception:
+                pass  # 404 or connection error — skip image gracefully
+
+        st.markdown(f"**{item.get('display_name', item.get('prod_name', ''))}**")
         meta_parts = [
             item.get("colour", ""),
             item.get("product_type", ""),
@@ -315,15 +126,17 @@ def _render_card(col, item: dict, turn_index: int = 0) -> None:
         meta = " · ".join(p for p in meta_parts if p)
         if meta:
             st.caption(meta)
+
         desc = item.get("detail_desc", "")
         if desc:
             with st.expander("Details", expanded=False):
-                st.write(desc[:300] + ("..." if len(desc) > 300 else ""))
+                st.write(desc[:300] + ("…" if len(desc) > 300 else ""))
+
         aid = item.get("article_id", "")
         col_a, col_b = st.columns(2)
         col_a.button(
             "🔍 More like this",
-            key=f"more_like_{aid}_{turn_index}",
+            key=f"more_{aid}_{turn_index}",
             on_click=_set_more_like_seed,
             args=(aid,),
             use_container_width=True,
@@ -332,7 +145,7 @@ def _render_card(col, item: dict, turn_index: int = 0) -> None:
             "✨ Style this",
             key=f"outfit_{aid}_{turn_index}",
             on_click=_set_pending_query,
-            args=(f"build an outfit around {item['display_name']}",),
+            args=(f"build an outfit around {item.get('display_name', aid)}",),
             use_container_width=True,
         )
 
@@ -360,7 +173,6 @@ st.set_page_config(
 
 _init_session()
 
-# Sidebar
 with st.sidebar:
     st.markdown("## 🛍️ Shopping Assistant")
     st.markdown(
@@ -368,25 +180,20 @@ with st.sidebar:
         "The assistant searches, compares, and filters items for you."
     )
     st.divider()
-    st.info("🤖 Groq llama-3.1-8b-instant — 1–2s latency")
+    st.info("🤖 Groq Llama 3.1 8B — 1–2 s latency")
     st.divider()
     if st.button("🔄 Reset conversation", use_container_width=True):
-        st.session_state.conversation_id = str(uuid.uuid4())
-        st.session_state.history = []
-        st.session_state.conv_state = {
-            "messages": [], "filters": {}, "retrieved_items": [],
-        }
+        _reset_conversation()
         st.rerun()
     st.divider()
     st.caption("**System info**")
-    st.caption(f"LLM: `{LLM_LABEL}`")
-    st.caption("Retrieval: Hybrid (dense + BM25 with RRF)")
-    _, _cat_df = _load_retrieval()
-    st.caption(f"Corpus: {len(_cat_df):,} items")
+    st.caption(f"Backend: `{_HTTP_BASE}`")
+    if st.session_state.conversation_id:
+        st.caption(f"Session: `{st.session_state.conversation_id[:8]}…`")
 
 st.title("🛍️ Agentic Shopping Assistant")
 
-# Prompt chips — shown only on fresh conversation
+# Prompt chips — shown only on fresh conversations
 if not st.session_state.history:
     st.markdown("**Try asking:**")
     chip_cols = st.columns(len(_SUGGESTIONS))
@@ -406,38 +213,28 @@ for _turn_i, msg in enumerate(st.session_state.history):
             _show_items(msg["items"], turn_index=_turn_i)
 
 # ---------------------------------------------------------------------------
-# Chat input — accepts both typed queries and chip button presses
+# Input resolution
 # ---------------------------------------------------------------------------
 
 _pending = st.session_state.pop("pending_query", None)
 _seed_id = st.session_state.pop("more_like_seed_id", None)
-_typed = st.chat_input("Ask about anything in the store...")
+_typed = st.chat_input("Ask about anything in the store…")
 
 # ---------------------------------------------------------------------------
-# "More like this" — pure FAISS vector similarity, bypasses the agent entirely
+# "More like this" — calls GET /catalogue/{id}/similar (no agent needed)
 # ---------------------------------------------------------------------------
+
 if _seed_id:
-    seed_name, similar_items = _more_like_this_items(_seed_id)
+    seed_name, similar_items = _more_like_this(_seed_id)
     user_text = f"More like {seed_name}"
     response_text = f"Here are items similar to **{seed_name}**:"
 
-    conv = st.session_state.conv_state
     with st.chat_message("user"):
         st.markdown(user_text)
     with st.chat_message("assistant"):
         st.markdown(response_text)
-        if similar_items:
-            _show_items(similar_items, turn_index=len(st.session_state.history))
+        _show_items(similar_items, turn_index=len(st.session_state.history))
 
-    new_messages = conv["messages"] + [
-        {"role": "user", "content": user_text},
-        {"role": "assistant", "content": response_text},
-    ]
-    st.session_state.conv_state = {
-        "messages": new_messages,
-        "filters": conv["filters"],
-        "retrieved_items": similar_items,
-    }
     st.session_state.history.append({"role": "user", "content": user_text})
     st.session_state.history.append({
         "role": "assistant",
@@ -445,117 +242,89 @@ if _seed_id:
         "items": list(similar_items),
     })
 
-user_input = None if _seed_id else (_pending or _typed)
+# ---------------------------------------------------------------------------
+# Agent turn — streams frames from /chat/stream
+# ---------------------------------------------------------------------------
+
+user_input: str | None = None if _seed_id else (_pending or _typed)
 
 if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    conv = st.session_state.conv_state
-    initial_state = {
-        "messages": conv["messages"] + [{"role": "user", "content": user_input}],
-        "user_query": user_input,
-        "current_plan": None,
-        "tool_calls": [],
-        "retrieved_items": conv["retrieved_items"],
-        "filters": conv["filters"],
-        "final_answer": None,
-        "iteration": 0,
-        "new_items_this_turn": False,
-        "out_of_catalogue": False,
-    }
-
     with st.chat_message("assistant"):
         status_ph = st.empty()
-        status_ph.caption("🔎 Searching the catalogue...")
+        items_container = st.container()   # items rendered here when frame arrives
+        text_ph = st.empty()               # accumulates streaming tokens
 
-        # Phase 1 — run the graph (routing + tool calls, no LLM respond yet)
-        try:
-            result = st.session_state.agent.invoke(initial_state)
-        except Exception as exc:
-            status_ph.empty()
-            exc_str = str(exc)
-            if "rate_limit_exceeded" in exc_str or "tokens per day" in exc_str.lower() or "RateLimitError" in type(exc).__name__:
-                st.warning("⏳ The AI service is temporarily unavailable due to high usage. Please try again in a few hours.")
-            elif "ConnectionError" in type(exc).__name__ or "Timeout" in exc_str:
-                st.warning("🔌 Connection issue with the AI service. Please retry in a moment.")
-            else:
-                st.error(f"Something went wrong: {type(exc).__name__}. Please try again or report if this persists.")
-            print(f"[agent] invoke error: {exc!r} query={user_input!r}")
-            st.stop()
+        status_ph.caption("🔎 Connecting…")
 
-        plan = json.loads(result.get("current_plan") or "{}")
-        action = plan.get("action", "")
-        items = result.get("retrieved_items", [])
-        new_items = result.get("new_items_this_turn", False)
+        routing_decision: dict = {}
+        items_list: list[dict] = []
+        accumulated_text = ""
+        final_state: dict = {}
+        had_error = False
 
-        # Post-reranker tonal filter — only for queries with tonal style keywords
-        if new_items and items:
-            tonal_spec = _get_tonal_spec(user_input)
-            if tonal_spec is not None:
-                palette, max_de = tonal_spec
-                if palette is not None:
-                    filtered = _filter_by_tonal_compatibility(items, palette, max_de)
-                    if len(filtered) < 3:
-                        filtered = _tonal_backfill(filtered, user_input, palette, max_de)
-                    if len(filtered) >= 3:
-                        items = filtered[:5]
+        for frame in ws_client.iter_frames(
+            BACKEND_URL,
+            st.session_state.conversation_id,
+            user_input,
+        ):
+            ft = frame.get("type")
 
-        # Phase 2 — stream the LLM response
-        if action == "pending_respond":
-            prompt = plan["prompt"]
-            status_ph.empty()
-            try:
-                response_text = st.write_stream(
-                    st.session_state.llm.generate_stream(prompt)
-                )
-            except Exception as exc:
-                response_text = "I'm having trouble generating a response right now — please try again."
-                st.markdown(response_text)
-                print(f"[groq] stream error: {exc!r} query={user_input!r}")
-            cleaned, flags = validate_response(response_text or "", items)
-            if flags:
-                print(f"[grounding] flags={flags} query={user_input!r}")
-            response_text = cleaned
-        elif action == "pending_answer":
-            text = plan.get("text", "")
-            status_ph.empty()
-            st.markdown(text)
-            response_text = text
-        else:
-            status_ph.empty()
-            response_text = result.get("final_answer", "")
-            st.markdown(response_text)
+            if ft == "session":
+                st.session_state.conversation_id = frame["conversation_id"]
 
-        if new_items and items:
-            _show_items(items, turn_index=len(st.session_state.history))
+            elif ft == "routing":
+                routing_decision = frame.get("decision", {})
 
-        # Routing visualization
-        _tool_calls = result.get("tool_calls", [])
-        _router_decision = next(
-            (tc.get("router_decision") for tc in _tool_calls if "router_decision" in tc),
-            {},
-        )
-        if _router_decision:
-            _route = _router_decision.get("action", "unknown")
+            elif ft == "tool_start":
+                tool = frame.get("tool", "")
+                label = _TOOL_LABELS.get(tool, f"Using {tool}…")
+                status_ph.caption(f"🔎 {label}")
+
+            elif ft == "items":
+                status_ph.empty()
+                items_list = frame.get("items", [])
+                with items_container:
+                    _show_items(items_list, turn_index=len(st.session_state.history))
+
+            elif ft == "token":
+                accumulated_text += frame.get("text", "")
+                text_ph.markdown(accumulated_text + " ▌")
+
+            elif ft == "done":
+                final_state = frame.get("final_state", {})
+                status_ph.empty()
+                text_ph.markdown(accumulated_text)
+                st.session_state.last_filters = final_state.get("filters", {})
+                break
+
+            elif ft == "cancelled":
+                status_ph.empty()
+                text_ph.markdown("*Turn cancelled.*")
+                accumulated_text = "*Turn cancelled.*"
+                break
+
+            elif ft == "error":
+                status_ph.empty()
+                msg = frame.get("message", "Unknown error")
+                st.error(f"Error from API: {msg}")
+                had_error = True
+                break
+
+        # Routing debug expander (collapsed by default)
+        if routing_decision and not had_error:
             with st.expander("How was this routed?", expanded=False):
-                st.markdown(f"**Router:** LLM (Groq)")
-                st.markdown(f"**Action:** `{_route}`")
+                st.markdown(f"**Action:** `{routing_decision.get('action', '?')}`")
+                query = routing_decision.get("query")
+                if query:
+                    st.markdown(f"**Query:** {query}")
 
-    # Persist conversation state for next turn
-    new_messages = conv["messages"] + [
-        {"role": "user", "content": user_input},
-        {"role": "assistant", "content": response_text or ""},
-    ]
-    st.session_state.conv_state = {
-        "messages": new_messages,
-        "filters": result.get("filters", conv["filters"]),
-        "retrieved_items": items,
-    }
-
-    st.session_state.history.append({"role": "user", "content": user_input})
-    st.session_state.history.append({
-        "role": "assistant",
-        "content": response_text or "",
-        "items": list(items) if new_items else [],
-    })
+    if not had_error:
+        st.session_state.history.append({"role": "user", "content": user_input})
+        st.session_state.history.append({
+            "role": "assistant",
+            "content": accumulated_text,
+            "items": items_list if final_state.get("new_items_this_turn") else [],
+        })

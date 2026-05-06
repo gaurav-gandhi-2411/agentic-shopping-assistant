@@ -22,6 +22,7 @@ from typing import Any
 import pandas as pd
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 import api.deps as deps
 from api.logging_config import setup_logging
@@ -125,6 +126,11 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(catalogue_router)
+
+    # Serve product images if the directory was baked into the container.
+    images_dir = _DATA_DIR / "images"
+    if images_dir.is_dir():
+        app.mount("/images", StaticFiles(directory=str(images_dir)), name="images")
 
     return app
 
