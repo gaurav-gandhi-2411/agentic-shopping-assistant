@@ -52,10 +52,7 @@ def _build_session_store(llm: Any, config: dict):
     from src.storage.postgres_session_store import PostgresSessionStore
 
     engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
-    user_id = os.environ.get(
-        "SYSTEM_USER_ID", "00000000-0000-0000-0000-000000000001"
-    )
-    return PostgresSessionStore(engine, llm, config, user_id)
+    return PostgresSessionStore(engine, llm, config)
 _DATA_DIR = _REPO_ROOT / "data" / "processed"
 _CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
 

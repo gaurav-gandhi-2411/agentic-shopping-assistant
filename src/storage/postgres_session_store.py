@@ -1,28 +1,43 @@
 """PostgreSQL-backed session store.
 
-Implements the same SessionStore protocol as InMemorySessionStore.
+Implements the SessionStore protocol.  user_id is passed per-call (not stored
+at construction time) so the same store instance can serve multiple users once
+JWT auth is wired in Phase 2 prompt 2.
 
 Schema mapping
 --------------
-The session dict used throughout the API has this shape::
+Session dict shape used throughout the API::
 
     {
-        "messages":         list[{"role": str, "content": str}],
-        "retrieved_items":  list[dict],   # last retrieval results
-        "filters":          dict,         # active filter snapshot
-        "excluded_colours": list | None,  # user colour preferences (not persisted — see note)
-        "_memory":          ConversationMemory,   # reconstructed on load
-        "_db_message_count": int,         # watermark: messages already in DB
+        "messages":          list[{"role": str, "content": str}],
+        "retrieved_items":   list[dict],      # last retrieval results
+        "filters":           dict,            # active filter snapshot
+        "excluded_colours":  list | None,     # colour-negation preferences
+        "_memory":           ConversationMemory,  # reconstructed on load
+        "_db_message_count": int,             # watermark: messages already in DB
     }
 
-Messages are stored one row per turn in the messages table.  Items and
-filters are serialised into the JSONB columns on the LAST assistant
-message of each set() call, so that get() can restore them without
-replaying the full history.
+Persistence strategy
+--------------------
+Messages
+  One row per message.  Items and filters are written to the JSONB columns of
+  the LAST assistant message in each set() call so that get() can restore them
+  without replaying history.
 
-excluded_colours is NOT persisted to the DB in this phase — it will be
-added to the conversations table in a later migration when the full user
-preference model is designed.
+excluded_colours
+  Stored on the conversations row (it is conversation-level state, not per-
+  message).  Restored by get() and written by set() via the conversation upsert.
+
+Watermark + advisory lock
+  _db_message_count tracks how many messages are already in the DB for this
+  session dict.  set() inserts only messages[watermark:] — the messages this
+  session instance has added since the last get().  pg_advisory_xact_lock
+  serialises concurrent set() calls for the same conversation_id so that two
+  sessions that loaded the same snapshot and each added messages do not
+  interleave their inserts unpredictably.  The in-memory watermark (not the
+  live DB count) is the correct slice boundary: each session knows exactly
+  what it added, and the lock ensures the inserts are atomic with respect to
+  other writers.
 """
 from __future__ import annotations
 
@@ -41,28 +56,30 @@ def _title_from_messages(messages: list[dict]) -> str | None:
 
 
 class PostgresSessionStore:
-    def __init__(self, engine: Engine, llm: Any, config: dict, user_id: str) -> None:
+    def __init__(self, engine: Engine, llm: Any, config: dict) -> None:
         self._engine = engine
         self._llm = llm
         self._config = config
-        self._user_id = user_id
 
     # ------------------------------------------------------------------
     # Protocol implementation
     # ------------------------------------------------------------------
 
-    def get(self, conversation_id: str) -> dict | None:
+    def get(self, conversation_id: str, user_id: str) -> dict | None:
         from src.memory.conversation import ConversationMemory
 
         with self._engine.connect() as conn:
-            exists = conn.execute(
-                text("SELECT 1 FROM conversations WHERE id = CAST(:cid AS uuid)"),
-                {"cid": conversation_id},
+            conv_row = conn.execute(
+                text(
+                    "SELECT excluded_colours FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid) AND user_id = CAST(:uid AS uuid)"
+                ),
+                {"cid": conversation_id, "uid": user_id},
             ).fetchone()
-            if exists is None:
+            if conv_row is None:
                 return None
 
-            rows = conn.execute(
+            msg_rows = conn.execute(
                 text(
                     "SELECT role, content, items, filters "
                     "FROM messages "
@@ -72,11 +89,11 @@ class PostgresSessionStore:
                 {"cid": conversation_id},
             ).fetchall()
 
-        messages = [{"role": r.role, "content": r.content} for r in rows]
+        messages = [{"role": r.role, "content": r.content} for r in msg_rows]
 
         retrieved_items: list = []
         filters: dict = {}
-        for r in reversed(rows):
+        for r in reversed(msg_rows):
             if r.role == "assistant":
                 retrieved_items = r.items or []
                 filters = r.filters or {}
@@ -86,32 +103,50 @@ class PostgresSessionStore:
             "messages": messages,
             "retrieved_items": retrieved_items,
             "filters": filters,
-            "excluded_colours": None,
+            "excluded_colours": conv_row.excluded_colours,
             "_memory": ConversationMemory(self._llm, self._config),
             "_db_message_count": len(messages),
         }
 
-    def set(self, conversation_id: str, state: dict) -> None:
+    def set(self, conversation_id: str, state: dict, user_id: str) -> None:
         messages: list[dict] = state.get("messages", [])
         watermark: int = state.get("_db_message_count", 0)
         new_messages = messages[watermark:]
 
         retrieved_items: list = state.get("retrieved_items", [])
         filters: dict = state.get("filters", {})
+        excluded_colours = state.get("excluded_colours")
         title = _title_from_messages(messages)
 
         with self._engine.begin() as conn:
+            # Serialise concurrent writers for this conversation.
+            conn.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock(CAST(hashtext(:cid) AS bigint))"
+                ),
+                {"cid": conversation_id},
+            )
+
             conn.execute(
                 text(
                     """
-                    INSERT INTO conversations (id, user_id, title, updated_at)
-                    VALUES (CAST(:cid AS uuid), CAST(:uid AS uuid), :title, now())
+                    INSERT INTO conversations
+                        (id, user_id, title, excluded_colours, updated_at)
+                    VALUES
+                        (CAST(:cid AS uuid), CAST(:uid AS uuid), :title,
+                         CAST(:excl AS jsonb), now())
                     ON CONFLICT (id) DO UPDATE SET
-                        title    = COALESCE(conversations.title, EXCLUDED.title),
-                        updated_at = now()
+                        title            = COALESCE(conversations.title, EXCLUDED.title),
+                        excluded_colours = EXCLUDED.excluded_colours,
+                        updated_at       = now()
                     """
                 ),
-                {"cid": conversation_id, "uid": self._user_id, "title": title},
+                {
+                    "cid": conversation_id,
+                    "uid": user_id,
+                    "title": title,
+                    "excl": json.dumps(excluded_colours),
+                },
             )
 
             for idx, msg in enumerate(new_messages):
@@ -144,14 +179,17 @@ class PostgresSessionStore:
 
         state["_db_message_count"] = len(messages)
 
-    def delete(self, conversation_id: str) -> None:
+    def delete(self, conversation_id: str, user_id: str) -> None:
         with self._engine.begin() as conn:
             conn.execute(
-                text("DELETE FROM conversations WHERE id = CAST(:cid AS uuid)"),
-                {"cid": conversation_id},
+                text(
+                    "DELETE FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid) AND user_id = CAST(:uid AS uuid)"
+                ),
+                {"cid": conversation_id, "uid": user_id},
             )
 
-    def list_ids(self) -> list[str]:
+    def list_ids(self, user_id: str) -> list[str]:
         with self._engine.connect() as conn:
             rows = conn.execute(
                 text(
@@ -159,6 +197,6 @@ class PostgresSessionStore:
                     "WHERE user_id = CAST(:uid AS uuid) "
                     "ORDER BY updated_at DESC"
                 ),
-                {"uid": self._user_id},
+                {"uid": user_id},
             ).fetchall()
         return [str(r.id) for r in rows]

@@ -1,9 +1,7 @@
 """Integration test fixtures.
 
-Requires a running postgres:15 container with the 0001 migration applied.
+Requires a running postgres:15 container with migrations applied.
 See TESTING.md for setup instructions.
-
-Set DATABASE_URL before running:
 
     DATABASE_URL=postgresql://postgres:test@localhost:5433/shopping \
         pytest tests/integration/
@@ -18,7 +16,6 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-# Fixed dev user UUID — seeded once per session.
 DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 _RAW_URL = os.environ.get("DATABASE_URL", "")
@@ -55,7 +52,7 @@ def run_migrations(pg_engine: Engine) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Dev user — seeded once, never torn down (idempotent)
+# Dev user — seeded once, idempotent
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
@@ -69,7 +66,6 @@ def dev_user_id(pg_engine: Engine, run_migrations: None) -> str:
             ),
             {"uid": DEV_USER_ID},
         )
-        # Trigger auto-inserts into public.users; guard against re-runs.
         conn.execute(
             text(
                 "INSERT INTO users (id, email) "
@@ -82,7 +78,7 @@ def dev_user_id(pg_engine: Engine, run_migrations: None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Mock LLM + config (avoids loading real models)
+# Mock LLM + config
 # ---------------------------------------------------------------------------
 
 class _MockLLM:

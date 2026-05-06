@@ -1,12 +1,12 @@
 """Integration tests for PostgresSessionStore.
 
-Each test generates a fresh UUID conversation_id so tests are isolated
-without DB transactions.  Conversations created during tests are cleaned
-up in teardown.
+Each test uses a fresh UUID conversation_id so tests are isolated without
+requiring DB transactions or teardown.
 """
 from __future__ import annotations
 
 import os
+import threading
 import uuid
 
 import pytest
@@ -22,12 +22,28 @@ pytestmark = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Fixture: one store instance per test (cheap — just a wrapper around engine)
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _empty_state(**overrides) -> dict:
+    base = {
+        "messages": [],
+        "retrieved_items": [],
+        "filters": {},
+        "excluded_colours": None,
+        "_memory": None,
+    }
+    base.update(overrides)
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def store(pg_engine: Engine, dev_user_id: str, mock_llm, mock_config) -> PostgresSessionStore:
-    return PostgresSessionStore(pg_engine, mock_llm, mock_config, dev_user_id)
+def store(pg_engine: Engine, mock_llm, mock_config) -> PostgresSessionStore:
+    return PostgresSessionStore(pg_engine, mock_llm, mock_config)
 
 
 @pytest.fixture
@@ -36,111 +52,115 @@ def cid() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# TestGet
 # ---------------------------------------------------------------------------
 
 class TestGet:
-    def test_get_missing_returns_none(self, store: PostgresSessionStore):
-        result = store.get(str(uuid.uuid4()))
-        assert result is None
+    def test_get_missing_returns_none(self, store: PostgresSessionStore, dev_user_id: str):
+        assert store.get(str(uuid.uuid4()), dev_user_id) is None
 
-    def test_get_after_set_returns_session(self, store: PostgresSessionStore, cid: str):
-        state = {
-            "messages": [{"role": "user", "content": "hello"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
-        loaded = store.get(cid)
+    def test_get_wrong_user_returns_none(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        """A conversation owned by user A is invisible to user B."""
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
+        assert store.get(cid, str(uuid.uuid4())) is None
+
+    def test_get_after_set_returns_session(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(messages=[{"role": "user", "content": "hello"}])
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
         assert loaded is not None
         assert loaded["messages"] == [{"role": "user", "content": "hello"}]
 
-    def test_get_reconstructs_memory(self, store: PostgresSessionStore, cid: str):
+    def test_get_reconstructs_memory(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
         from src.memory.conversation import ConversationMemory
 
-        state = {
-            "messages": [{"role": "user", "content": "hi"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
-        loaded = store.get(cid)
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
         assert isinstance(loaded["_memory"], ConversationMemory)
 
-    def test_get_sets_db_message_count_watermark(self, store: PostgresSessionStore, cid: str):
-        state = {
-            "messages": [
-                {"role": "user", "content": "msg1"},
-                {"role": "assistant", "content": "reply1"},
-            ],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
-        loaded = store.get(cid)
+    def test_get_sets_db_message_count_watermark(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(messages=[
+            {"role": "user", "content": "msg1"},
+            {"role": "assistant", "content": "reply1"},
+        ])
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
         assert loaded["_db_message_count"] == 2
 
     def test_get_restores_items_and_filters_from_last_assistant(
-        self, store: PostgresSessionStore, cid: str
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
     ):
         items = [{"article_id": "abc", "display_name": "Red Dress"}]
         filters = {"colour": "red"}
-        state = {
-            "messages": [
+        state = _empty_state(
+            messages=[
                 {"role": "user", "content": "show red dresses"},
                 {"role": "assistant", "content": "here you go"},
             ],
-            "retrieved_items": items,
-            "filters": filters,
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
-        loaded = store.get(cid)
+            retrieved_items=items,
+            filters=filters,
+        )
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
         assert loaded["retrieved_items"] == items
         assert loaded["filters"] == filters
 
+    def test_get_restores_excluded_colours(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(
+            messages=[{"role": "user", "content": "no red please"}],
+            excluded_colours=["red", "crimson"],
+        )
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
+        assert loaded["excluded_colours"] == ["red", "crimson"]
+
+    def test_get_excluded_colours_none_when_not_set(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(messages=[{"role": "user", "content": "show coats"}])
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
+        assert loaded["excluded_colours"] is None
+
+
+# ---------------------------------------------------------------------------
+# TestSet
+# ---------------------------------------------------------------------------
 
 class TestSet:
     def test_set_creates_conversation_row(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        state = {
-            "messages": [{"role": "user", "content": "first message"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+        state = _empty_state(messages=[{"role": "user", "content": "first message"}])
+        store.set(cid, state, dev_user_id)
         with pg_engine.connect() as conn:
             row = conn.execute(
-                text("SELECT id, title FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                text("SELECT title FROM conversations WHERE id = CAST(:cid AS uuid)"),
                 {"cid": cid},
             ).fetchone()
         assert row is not None
         assert row.title == "first message"
 
     def test_set_creates_message_rows(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        state = {
-            "messages": [
-                {"role": "user", "content": "query"},
-                {"role": "assistant", "content": "answer"},
-            ],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+        state = _empty_state(messages=[
+            {"role": "user", "content": "query"},
+            {"role": "assistant", "content": "answer"},
+        ])
+        store.set(cid, state, dev_user_id)
         with pg_engine.connect() as conn:
             rows = conn.execute(
                 text(
@@ -153,55 +173,46 @@ class TestSet:
         assert rows[0].role == "user"
         assert rows[1].role == "assistant"
 
-    def test_set_advances_watermark(self, store: PostgresSessionStore, cid: str):
-        state = {
-            "messages": [{"role": "user", "content": "hi"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+    def test_set_advances_watermark(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
         assert state["_db_message_count"] == 1
 
     def test_set_appends_only_new_messages(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        state = {
-            "messages": [{"role": "user", "content": "turn 1"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+        state = _empty_state(messages=[{"role": "user", "content": "turn 1"}])
+        store.set(cid, state, dev_user_id)
 
         state["messages"].append({"role": "assistant", "content": "reply 1"})
         state["messages"].append({"role": "user", "content": "turn 2"})
-        store.set(cid, state)
+        store.set(cid, state, dev_user_id)
 
         with pg_engine.connect() as conn:
             count = conn.execute(
-                text("SELECT COUNT(*) FROM messages WHERE conversation_id = CAST(:cid AS uuid)"),
+                text(
+                    "SELECT COUNT(*) FROM messages "
+                    "WHERE conversation_id = CAST(:cid AS uuid)"
+                ),
                 {"cid": cid},
             ).scalar()
         assert count == 3
 
     def test_set_stores_items_on_last_assistant_only(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
         items = [{"article_id": "x1", "display_name": "Item A"}]
-        state = {
-            "messages": [
+        state = _empty_state(
+            messages=[
                 {"role": "user", "content": "find items"},
                 {"role": "assistant", "content": "found them"},
             ],
-            "retrieved_items": items,
-            "filters": {"colour": "blue"},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+            retrieved_items=items,
+            filters={"colour": "blue"},
+        )
+        store.set(cid, state, dev_user_id)
 
         with pg_engine.connect() as conn:
             rows = conn.execute(
@@ -219,67 +230,116 @@ class TestSet:
         assert asst_row.filters == {"colour": "blue"}
 
     def test_set_idempotent_conversation_upsert(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        state = {
-            "messages": [{"role": "user", "content": "first"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+        state = _empty_state(messages=[{"role": "user", "content": "first"}])
+        store.set(cid, state, dev_user_id)
         state["messages"].append({"role": "assistant", "content": "ok"})
-        store.set(cid, state)
+        store.set(cid, state, dev_user_id)
 
         with pg_engine.connect() as conn:
             count = conn.execute(
-                text("SELECT COUNT(*) FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                text(
+                    "SELECT COUNT(*) FROM conversations WHERE id = CAST(:cid AS uuid)"
+                ),
                 {"cid": cid},
             ).scalar()
         assert count == 1
 
+    def test_set_persists_excluded_colours(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(
+            messages=[{"role": "user", "content": "no pink"}],
+            excluded_colours=["pink", "rose"],
+        )
+        store.set(cid, state, dev_user_id)
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT excluded_colours FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid)"
+                ),
+                {"cid": cid},
+            ).fetchone()
+        assert row.excluded_colours == ["pink", "rose"]
+
+    def test_set_updates_excluded_colours_on_second_call(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
+    ):
+        state = _empty_state(
+            messages=[{"role": "user", "content": "no pink"}],
+            excluded_colours=["pink"],
+        )
+        store.set(cid, state, dev_user_id)
+
+        state["messages"].append({"role": "assistant", "content": "ok"})
+        state["messages"].append({"role": "user", "content": "no blue either"})
+        state["excluded_colours"] = ["pink", "blue"]
+        store.set(cid, state, dev_user_id)
+
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT excluded_colours FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid)"
+                ),
+                {"cid": cid},
+            ).fetchone()
+        assert row.excluded_colours == ["pink", "blue"]
+
+
+# ---------------------------------------------------------------------------
+# TestDelete
+# ---------------------------------------------------------------------------
 
 class TestDelete:
     def test_delete_removes_conversation_and_messages(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        state = {
-            "messages": [{"role": "user", "content": "hi"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
-        store.delete(cid)
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
+        store.delete(cid, dev_user_id)
 
-        assert store.get(cid) is None
+        assert store.get(cid, dev_user_id) is None
         with pg_engine.connect() as conn:
-            msg_count = conn.execute(
-                text("SELECT COUNT(*) FROM messages WHERE conversation_id = CAST(:cid AS uuid)"),
+            count = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM messages "
+                    "WHERE conversation_id = CAST(:cid AS uuid)"
+                ),
                 {"cid": cid},
             ).scalar()
-        assert msg_count == 0
+        assert count == 0
 
-    def test_delete_nonexistent_is_silent(self, store: PostgresSessionStore):
-        store.delete(str(uuid.uuid4()))  # must not raise
+    def test_delete_wrong_user_does_nothing(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
+    ):
+        """delete() with a wrong user_id must not delete the conversation."""
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
+        store.delete(cid, str(uuid.uuid4()))  # wrong user
 
+        # Conversation must still exist for the real owner
+        assert store.get(cid, dev_user_id) is not None
+
+    def test_delete_nonexistent_is_silent(
+        self, store: PostgresSessionStore, dev_user_id: str
+    ):
+        store.delete(str(uuid.uuid4()), dev_user_id)
+
+
+# ---------------------------------------------------------------------------
+# TestListIds
+# ---------------------------------------------------------------------------
 
 class TestListIds:
     def test_list_ids_returns_own_conversations(
-        self, store: PostgresSessionStore, cid: str
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
     ):
-        state = {
-            "messages": [{"role": "user", "content": "hi"}],
-            "retrieved_items": [],
-            "filters": {},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
-        ids = store.list_ids()
-        assert cid in ids
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
+        assert cid in store.list_ids(dev_user_id)
 
     def test_list_ids_excludes_other_users(
         self,
@@ -307,60 +367,125 @@ class TestListIds:
                 {"uid": other_uid},
             )
 
-        other_store = PostgresSessionStore(pg_engine, mock_llm, mock_config, other_uid)
+        store = PostgresSessionStore(pg_engine, mock_llm, mock_config)
         other_cid = str(uuid.uuid4())
-        other_store.set(
+        store.set(
             other_cid,
-            {
-                "messages": [{"role": "user", "content": "other msg"}],
-                "retrieved_items": [],
-                "filters": {},
-                "excluded_colours": None,
-                "_memory": None,
-            },
+            _empty_state(messages=[{"role": "user", "content": "other msg"}]),
+            other_uid,
         )
 
-        dev_store = PostgresSessionStore(pg_engine, mock_llm, mock_config, dev_user_id)
-        dev_ids = dev_store.list_ids()
-        assert other_cid not in dev_ids
+        assert other_cid not in store.list_ids(dev_user_id)
 
+
+# ---------------------------------------------------------------------------
+# TestConcurrency
+# ---------------------------------------------------------------------------
+
+class TestConcurrency:
+    def test_concurrent_set_no_duplicates_no_losses(
+        self,
+        store: PostgresSessionStore,
+        pg_engine: Engine,
+        cid: str,
+        dev_user_id: str,
+    ):
+        """Two threads each load the same conversation, add a turn, and call
+        set() concurrently.  The advisory lock serialises the writes.  The
+        in-memory watermark correctly tracks what each session added so both
+        threads' messages end up in the DB with no duplicates.
+
+        Without the advisory lock there is a narrow window where both threads
+        could enter their transactions and interleave inserts unpredictably;
+        with it they serialise and the watermark slice is applied atomically.
+        """
+        # Seed 2 initial messages so both threads start with _db_count = 2.
+        seed = _empty_state(messages=[
+            {"role": "user", "content": "initial query"},
+            {"role": "assistant", "content": "initial reply"},
+        ])
+        store.set(cid, seed, dev_user_id)
+
+        errors: list[Exception] = []
+        barrier = threading.Barrier(2)  # both threads start at the same moment
+
+        def add_turn(user_msg: str, asst_msg: str) -> None:
+            try:
+                session = store.get(cid, dev_user_id)
+                assert session is not None
+                barrier.wait()  # synchronise both threads before set()
+                session["messages"].append({"role": "user", "content": user_msg})
+                session["messages"].append({"role": "assistant", "content": asst_msg})
+                store.set(cid, session, dev_user_id)
+            except Exception as exc:
+                errors.append(exc)
+
+        t1 = threading.Thread(target=add_turn, args=("thread-1 query", "thread-1 reply"))
+        t2 = threading.Thread(target=add_turn, args=("thread-2 query", "thread-2 reply"))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, f"Thread errors: {errors}"
+
+        with pg_engine.connect() as conn:
+            count = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM messages "
+                    "WHERE conversation_id = CAST(:cid AS uuid)"
+                ),
+                {"cid": cid},
+            ).scalar()
+
+        # 2 initial + 2 from thread 1 + 2 from thread 2 = 6, no duplicates.
+        assert count == 6
+
+
+# ---------------------------------------------------------------------------
+# TestRoundTrip
+# ---------------------------------------------------------------------------
 
 class TestRoundTrip:
-    def test_multi_turn_round_trip(self, store: PostgresSessionStore, cid: str):
+    def test_multi_turn_round_trip(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
         """Full conversation: two turns, items on turn 2, reload between turns."""
         # Turn 1
-        state: dict = {
-            "messages": [
+        state: dict = _empty_state(
+            messages=[
                 {"role": "user", "content": "show me coats"},
                 {"role": "assistant", "content": "here are some coats"},
             ],
-            "retrieved_items": [{"article_id": "c1", "display_name": "Wool Coat"}],
-            "filters": {"product_type": "coat"},
-            "excluded_colours": None,
-            "_memory": None,
-        }
-        store.set(cid, state)
+            retrieved_items=[{"article_id": "c1", "display_name": "Wool Coat"}],
+            filters={"product_type": "coat"},
+            excluded_colours=["beige"],
+        )
+        store.set(cid, state, dev_user_id)
         assert state["_db_message_count"] == 2
 
         # Reload (simulates server restart / new request)
-        reloaded = store.get(cid)
+        reloaded = store.get(cid, dev_user_id)
         assert reloaded is not None
         assert reloaded["_db_message_count"] == 2
         assert reloaded["messages"] == state["messages"]
         assert reloaded["retrieved_items"] == [{"article_id": "c1", "display_name": "Wool Coat"}]
         assert reloaded["filters"] == {"product_type": "coat"}
+        assert reloaded["excluded_colours"] == ["beige"]
 
-        # Turn 2 — append new messages and update items
+        # Turn 2 — append new messages, update items and excluded_colours
         reloaded["messages"].append({"role": "user", "content": "in red?"})
         reloaded["messages"].append({"role": "assistant", "content": "here are red coats"})
         reloaded["retrieved_items"] = [{"article_id": "c2", "display_name": "Red Coat"}]
         reloaded["filters"] = {"product_type": "coat", "colour": "red"}
-        store.set(cid, reloaded)
+        reloaded["excluded_colours"] = ["beige", "brown"]
+        store.set(cid, reloaded, dev_user_id)
         assert reloaded["_db_message_count"] == 4
 
         # Reload again
-        final = store.get(cid)
+        final = store.get(cid, dev_user_id)
         assert final is not None
         assert len(final["messages"]) == 4
         assert final["retrieved_items"] == [{"article_id": "c2", "display_name": "Red Coat"}]
         assert final["filters"] == {"product_type": "coat", "colour": "red"}
+        assert final["excluded_colours"] == ["beige", "brown"]
