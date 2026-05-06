@@ -30,12 +30,20 @@ _session_store: SessionStore = InMemorySessionStore()
 # Setters called by lifespan
 # ---------------------------------------------------------------------------
 
-def _init(retriever: Any, catalogue_df: pd.DataFrame, llm: Any, config: dict) -> None:
-    global _retriever, _catalogue_df, _llm, _config
+def _init(
+    retriever: Any,
+    catalogue_df: pd.DataFrame,
+    llm: Any,
+    config: dict,
+    session_store: SessionStore | None = None,
+) -> None:
+    global _retriever, _catalogue_df, _llm, _config, _session_store
     _retriever = retriever
     _catalogue_df = catalogue_df
     _llm = llm
     _config = config
+    if session_store is not None:
+        _session_store = session_store
 
 
 # ---------------------------------------------------------------------------
