@@ -4,6 +4,12 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-05-07 00:54:42.815258
 
+RLS NOTE: RLS is enabled on all tables and policies are defined here,
+but policies reference auth.uid() which only exists on Supabase.  On
+plain Postgres (CI / local Docker) the policy block is skipped — RLS is
+ENABLED but no policies are created, so superuser connections see all
+rows.  Full RLS integration tests require a Supabase staging project and
+are deferred to Phase 2 prompt 2.  See TESTING.md for details.
 """
 from typing import Sequence, Union
 
@@ -78,14 +84,21 @@ def upgrade() -> None:
 
     # ------------------------------------------------------------------
     # 3. conversations
-    #    user_id is nullable — JWT auth is wired in a later task.
+    #    user_id is NOT NULL — every conversation must be owned.
+    #    Tests seed a dev user row and pass its id explicitly.
+    #    is_public: isolated by default, opt-in sharing.
     # ------------------------------------------------------------------
     op.create_table(
         "conversations",
         sa.Column("id", sa.UUID(), nullable=False, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id", sa.UUID(), nullable=True),
+        sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("title", sa.Text(), nullable=True),
-        sa.Column("filters", postgresql.JSONB(), nullable=True, server_default=sa.text("'{}'")),
+        sa.Column(
+            "is_public",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
@@ -109,6 +122,12 @@ def upgrade() -> None:
 
     # ------------------------------------------------------------------
     # 4. messages
+    #    role restricted to ('user', 'assistant').
+    #    Tool call inputs/outputs are serialised into tool_calls JSONB
+    #    on the assistant row — not stored as separate 'tool' role rows.
+    #    items JSONB holds the product card payload for assistant turns.
+    #    filters JSONB holds the active filter snapshot for assistant turns
+    #    (canonical location; no duplicate at conversation level).
     # ------------------------------------------------------------------
     op.create_table(
         "messages",
@@ -118,13 +137,14 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("items", postgresql.JSONB(), nullable=True, server_default=sa.text("'[]'")),
         sa.Column("tool_calls", postgresql.JSONB(), nullable=True, server_default=sa.text("'[]'")),
+        sa.Column("filters", postgresql.JSONB(), nullable=True, server_default=sa.text("'{}'")),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),
             nullable=False,
             server_default=sa.text("now()"),
         ),
-        sa.CheckConstraint("role IN ('user', 'assistant', 'tool')", name="messages_role_check"),
+        sa.CheckConstraint("role IN ('user', 'assistant')", name="messages_role_check"),
         sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -164,6 +184,8 @@ def upgrade() -> None:
 
     # ------------------------------------------------------------------
     # 7. RLS policies — only created when auth.uid() exists (Supabase).
+    #    On plain Postgres RLS is enabled but no policies are installed,
+    #    so superuser connections are unrestricted.  See module docstring.
     # ------------------------------------------------------------------
     op.execute(
         """
@@ -180,30 +202,31 @@ def upgrade() -> None:
                         USING (id = auth.uid());
                 $pol$;
 
-                -- conversations: owner only
+                -- conversations: owner only (or public)
                 EXECUTE $pol$
                     CREATE POLICY conversations_owner ON conversations
-                        USING (user_id = auth.uid());
+                        USING (user_id = auth.uid() OR is_public = true);
                 $pol$;
 
-                -- messages: via parent conversation owner
+                -- messages: via parent conversation
                 EXECUTE $pol$
                     CREATE POLICY messages_owner ON messages
                         USING (
                             conversation_id IN (
-                                SELECT id FROM conversations WHERE user_id = auth.uid()
+                                SELECT id FROM conversations
+                                WHERE user_id = auth.uid() OR is_public = true
                             )
                         );
                 $pol$;
 
-                -- feedback: via parent message -> conversation owner
+                -- feedback: via parent message -> conversation
                 EXECUTE $pol$
                     CREATE POLICY feedback_owner ON feedback
                         USING (
                             message_id IN (
                                 SELECT m.id FROM messages m
                                 JOIN conversations c ON c.id = m.conversation_id
-                                WHERE c.user_id = auth.uid()
+                                WHERE c.user_id = auth.uid() OR c.is_public = true
                             )
                         );
                 $pol$;
@@ -234,7 +257,7 @@ def upgrade() -> None:
         """
     )
 
-    # 9. Trigger — only when auth.users exists (skipped on plain Postgres stub).
+    # 9. Trigger — only when auth.users exists.
     op.execute(
         """
         DO $$
@@ -256,7 +279,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Trigger + function
     op.execute(
         """
         DO $$
@@ -273,7 +295,6 @@ def downgrade() -> None:
     )
     op.execute("DROP FUNCTION IF EXISTS public.handle_new_user();")
 
-    # Tables (reverse FK order)
     op.drop_index("ix_feedback_message_id", table_name="feedback")
     op.drop_table("feedback")
     op.drop_index("ix_messages_conversation_created", table_name="messages")
@@ -282,7 +303,6 @@ def downgrade() -> None:
     op.drop_table("conversations")
     op.drop_table("users")
 
-    # Auth stub — only drop if it was our stub (has no real data)
     op.execute(
         """
         DO $$
