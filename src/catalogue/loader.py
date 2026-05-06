@@ -1,6 +1,10 @@
+import logging
+
 import pandas as pd
 import yaml
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 KEEP_COLUMNS = [
@@ -63,7 +67,7 @@ def build_searchable_text(articles_df: pd.DataFrame, config: dict) -> pd.DataFra
     save_dir.mkdir(parents=True, exist_ok=True)
     out_path = save_dir / "catalogue.parquet"
     df.to_parquet(out_path, index=False)
-    print(f"Saved to {out_path}")
+    logger.info("Catalogue saved to %s", out_path)
 
     return df
 

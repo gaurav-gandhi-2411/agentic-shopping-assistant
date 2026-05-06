@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
+
+logger = logging.getLogger(__name__)
 
 from src.agents.grounding import validate_response
 from src.agents.reranker import rerank
@@ -465,7 +468,7 @@ def build_graph(
         # is too noisy to separate in-catalogue from out-of-catalogue reliably.
         ooc_category = _detect_ooc(raw_query)
         if ooc_category:
-            print(f"[search] OOC detected ({ooc_category!r}): {raw_query!r}")
+            logger.info("[search] OOC detected (%r): %r", ooc_category, raw_query)
             return {
                 "retrieved_items": [],
                 "new_items_this_turn": False,
@@ -902,7 +905,7 @@ def build_graph(
         answer = llm.generate(prompt)
         answer, flags = validate_response(answer, items)
         if flags:
-            print(f"[grounding] flags={flags} query={state['user_query']!r}")
+            logger.warning("[grounding] flags=%s query=%r", flags, state["user_query"])
         return {
             "final_answer": answer,
             "messages": [{"role": "assistant", "content": answer}],

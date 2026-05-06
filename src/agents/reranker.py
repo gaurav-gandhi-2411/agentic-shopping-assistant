@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 import time
 
 from src.llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM = """\
 You are a fashion product reranker. Given a user query and a numbered list of candidate \
@@ -66,9 +69,10 @@ def _enforce_colour_diversity(
             continue
         if cand.get("colour", "").lower() != dominant:
             swapped = selected[:-1] + [cand]
-            print(
-                f"[reranker] colour-diversity swap: dropped {selected[-1]['article_id']} "
-                f"({selected[-1].get('colour','')}), added {cand['article_id']} ({cand.get('colour','')})"
+            logger.debug(
+                "[reranker] colour-diversity swap: dropped %s (%s), added %s (%s)",
+                selected[-1]["article_id"], selected[-1].get("colour", ""),
+                cand["article_id"], cand.get("colour", ""),
             )
             return swapped
     return selected  # no alternative found — keep as is
@@ -173,11 +177,7 @@ def _log(
     latency_ms: int,
     fallback: str,
 ) -> None:
-    print(
-        f'[reranker] query="{query}" '
-        f"retrieved_top5={retrieved_top5} "
-        f"llm_picked={llm_picked} "
-        f"final_top5={final_top5} "
-        f"latency_ms={latency_ms} "
-        f"fallback={fallback}"
+    logger.debug(
+        '[reranker] query="%s" retrieved_top5=%s llm_picked=%s final_top5=%s latency_ms=%d fallback=%s',
+        query, retrieved_top5, llm_picked, final_top5, latency_ms, fallback,
     )
