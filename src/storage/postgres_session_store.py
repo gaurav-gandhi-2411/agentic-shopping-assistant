@@ -120,6 +120,10 @@ class PostgresSessionStore:
 
         with self._engine.begin() as conn:
             # Serialise concurrent writers for this conversation.
+            # hashtext() produces a 32-bit hash cast to bigint (fills the lower
+            # 32 bits).  Collision probability is negligible at our scale — less
+            # than 1-in-4B for the expected conversation count — and a collision
+            # only causes unnecessary serialisation, never data loss.
             conn.execute(
                 text(
                     "SELECT pg_advisory_xact_lock(CAST(hashtext(:cid) AS bigint))"

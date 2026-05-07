@@ -41,8 +41,29 @@ def pg_engine() -> Engine:
     engine.dispose()
 
 
+@pytest.fixture(scope="session")
+def create_auth_shim(pg_engine: Engine) -> None:
+    """Create the auth schema and auth.users stub for local/CI Postgres.
+
+    On Supabase these objects already exist and this fixture is a no-op.
+    Must run before alembic migrations because 0001 adds a FK that
+    REFERENCES auth.users(id).
+    """
+    with pg_engine.begin() as conn:
+        conn.execute(text(
+            "CREATE SCHEMA IF NOT EXISTS auth"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS auth.users (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                email       TEXT,
+                created_at  TIMESTAMPTZ DEFAULT now()
+            )
+        """))
+
+
 @pytest.fixture(scope="session", autouse=True)
-def run_migrations(pg_engine: Engine) -> None:
+def run_migrations(pg_engine: Engine, create_auth_shim: None) -> None:
     from alembic import command
     from alembic.config import Config
 

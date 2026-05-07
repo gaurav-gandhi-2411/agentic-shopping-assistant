@@ -27,35 +27,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ------------------------------------------------------------------
-    # 1. Auth schema stub — only created when the real auth schema is
-    #    absent (plain Postgres / CI).  Supabase already has auth.users.
-    # ------------------------------------------------------------------
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.schemata
-                WHERE schema_name = 'auth'
-            ) THEN
-                CREATE SCHEMA auth;
-                CREATE TABLE auth.users (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    email TEXT,
-                    created_at TIMESTAMPTZ DEFAULT now()
-                );
-            END IF;
-        END
-        $$;
-        """
-    )
-
-    # ------------------------------------------------------------------
-    # 2. users
+    # 1. users
+    #    auth.users is assumed to exist (Supabase in production; created
+    #    explicitly by the test fixture in conftest.py for CI/local runs).
     # ------------------------------------------------------------------
     op.create_table(
         "users",
-        sa.Column("id", sa.UUID(), nullable=False, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("email", sa.Text(), nullable=True),
         sa.Column("display_name", sa.Text(), nullable=True),
         sa.Column(
@@ -183,54 +161,129 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;")
 
     # ------------------------------------------------------------------
-    # 7. RLS policies — only created when auth.uid() exists (Supabase).
-    #    On plain Postgres RLS is enabled but no policies are installed,
-    #    so superuser connections are unrestricted.  See module docstring.
+    # 7. RLS policies — only installed when auth.uid() exists (Supabase).
+    #    On plain Postgres the block is skipped; RLS is enabled but no
+    #    policies are installed so superuser connections see all rows.
+    #    See TESTING.md for Supabase integration test plan.
+    #
+    #    Each table gets explicit per-operation policies instead of a
+    #    blanket FOR ALL USING(...) so that the privilege surface is
+    #    minimal and auditable.
     # ------------------------------------------------------------------
     op.execute(
         """
         DO $$
         BEGIN
-            IF EXISTS (
+            IF NOT EXISTS (
                 SELECT 1 FROM pg_proc p
                 JOIN pg_namespace n ON n.oid = p.pronamespace
                 WHERE n.nspname = 'auth' AND p.proname = 'uid'
             ) THEN
-                -- users: own row only
-                EXECUTE $pol$
-                    CREATE POLICY users_self ON users
-                        USING (id = auth.uid());
-                $pol$;
-
-                -- conversations: owner only (or public)
-                EXECUTE $pol$
-                    CREATE POLICY conversations_owner ON conversations
-                        USING (user_id = auth.uid() OR is_public = true);
-                $pol$;
-
-                -- messages: via parent conversation
-                EXECUTE $pol$
-                    CREATE POLICY messages_owner ON messages
-                        USING (
-                            conversation_id IN (
-                                SELECT id FROM conversations
-                                WHERE user_id = auth.uid() OR is_public = true
-                            )
-                        );
-                $pol$;
-
-                -- feedback: via parent message -> conversation
-                EXECUTE $pol$
-                    CREATE POLICY feedback_owner ON feedback
-                        USING (
-                            message_id IN (
-                                SELECT m.id FROM messages m
-                                JOIN conversations c ON c.id = m.conversation_id
-                                WHERE c.user_id = auth.uid() OR c.is_public = true
-                            )
-                        );
-                $pol$;
+                RETURN;
             END IF;
+
+            -- users
+            -- INSERTs come from the SECURITY DEFINER trigger (bypasses RLS).
+            -- DELETEs cascade from auth.users (superuser, bypasses RLS).
+            EXECUTE $pol$
+                CREATE POLICY users_select ON users
+                    FOR SELECT USING (id = auth.uid());
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY users_update ON users
+                    FOR UPDATE USING (id = auth.uid())
+                    WITH CHECK (id = auth.uid());
+            $pol$;
+
+            -- conversations
+            EXECUTE $pol$
+                CREATE POLICY conversations_select ON conversations
+                    FOR SELECT USING (user_id = auth.uid() OR is_public = true);
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY conversations_insert ON conversations
+                    FOR INSERT WITH CHECK (user_id = auth.uid());
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY conversations_update ON conversations
+                    FOR UPDATE USING (user_id = auth.uid())
+                    WITH CHECK (user_id = auth.uid());
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY conversations_delete ON conversations
+                    FOR DELETE USING (user_id = auth.uid());
+            $pol$;
+
+            -- messages (immutable; no UPDATE/DELETE policies — deletion
+            -- cascades from conversations)
+            EXECUTE $pol$
+                CREATE POLICY messages_select ON messages
+                    FOR SELECT USING (
+                        conversation_id IN (
+                            SELECT id FROM conversations
+                            WHERE user_id = auth.uid() OR is_public = true
+                        )
+                    );
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY messages_insert ON messages
+                    FOR INSERT WITH CHECK (
+                        conversation_id IN (
+                            SELECT id FROM conversations
+                            WHERE user_id = auth.uid()
+                        )
+                    );
+            $pol$;
+
+            -- feedback
+            -- feedback has no user_id column; ownership is derived via
+            -- message_id → messages → conversations.user_id.
+            EXECUTE $pol$
+                CREATE POLICY feedback_select ON feedback
+                    FOR SELECT USING (
+                        message_id IN (
+                            SELECT m.id FROM messages m
+                            JOIN conversations c ON c.id = m.conversation_id
+                            WHERE c.user_id = auth.uid() OR c.is_public = true
+                        )
+                    );
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY feedback_insert ON feedback
+                    FOR INSERT WITH CHECK (
+                        message_id IN (
+                            SELECT m.id FROM messages m
+                            JOIN conversations c ON c.id = m.conversation_id
+                            WHERE c.user_id = auth.uid()
+                        )
+                    );
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY feedback_update ON feedback
+                    FOR UPDATE USING (
+                        message_id IN (
+                            SELECT m.id FROM messages m
+                            JOIN conversations c ON c.id = m.conversation_id
+                            WHERE c.user_id = auth.uid()
+                        )
+                    ) WITH CHECK (
+                        message_id IN (
+                            SELECT m.id FROM messages m
+                            JOIN conversations c ON c.id = m.conversation_id
+                            WHERE c.user_id = auth.uid()
+                        )
+                    );
+            $pol$;
+            EXECUTE $pol$
+                CREATE POLICY feedback_delete ON feedback
+                    FOR DELETE USING (
+                        message_id IN (
+                            SELECT m.id FROM messages m
+                            JOIN conversations c ON c.id = m.conversation_id
+                            WHERE c.user_id = auth.uid()
+                        )
+                    );
+            $pol$;
         END
         $$;
         """
@@ -302,21 +355,4 @@ def downgrade() -> None:
     op.drop_index("ix_conversations_user_updated", table_name="conversations")
     op.drop_table("conversations")
     op.drop_table("users")
-
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1 FROM information_schema.schemata
-                WHERE schema_name = 'auth'
-            ) AND NOT EXISTS (
-                SELECT 1 FROM auth.users LIMIT 1
-            ) THEN
-                DROP TABLE IF EXISTS auth.users;
-                DROP SCHEMA IF EXISTS auth;
-            END IF;
-        END
-        $$;
-        """
-    )
+    # auth.users / auth schema are not owned by this migration; leave them.
