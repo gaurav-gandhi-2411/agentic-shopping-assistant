@@ -144,13 +144,16 @@ class PostgresSessionStore:
                 {"cid": conversation_id},
             )
 
-            # COALESCE strategy for nullable conversation-level state:
-            # Both excluded_colours and summary use COALESCE so that a NULL from a turn
-            # that didn't touch those fields never overwrites a previously stored value.
-            # Explicit clearing requires a non-NULL value ([] for excluded_colours,
-            # non-empty string for summary) — there is no separate "clear" operation today.
-            # Note: excluded_colours is passed as Python None (SQL NULL) when absent, NOT
-            # as json.dumps(None) = 'null'::jsonb, so COALESCE fires correctly for JSONB.
+            # COALESCE / CASE strategy for nullable conversation-level state:
+            # - excluded_colours and summary use COALESCE: a NULL from a turn that did not
+            #   touch those fields never overwrites a stored value.  Explicit clearing
+            #   requires a non-NULL value ([] for excluded_colours).
+            # - (summary, summary_message_count) are updated atomically: if the incoming
+            #   summary is NULL (not recomputed this turn) both are preserved; if summary
+            #   is set, both take the new values.  This keeps the pair consistent at the
+            #   SQL level even if the application layer ever desyncs them.
+            # - excluded_colours is passed as Python None (SQL NULL) when absent, NOT as
+            #   json.dumps(None) = 'null'::jsonb, so COALESCE fires correctly for JSONB.
             conn.execute(
                 text(
                     """
@@ -165,7 +168,11 @@ class PostgresSessionStore:
                         excluded_colours      = COALESCE(EXCLUDED.excluded_colours,
                                                          conversations.excluded_colours),
                         summary               = COALESCE(EXCLUDED.summary, conversations.summary),
-                        summary_message_count = EXCLUDED.summary_message_count,
+                        summary_message_count = CASE
+                            WHEN EXCLUDED.summary IS NOT NULL
+                            THEN EXCLUDED.summary_message_count
+                            ELSE conversations.summary_message_count
+                        END,
                         updated_at            = now()
                     """
                 ),

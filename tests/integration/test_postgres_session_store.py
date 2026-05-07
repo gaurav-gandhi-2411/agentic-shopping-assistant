@@ -577,10 +577,41 @@ class TestMemorySummary:
 
         with pg_engine.connect() as conn:
             row = conn.execute(
-                text("SELECT summary FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                text(
+                    "SELECT summary, summary_message_count FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid)"
+                ),
                 {"cid": cid},
             ).fetchone()
         assert row.summary == "initial summary"
+        assert row.summary_message_count == 5  # preserved atomically with summary
+
+    def test_summary_and_count_update_atomically(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
+    ):
+        """When a new summary is set, summary_message_count takes the new value too."""
+        state = _empty_state(
+            messages=[{"role": "user", "content": "turn 1"}],
+            _summary="old summary",
+            _summary_message_count=4,
+        )
+        store.set(cid, state, dev_user_id)
+
+        state["messages"].append({"role": "assistant", "content": "reply"})
+        state["_summary"] = "refreshed summary"
+        state["_summary_message_count"] = 10
+        store.set(cid, state, dev_user_id)
+
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT summary, summary_message_count FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid)"
+                ),
+                {"cid": cid},
+            ).fetchone()
+        assert row.summary == "refreshed summary"
+        assert row.summary_message_count == 10
 
     def test_excluded_colours_coalesce_preserves_existing_when_null(
         self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
