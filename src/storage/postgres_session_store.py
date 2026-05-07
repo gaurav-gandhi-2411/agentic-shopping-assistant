@@ -71,7 +71,7 @@ class PostgresSessionStore:
         with self._engine.connect() as conn:
             conv_row = conn.execute(
                 text(
-                    "SELECT excluded_colours FROM conversations "
+                    "SELECT excluded_colours, summary FROM conversations "
                     "WHERE id = CAST(:cid AS uuid) AND user_id = CAST(:uid AS uuid)"
                 ),
                 {"cid": conversation_id, "uid": user_id},
@@ -99,12 +99,15 @@ class PostgresSessionStore:
                 filters = r.filters or {}
                 break
 
+        memory = ConversationMemory(self._llm, self._config)
+        memory.restore_summary(conv_row.summary, len(messages))
+
         return {
             "messages": messages,
             "retrieved_items": retrieved_items,
             "filters": filters,
             "excluded_colours": conv_row.excluded_colours,
-            "_memory": ConversationMemory(self._llm, self._config),
+            "_memory": memory,
             "_db_message_count": len(messages),
         }
 
@@ -117,6 +120,8 @@ class PostgresSessionStore:
         filters: dict = state.get("filters", {})
         excluded_colours = state.get("excluded_colours")
         title = _title_from_messages(messages)
+        memory = state.get("_memory")
+        summary: str | None = memory._cached_summary if memory is not None else None
 
         with self._engine.begin() as conn:
             # Serialise concurrent writers for this conversation.
@@ -135,13 +140,14 @@ class PostgresSessionStore:
                 text(
                     """
                     INSERT INTO conversations
-                        (id, user_id, title, excluded_colours, updated_at)
+                        (id, user_id, title, excluded_colours, summary, updated_at)
                     VALUES
                         (CAST(:cid AS uuid), CAST(:uid AS uuid), :title,
-                         CAST(:excl AS jsonb), now())
+                         CAST(:excl AS jsonb), :summary, now())
                     ON CONFLICT (id) DO UPDATE SET
                         title            = COALESCE(conversations.title, EXCLUDED.title),
                         excluded_colours = EXCLUDED.excluded_colours,
+                        summary          = COALESCE(EXCLUDED.summary, conversations.summary),
                         updated_at       = now()
                     """
                 ),
@@ -150,6 +156,7 @@ class PostgresSessionStore:
                     "uid": user_id,
                     "title": title,
                     "excl": json.dumps(excluded_colours),
+                    "summary": summary,
                 },
             )
 

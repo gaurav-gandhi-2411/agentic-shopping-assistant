@@ -28,6 +28,11 @@ class ConversationMemory:
         }
         return [summary_msg] + messages[-self.recent_turns :]
 
+    def restore_summary(self, summary: str | None, computed_at: int) -> None:
+        """Reload a previously persisted summary — called by the session store on get()."""
+        self._cached_summary = summary
+        self._summary_computed_at = computed_at
+
     def summarise(self, messages: list[dict]) -> str:
         """LLM call: summarise older turns into 3 bullets."""
         formatted = "\n".join(

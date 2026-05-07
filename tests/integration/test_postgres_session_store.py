@@ -489,3 +489,115 @@ class TestRoundTrip:
         assert final["retrieved_items"] == [{"article_id": "c2", "display_name": "Red Coat"}]
         assert final["filters"] == {"product_type": "coat", "colour": "red"}
         assert final["excluded_colours"] == ["beige", "brown"]
+
+
+# ---------------------------------------------------------------------------
+# TestMemorySummary
+# ---------------------------------------------------------------------------
+
+class TestMemorySummary:
+    def test_set_persists_summary(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str, mock_llm, mock_config
+    ):
+        """A cached summary on the ConversationMemory object is written to conversations.summary."""
+        from src.memory.conversation import ConversationMemory
+
+        memory = ConversationMemory(mock_llm, mock_config)
+        memory._cached_summary = "three bullets about coats"
+        memory._summary_computed_at = 4
+        state = _empty_state(
+            messages=[{"role": "user", "content": "show coats"}],
+            _memory=memory,
+        )
+        store.set(cid, state, dev_user_id)
+
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT summary FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                {"cid": cid},
+            ).fetchone()
+        assert row.summary == "three bullets about coats"
+
+    def test_get_restores_summary_into_memory(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str, mock_llm, mock_config
+    ):
+        """get() restores the persisted summary onto the ConversationMemory instance."""
+        from src.memory.conversation import ConversationMemory
+
+        memory = ConversationMemory(mock_llm, mock_config)
+        memory._cached_summary = "earlier search: red dresses under £100"
+        state = _empty_state(
+            messages=[
+                {"role": "user", "content": "show red dresses"},
+                {"role": "assistant", "content": "here are some"},
+            ],
+            _memory=memory,
+        )
+        store.set(cid, state, dev_user_id)
+
+        loaded = store.get(cid, dev_user_id)
+        assert loaded is not None
+        assert isinstance(loaded["_memory"], ConversationMemory)
+        assert loaded["_memory"]._cached_summary == "earlier search: red dresses under £100"
+        # computed_at is set to len(messages) so it won't retrigger immediately
+        assert loaded["_memory"]._summary_computed_at == 2
+
+    def test_get_summary_none_when_never_set(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        """A fresh conversation with no summary yields _cached_summary = None on get()."""
+        state = _empty_state(messages=[{"role": "user", "content": "hi"}])
+        store.set(cid, state, dev_user_id)
+        loaded = store.get(cid, dev_user_id)
+        assert loaded["_memory"]._cached_summary is None
+
+    def test_summary_coalesce_preserves_existing_when_none(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str, mock_llm, mock_config
+    ):
+        """A second set() with _memory._cached_summary = None does not overwrite an existing summary."""
+        from src.memory.conversation import ConversationMemory
+
+        memory = ConversationMemory(mock_llm, mock_config)
+        memory._cached_summary = "initial summary"
+        state = _empty_state(
+            messages=[{"role": "user", "content": "turn 1"}],
+            _memory=memory,
+        )
+        store.set(cid, state, dev_user_id)
+
+        # Second set with a fresh memory that has no cached summary yet
+        fresh_memory = ConversationMemory(mock_llm, mock_config)
+        state["messages"].append({"role": "assistant", "content": "reply"})
+        state["_memory"] = fresh_memory
+        state["_db_message_count"] = 1
+        store.set(cid, state, dev_user_id)
+
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT summary FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                {"cid": cid},
+            ).fetchone()
+        assert row.summary == "initial summary"
+
+    def test_summary_survives_server_restart(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str, mock_llm, mock_config
+    ):
+        """End-to-end: summary written on turn N is available on a fresh load."""
+        from src.memory.conversation import ConversationMemory
+
+        memory = ConversationMemory(mock_llm, mock_config)
+        memory._cached_summary = "user wants sustainable coats under £200"
+        state = _empty_state(
+            messages=[
+                {"role": "user", "content": "sustainable coats"},
+                {"role": "assistant", "content": "here are some"},
+            ],
+            _memory=memory,
+        )
+        store.set(cid, state, dev_user_id)
+
+        # Simulate restart: new store instance, fresh load
+        fresh_store = PostgresSessionStore(store._engine, mock_llm, mock_config)
+        reloaded = fresh_store.get(cid, dev_user_id)
+        assert reloaded is not None
+        assert reloaded["_memory"]._cached_summary == "user wants sustainable coats under £200"
