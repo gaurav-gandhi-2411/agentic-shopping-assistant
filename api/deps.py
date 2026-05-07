@@ -19,27 +19,53 @@ if TYPE_CHECKING:
 # Module-level singletons — set by main.py lifespan, never mutated after that.
 # ---------------------------------------------------------------------------
 
-_retriever: Any = None          # HybridRetriever
+_retriever: Any = None
 _catalogue_df: pd.DataFrame | None = None
-_llm: Any = None                # LLMClient
+_llm: Any = None
 _config: dict | None = None
 _session_store: SessionStore = InMemorySessionStore()
+
+# ---------------------------------------------------------------------------
+# Auth placeholder — Phase 2 prompt 2 replaces get_current_user_id() body
+# with JWT extraction; the call chain in chat.py stays unchanged.
+# ---------------------------------------------------------------------------
+
+DEV_USER_ID: str = "00000000-0000-0000-0000-000000000001"
+
+
+def get_current_user_id() -> str:
+    """Return the current user's ID.
+
+    Hardcoded to DEV_USER_ID until JWT middleware is wired in Phase 2 prompt 2.
+    At that point this function will extract the sub claim from the Bearer token
+    and return it; the rest of the call chain (chat.py → store.get/set) stays
+    identical.
+    """
+    return DEV_USER_ID
 
 
 # ---------------------------------------------------------------------------
 # Setters called by lifespan
 # ---------------------------------------------------------------------------
 
-def _init(retriever: Any, catalogue_df: pd.DataFrame, llm: Any, config: dict) -> None:
-    global _retriever, _catalogue_df, _llm, _config
+def _init(
+    retriever: Any,
+    catalogue_df: pd.DataFrame,
+    llm: Any,
+    config: dict,
+    session_store: SessionStore | None = None,
+) -> None:
+    global _retriever, _catalogue_df, _llm, _config, _session_store
     _retriever = retriever
     _catalogue_df = catalogue_df
     _llm = llm
     _config = config
+    if session_store is not None:
+        _session_store = session_store
 
 
 # ---------------------------------------------------------------------------
-# Getters — used directly in route handlers and in tests via override
+# Getters
 # ---------------------------------------------------------------------------
 
 def get_retriever() -> "HybridRetriever":
@@ -67,12 +93,6 @@ def get_session_store() -> SessionStore:
 
 
 def get_agent_factory() -> Callable[..., Any]:
-    """Return a factory that builds a fresh compiled agent for each conversation.
-
-    The factory captures the current singletons, so it must be called after
-    lifespan startup.  Do NOT cache the returned agent — ConversationMemory is
-    stateful and must not be shared across sessions.
-    """
     from src.agents.graph import build_graph
     from src.memory.conversation import ConversationMemory
 

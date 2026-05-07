@@ -33,6 +33,26 @@ from api.routes.health import router as health_router
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).parent.parent
+
+
+def _build_session_store(llm: Any, config: dict):
+    """Return a PostgresSessionStore if DATABASE_URL is set, else InMemorySessionStore."""
+    from api.session import InMemorySessionStore
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        return InMemorySessionStore()
+
+    for prefix in ("postgresql://", "postgres://"):
+        if db_url.startswith(prefix):
+            db_url = "postgresql+psycopg://" + db_url[len(prefix):]
+            break
+
+    from sqlalchemy import create_engine
+    from src.storage.postgres_session_store import PostgresSessionStore
+
+    engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
+    return PostgresSessionStore(engine, llm, config)
 _DATA_DIR = _REPO_ROOT / "data" / "processed"
 _CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
 
@@ -79,8 +99,9 @@ async def lifespan(app: FastAPI):
     tracing = bool(langsmith_key and os.environ.get("LANGCHAIN_TRACING_V2") == "true")
     logger.info("LangSmith tracing %s", "enabled" if tracing else "disabled")
 
-    deps._init(retriever, df, llm, config)
-    logger.info("Startup complete")
+    session_store = _build_session_store(llm, config)
+    deps._init(retriever, df, llm, config, session_store=session_store)
+    logger.info("Startup complete (session_store=%s)", type(session_store).__name__)
 
     yield
 

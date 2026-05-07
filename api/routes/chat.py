@@ -8,7 +8,7 @@ import threading
 import uuid
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 import api.deps as deps
 from api.logging_config import conversation_id_var
@@ -46,6 +46,8 @@ def _fresh_session(llm: Any, config: dict) -> dict:
         "filters": {},
         "excluded_colours": None,
         "_memory": ConversationMemory(llm, config),
+        "_summary": None,
+        "_summary_message_count": 0,
     }
 
 
@@ -75,6 +77,10 @@ def _persist_result(session: dict, result: dict) -> None:
     session["filters"] = result.get("filters", session["filters"])
     if result.get("excluded_colours") is not None:
         session["excluded_colours"] = result["excluded_colours"]
+    # Sync summary state: only present in result when get_context (re)computed a summary.
+    if "_summary" in result:
+        session["_summary"] = result["_summary"]
+        session["_summary_message_count"] = result.get("_summary_message_count", 0)
 
 
 def _extract_routing(tool_calls: list[dict]) -> dict:
@@ -95,7 +101,10 @@ def _items_from_result(result: dict) -> list[ItemSummary]:
 # ---------------------------------------------------------------------------
 
 @router.post("/chat", response_model=ChatResponse)
-def post_chat(body: ChatRequest) -> ChatResponse:
+def post_chat(
+    body: ChatRequest,
+    user_id: str = Depends(deps.get_current_user_id),
+) -> ChatResponse:
     """Non-streaming chat endpoint.  Full agent round-trip; returns when done."""
     conversation_id = body.conversation_id or str(uuid.uuid4())
     token = conversation_id_var.set(conversation_id)
@@ -105,7 +114,7 @@ def post_chat(body: ChatRequest) -> ChatResponse:
     config = deps.get_config()
 
     try:
-        session = store.get(conversation_id) or _fresh_session(llm, config)
+        session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
 
         memory = session["_memory"]
         factory = deps.get_agent_factory()
@@ -120,7 +129,7 @@ def post_chat(body: ChatRequest) -> ChatResponse:
             raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
 
         _persist_result(session, result)
-        store.set(conversation_id, session)
+        store.set(conversation_id, session, user_id)
 
         tool_calls: list[dict] = result.get("tool_calls", [])
         routing = _extract_routing(tool_calls)
@@ -214,6 +223,10 @@ async def ws_chat(websocket: WebSocket) -> None:
     """
     await websocket.accept()
 
+    # Resolve user identity before any session work.
+    # Phase 2 prompt 2: deps.get_current_user_id() will extract the JWT sub.
+    user_id: str = deps.get_current_user_id()
+
     cid_token = None
     try:
         # ------------------------------------------------------------------
@@ -248,7 +261,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         store: SessionStore = deps.get_session_store()
         llm = deps.get_llm()
         config = deps.get_config()
-        session = store.get(conversation_id) or _fresh_session(llm, config)
+        session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
 
         factory = deps.get_agent_factory()
         agent = factory(session["_memory"], streaming=True)
@@ -362,7 +375,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         # 8. Persist session and send done
         # ------------------------------------------------------------------
         _persist_result(session, result)
-        store.set(conversation_id, session)
+        store.set(conversation_id, session, user_id)
 
         logger.info(
             "ws turn complete",
