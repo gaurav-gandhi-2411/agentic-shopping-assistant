@@ -26,22 +26,12 @@ _config: dict | None = None
 _session_store: SessionStore = InMemorySessionStore()
 
 # ---------------------------------------------------------------------------
-# Auth placeholder — Phase 2 prompt 2 replaces get_current_user_id() body
-# with JWT extraction; the call chain in chat.py stays unchanged.
+# Auth — get_current_user_id lives in api.auth (Phase 2 prompt 2).
+# DEV_USER_ID is kept here for tests and for JWT_VERIFICATION_DISABLED mode.
+# Production code uses api.auth.get_current_user_id as a FastAPI Depends.
 # ---------------------------------------------------------------------------
 
 DEV_USER_ID: str = "00000000-0000-0000-0000-000000000001"
-
-
-def get_current_user_id() -> str:
-    """Return the current user's ID.
-
-    Hardcoded to DEV_USER_ID until JWT middleware is wired in Phase 2 prompt 2.
-    At that point this function will extract the sub claim from the Bearer token
-    and return it; the rest of the call chain (chat.py → store.get/set) stays
-    identical.
-    """
-    return DEV_USER_ID
 
 
 # ---------------------------------------------------------------------------

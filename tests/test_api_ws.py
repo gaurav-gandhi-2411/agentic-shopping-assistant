@@ -145,6 +145,8 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deps, "_session_store", store)
     monkeypatch.setattr(deps, "_llm", _MockLLM(["Great blue jackets for you!"]))
     monkeypatch.setattr(deps, "_config", _MINIMAL_CONFIG)
+    # Disable JWT verification so WS tests connect without ?token= query param.
+    monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
 
 
 @pytest.fixture

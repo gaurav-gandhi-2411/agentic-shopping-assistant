@@ -4,9 +4,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 import api.deps as deps
+from api.auth import get_current_user_id
 from api.schemas import ItemSummary
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,10 @@ def _row_to_item(article_id: str, row: Any, score: float | None = None) -> ItemS
 
 
 @router.get("/{article_id}", response_model=ItemSummary)
-def get_item(article_id: str) -> ItemSummary:
+def get_item(
+    article_id: str,
+    _user_id: str = Depends(get_current_user_id),
+) -> ItemSummary:
     """Return full metadata for a single catalogue item."""
     df = deps.get_catalogue_df()
     indexed = df.set_index("article_id") if "article_id" in df.columns else df
@@ -40,7 +44,11 @@ def get_item(article_id: str) -> ItemSummary:
 
 
 @router.get("/{article_id}/similar", response_model=list[ItemSummary])
-def get_similar(article_id: str, k: int = 5) -> list[ItemSummary]:
+def get_similar(
+    article_id: str,
+    k: int = 5,
+    _user_id: str = Depends(get_current_user_id),
+) -> list[ItemSummary]:
     """Return top-k FAISS-similar items for the given article.
 
     Uses the dense retriever's stored embeddings (no re-encoding needed) to

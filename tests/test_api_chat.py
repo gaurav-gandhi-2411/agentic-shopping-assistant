@@ -86,6 +86,8 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(deps, "_session_store", store)
     monkeypatch.setattr(deps, "_llm", _MockLLM(["ok"]))
     monkeypatch.setattr(deps, "_config", _MINIMAL_CONFIG)
+    # Disable JWT verification so these tests run without Authorization headers.
+    monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
     # _retriever and _catalogue_df remain None; the agent factory is patched per-test.
     yield
 

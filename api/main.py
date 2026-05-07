@@ -101,7 +101,27 @@ async def lifespan(app: FastAPI):
 
     session_store = _build_session_store(llm, config)
     deps._init(retriever, df, llm, config, session_store=session_store)
-    logger.info("Startup complete (session_store=%s)", type(session_store).__name__)
+
+    # Auth status — warn loudly if verification is disabled.
+    from api.auth import _is_verification_disabled
+    if _is_verification_disabled():
+        logger.warning(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        )
+        logger.warning(
+            "JWT_VERIFICATION_DISABLED=true — ALL REQUESTS ARE UNAUTHENTICATED. "
+            "Every call is treated as DEV_USER_ID. "
+            "NEVER run with this setting in production."
+        )
+        logger.warning(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        )
+
+    logger.info(
+        "Startup complete (session_store=%s, auth_enabled=%s)",
+        type(session_store).__name__,
+        not _is_verification_disabled(),
+    )
 
     yield
 

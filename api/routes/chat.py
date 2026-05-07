@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 import api.deps as deps
+from api.auth import get_current_user_id, get_current_user_id_ws
 from api.logging_config import conversation_id_var
 from api.schemas import (
     ChatRequest,
@@ -103,7 +104,7 @@ def _items_from_result(result: dict) -> list[ItemSummary]:
 @router.post("/chat", response_model=ChatResponse)
 def post_chat(
     body: ChatRequest,
-    user_id: str = Depends(deps.get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ) -> ChatResponse:
     """Non-streaming chat endpoint.  Full agent round-trip; returns when done."""
     conversation_id = body.conversation_id or str(uuid.uuid4())
@@ -223,9 +224,14 @@ async def ws_chat(websocket: WebSocket) -> None:
     """
     await websocket.accept()
 
-    # Resolve user identity before any session work.
-    # Phase 2 prompt 2: deps.get_current_user_id() will extract the JWT sub.
-    user_id: str = deps.get_current_user_id()
+    # Authenticate: token is passed as ?token=<jwt> in the WebSocket URL.
+    # Close immediately with 1008 (policy violation) on any auth failure.
+    token = websocket.query_params.get("token", "")
+    try:
+        user_id: str = get_current_user_id_ws(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Policy violation: invalid or missing token")
+        return
 
     cid_token = None
     try:
