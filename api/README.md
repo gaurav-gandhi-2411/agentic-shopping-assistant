@@ -38,6 +38,7 @@ The lifespan loads `data/processed/catalogue.parquet`, `dense.faiss`, and `bm25.
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATABASE_URL` | *(unset — in-memory store)* | Postgres connection string. When set, conversations are persisted via `PostgresSessionStore`. Use the Supabase Transaction pooler URI (port 5432). See `SUPABASE_SETUP.md`. |
 | `LLM_PROVIDER` | *(from config.yaml)* | Override LLM provider at runtime (`groq`, `ollama`, `openrouter`, `gemini`) |
 | `LANGSMITH_API_KEY` | *(unset — tracing disabled)* | LangSmith API key; set to enable LangGraph trace collection |
 | `LANGCHAIN_TRACING_V2` | `true` *(auto-set when key present)* | Explicit toggle; set to `false` to disable even when the key is set |

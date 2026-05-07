@@ -157,7 +157,7 @@ def test_continuation_reuses_session(monkeypatch: pytest.MonkeyPatch, client: Te
     assert r2.json()["response"] == "Turn 2 answer."
 
     # Session must still exist in the store with accumulated messages.
-    session = deps.get_session_store().get(cid)
+    session = deps.get_session_store().get(cid, deps.DEV_USER_ID)
     assert session is not None
     user_messages = [m for m in session["messages"] if m["role"] == "user"]
     assert len(user_messages) == 2
@@ -255,7 +255,7 @@ def test_chat_persists_filters_across_calls(
     cid = r1.json()["conversation_id"]
 
     # Verify turn 1 stored the expected filters.
-    session_after_t1 = deps.get_session_store().get(cid)
+    session_after_t1 = deps.get_session_store().get(cid, deps.DEV_USER_ID)
     assert session_after_t1 is not None
     assert session_after_t1["filters"]["product_type_name"] == "Dress"
     assert session_after_t1["filters"]["colour_group_name"] == "Red"
@@ -263,7 +263,7 @@ def test_chat_persists_filters_across_calls(
     r2 = client.post("/chat", json={"conversation_id": cid, "message": "in blue instead"})
     assert r2.status_code == 200
 
-    session_after_t2 = deps.get_session_store().get(cid)
+    session_after_t2 = deps.get_session_store().get(cid, deps.DEV_USER_ID)
     assert session_after_t2 is not None
     # product_type_name must survive the colour refinement.
     assert session_after_t2["filters"]["product_type_name"] == "Dress"
