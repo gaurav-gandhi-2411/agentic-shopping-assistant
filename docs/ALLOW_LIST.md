@@ -19,8 +19,11 @@ the Supabase Auth account is created.
    **Authentication → Hooks → Before User Created → Postgres Function →
    `public.before_user_created`**
 
-Emails are stored and compared in lowercase.  `user@Example.com` and
-`USER@EXAMPLE.COM` both match `user@example.com`.
+Emails are **automatically lowercased** on insert or update — a BEFORE
+INSERT OR UPDATE trigger calls `lower()` before anything is stored.
+You can type `INSERT INTO allowed_emails VALUES ('User@Example.com', ...)` and
+it will be stored and matched as `user@example.com`.  No need to remember to
+lowercase manually.
 
 ---
 

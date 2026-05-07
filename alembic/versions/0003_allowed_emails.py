@@ -43,8 +43,10 @@ def upgrade() -> None:
     # 1. allowed_emails
     #    Primary key is the email itself (TEXT) — avoids a surrogate UUID
     #    and makes the uniqueness constraint implicit.
-    #    email is stored lowercase (enforced by CHECK) so lookups are
-    #    always case-insensitive.
+    #    Mixed-case inserts are silently normalised to lowercase by the
+    #    normalise_allowed_email trigger (see below).  The CHECK constraint
+    #    is belt-and-suspenders: it should always pass after the trigger
+    #    fires, but catches any path that bypasses the trigger.
     # ------------------------------------------------------------------
     op.create_table(
         "allowed_emails",
@@ -60,6 +62,32 @@ def upgrade() -> None:
         sa.CheckConstraint("email = lower(email)", name="allowed_emails_lowercase"),
         sa.ForeignKeyConstraint(["added_by"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("email"),
+    )
+
+    # BEFORE INSERT OR UPDATE trigger — lowercases the email column
+    # automatically so callers don't need to remember.
+    # The trigger runs before the CHECK constraint is evaluated, so
+    # INSERT INTO allowed_emails VALUES ('User@Example.com') silently
+    # stores 'user@example.com'.
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION public.normalise_allowed_email()
+        RETURNS TRIGGER
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            NEW.email := lower(NEW.email);
+            RETURN NEW;
+        END;
+        $$;
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER allowed_emails_normalise
+        BEFORE INSERT OR UPDATE ON public.allowed_emails
+        FOR EACH ROW EXECUTE FUNCTION public.normalise_allowed_email();
+        """
     )
 
     # ------------------------------------------------------------------
@@ -173,4 +201,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS public.before_user_created(jsonb);")
     op.execute("DROP FUNCTION IF EXISTS public.check_email_allowed(TEXT);")
+    # Trigger is dropped implicitly when the table is dropped, but drop
+    # the function explicitly since it lives in public schema.
+    op.execute("DROP FUNCTION IF EXISTS public.normalise_allowed_email();")
     op.drop_table("allowed_emails")
