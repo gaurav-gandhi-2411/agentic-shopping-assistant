@@ -32,6 +32,8 @@ def _empty_state(**overrides) -> dict:
         "filters": {},
         "excluded_colours": None,
         "_memory": None,
+        "_summary": None,
+        "_summary_message_count": 0,
     }
     base.update(overrides)
     return base
@@ -496,80 +498,81 @@ class TestRoundTrip:
 # ---------------------------------------------------------------------------
 
 class TestMemorySummary:
-    def test_set_persists_summary(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str, mock_llm, mock_config
+    def test_set_persists_summary_from_state_dict(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        """A cached summary on the ConversationMemory object is written to conversations.summary."""
-        from src.memory.conversation import ConversationMemory
-
-        memory = ConversationMemory(mock_llm, mock_config)
-        memory._cached_summary = "three bullets about coats"
-        memory._summary_computed_at = 4
+        """_summary in the session dict (not _memory) is written to conversations.summary."""
         state = _empty_state(
             messages=[{"role": "user", "content": "show coats"}],
-            _memory=memory,
+            _summary="three bullets about coats",
+            _summary_message_count=4,
         )
         store.set(cid, state, dev_user_id)
 
         with pg_engine.connect() as conn:
             row = conn.execute(
-                text("SELECT summary FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                text(
+                    "SELECT summary, summary_message_count FROM conversations "
+                    "WHERE id = CAST(:cid AS uuid)"
+                ),
                 {"cid": cid},
             ).fetchone()
         assert row.summary == "three bullets about coats"
+        assert row.summary_message_count == 4
 
-    def test_get_restores_summary_into_memory(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str, mock_llm, mock_config
+    def test_get_restores_summary_to_state_dict_and_memory(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str, mock_llm, mock_config
     ):
-        """get() restores the persisted summary onto the ConversationMemory instance."""
+        """get() restores summary to both the session dict and the memory object."""
         from src.memory.conversation import ConversationMemory
 
-        memory = ConversationMemory(mock_llm, mock_config)
-        memory._cached_summary = "earlier search: red dresses under £100"
         state = _empty_state(
             messages=[
                 {"role": "user", "content": "show red dresses"},
                 {"role": "assistant", "content": "here are some"},
             ],
-            _memory=memory,
+            _summary="earlier search: red dresses under £100",
+            _summary_message_count=8,
         )
         store.set(cid, state, dev_user_id)
 
         loaded = store.get(cid, dev_user_id)
         assert loaded is not None
+        # Session dict keys
+        assert loaded["_summary"] == "earlier search: red dresses under £100"
+        assert loaded["_summary_message_count"] == 8
+        # Memory object (restored via restore_summary — used by get_context trigger logic)
         assert isinstance(loaded["_memory"], ConversationMemory)
         assert loaded["_memory"]._cached_summary == "earlier search: red dresses under £100"
-        # computed_at is set to len(messages) so it won't retrigger immediately
-        assert loaded["_memory"]._summary_computed_at == 2
+        assert loaded["_memory"]._summary_computed_at == 8  # Issue 1 fix: stored count, not len(messages)
 
     def test_get_summary_none_when_never_set(
         self, store: PostgresSessionStore, cid: str, dev_user_id: str
     ):
-        """A fresh conversation with no summary yields _cached_summary = None on get()."""
+        """A fresh conversation with no summary yields _summary = None in loaded state."""
         state = _empty_state(messages=[{"role": "user", "content": "hi"}])
         store.set(cid, state, dev_user_id)
         loaded = store.get(cid, dev_user_id)
+        assert loaded["_summary"] is None
+        assert loaded["_summary_message_count"] == 0
         assert loaded["_memory"]._cached_summary is None
+        assert loaded["_memory"]._summary_computed_at == 0
 
-    def test_summary_coalesce_preserves_existing_when_none(
-        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str, mock_llm, mock_config
+    def test_summary_coalesce_preserves_existing_when_null(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
     ):
-        """A second set() with _memory._cached_summary = None does not overwrite an existing summary."""
-        from src.memory.conversation import ConversationMemory
-
-        memory = ConversationMemory(mock_llm, mock_config)
-        memory._cached_summary = "initial summary"
+        """A second set() with _summary=None does not overwrite an existing summary."""
         state = _empty_state(
             messages=[{"role": "user", "content": "turn 1"}],
-            _memory=memory,
+            _summary="initial summary",
+            _summary_message_count=5,
         )
         store.set(cid, state, dev_user_id)
 
-        # Second set with a fresh memory that has no cached summary yet
-        fresh_memory = ConversationMemory(mock_llm, mock_config)
+        # Second set — new turn, no summary recomputed this iteration
         state["messages"].append({"role": "assistant", "content": "reply"})
-        state["_memory"] = fresh_memory
-        state["_db_message_count"] = 1
+        state["_summary"] = None
+        state["_summary_message_count"] = 0
         store.set(cid, state, dev_user_id)
 
         with pg_engine.connect() as conn:
@@ -579,25 +582,72 @@ class TestMemorySummary:
             ).fetchone()
         assert row.summary == "initial summary"
 
+    def test_excluded_colours_coalesce_preserves_existing_when_null(
+        self, store: PostgresSessionStore, pg_engine: Engine, cid: str, dev_user_id: str
+    ):
+        """A second set() with excluded_colours=None does not overwrite an existing list."""
+        state = _empty_state(
+            messages=[{"role": "user", "content": "no red"}],
+            excluded_colours=["red"],
+        )
+        store.set(cid, state, dev_user_id)
+
+        # Second set — new turn, colour preference not touched → still None in state
+        state["messages"].append({"role": "assistant", "content": "ok"})
+        state["excluded_colours"] = None
+        store.set(cid, state, dev_user_id)
+
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT excluded_colours FROM conversations WHERE id = CAST(:cid AS uuid)"),
+                {"cid": cid},
+            ).fetchone()
+        assert row.excluded_colours == ["red"]
+
+    def test_summary_message_count_restored_correctly_not_len_messages(
+        self, store: PostgresSessionStore, cid: str, dev_user_id: str
+    ):
+        """Regression: _summary_computed_at after restore is the stored count, not len(messages).
+
+        If restore used len(messages) instead of the stored count, a summary computed at
+        turn 12 and loaded at turn 20 would have _summary_computed_at=20, delaying the
+        next recompute by 8 extra turns.
+        """
+        # Simulate: summary computed at turn 12, now at turn 20 (8 more messages since)
+        messages_at_turn_20 = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
+            for i in range(20)
+        ]
+        state = _empty_state(
+            messages=messages_at_turn_20,
+            _summary="summary from turn 12",
+            _summary_message_count=12,  # computed at turn 12
+        )
+        store.set(cid, state, dev_user_id)
+
+        loaded = store.get(cid, dev_user_id)
+        # Must be 12 (when computed), not 20 (current message count)
+        assert loaded["_memory"]._summary_computed_at == 12
+        assert loaded["_summary_message_count"] == 12
+
     def test_summary_survives_server_restart(
         self, store: PostgresSessionStore, cid: str, dev_user_id: str, mock_llm, mock_config
     ):
-        """End-to-end: summary written on turn N is available on a fresh load."""
-        from src.memory.conversation import ConversationMemory
-
-        memory = ConversationMemory(mock_llm, mock_config)
-        memory._cached_summary = "user wants sustainable coats under £200"
+        """End-to-end: summary written on turn N is available on a fresh store instance."""
         state = _empty_state(
             messages=[
                 {"role": "user", "content": "sustainable coats"},
                 {"role": "assistant", "content": "here are some"},
             ],
-            _memory=memory,
+            _summary="user wants sustainable coats under £200",
+            _summary_message_count=6,
         )
         store.set(cid, state, dev_user_id)
 
-        # Simulate restart: new store instance, fresh load
         fresh_store = PostgresSessionStore(store._engine, mock_llm, mock_config)
         reloaded = fresh_store.get(cid, dev_user_id)
         assert reloaded is not None
+        assert reloaded["_summary"] == "user wants sustainable coats under £200"
+        assert reloaded["_summary_message_count"] == 6
         assert reloaded["_memory"]._cached_summary == "user wants sustainable coats under £200"
+        assert reloaded["_memory"]._summary_computed_at == 6

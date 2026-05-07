@@ -71,7 +71,8 @@ class PostgresSessionStore:
         with self._engine.connect() as conn:
             conv_row = conn.execute(
                 text(
-                    "SELECT excluded_colours, summary FROM conversations "
+                    "SELECT excluded_colours, summary, summary_message_count "
+                    "FROM conversations "
                     "WHERE id = CAST(:cid AS uuid) AND user_id = CAST(:uid AS uuid)"
                 ),
                 {"cid": conversation_id, "uid": user_id},
@@ -99,8 +100,10 @@ class PostgresSessionStore:
                 filters = r.filters or {}
                 break
 
+        # Restore the persisted summary count — NOT len(messages) — so the trigger
+        # condition fires at the right time after a reload.
         memory = ConversationMemory(self._llm, self._config)
-        memory.restore_summary(conv_row.summary, len(messages))
+        memory.restore_summary(conv_row.summary, conv_row.summary_message_count)
 
         return {
             "messages": messages,
@@ -109,6 +112,8 @@ class PostgresSessionStore:
             "excluded_colours": conv_row.excluded_colours,
             "_memory": memory,
             "_db_message_count": len(messages),
+            "_summary": conv_row.summary,
+            "_summary_message_count": conv_row.summary_message_count,
         }
 
     def set(self, conversation_id: str, state: dict, user_id: str) -> None:
@@ -120,8 +125,11 @@ class PostgresSessionStore:
         filters: dict = state.get("filters", {})
         excluded_colours = state.get("excluded_colours")
         title = _title_from_messages(messages)
-        memory = state.get("_memory")
-        summary: str | None = memory._cached_summary if memory is not None else None
+        # Read summary state from top-level session keys — no access to _memory internals.
+        # Both are None when a summary hasn't been computed yet; psycopg3 maps Python None
+        # to SQL NULL so COALESCE in the upsert correctly preserves any existing DB value.
+        summary: str | None = state.get("_summary")
+        summary_message_count: int = state.get("_summary_message_count", 0)
 
         with self._engine.begin() as conn:
             # Serialise concurrent writers for this conversation.
@@ -136,27 +144,38 @@ class PostgresSessionStore:
                 {"cid": conversation_id},
             )
 
+            # COALESCE strategy for nullable conversation-level state:
+            # Both excluded_colours and summary use COALESCE so that a NULL from a turn
+            # that didn't touch those fields never overwrites a previously stored value.
+            # Explicit clearing requires a non-NULL value ([] for excluded_colours,
+            # non-empty string for summary) — there is no separate "clear" operation today.
+            # Note: excluded_colours is passed as Python None (SQL NULL) when absent, NOT
+            # as json.dumps(None) = 'null'::jsonb, so COALESCE fires correctly for JSONB.
             conn.execute(
                 text(
                     """
                     INSERT INTO conversations
-                        (id, user_id, title, excluded_colours, summary, updated_at)
+                        (id, user_id, title, excluded_colours, summary,
+                         summary_message_count, updated_at)
                     VALUES
                         (CAST(:cid AS uuid), CAST(:uid AS uuid), :title,
-                         CAST(:excl AS jsonb), :summary, now())
+                         CAST(:excl AS jsonb), :summary, :smc, now())
                     ON CONFLICT (id) DO UPDATE SET
-                        title            = COALESCE(conversations.title, EXCLUDED.title),
-                        excluded_colours = EXCLUDED.excluded_colours,
-                        summary          = COALESCE(EXCLUDED.summary, conversations.summary),
-                        updated_at       = now()
+                        title                 = COALESCE(conversations.title, EXCLUDED.title),
+                        excluded_colours      = COALESCE(EXCLUDED.excluded_colours,
+                                                         conversations.excluded_colours),
+                        summary               = COALESCE(EXCLUDED.summary, conversations.summary),
+                        summary_message_count = EXCLUDED.summary_message_count,
+                        updated_at            = now()
                     """
                 ),
                 {
                     "cid": conversation_id,
                     "uid": user_id,
                     "title": title,
-                    "excl": json.dumps(excluded_colours),
+                    "excl": json.dumps(excluded_colours) if excluded_colours is not None else None,
                     "summary": summary,
+                    "smc": summary_message_count,
                 },
             )
 

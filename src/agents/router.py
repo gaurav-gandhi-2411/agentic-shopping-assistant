@@ -45,7 +45,7 @@ class LLMRouterBackend:
                 last_action = key
                 break
 
-        context = self._memory.get_context(state.get("messages", []))
+        context = self._memory.get_context(state.get("messages", []), state)
         prompt = self._prompt.format(
             last_action=last_action,
             items_retrieved=len(state.get("retrieved_items", [])),
@@ -56,10 +56,15 @@ class LLMRouterBackend:
         )
         raw = self._llm.generate(prompt)
         parsed = self._parse_response(raw, state["user_query"])
-        return {
+        updates: dict = {
             "current_plan": json.dumps(parsed),
             "tool_calls": tool_calls + [{"router_decision": parsed}],
         }
+        # Propagate summary state when get_context (re)computed it this iteration.
+        if "_summary" in state:
+            updates["_summary"] = state["_summary"]
+            updates["_summary_message_count"] = state.get("_summary_message_count", 0)
+        return updates
 
 
 def get_router_backend(

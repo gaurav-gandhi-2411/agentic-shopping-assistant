@@ -43,8 +43,18 @@ def upgrade() -> None:
         "conversations",
         sa.Column("summary", sa.Text(), nullable=True),
     )
+    op.add_column(
+        "conversations",
+        sa.Column(
+            "summary_message_count",
+            sa.Integer(),
+            nullable=False,
+            server_default=sa.text("0"),
+        ),
+    )
 
 
 def downgrade() -> None:
+    op.drop_column("conversations", "summary_message_count")
     op.drop_column("conversations", "summary")
     op.drop_column("conversations", "excluded_colours")

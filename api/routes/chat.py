@@ -46,6 +46,8 @@ def _fresh_session(llm: Any, config: dict) -> dict:
         "filters": {},
         "excluded_colours": None,
         "_memory": ConversationMemory(llm, config),
+        "_summary": None,
+        "_summary_message_count": 0,
     }
 
 
@@ -75,6 +77,10 @@ def _persist_result(session: dict, result: dict) -> None:
     session["filters"] = result.get("filters", session["filters"])
     if result.get("excluded_colours") is not None:
         session["excluded_colours"] = result["excluded_colours"]
+    # Sync summary state: only present in result when get_context (re)computed a summary.
+    if "_summary" in result:
+        session["_summary"] = result["_summary"]
+        session["_summary_message_count"] = result.get("_summary_message_count", 0)
 
 
 def _extract_routing(tool_calls: list[dict]) -> dict:

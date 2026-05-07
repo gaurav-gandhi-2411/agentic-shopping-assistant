@@ -21,3 +21,8 @@ class AgentState(TypedDict):
     new_items_this_turn: bool | None   # True only when search/compare/outfit produced new items
     out_of_catalogue: bool | None      # True when query is clearly outside H&M's product domain
     excluded_colours: list[str] | None  # Colours to exclude (parsed from negation queries)
+
+    # Conversation memory — written by get_context() when a summary is (re)computed;
+    # propagated through the graph so _persist_result can sync to the session dict.
+    _summary: str | None
+    _summary_message_count: int

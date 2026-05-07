@@ -9,8 +9,13 @@ class ConversationMemory:
         self._cached_summary: str | None = None
         self._summary_computed_at: int = 0  # len(messages) when summary was last built
 
-    def get_context(self, messages: list[dict]) -> list[dict]:
-        """Return messages trimmed to recent_turns, prepended with a summary if history is long."""
+    def get_context(self, messages: list[dict], state: dict | None = None) -> list[dict]:
+        """Return messages trimmed to recent_turns, prepended with a summary if history is long.
+
+        When state is provided and a summary is (re)computed, writes _summary and
+        _summary_message_count back to state so the session store can persist them
+        without reaching into this object's private attributes.
+        """
         if len(messages) <= self.recent_turns:
             return messages
 
@@ -21,6 +26,9 @@ class ConversationMemory:
         ):
             self._cached_summary = self.summarise(older)
             self._summary_computed_at = len(messages)
+            if state is not None:
+                state["_summary"] = self._cached_summary
+                state["_summary_message_count"] = self._summary_computed_at
 
         summary_msg = {
             "role": "system",
