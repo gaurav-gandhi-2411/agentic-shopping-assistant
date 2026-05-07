@@ -16,6 +16,8 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from scripts.run_migrations import apply_auth_shim
+
 DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 _RAW_URL = os.environ.get("DATABASE_URL", "")
@@ -45,21 +47,12 @@ def pg_engine() -> Engine:
 def create_auth_shim(pg_engine: Engine) -> None:
     """Create the auth schema and auth.users stub for local/CI Postgres.
 
-    On Supabase these objects already exist and this fixture is a no-op.
-    Must run before alembic migrations because 0001 adds a FK that
-    REFERENCES auth.users(id).
+    Delegates to scripts.run_migrations.apply_auth_shim — single source of
+    truth for the shim SQL.  On Supabase these objects already exist and the
+    function is a no-op.  Must run before alembic migrations because 0001
+    adds a FK that REFERENCES auth.users(id).
     """
-    with pg_engine.begin() as conn:
-        conn.execute(text(
-            "CREATE SCHEMA IF NOT EXISTS auth"
-        ))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS auth.users (
-                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                email       TEXT,
-                created_at  TIMESTAMPTZ DEFAULT now()
-            )
-        """))
+    apply_auth_shim(pg_engine)
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -32,11 +32,73 @@ In the Supabase dashboard:
 
 ## 2. Run migrations
 
+**Always dry-run against a local Docker Postgres before applying to Supabase.**
+
+### 2a. Local dry-run (recommended before every Supabase apply)
+
+Spin up a throwaway Postgres container and apply the migrations to it first.
+This validates the SQL end-to-end without risking the Supabase database.
+
 ```bash
-# Load environment variables from .env
+# Start a fresh local Postgres
+docker run --rm -d --name pg-dryrun \
+  -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=shopping \
+  -p 5434:5432 postgres:15
+
+export DATABASE_URL=postgresql://postgres:test@localhost:5434/shopping
+
+# The --create-auth-shim flag (or APPLY_AUTH_SHIM=true) creates the auth
+# schema and a minimal auth.users stub before running migrations.
+# This is required on plain Postgres because migration 0001 adds a FK that
+# REFERENCES auth.users(id).  On Supabase, auth.users already exists.
+python scripts/run_migrations.py --create-auth-shim
+```
+
+Expected output:
+```
+Connecting to: postgresql://postgres:***@localhost:5434/shopping
+Creating auth schema shim (local Postgres mode)...
+Auth shim ready.
+INFO  [alembic.runtime.migration] Running upgrade  -> 0001, initial_schema
+INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, add_conversation_state
+Migrations applied successfully.
+```
+
+Verify the schema via psql:
+```bash
+psql postgresql://postgres:test@localhost:5434/shopping
+```
+```sql
+\dt
+-- Expected: alembic_version, conversations, feedback, messages, users
+
+\d conversations
+-- Expected: id, user_id, title, is_public, created_at, updated_at,
+--           excluded_colours, summary, summary_message_count
+```
+
+Then stop the container:
+```bash
+docker stop pg-dryrun
+```
+
+You can also generate the raw SQL without connecting to any database at all:
+```bash
+python scripts/run_migrations.py --dry-run
+```
+This uses Alembic's offline mode (`sql=True`) — no connection is made, and the
+auth shim is not needed.
+
+### 2b. Apply to Supabase
+
+Once you are satisfied with the local dry-run:
+
+```bash
+# Load environment variables from .env (must contain your Supabase DATABASE_URL)
 export $(grep -v '^#' .env | xargs)
 
-# Apply all pending migrations
+# Apply — no shim flag: Supabase already has auth.users
 python scripts/run_migrations.py
 ```
 
@@ -46,11 +108,6 @@ Connecting to: postgresql://postgres.***:***@aws-0-<region>.pooler.supabase.com:
 INFO  [alembic.runtime.migration] Running upgrade  -> 0001, initial_schema
 INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, add_conversation_state
 Migrations applied successfully.
-```
-
-If you just want to see the SQL without applying it:
-```bash
-python scripts/run_migrations.py --dry-run
 ```
 
 ---
