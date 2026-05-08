@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import api.auth as auth_module
 import api.deps as deps
 from api.main import app
 from api.session import InMemorySessionStore
@@ -97,20 +98,20 @@ def _mint_token(
     sub: str = deps.DEV_USER_ID,
     aud: str = "authenticated",
     exp_offset: int = 3600,
+    email: str | None = "dev@example.com",
 ) -> str:
     """Return a signed RS256 JWT using the module-level test private key."""
     now = int(time.time())
-    return jwt.encode(
-        {
-            "sub": sub,
-            "aud": aud,
-            "iss": "test-issuer",
-            "iat": now,
-            "exp": now + exp_offset,
-        },
-        _TEST_PRIVATE_PEM,
-        algorithm="RS256",
-    )
+    claims: dict = {
+        "sub": sub,
+        "aud": aud,
+        "iss": "test-issuer",
+        "iat": now,
+        "exp": now + exp_offset,
+    }
+    if email is not None:
+        claims["email"] = email
+    return jwt.encode(claims, _TEST_PRIVATE_PEM, algorithm="RS256")
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,9 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
 
     JWT_VERIFICATION_DISABLED is explicitly NOT set — these tests exercise the
     real verification path.
+
+    _check_allowlist defaults to allow-all so existing tests are unaffected;
+    individual tests can override it via monkeypatch.setattr.
     """
     store = InMemorySessionStore()
     monkeypatch.setattr(deps, "_session_store", store)
@@ -134,6 +138,8 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUPABASE_JWT_AUD", "authenticated")
     # Ensure verification is enabled for all auth tests.
     monkeypatch.delenv("JWT_VERIFICATION_DISABLED", raising=False)
+    # Allow all emails by default; individual tests can tighten this.
+    monkeypatch.setattr(auth_module, "_check_allowlist", lambda email: True)
 
 
 @pytest.fixture
@@ -195,3 +201,22 @@ def test_ws_rejects_missing_token(client: TestClient) -> None:
         with client.websocket_connect("/chat/stream") as ws:
             ws.receive_text()  # server closes immediately after accept
     assert exc_info.value.code == 1008
+
+
+def test_chat_rejects_non_allowlisted_user(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    """POST /chat with a valid JWT whose email is not on the allow-list must return 401.
+
+    This test exercises the defense-in-depth path: the token is cryptographically
+    valid but the email claim fails the allow-list check.
+    """
+    monkeypatch.setattr(auth_module, "_check_allowlist", lambda email: False)
+    token = _mint_token(email="unlisted@example.com")
+    resp = client.post(
+        "/chat",
+        json={"message": "hello"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 401
+    assert "allow-list" in resp.json()["detail"].lower()

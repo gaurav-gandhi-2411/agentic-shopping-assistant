@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 # JWT_TEST_PUBLIC_KEY so it is never instantiated during the test suite.
 _jwks_client: Any = None
 
+# Pluggable allow-list checker.  Default allows all (no DB configured).
+# Replaced at startup by api.main when DATABASE_URL is set.
+# Monkeypatchable in tests: monkeypatch.setattr(api.auth, "_check_allowlist", ...)
+_check_allowlist: Any = lambda email: True
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -116,6 +121,18 @@ def verify_jwt(token: str) -> dict:
     return payload
 
 
+def _enforce_allowlist(payload: dict) -> None:
+    """Raise 401 if the JWT email claim is not on the allow-list.
+
+    Skipped when email is absent (service-role tokens, phone-only accounts).
+    The check is delegated to _check_allowlist so production and test code
+    can swap the implementation without touching this logic.
+    """
+    email = payload.get("email", "")
+    if email and not _check_allowlist(email):
+        raise HTTPException(status_code=401, detail="Email not on allow-list")
+
+
 # ---------------------------------------------------------------------------
 # FastAPI dependencies
 # ---------------------------------------------------------------------------
@@ -140,11 +157,12 @@ def get_current_user_id(authorization: str = Header(default="")) -> str:
             status_code=401,
             detail="Missing or invalid Authorization header (expected: Bearer <token>)",
         )
-    token = authorization.split(" ", 1)[1]
+    token = authorization.split(" ", 1)[1].strip()
     payload = verify_jwt(token)
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(status_code=401, detail="JWT missing sub claim")
+    _enforce_allowlist(payload)
     return sub
 
 
@@ -170,4 +188,5 @@ def get_current_user_id_ws(token: str) -> str:
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(status_code=401, detail="JWT missing sub claim")
+    _enforce_allowlist(payload)
     return sub

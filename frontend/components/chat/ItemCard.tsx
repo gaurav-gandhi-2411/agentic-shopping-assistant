@@ -1,0 +1,140 @@
+"use client"
+
+import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { api } from "@/lib/api/client"
+import type { ItemSummary } from "@/lib/api/types"
+import { cn } from "@/lib/utils"
+
+interface Props {
+  item: ItemSummary
+}
+
+export function ItemCard({ item }: Props) {
+  const [showSimilar, setShowSimilar] = useState(false)
+  const score = item.score !== null ? Math.round(item.score * 100) : null
+
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="flex gap-3 p-3 hover:bg-accent/30 transition-colors">
+        {/* Image or placeholder */}
+        <div className="w-16 h-20 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
+          {item.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={item.image_url}
+              alt={item.prod_name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-2xl select-none" aria-hidden>
+              👗
+            </span>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex flex-col justify-between min-w-0 flex-1">
+          <div>
+            <p className="text-sm font-medium leading-tight line-clamp-2">
+              {item.prod_name}
+            </p>
+            <div className="flex flex-wrap gap-1 mt-1">
+              <Badge>{item.product_type}</Badge>
+              {item.colour && <Badge>{item.colour}</Badge>}
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            {score !== null && (
+              <p className="text-xs text-muted-foreground">{score}% match</p>
+            )}
+            <button
+              className="ml-auto text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              onClick={() => setShowSimilar((v) => !v)}
+              aria-expanded={showSimilar}
+            >
+              {showSimilar ? "Hide similar" : "More like this"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Similar items panel */}
+      {showSimilar && (
+        <SimilarItemsPanel articleId={item.article_id} />
+      )}
+    </div>
+  )
+}
+
+function SimilarItemsPanel({ articleId }: { articleId: string }) {
+  const { data, isLoading, isError } = useQuery<ItemSummary[]>({
+    queryKey: ["similar", articleId],
+    queryFn: () => api.catalogue.similar(articleId),
+    staleTime: 5 * 60_000,
+  })
+
+  return (
+    <div className="border-t bg-muted/30 px-3 py-2">
+      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+        Similar items
+      </p>
+      {isLoading && (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      )}
+      {isError && (
+        <p className="text-xs text-destructive">Could not load similar items.</p>
+      )}
+      {data && data.length === 0 && (
+        <p className="text-xs text-muted-foreground">No similar items found.</p>
+      )}
+      {data && data.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {data.map((sim) => (
+            <SimilarItemRow key={sim.article_id} item={sim} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SimilarItemRow({ item }: { item: ItemSummary }) {
+  const score = item.score !== null ? Math.round(item.score * 100) : null
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-8 h-10 shrink-0 rounded overflow-hidden bg-muted flex items-center justify-center">
+        {item.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.image_url}
+            alt={item.prod_name}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span className="text-sm select-none" aria-hidden>
+            👗
+          </span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium truncate leading-tight">
+          {item.prod_name}
+        </p>
+        <p className="text-[10px] text-muted-foreground truncate">
+          {item.product_type}
+          {item.colour ? ` · ${item.colour}` : ""}
+          {score !== null ? ` · ${score}%` : ""}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-block rounded-sm bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground leading-none">
+      {children}
+    </span>
+  )
+}

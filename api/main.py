@@ -28,6 +28,7 @@ import api.deps as deps
 from api.logging_config import setup_logging
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
+from api.routes.conversations import router as conversations_router
 from api.routes.health import router as health_router
 
 logger = logging.getLogger(__name__)
@@ -36,12 +37,16 @@ _REPO_ROOT = Path(__file__).parent.parent
 
 
 def _build_session_store(llm: Any, config: dict):
-    """Return a PostgresSessionStore if DATABASE_URL is set, else InMemorySessionStore."""
+    """Return (session_store, engine|None).
+
+    engine is non-None when DATABASE_URL is set; callers use it to wire the
+    allow-list checker and for migrations.
+    """
     from api.session import InMemorySessionStore
 
     db_url = os.environ.get("DATABASE_URL", "")
     if not db_url:
-        return InMemorySessionStore()
+        return InMemorySessionStore(), None
 
     for prefix in ("postgresql://", "postgres://"):
         if db_url.startswith(prefix):
@@ -52,7 +57,7 @@ def _build_session_store(llm: Any, config: dict):
     from src.storage.postgres_session_store import PostgresSessionStore
 
     engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
-    return PostgresSessionStore(engine, llm, config)
+    return PostgresSessionStore(engine, llm, config), engine
 _DATA_DIR = _REPO_ROOT / "data" / "processed"
 _CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
 
@@ -99,8 +104,24 @@ async def lifespan(app: FastAPI):
     tracing = bool(langsmith_key and os.environ.get("LANGCHAIN_TRACING_V2") == "true")
     logger.info("LangSmith tracing %s", "enabled" if tracing else "disabled")
 
-    session_store = _build_session_store(llm, config)
+    session_store, db_engine = _build_session_store(llm, config)
     deps._init(retriever, df, llm, config, session_store=session_store)
+
+    # Wire defense-in-depth allow-list checker when a DB is available.
+    if db_engine is not None:
+        from sqlalchemy import text
+        import api.auth as _auth
+
+        def _db_check_allowlist(email: str) -> bool:
+            with db_engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT public.check_email_allowed(:e)"),
+                    {"e": email.lower()},
+                ).scalar()
+            return bool(row)
+
+        _auth._check_allowlist = _db_check_allowlist
+        logger.info("Allow-list DB checker wired (check_email_allowed)")
 
     # Auth status — warn loudly if verification is disabled.
     from api.auth import _is_verification_disabled
@@ -139,7 +160,8 @@ def create_app() -> FastAPI:
     )
 
     allowed_origins = os.environ.get(
-        "CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501"
+        "CORS_ORIGINS",
+        "http://localhost:8501,http://127.0.0.1:8501,http://localhost:3000,http://127.0.0.1:3000",
     ).split(",")
 
     app.add_middleware(
@@ -166,6 +188,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(chat_router)
+    app.include_router(conversations_router)
     app.include_router(catalogue_router)
 
     # Serve product images if the directory was baked into the container.
