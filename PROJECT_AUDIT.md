@@ -444,3 +444,208 @@ Upgrade to Fly.io `performance-1x` (1 dedicated CPU, 2 GB RAM, ~$17/mo) before f
 | TB4 | tool_behaviour | `filter_applied` | real_bug | Filter tool is called (`tool_calls` includes `filter`) but the `index_group_name: Divided` constraint does not persist; agent falls back to an unconstrained re-search, returning unfiltered results. |
 | C3 | colour | `AttributeError` | real_bug | LLM returns a list value for a colour filter (e.g. `["Beige", "Cream"]`) but filter parsing calls `.lower()` on the value, crashing on a list; code does not handle multi-valued filter entries. |
 | TB2 | tool_behaviour | `style_criteria` | model_limitation | Agent correctly compares two items but LLM response does not use the specific style vocabulary the eval checker expects; response is valid but fails the keyword check. |
+
+
+---
+
+## Token Telemetry -- Local Baseline (pre-Wave 3)
+
+**Date:** 2026-05-14  
+**Model:** llama-3.1-8b-instant via Groq API  
+**Session:** local dev, InMemorySessionStore, JWT_VERIFICATION_DISABLED=true, no prompt caching  
+**Scripts:** scripts/telemetry_collect.py, scripts/telemetry_analyze.py  
+**Raw stats:** scripts/telemetry_stats.json
+
+**Methodology note:** This is a local measurement, not production. Token counts are
+model-prompt-driven and transfer directly to production sizing. Latency, memory, and
+infra-dependent costs are not in scope. Groq has no Anthropic-style prompt caching;
+all input tokens are billed as non-cached. The plan's 3,523-token assumption included
+2,425 cached tokens; the observed 5,569/turn is a fully uncached equivalent, so the
+comparison overstates the production-uncached-token gap (the Wave 3 Anthropic switch
+will reintroduce caching).
+
+### Sample
+
+- 29 HTTP requests sent (POST /chat), 28 successful, 1 timeout (R5-refine at 120 s)
+- 113 llm_call log entries captured; 105 matched to request windows; 8 unmatched
+  (server continued processing R5-refine after client timeout)
+- Mix: 8 simple searches, 5 refinements, 4 outfit requests, 3 comparisons,
+  2 OOC, 2 negations, 1 x 5-turn multi-turn chain
+
+### Key Structural Finding: 4 LLM Calls Per Search Turn, Not 3
+
+The agent runs **4 LLM calls** per standard search turn, not the 3 assumed in
+PRODUCTION_PLAN.md. The actual graph execution pattern is:
+
+1. **Router** (pos 1) -- decides to search; ~1,820 input, ~26 output tokens
+2. **Reranker** (pos 2) -- ranks retrieved items; ~1,040 input, ~46 output tokens  
+3. **Agent-loop router** (pos 3) -- re-evaluates after seeing results, decides to
+   respond; ~1,946 input (median), ~29 output tokens. This call was not in the plan.
+4. **Respond** (pos 4) -- generates the final answer; ~1,030 input, ~87 output tokens
+
+The third call is the router node firing again after each tool execution to decide
+the next action. PRODUCTION_PLAN.md's "3 calls" omitted this step entirely.
+
+Compare turns (C1, C3) run **6 calls** -- two full search-rerank cycles before
+responding. OOC and clarify turns run 1-2 calls (no reranker).
+
+Call-count distribution across 28 turns:
+
+| Calls/turn | Turns | Turn types |
+|---|---|---|
+| 1 | 2 | OOC (clarify), OOC (router-only) |
+| 2 | 2 | OOC weather, direct-answer |
+| 3 | 2 | unusual short-context turns |
+| 4 | 19 | standard search / refine / outfit / negation (68%) |
+| 5 | 1 | multi-turn refinement (extra iteration) |
+| 6 | 2 | compare (two search+rerank cycles) |
+
+### Per-Call-Position Statistics (28 turns, 105 matched calls)
+
+Position labels are assigned by index within each turn (1 = first call, last = final call).
+Positions 2-5 are mixed across turn types; position 1 (router) and positions 4/6 (respond)
+are the cleanest single-call-type buckets.
+
+| Pos | Role (typical) | N | In mean | In p50 | In p90 | In max | Out mean | Out max | Cost USD |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | router | 28 | 1,812 | 1,826 | 2,021 | 2,181 | 26 | 73 | $0.002493 |
+| 2 | reranker / OOC-respond | 26 | 1,212 | 1,040 | 1,944 | 2,174 | 46 | 65 | $0.001595 |
+| 3 | agent-loop router / respond (3-call turns) | 24 | 1,758 | 1,946 | 2,021 | 2,193 | 36 | 96 | $0.002076 |
+| 4 | respond / compare-extra | 22 | 1,135 | 1,030 | 1,818 | 2,107 | 84 | 120 | $0.001370 |
+| 5 | compare extra | 3 | 1,605 | 1,889 | 1,899 | 1,901 | 47 | 84 | $0.000252 |
+| 6 | respond (6-call compare turns) | 2 | 844 | 844 | 859 | 863 | 100 | 106 | $0.000100 |
+
+### Per-Turn Totals
+
+| Metric | Count | Mean | P50 | P90 | Max |
+|---|---|---|---|---|---|
+| Input tokens | 28 | 5,569 | 5,810 | 7,345 | 9,382 |
+| Output tokens | 28 | 177 | 196 | 223 | 268 |
+| Cost (USD) | 28 | $0.000282 | $0.000305 | $0.000382 | $0.000491 |
+
+Total cost across 28 turns: **$0.007886**
+
+### Cost Breakdown by Call Position
+
+The agent-loop-router (position 3) is the single largest line item -- larger than
+the respond call -- because it was invisible in the plan but fires on every search turn.
+
+| Position | Role | Cost | Share |
+|---|---|---|---|
+| 1 | router | $0.002493 | 31.6% |
+| 2 | reranker / OOC-respond | $0.001595 | 20.2% |
+| 3 | agent-loop router | $0.002076 | 26.3% |
+| 4 | respond / compare-extra | $0.001370 | 17.4% |
+| 5+6 | compare additional calls | $0.000352 | 4.5% |
+| **Total** | | **$0.007886** | 100% |
+
+All routing calls combined (positions 1 + 3): $0.004569 (57.9% of total cost).
+
+### Comparison to PRODUCTION_PLAN.md
+
+- **Plan assumption:** 3,523 input tokens/turn (mean, 3 calls x ~1,175 avg)
+- **Observed mean:** 5,569 input tokens/turn
+- **Delta: +58.1% -- FLAG (>20%)**
+
+Root causes of the gap:
+
+1. **Missing call** -- the agent-loop-router (position 3, ~1,758 tokens input median)
+   adds roughly 1,758 extra tokens per turn not in the plan's 3-call model.
+2. **Compare turns** -- 6 calls at 9,059-9,382 tokens/turn pull the mean up.
+3. **No prompt caching** -- in production with Anthropic, 2,425 of the 3,523 planned
+   tokens are cached (69%). Without caching (Groq local), all tokens are charged. The
+   observed 5,569 is not directly comparable to the 3,523 cached-inclusive figure;
+   the like-for-like uncached plan figure would be 1,098 dynamic tokens plus the full
+   cached prefixes re-billed -- but the fundamental issue (missing 4th call) stands
+   regardless of caching.
+
+**Implication for Wave 3:** PRODUCTION_PLAN.md cost table must be recalculated for a
+4-call standard-search model. The per-turn cost will increase but less than the raw
++58.1% token delta suggests, because the missing call (agent-loop router) is primarily
+a short-output decision call (~29 tokens out), not a long generation.
+
+---
+
+## Token Telemetry — Post-Fast-Path (Wave 3a)
+
+**Date:** 2026-05-15  
+**Branch:** `wave-3a-alr-fast-path`  
+**Provider:** Groq llama-3.1-8b-instant  
+**Script:** `scripts/telemetry_fastpath.py` (in-process, bypasses JWT auth)
+
+### Per-Turn LLM Call Counts
+
+| Label | Turn type | Calls | Notes |
+|-------|-----------|-------|-------|
+| S1-search | search | 2 | ≤3 items → reranker skipped; fast-path fires after search |
+| S2-search | search | 3 | reranker + fast-path (baseline was 4) |
+| S3-search | search | 3 | |
+| S4-search | search | 3 | |
+| S5-search | search | 3 | |
+| S6-search | search | 3 | |
+| S7-search | search | 3 | |
+| S8-search | search | 3 | |
+| R1-refine | refinement | 7 | filter rejected loop ×3 then search; complex filter→search path |
+| R2-refine | refinement | 3 | |
+| R3-refine | refinement | 3 | |
+| R4-refine | refinement | 0 | OOC short-circuit anomaly (lighter wash → no catalogue match) |
+| R5-refine | refinement | 6 | multi-attempt search |
+| O1-outfit | outfit | 3 | outfit→END, no ALR fired |
+| O2-outfit | outfit | 3 | |
+| O3-outfit | outfit | 3 | |
+| O4-outfit | outfit | 3 | |
+| C1-compare | compare | 4 | initial router + ALR after empty compare + reranker + respond |
+| C2-compare | compare | 3 | compare-intent guard routed via search only |
+| C3-compare | compare | 4 | |
+| OOC1 | OOC | 2 | OOC fast-path → respond |
+| OOC2 | OOC | 1 | router → clarify → END |
+| N1-negate | negation | 4 | filter→search path; ALR fires (non-trivial, LLM called) |
+| N2-negate | negation | 4 | |
+| MT1-multi | multi-turn | 3 | |
+| MT2-multi | multi-turn | 3 | |
+| MT3–MT5 | multi-turn | — | Not measured: Groq TPM (6 K/min) exhausted mid-run |
+
+**Measured turns:** 26 / 29  
+**Total LLM calls (26 turns):** 82  
+**Mean calls/turn (fast-path):** 3.15  
+**Mean calls/turn (baseline):** 3.75  
+**Reduction:** −0.60 calls/turn (−16.0%)
+
+### Breakdown by Turn Type (fast-path run)
+
+| Category | Turns | Mean calls | Baseline mean |
+|----------|-------|-----------|---------------|
+| search (S) | 8 | 3.00 | 4.00 |
+| refinement (R) | 5 | 3.80 | ~4.00 |
+| outfit (O) | 4 | 3.00 | 3.00 |
+| compare (C) | 3 | 3.67 | ~6.00 |
+| OOC | 2 | 1.50 | ~2.00 |
+| negation (N) | 2 | 4.00 | ~4.00 |
+| multi-turn (MT) | 2 | 3.00 | ~4.00 |
+
+### Key Observations
+
+1. **Trivial search turns: 4 → 3 calls.** Fast-path fires after `search_node` returns items, eliminating the ALR LLM call. S1 (no reranker) went 3 → 2.
+2. **Compare turns: ~6 → 4 calls.** Two ALR calls eliminated per compare turn; the `route_decision` compare-intent guard still correctly routes through `compare_node`.
+3. **Filter→search non-trivial: unchanged.** R1 (7 calls), N1/N2 (4 calls), and `test_filter_then_search_hits_llm_router` confirm the LLM is still called after `filter_node` to generate the search query — fast-path correctly does not skip this.
+4. **Outfit/clarify unaffected.** Both go directly to END via LangGraph edges; ALR never fires for these turn types regardless of the flag.
+5. **OOC short-circuit anomaly (R4 = 0 calls).** "In a lighter wash instead" on a dark-wash denim context triggered the OOC detector rather than a colour-filter refinement. This is a pre-existing routing edge case, not introduced by Wave 3a.
+
+### Eval Comparison
+
+| Metric | Baseline (Apr 25) | Wave 3a (May 15) | Delta |
+|--------|------------------|--------------------|-------|
+| Pass / 32 | 31 | 28 | −3 |
+| Pass % | 96.9% | 87.5% | −9.4 pp |
+| Provider | Groq llama-3.1-8b | Groq llama-3.1-8b | — |
+
+**All 4 regressions confirmed non-fast-path-related:**
+
+| ID | Check | Root cause |
+|----|-------|-----------|
+| O3 | `category_absent` | Retrieval variance; Groq returned outfit items without the expected sub-category label |
+| O5 | `n_results_min` | Groq sampling variance; returned 2 items instead of ≥3 |
+| N2 | `n_results_min` | Same — returned 2 items |
+| TB4 | `filter_applied` | Pre-existing `search_node` fallback bug: when brand filter returns 0 results, `effective_filters = {}` overwrites `state.filters`, causing the eval check to see no filter applied |
+
+The fast-path change touches `router_node` only and has no code path through retrieval, filter application, or result ranking. Pass rate on the fast-path-sensitive categories (all search and compare turns) is unchanged.

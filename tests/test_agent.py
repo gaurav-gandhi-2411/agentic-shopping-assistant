@@ -2,6 +2,7 @@
 Agent graph tests.
 Some require real Ollama; others use a mock LLM.
 """
+import os
 import sys
 import json
 from pathlib import Path
@@ -151,6 +152,132 @@ def test_agent_max_iterations_cap(config, retriever, catalogue_df):
 
     assert result["final_answer"] is not None, "Expected final_answer to be set after cap"
     assert result["iteration"] >= 1, "Expected at least one iteration before termination"
+
+
+# ---------------------------------------------------------------------------
+# Agent-loop router fast-path (mock LLM, no external dependencies)
+# ---------------------------------------------------------------------------
+
+class _CallCountingLLM(MockLLM):
+    """MockLLM that also tracks how many times generate() is called."""
+
+    def __init__(self, responses: list[str]):
+        super().__init__(responses)
+        self.call_count = 0
+
+    def generate(self, prompt: str, system: str = None, **kwargs) -> str:
+        self.call_count += 1
+        return super().generate(prompt, system, **kwargs)
+
+
+def _make_counting_memory(llm, config):
+    return ConversationMemory(llm, config)
+
+
+def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
+    """After search returns items, the ALR LLM call is skipped (fast-path fires)."""
+    os.environ["AGENT_LOOP_FAST_PATH"] = "true"
+    # Responses: (1) router decides search, (2) respond node answer.
+    # If ALR were called it would consume response[1] and push respond to response[2].
+    llm = _CallCountingLLM([
+        json.dumps({"action": "search", "query": "blue dress"}),
+        "Here are some blue dresses for you.",
+    ])
+    memory = _make_counting_memory(llm, config)
+    agent = build_graph(retriever, catalogue_df, llm, config)
+
+    result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
+
+    assert result["final_answer"] is not None
+    # Only 2 LLM calls: initial router + respond node. ALR must NOT have fired.
+    assert llm.call_count == 2, (
+        f"Expected 2 LLM calls (router + respond) but got {llm.call_count}; "
+        "ALR fast-path may not have fired"
+    )
+
+
+def test_fast_path_compare_skips_alr(config, retriever, catalogue_df):
+    """After compare node runs, the ALR LLM call is skipped (fast-path fires)."""
+    os.environ["AGENT_LOOP_FAST_PATH"] = "true"
+    # Responses: (1) initial router → search, (2) ALR after search (skipped by fast-path),
+    # (3) router → compare, (4) ALR after compare (skipped), (5) respond.
+    # With fast-path: (1) router→search, (2) respond after search, then the compare branch
+    # never fires because respond ends the turn.
+    # Use a query that has items then ask to compare via a second invoke.
+    llm = _CallCountingLLM([
+        json.dumps({"action": "compare", "article_ids": []}),
+        "Here is the comparison result.",
+    ])
+    # Seed items in state so compare_node has something to work with
+    seed_items = [
+        {"article_id": "A001", "display_name": "Jacket A", "colour": "Black",
+         "product_type": "Jacket", "department": "Ladieswear", "description": ""},
+        {"article_id": "A002", "display_name": "Jacket B", "colour": "Black",
+         "product_type": "Jacket", "department": "Ladieswear", "description": ""},
+    ]
+    memory = _make_counting_memory(llm, config)
+    agent = build_graph(retriever, catalogue_df, llm, config)
+
+    result = agent.invoke(_blank_state(
+        "compare these two",
+        retrieved_items=seed_items,
+        _memory=memory,
+    ))
+
+    assert result["final_answer"] is not None
+    # Only 2 LLM calls: initial router + respond node. ALR after compare must be skipped.
+    assert llm.call_count == 2, (
+        f"Expected 2 LLM calls (router + respond) but got {llm.call_count}; "
+        "ALR fast-path may not have fired after compare"
+    )
+
+
+def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
+    """With AGENT_LOOP_FAST_PATH=false the ALR LLM call is NOT skipped."""
+    os.environ["AGENT_LOOP_FAST_PATH"] = "false"
+    try:
+        # Responses: (1) router→search, (2) ALR→respond (the extra call), (3) respond answer.
+        llm = _CallCountingLLM([
+            json.dumps({"action": "search", "query": "blue dress"}),
+            json.dumps({"action": "respond"}),
+            "Here are some blue dresses for you.",
+        ])
+        memory = _make_counting_memory(llm, config)
+        agent = build_graph(retriever, catalogue_df, llm, config)
+
+        result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
+
+        assert result["final_answer"] is not None
+        # 3 LLM calls: router + ALR + respond when fast-path is disabled.
+        assert llm.call_count == 3, (
+            f"Expected 3 LLM calls (router + ALR + respond) but got {llm.call_count}"
+        )
+    finally:
+        os.environ["AGENT_LOOP_FAST_PATH"] = "true"
+
+
+def test_filter_then_search_hits_llm_router(config, retriever, catalogue_df):
+    """filter→search is non-trivial: the ALR must call the LLM to generate the search query."""
+    os.environ["AGENT_LOOP_FAST_PATH"] = "true"
+    # Responses: (1) router→filter, (2) ALR after filter must hit LLM to get search query,
+    # (3) ALR after search (fast-path skips), (4) respond answer.
+    llm = _CallCountingLLM([
+        json.dumps({"action": "filter", "key": "colour_group_name", "value": "Blue"}),
+        json.dumps({"action": "search", "query": "blue dress"}),
+        "Here are some blue dresses for you.",
+    ])
+    memory = _make_counting_memory(llm, config)
+    agent = build_graph(retriever, catalogue_df, llm, config)
+
+    result = agent.invoke(_blank_state("show me dresses in blue", _memory=memory))
+
+    assert result["final_answer"] is not None
+    # 3 LLM calls: router → filter, ALR → search query gen, respond node.
+    # Fast-path skips the ALR after search; filter ALR must NOT be skipped.
+    assert llm.call_count == 3, (
+        f"Expected 3 LLM calls (router→filter, ALR→search, respond) but got {llm.call_count}; "
+        "fast-path may have incorrectly skipped the filter→search ALR"
+    )
 
 
 # ---------------------------------------------------------------------------
