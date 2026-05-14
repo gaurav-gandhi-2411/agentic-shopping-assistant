@@ -159,7 +159,7 @@ Next.js 15 + minimal Tailwind components + TanStack Query. The architecture is c
 
 1. **Add `react-markdown`** to `MessageBubble.tsx`. The agent produces markdown; it should render as formatted text. Use `remarkGfm` for tables (comparison output). Sanitize with `rehype-sanitize` to prevent XSS from any future external content injection.
 
-2. **Replace `<img>` with `next/image`** in `ItemCard` and `SimilarItemRow`. Add `width={64} height={80} sizes="64px"`. This enables lazy loading and WebP serving — important since images are served from Fly.io (no CDN).
+2. **Replace `<img>` with `next/image`** in `ItemCard` and `SimilarItemRow`. Add `width={64} height={80} sizes="64px"`. This enables lazy loading and WebP serving — important since images are served from the container (no CDN).
 
 3. **Add message input character limit** in `ChatInput.tsx`. Hard limit at 2000 chars with a visible counter at 1500.
 
@@ -209,7 +209,7 @@ sentry_sdk.init(dsn=os.environ.get("SENTRY_DSN"), traces_sample_rate=0.1)
 
 - **Grafana + Prometheus** for latency histograms if you move to a larger deployment
 - **Langfuse** as a self-hosted LangSmith alternative with better cost tracking
-- **Fly.io machine metrics** (CPU, memory) visible in fly.io dashboard — enable with `fly dashboard`
+- **Cloud Run metrics** (CPU, memory, request latency) visible in Google Cloud Console → Cloud Run → service → Metrics tab
 
 ---
 
@@ -245,18 +245,17 @@ The conversation content (messages) is stored verbatim in Postgres. Users may sh
 
 ### Backend (API)
 
-**Current:** Fly.io, 512MB RAM, 1 shared CPU — too small (see BUG-1).
-**Recommended:** Fly.io `performance-1x` (1 CPU, 2GB RAM). Monthly cost: ~$17. This is the minimum viable size for the loaded process.
+**Current:** Google Cloud Run, 2 GB RAM, scale-to-zero (min-instances=1 for low latency).
 
-**Alternative if you need more control:** Fly.io `performance-2x` (2 CPU, 4GB RAM, $34/mo) allows running 2–4 uvicorn workers, handling bursts without queuing.
+**Alternative if you need more throughput:** Cloud Run with `--concurrency 4` and 4 GB RAM allows handling bursts without queuing; cost scales linearly with request volume.
 
-**Data indices:** Move `data/processed/` off the Docker image to a Fly.io persistent volume (`fly volumes create`) or Cloudflare R2 bucket. Load at startup. This shrinks the Docker image from ~600MB to ~100MB and decouples index updates from code deploys.
+**Data indices:** Move `data/processed/` off the Docker image to a GCS bucket or Cloudflare R2. Load at startup. This shrinks the Docker image from ~600MB to ~100MB and decouples index updates from code deploys.
 
 **Docker build:** Pin to `python:3.11-slim-bookworm`. The current `build-essential` purge is correct. Add `--platform linux/amd64` to the build command for M-chip Mac developers.
 
 ### Frontend (Next.js)
 
-**Deploy to Vercel.** It's the natural home for Next.js 15. Free tier covers personal projects. If you need custom domains + CORS with the Fly.io API, set `CORS_ORIGINS` in Fly env to include the Vercel preview and production URLs.
+**Deploy to Vercel.** It's the natural home for Next.js 15. Free tier covers personal projects. Set `CORS_ORIGINS` in Cloud Run env to include the Vercel preview and production URLs.
 
 **Environment variables:** Manage via Vercel dashboard (not `.env.local` checked in). The three variables needed are: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_BACKEND_URL`.
 
@@ -264,12 +263,12 @@ The conversation content (messages) is stored verbatim in Postgres. Users may sh
 
 1. **GitHub Actions workflow:**
    - On PR: `pytest -m 'not requires_ollama'` (unit tests, no API key needed) + ruff lint + mypy
-   - On merge to `master`: build Docker image, push to Fly.io registry, deploy
+   - On merge to `master`: build Docker image, push to Artifact Registry, deploy to Cloud Run
    - On merge to `master`: `vercel deploy --prod` (or let Vercel's GitHub integration handle it)
 
-2. **Secrets management:** Use GitHub Secrets for `FLY_API_TOKEN`, `GROQ_API_KEY`, `SENTRY_DSN`. Never commit `.env`.
+2. **Secrets management:** Use GitHub Secrets for `GCP_SA_KEY`, `GROQ_API_KEY`, `SENTRY_DSN`. Never commit `.env`.
 
-3. **Health check on deploy:** The `fly deploy` command uses the `/healthz` probe (30s grace). Add `/readyz` to the deploy check so a deploy only succeeds if indices are loaded.
+3. **Health check on deploy:** Cloud Run waits for `/healthz` to return 200 before routing traffic (startup probe). Add `/readyz` as the liveness probe so a deploy only succeeds if indices are loaded.
 
 ### Caching strategy
 
@@ -393,25 +392,25 @@ Weighted average: 0.8 × $0.003484 + 0.2 × $0.007474 = **$0.004282**
 
 | Scale | Turns/day | LLM cost/day | LLM/mo | Infra/mo | **Total/mo** |
 |---|---|---|---|---|---|
-| **100 DAU** | 1,500 | $5.23 | $157 | $17 Fly + $0 Vercel | **~$174** |
-| **1K DAU** | 15,000 | $52.26 | $1,568 | $34 Fly + $20 Vercel | **~$1,622** |
-| **10K DAU** | 150,000 | $522.60 | $15,678 | $200 Fly cluster + $100 Vercel | **~$15,978** |
+| **100 DAU** | 1,500 | $5.23 | $157 | ~$10 Cloud Run + $0 Vercel | **~$167** |
+| **1K DAU** | 15,000 | $52.26 | $1,568 | ~$25 Cloud Run + $20 Vercel | **~$1,613** |
+| **10K DAU** | 150,000 | $522.60 | $15,678 | ~$150 Cloud Run + $100 Vercel | **~$15,928** |
 
 **Scenario B — 80/20 Haiku/Sonnet ($0.004282/turn)** ← recommended
 
 | Scale | Turns/day | LLM cost/day | LLM/mo | Infra/mo | **Total/mo** |
 |---|---|---|---|---|---|
-| **100 DAU** | 1,500 | $6.42 | $193 | $17 Fly + $0 Vercel | **~$210** |
-| **1K DAU** | 15,000 | $64.23 | $1,927 | $34 Fly + $20 Vercel | **~$1,981** |
-| **10K DAU** | 150,000 | $642.30 | $19,269 | $200 Fly cluster + $100 Vercel | **~$19,569** |
+| **100 DAU** | 1,500 | $6.42 | $193 | ~$10 Cloud Run + $0 Vercel | **~$203** |
+| **1K DAU** | 15,000 | $64.23 | $1,927 | ~$25 Cloud Run + $20 Vercel | **~$1,972** |
+| **10K DAU** | 150,000 | $642.30 | $19,269 | ~$150 Cloud Run + $100 Vercel | **~$19,519** |
 
 **Scenario C — All-Sonnet-4.6 ($0.010452/turn)** (upper bound)
 
 | Scale | Turns/day | LLM cost/day | LLM/mo | Infra/mo | **Total/mo** |
 |---|---|---|---|---|---|
-| **100 DAU** | 1,500 | $15.68 | $470 | $17 Fly + $0 Vercel | **~$487** |
-| **1K DAU** | 15,000 | $156.78 | $4,703 | $34 Fly + $20 Vercel | **~$4,757** |
-| **10K DAU** | 150,000 | $1,567.80 | $47,034 | $200 Fly cluster + $100 Vercel | **~$47,334** |
+| **100 DAU** | 1,500 | $15.68 | $470 | ~$10 Cloud Run + $0 Vercel | **~$480** |
+| **1K DAU** | 15,000 | $156.78 | $4,703 | ~$25 Cloud Run + $20 Vercel | **~$4,748** |
+| **10K DAU** | 150,000 | $1,567.80 | $47,034 | ~$150 Cloud Run + $100 Vercel | **~$47,284** |
 
 ### Cost reduction levers
 
@@ -593,7 +592,7 @@ This would move the 100-DAU monthly cost from ~$174 (Scenario A) to ~$150 — a 
 
 | Item | File(s) | Effort | Impact |
 |---|---|---|---|
-| Upsize Fly.io machine to 2GB | `fly.toml` | 5 min | Prevents OOM crash |
+| Confirm Cloud Run service configured with ≥ 2 GB memory | Cloud Run console | 5 min | Prevents OOM crash |
 | Compile graph once at startup | `api/deps.py` | 30 min | Removes per-request overhead |
 | Add `max_length=2000` to `ChatRequest` | `api/schemas.py` | 5 min | Prevents token bombing |
 | Add `max_length` to `ChatInput.tsx` | `frontend/components/chat/ChatInput.tsx` | 10 min | Consistent with backend limit |
@@ -620,7 +619,7 @@ This would move the 100-DAU monthly cost from ~$174 (Scenario A) to ~$150 — a 
 | Add 👍/👎 feedback to `MessageBubble` + `POST /messages/{id}/feedback` route | 4h | Quality signal for production |
 | RLS end-to-end integration test | 4h | Multi-user data isolation verified |
 | Prompt injection: delimit user query in router prompt | 30 min | Basic injection hardening |
-| Move retrieval indices to Fly volume / R2 | 3h | Smaller image, faster deploys |
+| Move retrieval indices to GCS or R2 | 3h | Smaller image, faster deploys |
 | `pip-audit` + `npm audit` in CI | 1h | Dependency vulnerability scanning |
 
 ### P2 — v1.1 / Nice-to-have
@@ -657,7 +656,7 @@ These items are explicitly parked.  Do not schedule until the trigger condition 
 
 1. **The H&M catalogue remains static** at ≤ 20K items for v1. If it grows to 200K+, retrieval architecture needs revisiting.
 2. **Groq free tier is acceptable for early access** (< 50 users). Switch to paid before public launch.
-3. **Single-region deployment** (Fly `bom` = Mumbai). If significant US or EU traffic emerges, add a second region.
+3. **Single-region deployment** (Cloud Run `asia-south1` = Mumbai). If significant US or EU traffic emerges, add a second region.
 4. **No payment processing** in v1 — the "buy now" CTA will link out to the H&M website, not integrate a cart API.
 5. **DistilBERT routing is out of scope for v1.** The cascade router was explicitly abandoned after V3.1 (OOD F1=0.63 < 0.65 target; high-confidence wrong predictions survive all thresholds; train/serve skew reduces practical gains to negligible). Model weights are gitignored and not re-trainable without the original data pipeline. The LLM router is the permanent v1 choice.
 

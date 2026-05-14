@@ -1,7 +1,7 @@
 """In-memory per-user sliding-window rate limiter.
 
-Single-instance only — state lives in the process. Suitable for Fly.io
-single-machine deployments; replace with a Redis-backed limiter for
+Single-instance only — state lives in the process. Suitable for single-instance
+deployments (Cloud Run, Docker); replace with a Redis-backed limiter for
 multi-instance.
 
 Config: RATE_LIMIT_PER_MINUTE env var (default 10). Read on every call so a
