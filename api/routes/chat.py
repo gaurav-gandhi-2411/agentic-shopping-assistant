@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import threading
 import uuid
 from typing import Any, AsyncIterator
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 import api.deps as deps
+from api.auth import get_current_user_id, get_current_user_id_ws
 from api.logging_config import conversation_id_var
+from api.rate_limit import get_rate_limiter
+from src.llm.context import llm_user_id_var
 from api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -27,6 +32,7 @@ from api.schemas import (
     WSUserMessage,
 )
 from api.session import SessionStore
+from src.llm.client import STREAM_ERROR_SENTINEL
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -65,6 +71,9 @@ def _build_invoke_state(session: dict, user_message: str) -> dict:
         "new_items_this_turn": False,
         "out_of_catalogue": False,
         "excluded_colours": session.get("excluded_colours"),
+        # ConversationMemory for this conversation — accessed by LLMRouterBackend
+        # via state["_memory"] so the compiled graph singleton is memory-agnostic.
+        "_memory": session["_memory"],
     }
 
 
@@ -103,11 +112,26 @@ def _items_from_result(result: dict) -> list[ItemSummary]:
 @router.post("/chat", response_model=ChatResponse)
 def post_chat(
     body: ChatRequest,
-    user_id: str = Depends(deps.get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ) -> ChatResponse:
     """Non-streaming chat endpoint.  Full agent round-trip; returns when done."""
+    # Rate limit check — before any work so limit applies to the connection too.
+    limiter = get_rate_limiter()
+    allowed, retry_after = limiter.is_allowed(user_id)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     conversation_id = body.conversation_id or str(uuid.uuid4())
     token = conversation_id_var.set(conversation_id)
+    llm_user_id_var.set(user_id)
+
+    # Set Sentry scope — IDs only, no message content.
+    sentry_sdk.set_user({"id": user_id})
+    sentry_sdk.set_tag("conversation_id", conversation_id)
 
     store: SessionStore = deps.get_session_store()
     llm = deps.get_llm()
@@ -126,7 +150,7 @@ def post_chat(
             result = agent.invoke(state)
         except Exception as exc:
             logger.error("agent.invoke failed: %s", exc, exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
         _persist_result(session, result)
         store.set(conversation_id, session, user_id)
@@ -180,7 +204,8 @@ async def _iter_tokens(llm: Any, prompt: str) -> AsyncIterator[str]:
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
 
-    t = threading.Thread(target=_produce, daemon=True)
+    ctx = contextvars.copy_context()
+    t = threading.Thread(target=ctx.run, args=(_produce,), daemon=True)
     t.start()
     try:
         while True:
@@ -223,9 +248,30 @@ async def ws_chat(websocket: WebSocket) -> None:
     """
     await websocket.accept()
 
-    # Resolve user identity before any session work.
-    # Phase 2 prompt 2: deps.get_current_user_id() will extract the JWT sub.
-    user_id: str = deps.get_current_user_id()
+    # Authenticate: token is passed as ?token=<jwt> in the WebSocket URL.
+    # Close immediately with 1008 (policy violation) on any auth failure.
+    token = websocket.query_params.get("token", "")
+    try:
+        user_id: str = get_current_user_id_ws(token)
+    except HTTPException:
+        await websocket.close(code=1008, reason="Policy violation: invalid or missing token")
+        return
+
+    # Rate limit check on WS open.
+    limiter = get_rate_limiter()
+    allowed, retry_after = limiter.is_allowed(user_id)
+    if not allowed:
+        await websocket.send_text(
+            WSErrorMessage(
+                message=f"Rate limit exceeded. Retry in {retry_after}s",
+                code="rate_limited",
+            ).model_dump_json()
+        )
+        await websocket.close(code=1008, reason="Rate limit exceeded")
+        return
+
+    llm_user_id_var.set(user_id)
+    sentry_sdk.set_user({"id": user_id})
 
     cid_token = None
     try:
@@ -247,6 +293,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         # ------------------------------------------------------------------
         conversation_id = user_msg.conversation_id or str(uuid.uuid4())
         cid_token = conversation_id_var.set(conversation_id)
+        sentry_sdk.set_tag("conversation_id", conversation_id)
 
         # ------------------------------------------------------------------
         # 3. Acknowledge session
@@ -344,6 +391,11 @@ async def ws_chat(websocket: WebSocket) -> None:
         if plan.get("action") == "pending_respond":
             chunks: list[str] = []
             async for tok in _iter_tokens(llm, plan["prompt"]):
+                if tok == STREAM_ERROR_SENTINEL:
+                    await websocket.send_text(
+                        WSErrorMessage(message="Stream generation failed", code="stream_error").model_dump_json()
+                    )
+                    return
                 if cancel_event.is_set():
                     await websocket.send_text(WSCancelledMessage().model_dump_json())
                     return
@@ -402,7 +454,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         logger.error("WebSocket error: %s", exc, exc_info=True)
         try:
             await websocket.send_text(
-                WSErrorMessage(message=str(exc), code="internal_error").model_dump_json()
+                WSErrorMessage(message="Internal server error", code="internal_error").model_dump_json()
             )
         except Exception:
             pass

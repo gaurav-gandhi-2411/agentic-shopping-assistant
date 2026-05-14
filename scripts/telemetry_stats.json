@@ -1,0 +1,109 @@
+{
+  "sample_size_turns": 28,
+  "total_llm_calls": 105,
+  "total_cost_usd": 0.007886,
+  "by_call_type": {
+    "router": {
+      "input_tokens": {
+        "count": 28,
+        "mean": 1812.2,
+        "p50": 1826.0,
+        "p90": 2020.8,
+        "max": 2181.0,
+        "sum": 50741.0
+      },
+      "output_tokens": {
+        "count": 28,
+        "mean": 26.0,
+        "p50": 23.0,
+        "p90": 37.3,
+        "max": 73.0,
+        "sum": 728.0
+      },
+      "total_cost_usd": 0.002493
+    },
+    "reranker": {
+      "input_tokens": {
+        "count": 2,
+        "mean": 2039.0,
+        "p50": 2039.0,
+        "p90": 2147.0,
+        "max": 2174.0,
+        "sum": 4078.0
+      },
+      "output_tokens": {
+        "count": 2,
+        "mean": 7.0,
+        "p50": 7.0,
+        "p90": 7.0,
+        "max": 7.0,
+        "sum": 14.0
+      },
+      "total_cost_usd": 0.000128
+    },
+    "respond": {
+      "input_tokens": {
+        "count": 26,
+        "mean": 966.8,
+        "p50": 1009.0,
+        "p90": 1056.5,
+        "max": 1069.0,
+        "sum": 25136.0
+      },
+      "output_tokens": {
+        "count": 26,
+        "mean": 90.3,
+        "p50": 91.5,
+        "p90": 110.0,
+        "max": 120.0,
+        "sum": 2349.0
+      },
+      "total_cost_usd": 0.001419
+    },
+    "other": {
+      "input_tokens": {
+        "count": 49,
+        "mean": 1550.4,
+        "p50": 1889.0,
+        "p90": 2000.2,
+        "max": 2193.0,
+        "sum": 75970.0
+      },
+      "output_tokens": {
+        "count": 49,
+        "mean": 38.2,
+        "p50": 37.0,
+        "p90": 56.0,
+        "max": 65.0,
+        "sum": 1874.0
+      },
+      "total_cost_usd": 0.003846
+    }
+  },
+  "per_turn": {
+    "input_tokens": {
+      "count": 28,
+      "mean": 5568.8,
+      "p50": 5810.0,
+      "p90": 7344.7,
+      "max": 9382.0,
+      "sum": 155925.0
+    },
+    "output_tokens": {
+      "count": 28,
+      "mean": 177.3,
+      "p50": 196.0,
+      "p90": 223.4,
+      "max": 268.0,
+      "sum": 4965.0
+    },
+    "cost_usd": {
+      "count": 28,
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "max": 0.0,
+      "sum": 0.007886
+    }
+  }
+}

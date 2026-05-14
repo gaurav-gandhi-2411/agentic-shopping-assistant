@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 
 import pandas as pd
@@ -348,10 +349,12 @@ def build_graph(
     retriever: HybridRetriever,
     catalogue_df: pd.DataFrame,
     llm: LLMClient,
-    memory: ConversationMemory,
     config: dict,
     streaming_mode: bool = False,
     router_backend=None,
+    # memory is no longer a constructor argument — it is passed through
+    # AgentState._memory so the compiled graph can be a startup singleton.
+    memory: ConversationMemory | None = None,
 ):
     max_iterations = config["agent"]["max_iterations"]
     top_k = config["retrieval"]["final_k"]
@@ -372,6 +375,37 @@ def build_graph(
                     "current_plan": json.dumps(plan),
                     "tool_calls": [{"router_decision": plan}],
                 }
+
+        # Agent-loop router fast-path: skip the LLM for transitions that are fully
+        # determined by the graph rules already present in route_decision.
+        # Reads env at call-time so it can be disabled without restart:
+        #   AGENT_LOOP_FAST_PATH=false uvicorn ...
+        if os.environ.get("AGENT_LOOP_FAST_PATH", "true").lower() != "false":
+            # OOC post-search: search_node set out_of_catalogue=True; respond is certain.
+            if state.get("out_of_catalogue"):
+                logger.info("[router] fast-path: out_of_catalogue → respond (LLM skipped)")
+                return {"current_plan": json.dumps({"action": "respond"})}
+
+            # Identify the last non-router tool that ran this turn.
+            _last_tool = "none"
+            for tc in reversed(tool_calls):
+                key = list(tc.keys())[0]
+                if key != "router_decision":
+                    _last_tool = key
+                    break
+
+            # Rule 3: search produced results → always respond next.
+            if _last_tool == "search" and state.get("retrieved_items"):
+                logger.info(
+                    "[router] fast-path: search (items=%d) → respond (LLM skipped)",
+                    len(state["retrieved_items"]),
+                )
+                return {"current_plan": json.dumps({"action": "respond"})}
+
+            # Rule 1: compare always ends in respond.
+            if _last_tool == "compare":
+                logger.info("[router] fast-path: compare → respond (LLM skipped)")
+                return {"current_plan": json.dumps({"action": "respond"})}
 
         return router_backend.decide(state)
 
@@ -414,7 +448,6 @@ def build_graph(
         router_backend = get_router_backend(
             config=config,
             llm=llm,
-            memory=memory,
             catalogue_df=catalogue_df,
             prompt_template=ROUTER_PROMPT,
             format_items_brief=_format_items_brief,

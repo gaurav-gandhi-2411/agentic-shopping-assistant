@@ -1,10 +1,20 @@
+import json
 import logging
 import os
 import re
 import time
+import uuid
 from typing import Iterator, Protocol
 
+from src.llm.context import llm_user_id_var
+from src.llm.cost import TurnCost
+
 logger = logging.getLogger(__name__)
+
+# Sentinel yielded by chat_stream() on unrecoverable error.
+# The WebSocket handler in api/routes/chat.py checks for this value and
+# converts it to a WSErrorMessage frame instead of forwarding it as a token.
+STREAM_ERROR_SENTINEL = "\x00STREAM_ERROR\x00"
 
 
 def _parse_retry_after(exc_str: str) -> float:
@@ -59,20 +69,48 @@ class OllamaClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> Iterator[str]:
-        options = {
-            "temperature": temperature if temperature is not None else self.default_temperature,
-            "num_predict": max_tokens if max_tokens is not None else self.default_max_tokens,
-        }
-        stream = self._client.chat(
-            model=self.model,
-            messages=messages,
-            options=options,
-            stream=True,
-        )
-        for chunk in stream:
-            content = chunk.message.content
-            if content:
-                yield content
+        t0 = time.monotonic()
+        input_tokens = 0
+        output_tokens = 0
+        turn_id = str(uuid.uuid4())
+        try:
+            options = {
+                "temperature": temperature if temperature is not None else self.default_temperature,
+                "num_predict": max_tokens if max_tokens is not None else self.default_max_tokens,
+            }
+            stream = self._client.chat(
+                model=self.model,
+                messages=messages,
+                options=options,
+                stream=True,
+            )
+            for chunk in stream:
+                content = chunk.message.content
+                if content:
+                    yield content
+                # Final chunk carries token counts.
+                if getattr(chunk, "done", False):
+                    input_tokens = getattr(chunk, "prompt_eval_count", 0) or 0
+                    output_tokens = getattr(chunk, "eval_count", 0) or 0
+        except Exception as exc:
+            logger.error("[ollama] chat_stream error: %s", exc, exc_info=True)
+            yield STREAM_ERROR_SENTINEL
+        finally:
+            latency_ms = round((time.monotonic() - t0) * 1000)
+            cost = TurnCost(self.model, input_tokens, output_tokens).usd_cost
+            logger.info(
+                json.dumps({
+                    "event": "llm_call",
+                    "model": self.model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cached_tokens": 0,
+                    "latency_ms": latency_ms,
+                    "usd_cost": round(cost, 8),
+                    "user_id": llm_user_id_var.get(""),
+                    "turn_id": turn_id,
+                })
+            )
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []
@@ -121,6 +159,8 @@ class GroqClient:
         tpd_retries = 0
         tpm_delays = iter([1.0, 3.0])
         attempt = 0
+        t0 = time.monotonic()
+        turn_id = str(uuid.uuid4())
         while True:
             try:
                 resp = self._client.chat.completions.create(
@@ -128,6 +168,27 @@ class GroqClient:
                     messages=messages,
                     temperature=temperature if temperature is not None else self.default_temperature,
                     max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                )
+                usage = resp.usage
+                input_tokens = usage.prompt_tokens if usage else 0
+                output_tokens = usage.completion_tokens if usage else 0
+                cached_tokens = 0
+                if usage and hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                latency_ms = round((time.monotonic() - t0) * 1000)
+                cost = TurnCost(self.model, input_tokens, output_tokens, cached_tokens).usd_cost
+                logger.info(
+                    json.dumps({
+                        "event": "llm_call",
+                        "model": self.model,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cached_tokens": cached_tokens,
+                        "latency_ms": latency_ms,
+                        "usd_cost": round(cost, 8),
+                        "user_id": llm_user_id_var.get(""),
+                        "turn_id": turn_id,
+                    })
                 )
                 return resp.choices[0].message.content
             except Exception as exc:
@@ -152,17 +213,49 @@ class GroqClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> Iterator[str]:
-        stream = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature if temperature is not None else self.default_temperature,
-            max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
-            stream=True,
-        )
-        for chunk in stream:
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
+        t0 = time.monotonic()
+        input_tokens = 0
+        output_tokens = 0
+        cached_tokens = 0
+        turn_id = str(uuid.uuid4())
+        try:
+            stream = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature if temperature is not None else self.default_temperature,
+                max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+            for chunk in stream:
+                if chunk.choices:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+                if chunk.usage:
+                    input_tokens = chunk.usage.prompt_tokens or 0
+                    output_tokens = chunk.usage.completion_tokens or 0
+                    if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
+                        cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", 0) or 0
+        except Exception as exc:
+            logger.error("[groq] chat_stream error: %s", exc, exc_info=True)
+            yield STREAM_ERROR_SENTINEL
+        finally:
+            latency_ms = round((time.monotonic() - t0) * 1000)
+            cost = TurnCost(self.model, input_tokens, output_tokens, cached_tokens).usd_cost
+            logger.info(
+                json.dumps({
+                    "event": "llm_call",
+                    "model": self.model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cached_tokens": cached_tokens,
+                    "latency_ms": latency_ms,
+                    "usd_cost": round(cost, 8),
+                    "user_id": llm_user_id_var.get(""),
+                    "turn_id": turn_id,
+                })
+            )
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []

@@ -71,7 +71,7 @@ class PostgresSessionStore:
         with self._engine.connect() as conn:
             conv_row = conn.execute(
                 text(
-                    "SELECT excluded_colours, summary, summary_message_count "
+                    "SELECT excluded_colours, summary, summary_message_count, is_public "
                     "FROM conversations "
                     "WHERE id = CAST(:cid AS uuid) AND user_id = CAST(:uid AS uuid)"
                 ),
@@ -114,6 +114,7 @@ class PostgresSessionStore:
             "_db_message_count": len(messages),
             "_summary": conv_row.summary,
             "_summary_message_count": conv_row.summary_message_count,
+            "_is_public": bool(conv_row.is_public),
         }
 
     def set(self, conversation_id: str, state: dict, user_id: str) -> None:
@@ -124,6 +125,7 @@ class PostgresSessionStore:
         retrieved_items: list = state.get("retrieved_items", [])
         filters: dict = state.get("filters", {})
         excluded_colours = state.get("excluded_colours")
+        is_public: bool = state.get("_is_public", False)
         title = _title_from_messages(messages)
         # Read summary state from top-level session keys — no access to _memory internals.
         # Both are None when a summary hasn't been computed yet; psycopg3 maps Python None
@@ -158,13 +160,14 @@ class PostgresSessionStore:
                 text(
                     """
                     INSERT INTO conversations
-                        (id, user_id, title, excluded_colours, summary,
+                        (id, user_id, title, is_public, excluded_colours, summary,
                          summary_message_count, updated_at)
                     VALUES
-                        (CAST(:cid AS uuid), CAST(:uid AS uuid), :title,
+                        (CAST(:cid AS uuid), CAST(:uid AS uuid), :title, :is_public,
                          CAST(:excl AS jsonb), :summary, :smc, now())
                     ON CONFLICT (id) DO UPDATE SET
                         title                 = COALESCE(conversations.title, EXCLUDED.title),
+                        is_public             = EXCLUDED.is_public,
                         excluded_colours      = COALESCE(EXCLUDED.excluded_colours,
                                                          conversations.excluded_colours),
                         summary               = COALESCE(EXCLUDED.summary, conversations.summary),
@@ -180,6 +183,7 @@ class PostgresSessionStore:
                     "cid": conversation_id,
                     "uid": user_id,
                     "title": title,
+                    "is_public": is_public,
                     "excl": json.dumps(excluded_colours) if excluded_colours is not None else None,
                     "summary": summary,
                     "smc": summary_message_count,
@@ -237,3 +241,59 @@ class PostgresSessionStore:
                 {"uid": user_id},
             ).fetchall()
         return [str(r.id) for r in rows]
+
+    def list_summaries(self, user_id: str) -> list[dict]:
+        """Single JOIN query replacing the list_ids + per-id get loop.
+
+        Returns one dict per conversation with keys: conversation_id, title,
+        is_public, message_count, last_message, filters.  Ordered by
+        updated_at DESC (trust the DB; no Python re-sort needed).
+        """
+        sql = text(
+            """
+            WITH
+            user_counts AS (
+                SELECT conversation_id, COUNT(*) AS cnt
+                FROM messages WHERE role = 'user'
+                GROUP BY conversation_id
+            ),
+            first_user AS (
+                SELECT DISTINCT ON (conversation_id) conversation_id, content
+                FROM messages WHERE role = 'user'
+                ORDER BY conversation_id, created_at ASC
+            ),
+            last_assistant AS (
+                SELECT DISTINCT ON (conversation_id)
+                    conversation_id, content, filters
+                FROM messages WHERE role = 'assistant'
+                ORDER BY conversation_id, created_at DESC
+            )
+            SELECT
+                c.id::text            AS conversation_id,
+                COALESCE(c.title,
+                    LEFT(fu.content, 60)) AS title,
+                c.is_public,
+                COALESCE(uc.cnt, 0)   AS message_count,
+                LEFT(la.content, 120) AS last_message,
+                COALESCE(la.filters, '{}') AS filters
+            FROM conversations c
+            LEFT JOIN user_counts   uc ON uc.conversation_id = c.id
+            LEFT JOIN first_user    fu ON fu.conversation_id = c.id
+            LEFT JOIN last_assistant la ON la.conversation_id = c.id
+            WHERE c.user_id = CAST(:uid AS uuid)
+            ORDER BY c.updated_at DESC
+            """
+        )
+        with self._engine.connect() as conn:
+            rows = conn.execute(sql, {"uid": user_id}).fetchall()
+        return [
+            {
+                "conversation_id": r.conversation_id,
+                "title": r.title or "New conversation",
+                "is_public": bool(r.is_public),
+                "message_count": int(r.message_count),
+                "last_message": r.last_message,
+                "filters": r.filters if isinstance(r.filters, dict) else {},
+            }
+            for r in rows
+        ]

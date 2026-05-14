@@ -1,5 +1,4 @@
 import logging
-import random
 
 import pandas as pd
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
@@ -169,7 +168,7 @@ def suggest_outfit(
                     break
 
         if colour_ok_pool:
-            chosen = random.choice(colour_ok_pool)
+            chosen = colour_ok_pool[0]
         else:
             # Fallback within the same query (no cross-category backfill)
             fallback_pool = [
@@ -179,7 +178,7 @@ def suggest_outfit(
                 and not (seed_is_outerwear and any(t in it.get("product_type", "").lower() for t in _OUTERWEAR_TYPES))
                 and (normalize_prod_name(it.get("prod_name", it["display_name"])), it.get("colour", "").lower()) not in seen_prod_colour
             ]
-            chosen = random.choice(fallback_pool) if fallback_pool else None
+            chosen = fallback_pool[0] if fallback_pool else None
 
         if chosen:
             chosen["_role"] = "complement"

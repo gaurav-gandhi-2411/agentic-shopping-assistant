@@ -186,18 +186,19 @@ def build_components(provider: str | None = None, router: str | None = None):
     retriever = HybridRetriever(dense, sparse, df, config)
 
     llm    = get_llm_client(config)
-    memory = ConversationMemory(llm, config)
 
     # Let the factory in build_graph handle all router types via config.
     # Passing router_backend=None triggers get_router_backend() inside build_graph.
-    agent = build_graph(retriever, df, llm, memory, config, streaming_mode=False, router_backend=None)
+    # memory is no longer a build argument — it is injected via AgentState._memory
+    # at invoke time so the compiled graph can be a singleton.
+    agent = build_graph(retriever, df, llm, config, streaming_mode=False, router_backend=None)
 
     return agent, llm, config
 
 
 # ── state helpers ─────────────────────────────────────────────────────────────
 
-def _make_state(messages, user_query, retrieved_items=None, filters=None):
+def _make_state(messages, user_query, retrieved_items=None, filters=None, memory=None):
     return {
         "messages": list(messages),
         "user_query": user_query,
@@ -210,6 +211,7 @@ def _make_state(messages, user_query, retrieved_items=None, filters=None):
         "new_items_this_turn": False,
         "out_of_catalogue": False,
         "excluded_colours": [],
+        "_memory": memory,
     }
 
 
@@ -367,7 +369,7 @@ def evaluate_checks(checks: dict, result: dict, response_text: str) -> dict[str,
 
 # ── single-query runner ───────────────────────────────────────────────────────
 
-def run_query(agent, query_spec: dict) -> dict:
+def run_query(agent, query_spec: dict, memory=None) -> dict:
     setup_turns = query_spec.get("setup_turns", [])
     main_query  = query_spec["query"]
     checks      = query_spec.get("checks", {})
@@ -384,6 +386,7 @@ def run_query(agent, query_spec: dict) -> dict:
             turn_text,
             retrieved_items,
             filters,
+            memory=memory,
         )
         res, lat = _invoke(agent, state)
         setup_latencies.append(round(lat, 2))
@@ -399,6 +402,7 @@ def run_query(agent, query_spec: dict) -> dict:
         main_query,
         retrieved_items,
         filters,
+        memory=memory,
     )
     result, main_lat = _invoke(agent, state)
 
@@ -581,6 +585,7 @@ def main():
     inter_delay   = _PROVIDER_DELAY.get(_run_provider, 2.0)
 
     print("Building agent components...")
+    from src.memory.conversation import ConversationMemory
     agent, llm, config = build_components(router=args.router)
     _router_label = config.get("router", {}).get("provider", "llm")
     print(f"Ready — {len(queries)} quer{'y' if len(queries) == 1 else 'ies'} queued "
@@ -605,7 +610,8 @@ def main():
         print(f"[{i:2d}/{len(queries)}] {qid} ({category}){setup_tag}  {q['query'][:60]}")
 
         try:
-            rec = run_query(agent, q)
+            query_memory = ConversationMemory(llm, config)
+            rec = run_query(agent, q, memory=query_memory)
             icon = "PASS" if rec["status"] == "PASS" else rec["status"]
             fail_str = f"  FAILED: {rec['failed']}" if rec["failed"] else ""
             print(f"          [{icon}]  {_fmt_lat(rec['latency_total'])}  "

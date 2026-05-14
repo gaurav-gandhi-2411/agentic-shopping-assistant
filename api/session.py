@@ -11,6 +11,7 @@ class SessionStore(Protocol):
     def set(self, conversation_id: str, state: dict, user_id: str) -> None: ...
     def delete(self, conversation_id: str, user_id: str) -> None: ...
     def list_ids(self, user_id: str) -> list[str]: ...
+    def list_summaries(self, user_id: str) -> list[dict]: ...
 
 
 class InMemorySessionStore:
@@ -56,3 +57,30 @@ class InMemorySessionStore:
     def list_ids(self, user_id: str) -> list[str]:
         with self._lock:
             return list(self._store.keys())
+
+    def list_summaries(self, user_id: str) -> list[dict]:
+        summaries = []
+        for cid in self.list_ids(user_id):
+            session = self.get(cid, user_id)
+            if session is None:
+                continue
+            messages = session.get("messages", [])
+            user_msgs = [m for m in messages if m.get("role") == "user"]
+            asst_msgs = [m for m in messages if m.get("role") == "assistant"]
+            title = session.get("_title")
+            if not title and user_msgs:
+                text = user_msgs[0].get("content", "")
+                title = text[:60] + ("…" if len(text) > 60 else "")
+            last_message = None
+            if asst_msgs:
+                last = asst_msgs[-1].get("content", "")
+                last_message = last[:120] + ("…" if len(last) > 120 else "")
+            summaries.append({
+                "conversation_id": cid,
+                "title": title or "New conversation",
+                "is_public": session.get("_is_public", False),
+                "message_count": len(user_msgs),
+                "last_message": last_message,
+                "filters": session.get("filters", {}),
+            })
+        return summaries

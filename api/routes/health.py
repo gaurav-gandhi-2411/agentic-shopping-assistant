@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Response
 
 import api.deps as deps
+from api.auth import _is_verification_disabled
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -47,6 +48,6 @@ def readiness(response: Response) -> dict:
 
     if not ok:
         response.status_code = 503
-        return {"status": "not ready", "checks": checks}
+        return {"status": "not ready", "checks": checks, "auth_enabled": not _is_verification_disabled()}
 
-    return {"status": "ready", "checks": checks}
+    return {"status": "ready", "checks": checks, "auth_enabled": not _is_verification_disabled()}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 import time
 from contextvars import ContextVar
@@ -11,6 +12,21 @@ from typing import Any
 
 # Module-level contextvar: set at the start of each request, read by the log filter.
 conversation_id_var: ContextVar[str] = ContextVar("conversation_id", default="")
+
+
+_TOKEN_PARAM_RE = re.compile(r"(\?|&)(token)=[^&\s\"']*", re.IGNORECASE)
+
+
+class _TokenRedactFilter(logging.Filter):
+    """Strips ?token=<jwt> from uvicorn access log request lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _TOKEN_PARAM_RE.sub(r"\1\2=[REDACTED]", a) if isinstance(a, str) else a
+                for a in record.args
+            )
+        return True
 
 
 class _ConversationIdFilter(logging.Filter):
@@ -63,3 +79,6 @@ def setup_logging(log_level: str | None = None) -> None:
     # Suppress chatty third-party loggers.
     for noisy in ("httpx", "httpcore", "sentence_transformers", "faiss", "langchain"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    # Redact ?token=<jwt> from uvicorn's built-in access log (WS upgrade lines).
+    logging.getLogger("uvicorn.access").addFilter(_TokenRedactFilter())
