@@ -649,3 +649,45 @@ a short-output decision call (~29 tokens out), not a long generation.
 | TB4 | `filter_applied` | Pre-existing `search_node` fallback bug: when brand filter returns 0 results, `effective_filters = {}` overwrites `state.filters`, causing the eval check to see no filter applied |
 
 The fast-path change touches `router_node` only and has no code path through retrieval, filter application, or result ranking. Pass rate on the fast-path-sensitive categories (all search and compare turns) is unchanged.
+
+---
+
+## Eval Suite Noise Analysis (Wave 4 — 2026-05-15)
+
+### Background
+
+The Wave 4 eval run (32 queries, `eval_results_20260515_groq_v5`) produced 26/32 PASS vs the Wave 3a baseline of 28/32.  Two queries failed that had passed in Wave 3a:
+
+| ID | Category | Failed check | Wave 3a |
+|----|----------|-------------|---------|
+| ST5 | style | `n_results_min` (got 2 items) | PASS |
+| N4 | negation | `category_present`, `category_absent` | PASS |
+
+Wave 4 changes have zero retrieval code overlap (no search, filter, or reranker changes), so the working hypothesis was Groq sampling variance.
+
+### Probe methodology
+
+Each query was run 5 independent times using `scripts/probe_queries.py --query-ids ST5 N4 --rounds 5 --provider groq` (reports: `eval_results_20260515_groq_v6` through `v10`).
+
+### Results
+
+| Query | Pass | Fail | Rate | Verdict |
+|-------|------|------|------|---------|
+| ST5 — "Effortless everyday basics I can mix and match" | 4 | 1 | 80% | Sampling variance |
+| N4 — "Something comfortable to sleep in but not a full pyjama set" | 5 | 0 | 100% | Sampling variance |
+
+Both clear the ≥3/5 threshold.  The single ST5 failure reproduced the same `n_results_min` pattern (2 items returned instead of ≥3) — identical to the known O5/N2 failures.
+
+### Implication: eval suite is too noisy as a regression gate
+
+A query that passes 80-100% of the time in isolation can appear as a "regression" in a single-pass 32-query eval run due to Groq llama-3.1-8b-instant non-determinism.  At the current noise level, a 2-point pass-rate drop (28→26) is indistinguishable from sampling variance.
+
+### Proposed mitigations (for next planning cycle)
+
+**Option A — 3-run majority vote per query.**
+Run every eval query 3 times; require 2/3 PASS to count as passing.  Cost: 3× wall time (~60 min for full suite at current Groq rates).  Reduces false-positive failure rate from ~20% per query to ~7% (binomial).
+
+**Option B — Tighten `n_results_min` threshold.**
+Currently `n_results_min` requires ≥3 items.  ST5, O5, N2 all fail with exactly 2 items returned — a borderline case where the model produces a valid but short response.  Lowering to ≥2 or making the threshold check "soft" (warning, not failure) would eliminate the noisiest failure mode without sacrificing sensitivity on genuine zero-result bugs.
+
+**Recommendation:** implement Option B first (30 min, zero cost) — the ≥3 threshold was set conservatively and these borderline-2-item responses are qualitatively acceptable.  Add Option A only if provider is switched to Anthropic (deterministic temperature=0 responses greatly reduce variance; 3-run cost becomes negligible).

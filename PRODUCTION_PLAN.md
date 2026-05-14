@@ -630,9 +630,7 @@ This would move the 100-DAU monthly cost from ~$174 (Scenario A) to ~$150 — a 
 | Price data in catalogue (from H&M API or Kaggle extended) | 2d | Removes #1 missing feature |
 | Wishlist / saved items | 1d | Drives return visits |
 | User preference extraction + cross-session personalization | 2d | Long-term memory |
-| Switch respond model to Claude Sonnet 4.6 | 2h | Quality step-change |
 | Reranker skip heuristic (≥2 filters → skip reranker) | 1h | Cost reduction |
-| Prompt caching for reranker system prompt | 2h | 80% reranker cost reduction |
 | Comparison table UI (2-column layout on compare action) | 4h | Makes compare feature usable |
 | Skeleton loaders for cards + sidebar | 2h | Perceived performance |
 | Filter chips UI (active filters visible + removable) | 3h | Transparency + control |
@@ -642,6 +640,16 @@ This would move the 100-DAU monthly cost from ~$174 (Scenario A) to ~$150 — a 
 | `InMemorySessionStore` TTL + eviction | 1h | Prevents OOM in local dev |
 | HNSW index migration in FAISS (if catalogue > 100K items) | 2h | Search latency at scale |
 | Embed the empty-state suggestion chips from Streamlit into Next.js frontend | 2h | Better first-session UX |
+
+### Deferred — pending budget or quality need
+
+These items are explicitly parked.  Do not schedule until the trigger condition is met.
+
+| Item | Trigger to revisit | Notes |
+|---|---|---|
+| **Wave 3b: Anthropic provider swap** — implement `AnthropicClient`, switch primary LLM from Groq llama-3.1-8b-instant to Haiku 4.5 with prompt caching | Groq free-tier TPD cap causes user-visible latency spikes at >50 DAU, OR eval pass rate drops below 80% consistently | Deferred 2026-05-15: $5 Anthropic budget constraint + empirical eval (88% pass rate on Groq, equivalent quality on all measurable dimensions) makes the switch hard to justify at current scale.  Cost delta at 100 DAU is ~$3.50/mo; savings are real but not worth the integration risk until there's a concrete quality or reliability problem. |
+| **Switch respond node to Claude Sonnet 4.6** | Response quality complaints from real users on outfit / compare queries | Tiering Decision Empirical section (2026-05-14) found Haiku-class responses indistinguishable on current test queries; revisit with real user feedback. |
+| **Prompt caching for reranker system prompt** | Anthropic becomes primary provider | Caching is an Anthropic-SDK feature; irrelevant while Groq is primary. |
 
 ---
 
