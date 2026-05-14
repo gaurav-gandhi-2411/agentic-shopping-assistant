@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api/client"
 import type { ItemSummary } from "@/lib/api/types"
@@ -8,9 +9,10 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   item: ItemSummary
+  onSend?: (text: string) => void
 }
 
-export function ItemCard({ item }: Props) {
+export function ItemCard({ item, onSend }: Props) {
   const [showSimilar, setShowSimilar] = useState(false)
   const score = item.score !== null ? Math.round(item.score * 100) : null
 
@@ -20,10 +22,12 @@ export function ItemCard({ item }: Props) {
         {/* Image or placeholder */}
         <div className="w-16 h-20 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
           {item.image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={item.image_url}
               alt={item.prod_name}
+              width={64}
+              height={80}
+              sizes="64px"
               className="w-full h-full object-cover"
             />
           ) : (
@@ -44,30 +48,46 @@ export function ItemCard({ item }: Props) {
               {item.colour && <Badge>{item.colour}</Badge>}
             </div>
           </div>
-          <div className="flex items-center justify-between mt-1">
+          <div className="flex items-center justify-between mt-1 gap-1 flex-wrap">
             {score !== null && (
               <p className="text-xs text-muted-foreground">{score}% match</p>
             )}
-            <button
-              className="ml-auto text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-              onClick={() => setShowSimilar((v) => !v)}
-              aria-expanded={showSimilar}
-            >
-              {showSimilar ? "Hide similar" : "More like this"}
-            </button>
+            <div className={cn("flex gap-2 items-center", score === null && "ml-auto")}>
+              {onSend && (
+                <button
+                  className="text-[10px] text-primary hover:text-primary/80 underline underline-offset-2 transition-colors"
+                  onClick={() => onSend(`Style this ${item.prod_name}`)}
+                >
+                  Style this
+                </button>
+              )}
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                onClick={() => setShowSimilar((v) => !v)}
+                aria-expanded={showSimilar}
+              >
+                {showSimilar ? "Hide similar" : "More like this"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Similar items panel */}
       {showSimilar && (
-        <SimilarItemsPanel articleId={item.article_id} />
+        <SimilarItemsPanel articleId={item.article_id} onSend={onSend} />
       )}
     </div>
   )
 }
 
-function SimilarItemsPanel({ articleId }: { articleId: string }) {
+function SimilarItemsPanel({
+  articleId,
+  onSend,
+}: {
+  articleId: string
+  onSend?: (text: string) => void
+}) {
   const { data, isLoading, isError } = useQuery<ItemSummary[]>({
     queryKey: ["similar", articleId],
     queryFn: () => api.catalogue.similar(articleId),
@@ -91,7 +111,7 @@ function SimilarItemsPanel({ articleId }: { articleId: string }) {
       {data && data.length > 0 && (
         <div className="flex flex-col gap-2">
           {data.map((sim) => (
-            <SimilarItemRow key={sim.article_id} item={sim} />
+            <SimilarItemRow key={sim.article_id} item={sim} onSend={onSend} />
           ))}
         </div>
       )}
@@ -99,16 +119,24 @@ function SimilarItemsPanel({ articleId }: { articleId: string }) {
   )
 }
 
-function SimilarItemRow({ item }: { item: ItemSummary }) {
+function SimilarItemRow({
+  item,
+  onSend,
+}: {
+  item: ItemSummary
+  onSend?: (text: string) => void
+}) {
   const score = item.score !== null ? Math.round(item.score * 100) : null
   return (
     <div className="flex items-center gap-2">
       <div className="w-8 h-10 shrink-0 rounded overflow-hidden bg-muted flex items-center justify-center">
         {item.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={item.image_url}
             alt={item.prod_name}
+            width={32}
+            height={40}
+            sizes="32px"
             className="w-full h-full object-cover"
           />
         ) : (
@@ -127,6 +155,14 @@ function SimilarItemRow({ item }: { item: ItemSummary }) {
           {score !== null ? ` · ${score}%` : ""}
         </p>
       </div>
+      {onSend && (
+        <button
+          className="text-[10px] text-primary hover:text-primary/80 underline underline-offset-2 transition-colors shrink-0"
+          onClick={() => onSend(`Style this ${item.prod_name}`)}
+        >
+          Style this
+        </button>
+      )}
     </div>
   )
 }

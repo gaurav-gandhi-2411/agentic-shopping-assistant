@@ -97,15 +97,7 @@ def list_conversations(
 ) -> list[ConversationSummary]:
     """Return a summary for each conversation belonging to the current user."""
     store = deps.get_session_store()
-    summaries: list[ConversationSummary] = []
-    for cid in store.list_ids(user_id):
-        session = store.get(cid, user_id)
-        if session is None:
-            continue
-        summaries.append(_to_summary(cid, session))
-    # Most-recent first: proxy by message count since we have no timestamps.
-    summaries.sort(key=lambda s: s.message_count, reverse=True)
-    return summaries
+    return [ConversationSummary(**row) for row in store.list_summaries(user_id)]
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)

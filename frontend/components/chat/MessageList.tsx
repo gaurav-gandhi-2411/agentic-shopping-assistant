@@ -7,9 +7,10 @@ import { MessageBubble } from "./MessageBubble"
 interface Props {
   messages: ChatMessage[]
   isSending: boolean
+  onSend?: (text: string) => void
 }
 
-export function MessageList({ messages, isSending }: Props) {
+export function MessageList({ messages, isSending, onSend }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const isStreamingRef = useRef(false)
 
@@ -41,7 +42,7 @@ export function MessageList({ messages, isSending }: Props) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
       {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} />
+        <MessageBubble key={message.id} message={message} onSend={onSend} />
       ))}
       {/* Typing indicator while the agent is running but no token yet */}
       {isSending && !messages.some((m) => m.isStreaming) && (

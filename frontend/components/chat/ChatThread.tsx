@@ -44,6 +44,7 @@ export function ChatThread({ initialConversationId }: Props) {
   const {
     messages,
     isSending,
+    connectionLost,
     conversationId,
     sendMessage,
     cancel,
@@ -96,7 +97,12 @@ export function ChatThread({ initialConversationId }: Props) {
         onNew={handleNewConversation}
       />
       <div className="flex flex-col flex-1 min-h-0">
-        <MessageList messages={messages} isSending={isSending} />
+        <MessageList messages={messages} isSending={isSending} onSend={handleSend} />
+        {connectionLost && (
+          <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive text-center">
+            Connection lost — please refresh the page.
+          </div>
+        )}
         <ChatInput
           onSend={handleSend}
           onCancel={cancel}
