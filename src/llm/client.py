@@ -64,20 +64,24 @@ class OllamaClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> Iterator[str]:
-        options = {
-            "temperature": temperature if temperature is not None else self.default_temperature,
-            "num_predict": max_tokens if max_tokens is not None else self.default_max_tokens,
-        }
-        stream = self._client.chat(
-            model=self.model,
-            messages=messages,
-            options=options,
-            stream=True,
-        )
-        for chunk in stream:
-            content = chunk.message.content
-            if content:
-                yield content
+        try:
+            options = {
+                "temperature": temperature if temperature is not None else self.default_temperature,
+                "num_predict": max_tokens if max_tokens is not None else self.default_max_tokens,
+            }
+            stream = self._client.chat(
+                model=self.model,
+                messages=messages,
+                options=options,
+                stream=True,
+            )
+            for chunk in stream:
+                content = chunk.message.content
+                if content:
+                    yield content
+        except Exception as exc:
+            logger.error("[ollama] chat_stream error: %s", exc, exc_info=True)
+            yield STREAM_ERROR_SENTINEL
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []

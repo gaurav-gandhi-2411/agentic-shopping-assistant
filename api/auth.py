@@ -116,7 +116,11 @@ def verify_jwt(token: str) -> dict:
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+        logger.warning("JWT verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except RuntimeError as exc:
+        logger.error("JWT verification error (config/JWKS): %s", exc, exc_info=True)
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     return payload
 
@@ -161,7 +165,8 @@ def get_current_user_id(authorization: str = Header(default="")) -> str:
     payload = verify_jwt(token)
     sub = payload.get("sub")
     if not sub:
-        raise HTTPException(status_code=401, detail="JWT missing sub claim")
+        logger.warning("JWT payload missing sub claim")
+        raise HTTPException(status_code=401, detail="Unauthorized")
     _enforce_allowlist(payload)
     return sub
 
@@ -187,6 +192,7 @@ def get_current_user_id_ws(token: str) -> str:
     payload = verify_jwt(token)
     sub = payload.get("sub")
     if not sub:
-        raise HTTPException(status_code=401, detail="JWT missing sub claim")
+        logger.warning("JWT payload missing sub claim (WS path)")
+        raise HTTPException(status_code=401, detail="Unauthorized")
     _enforce_allowlist(payload)
     return sub
