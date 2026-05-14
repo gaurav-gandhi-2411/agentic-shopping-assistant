@@ -18,11 +18,14 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import pandas as pd
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+import sentry_sdk
 
 import api.deps as deps
 from api.logging_config import setup_logging
@@ -62,6 +65,47 @@ _DATA_DIR = _REPO_ROOT / "data" / "processed"
 _CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
 
 
+# ---------------------------------------------------------------------------
+# Sentry scrubbing helpers
+# ---------------------------------------------------------------------------
+
+def _scrub_token_from_url(url: str) -> str:
+    """Replace the value of a `token` query param with [Filtered], leaving all
+    other params untouched."""
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    if not any(k == "token" for k, _ in pairs):
+        return url
+    pairs = [(k, "[Filtered]" if k == "token" else v) for k, v in pairs]
+    return urlunparse(parsed._replace(query=urlencode(pairs)))
+
+
+def _sentry_before_breadcrumb(crumb: dict, hint: object) -> dict:
+    """Scrub token= from URLs in http and navigation breadcrumb data."""
+    data = crumb.get("data") or {}
+    for key in ("url", "from", "to"):
+        if isinstance(data.get(key), str):
+            data[key] = _scrub_token_from_url(data[key])
+    return crumb
+
+
+def _sentry_before_send(event: dict, hint: object) -> dict:
+    """Scrub token= from the captured request URL and query string."""
+    req = event.get("request") or {}
+    if isinstance(req.get("url"), str):
+        req["url"] = _scrub_token_from_url(req["url"])
+    qs = req.get("query_string")
+    if isinstance(qs, str):
+        req["query_string"] = _scrub_token_from_url(f"http://x?{qs}")[len("http://x?"):]
+    elif isinstance(qs, list):
+        req["query_string"] = [
+            [k, "[Filtered]" if k == "token" else v] for k, v in qs
+        ]
+    return event
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ------------------------------------------------------------------
@@ -69,6 +113,22 @@ async def lifespan(app: FastAPI):
     # ------------------------------------------------------------------
     setup_logging()
     logger.info("Starting up Shopping Assistant API")
+
+    # Sentry — initialise early so startup errors are captured.
+    sentry_dsn = os.environ.get("SENTRY_DSN", "")
+    sentry_sdk.init(
+        dsn=sentry_dsn or None,
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+        # Never capture request bodies — chat messages must not appear in error reports.
+        max_request_body_size="never",
+        before_breadcrumb=_sentry_before_breadcrumb,
+        before_send=_sentry_before_send,
+    )
+    if sentry_dsn:
+        logger.info("Sentry initialised (traces_sample_rate=0.1)")
+    else:
+        logger.info("Sentry not configured (SENTRY_DSN unset)")
 
     from src.catalogue.loader import load_config
     from src.llm.client import get_llm_client
@@ -190,6 +250,17 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(catalogue_router)
+
+    @app.get("/sentry-debug")
+    def sentry_debug():
+        """Raise a test exception to verify Sentry ingestion.
+
+        Only active when SENTRY_DEBUG_ENDPOINT=true.  Never expose in production
+        without that flag — the endpoint deliberately triggers an unhandled error.
+        """
+        if os.environ.get("SENTRY_DEBUG_ENDPOINT", "").lower() not in ("1", "true"):
+            raise HTTPException(status_code=404, detail="Not found")
+        raise ZeroDivisionError("Sentry debug endpoint triggered intentionally")
 
     # Serve product images if the directory was baked into the container.
     images_dir = _DATA_DIR / "images"

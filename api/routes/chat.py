@@ -2,17 +2,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import threading
 import uuid
 from typing import Any, AsyncIterator
 
+import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 import api.deps as deps
 from api.auth import get_current_user_id, get_current_user_id_ws
 from api.logging_config import conversation_id_var
+from api.rate_limit import get_rate_limiter
+from src.llm.context import llm_user_id_var
 from api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -111,8 +115,23 @@ def post_chat(
     user_id: str = Depends(get_current_user_id),
 ) -> ChatResponse:
     """Non-streaming chat endpoint.  Full agent round-trip; returns when done."""
+    # Rate limit check — before any work so limit applies to the connection too.
+    limiter = get_rate_limiter()
+    allowed, retry_after = limiter.is_allowed(user_id)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     conversation_id = body.conversation_id or str(uuid.uuid4())
     token = conversation_id_var.set(conversation_id)
+    llm_user_id_var.set(user_id)
+
+    # Set Sentry scope — IDs only, no message content.
+    sentry_sdk.set_user({"id": user_id})
+    sentry_sdk.set_tag("conversation_id", conversation_id)
 
     store: SessionStore = deps.get_session_store()
     llm = deps.get_llm()
@@ -185,7 +204,8 @@ async def _iter_tokens(llm: Any, prompt: str) -> AsyncIterator[str]:
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
 
-    t = threading.Thread(target=_produce, daemon=True)
+    ctx = contextvars.copy_context()
+    t = threading.Thread(target=ctx.run, args=(_produce,), daemon=True)
     t.start()
     try:
         while True:
@@ -237,6 +257,22 @@ async def ws_chat(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="Policy violation: invalid or missing token")
         return
 
+    # Rate limit check on WS open.
+    limiter = get_rate_limiter()
+    allowed, retry_after = limiter.is_allowed(user_id)
+    if not allowed:
+        await websocket.send_text(
+            WSErrorMessage(
+                message=f"Rate limit exceeded. Retry in {retry_after}s",
+                code="rate_limited",
+            ).model_dump_json()
+        )
+        await websocket.close(code=1008, reason="Rate limit exceeded")
+        return
+
+    llm_user_id_var.set(user_id)
+    sentry_sdk.set_user({"id": user_id})
+
     cid_token = None
     try:
         # ------------------------------------------------------------------
@@ -257,6 +293,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         # ------------------------------------------------------------------
         conversation_id = user_msg.conversation_id or str(uuid.uuid4())
         cid_token = conversation_id_var.set(conversation_id)
+        sentry_sdk.set_tag("conversation_id", conversation_id)
 
         # ------------------------------------------------------------------
         # 3. Acknowledge session

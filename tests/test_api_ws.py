@@ -147,6 +147,8 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deps, "_config", _MINIMAL_CONFIG)
     # Disable JWT verification so WS tests connect without ?token= query param.
     monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
+    # Raise the rate limit high so individual tests never trip it.
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "10000")
 
 
 @pytest.fixture

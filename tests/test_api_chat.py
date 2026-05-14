@@ -88,6 +88,8 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(deps, "_config", _MINIMAL_CONFIG)
     # Disable JWT verification so these tests run without Authorization headers.
     monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
+    # Raise the rate limit high so individual tests never trip it.
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "10000")
     # _retriever and _catalogue_df remain None; the agent factory is patched per-test.
     yield
 
