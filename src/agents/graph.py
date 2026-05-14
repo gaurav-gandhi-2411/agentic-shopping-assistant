@@ -348,10 +348,12 @@ def build_graph(
     retriever: HybridRetriever,
     catalogue_df: pd.DataFrame,
     llm: LLMClient,
-    memory: ConversationMemory,
     config: dict,
     streaming_mode: bool = False,
     router_backend=None,
+    # memory is no longer a constructor argument — it is passed through
+    # AgentState._memory so the compiled graph can be a startup singleton.
+    memory: ConversationMemory | None = None,
 ):
     max_iterations = config["agent"]["max_iterations"]
     top_k = config["retrieval"]["final_k"]
@@ -414,7 +416,6 @@ def build_graph(
         router_backend = get_router_backend(
             config=config,
             llm=llm,
-            memory=memory,
             catalogue_df=catalogue_df,
             prompt_template=ROUTER_PROMPT,
             format_items_brief=_format_items_brief,

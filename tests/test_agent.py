@@ -125,7 +125,7 @@ def test_default_router_is_llm_only():
     assert cfg.get("router", {}).get("provider") == "llm", (
         "config.yaml router.provider must be 'llm' for production"
     )
-    backend = get_router_backend(cfg, llm=None, memory=None)
+    backend = get_router_backend(cfg, llm=None)
     assert isinstance(backend, LLMRouterBackend), (
         f"Expected LLMRouterBackend but got {type(backend).__name__}"
     )
@@ -145,9 +145,9 @@ def test_agent_max_iterations_cap(config, retriever, catalogue_df):
     )
     test_config = {**config, "agent": {**config["agent"], "max_iterations": 2}}
     memory = ConversationMemory(always_search, test_config)
-    agent = build_graph(retriever, catalogue_df, always_search, memory, test_config)
+    agent = build_graph(retriever, catalogue_df, always_search, test_config)
 
-    result = agent.invoke(_blank_state("show me jackets"))
+    result = agent.invoke(_blank_state("show me jackets", _memory=memory))
 
     assert result["final_answer"] is not None, "Expected final_answer to be set after cap"
     assert result["iteration"] >= 1, "Expected at least one iteration before termination"
@@ -161,9 +161,9 @@ def test_agent_max_iterations_cap(config, retriever, catalogue_df):
 def test_agent_end_to_end_search(config, retriever, catalogue_df):
     llm = get_llm_client(config)
     memory = ConversationMemory(llm, config)
-    agent = build_graph(retriever, catalogue_df, llm, memory, config)
+    agent = build_graph(retriever, catalogue_df, llm, config)
 
-    result = agent.invoke(_blank_state("show me black jackets"))
+    result = agent.invoke(_blank_state("show me black jackets", _memory=memory))
 
     assert result["final_answer"], "Expected non-empty final_answer"
     assert len(result["final_answer"]) > 20, "Answer seems too short"
@@ -176,9 +176,9 @@ def test_agent_filter_query(config, retriever, catalogue_df):
     """Blue filter query should result in blue items."""
     llm = get_llm_client(config)
     memory = ConversationMemory(llm, config)
-    agent = build_graph(retriever, catalogue_df, llm, memory, config)
+    agent = build_graph(retriever, catalogue_df, llm, config)
 
-    result = agent.invoke(_blank_state("show me blue dresses"))
+    result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
 
     assert result["final_answer"]
     # Retrieved items should be predominantly blue

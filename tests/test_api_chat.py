@@ -182,7 +182,7 @@ def test_agent_error_returns_500(monkeypatch: pytest.MonkeyPatch, client: TestCl
     resp = client.post("/chat", json={"message": "hello"})
 
     assert resp.status_code == 500
-    assert "Agent error" in resp.json()["detail"]
+    assert resp.json()["detail"] == "Internal server error"
 
 
 def test_items_returned_when_new_items_this_turn(

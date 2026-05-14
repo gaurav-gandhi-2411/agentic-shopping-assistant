@@ -6,6 +6,11 @@ from typing import Iterator, Protocol
 
 logger = logging.getLogger(__name__)
 
+# Sentinel yielded by chat_stream() on unrecoverable error.
+# The WebSocket handler in api/routes/chat.py checks for this value and
+# converts it to a WSErrorMessage frame instead of forwarding it as a token.
+STREAM_ERROR_SENTINEL = "\x00STREAM_ERROR\x00"
+
 
 def _parse_retry_after(exc_str: str) -> float:
     """Extract 'Please try again in Xm Ys' from a Groq rate-limit error string."""
@@ -152,17 +157,21 @@ class GroqClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> Iterator[str]:
-        stream = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature if temperature is not None else self.default_temperature,
-            max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
-            stream=True,
-        )
-        for chunk in stream:
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
+        try:
+            stream = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature if temperature is not None else self.default_temperature,
+                max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                stream=True,
+            )
+            for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+        except Exception as exc:
+            logger.error("[groq] chat_stream error: %s", exc, exc_info=True)
+            yield STREAM_ERROR_SENTINEL
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []

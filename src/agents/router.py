@@ -23,14 +23,12 @@ class LLMRouterBackend:
     def __init__(
         self,
         llm,
-        memory,
         prompt_template: str,
         format_items_brief: Callable,
         format_messages: Callable,
         parse_response: Callable,
     ):
         self._llm = llm
-        self._memory = memory
         self._prompt = prompt_template
         self._format_items_brief = format_items_brief
         self._format_messages = format_messages
@@ -45,7 +43,10 @@ class LLMRouterBackend:
                 last_action = key
                 break
 
-        context = self._memory.get_context(state.get("messages", []), state)
+        # Memory is passed through AgentState so the compiled graph singleton
+        # doesn't need a per-conversation constructor argument.
+        memory = state["_memory"]
+        context = memory.get_context(state.get("messages", []), state)
         prompt = self._prompt.format(
             last_action=last_action,
             items_retrieved=len(state.get("retrieved_items", [])),
@@ -70,7 +71,6 @@ class LLMRouterBackend:
 def get_router_backend(
     config: dict,
     llm,
-    memory,
     catalogue_df=None,
     prompt_template: str = "",
     format_items_brief: Callable = None,
@@ -78,6 +78,6 @@ def get_router_backend(
     parse_response: Callable = None,
 ) -> LLMRouterBackend:
     return LLMRouterBackend(
-        llm, memory, prompt_template,
+        llm, prompt_template,
         format_items_brief, format_messages, parse_response,
     )

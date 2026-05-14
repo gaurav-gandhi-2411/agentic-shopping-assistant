@@ -28,6 +28,7 @@ from api.schemas import (
     WSUserMessage,
 )
 from api.session import SessionStore
+from src.llm.client import STREAM_ERROR_SENTINEL
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -66,6 +67,9 @@ def _build_invoke_state(session: dict, user_message: str) -> dict:
         "new_items_this_turn": False,
         "out_of_catalogue": False,
         "excluded_colours": session.get("excluded_colours"),
+        # ConversationMemory for this conversation — accessed by LLMRouterBackend
+        # via state["_memory"] so the compiled graph singleton is memory-agnostic.
+        "_memory": session["_memory"],
     }
 
 
@@ -127,7 +131,7 @@ def post_chat(
             result = agent.invoke(state)
         except Exception as exc:
             logger.error("agent.invoke failed: %s", exc, exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
         _persist_result(session, result)
         store.set(conversation_id, session, user_id)
@@ -350,6 +354,11 @@ async def ws_chat(websocket: WebSocket) -> None:
         if plan.get("action") == "pending_respond":
             chunks: list[str] = []
             async for tok in _iter_tokens(llm, plan["prompt"]):
+                if tok == STREAM_ERROR_SENTINEL:
+                    await websocket.send_text(
+                        WSErrorMessage(message="Stream generation failed", code="stream_error").model_dump_json()
+                    )
+                    return
                 if cancel_event.is_set():
                     await websocket.send_text(WSCancelledMessage().model_dump_json())
                     return
@@ -408,7 +417,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         logger.error("WebSocket error: %s", exc, exc_info=True)
         try:
             await websocket.send_text(
-                WSErrorMessage(message=str(exc), code="internal_error").model_dump_json()
+                WSErrorMessage(message="Internal server error", code="internal_error").model_dump_json()
             )
         except Exception:
             pass

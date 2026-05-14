@@ -44,7 +44,7 @@ class ChatRequest(BaseModel):
         default=None,
         description="Omit to start a new conversation; server will mint a UUID4.",
     )
-    message: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=2000)
 
 
 class ChatResponse(BaseModel):
@@ -66,7 +66,7 @@ class ChatResponse(BaseModel):
 class WSUserMessage(BaseModel):
     type: Literal["user_message"] = "user_message"
     conversation_id: str | None = None
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000)
 
 
 class WSCancelMessage(BaseModel):
