@@ -39,10 +39,6 @@ EXPOSE 8080
 
 # Give the index-loading lifespan ~60 s before health checks start failing.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
-    CMD curl -f http://localhost:8080/healthz || exit 1
+    CMD curl -f http://localhost:${PORT:-8080}/healthz || exit 1
 
-ENTRYPOINT ["uvicorn", "api.main:app", \
-            "--host", "0.0.0.0", \
-            "--port", "8080", \
-            "--proxy-headers", \
-            "--forwarded-allow-ips", "*"]
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips '*'"]
