@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useState } from "react"
+import { BrandThemeInjector } from "@/components/BrandThemeInjector"
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // Stable QueryClient across re-renders — created once per component mount.
@@ -18,6 +19,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <BrandThemeInjector />
+      {children}
+    </QueryClientProvider>
   )
 }
