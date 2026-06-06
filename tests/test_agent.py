@@ -2,23 +2,24 @@
 Agent graph tests.
 Some require real Ollama; others use a mock LLM.
 """
+import json
 import os
 import sys
-import json
 from pathlib import Path
 from typing import Iterator
+
 import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.agents.graph import _parse_router_response, build_graph
 from src.catalogue.loader import load_config
-from src.retrieval.dense_search import DenseRetriever
-from src.retrieval.sparse_search import SparseRetriever
-from src.retrieval.hybrid_search import HybridRetriever
 from src.llm.client import get_llm_client
 from src.memory.conversation import ConversationMemory
-from src.agents.graph import build_graph, _parse_router_response
+from src.retrieval.dense_search import DenseRetriever
+from src.retrieval.hybrid_search import HybridRetriever
+from src.retrieval.sparse_search import SparseRetriever
 
 SAVE_DIR = Path("data/processed")
 
@@ -121,7 +122,7 @@ def test_router_fallback_on_missing_action():
 
 
 def test_default_router_is_llm_only():
-    from src.agents.router import get_router_backend, LLMRouterBackend
+    from src.agents.router import LLMRouterBackend, get_router_backend
     cfg = load_config()
     assert cfg.get("router", {}).get("provider") == "llm", (
         "config.yaml router.provider must be 'llm' for production"

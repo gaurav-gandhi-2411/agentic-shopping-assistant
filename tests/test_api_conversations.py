@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient

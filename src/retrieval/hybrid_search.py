@@ -1,9 +1,9 @@
 import re
 
 import pandas as pd
+
 from .dense_search import DenseRetriever
 from .sparse_search import SparseRetriever
-
 
 _CATEGORY_SUFFIXES = frozenset({
     "blouse", "shirt", "top", "tee", "t shirt", "tshirt",

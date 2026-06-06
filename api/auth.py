@@ -52,7 +52,7 @@ _jwks_client: Any = None
 # Pluggable allow-list checker.  Default allows all (no DB configured).
 # Replaced at startup by api.main when DATABASE_URL is set.
 # Monkeypatchable in tests: monkeypatch.setattr(api.auth, "_check_allowlist", ...)
-_check_allowlist: Any = lambda email: True
+_check_allowlist: Any = lambda email: True  # noqa: E731
 
 # ---------------------------------------------------------------------------
 # WS ticket store

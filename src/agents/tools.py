@@ -1,6 +1,7 @@
 import logging
 
 import pandas as pd
+
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)

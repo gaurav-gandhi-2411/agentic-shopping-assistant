@@ -19,9 +19,10 @@ Adds two columns to conversations:
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0002"
 down_revision: Union[str, Sequence[str], None] = "0001"

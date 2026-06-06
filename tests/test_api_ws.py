@@ -16,7 +16,6 @@ import api.deps as deps
 from api.main import app
 from api.session import InMemorySessionStore
 
-
 # ---------------------------------------------------------------------------
 # Mock helpers  (mirrors test_api_chat.py)
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ Requires: ollama serve + llama3.1:8b pulled.
 """
 import sys
 from pathlib import Path
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

@@ -1,10 +1,10 @@
 import logging
 import pickle
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)

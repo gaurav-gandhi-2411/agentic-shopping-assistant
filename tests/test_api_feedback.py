@@ -15,7 +15,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from typing import Any, Iterator
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,7 +24,6 @@ from fastapi.testclient import TestClient
 
 import api.routes.feedback as feedback_module
 from api.routes.feedback import router as feedback_router
-
 
 # ---------------------------------------------------------------------------
 # Minimal test app — no lifespan, no data files, only the feedback router

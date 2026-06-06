@@ -10,16 +10,12 @@ These tests mock the SQLAlchemy engine and verify:
 """
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from src.storage.postgres_session_store import (
     PostgresSessionStore,
     _title_from_messages,
 )
-
 
 # ---------------------------------------------------------------------------
 # _title_from_messages unit tests

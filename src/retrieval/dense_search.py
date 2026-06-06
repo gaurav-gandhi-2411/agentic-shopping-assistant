@@ -1,9 +1,9 @@
 import logging
+from pathlib import Path
 
 import faiss
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)

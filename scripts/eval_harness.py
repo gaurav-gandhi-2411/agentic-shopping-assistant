@@ -11,9 +11,9 @@ import argparse
 import json
 import os
 import random
+import statistics
 import sys
 import time
-import statistics
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -161,13 +161,12 @@ def dry_run(queries: list[dict], df) -> bool:
 # ── agent component loader ────────────────────────────────────────────────────
 
 def build_components(provider: str | None = None, router: str | None = None):
-    from src.catalogue.loader import load_config
-    from src.retrieval.dense_search import DenseRetriever
-    from src.retrieval.sparse_search import SparseRetriever
-    from src.retrieval.hybrid_search import HybridRetriever
-    from src.llm.client import get_llm_client
-    from src.memory.conversation import ConversationMemory
     from src.agents.graph import build_graph
+    from src.catalogue.loader import load_config
+    from src.llm.client import get_llm_client
+    from src.retrieval.dense_search import DenseRetriever
+    from src.retrieval.hybrid_search import HybridRetriever
+    from src.retrieval.sparse_search import SparseRetriever
 
     config = load_config(_CONFIG_PATH)
     _provider = provider or os.environ.get("LLM_PROVIDER", "groq")

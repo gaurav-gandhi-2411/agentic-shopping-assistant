@@ -16,7 +16,6 @@ import api.deps as deps
 from api.auth import get_current_user_id, get_current_user_id_ws
 from api.logging_config import conversation_id_var
 from api.rate_limit import get_rate_limiter
-from src.llm.context import llm_user_id_var
 from api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -33,6 +32,7 @@ from api.schemas import (
 )
 from api.session import SessionStore
 from src.llm.client import STREAM_ERROR_SENTINEL
+from src.llm.context import llm_user_id_var
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])

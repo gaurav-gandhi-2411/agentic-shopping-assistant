@@ -6,8 +6,6 @@ import re
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
-logger = logging.getLogger(__name__)
-
 from src.agents.grounding import validate_response
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
@@ -16,6 +14,7 @@ from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
+logger = logging.getLogger(__name__)
 
 _COMPARE_INTENT = re.compile(
     r"\bcompare\b|\bdifference\s+between\b|\bvs\b|\bversus\b", re.IGNORECASE

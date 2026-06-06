@@ -4,6 +4,7 @@ Requires data/processed/ indices to exist — run scripts/01_build_retrieval.py 
 """
 import sys
 from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -11,9 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.catalogue.loader import load_config
 from src.retrieval.dense_search import DenseRetriever
-from src.retrieval.sparse_search import SparseRetriever
 from src.retrieval.hybrid_search import HybridRetriever
-
+from src.retrieval.sparse_search import SparseRetriever
 
 SAVE_DIR = Path("data/processed")
 

@@ -21,11 +21,10 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import pandas as pd
+import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
-import sentry_sdk
 
 import api.deps as deps
 from api.logging_config import setup_logging
@@ -59,6 +58,7 @@ def _build_session_store(llm: Any, config: dict):
             break
 
     from sqlalchemy import create_engine
+
     from src.storage.postgres_session_store import PostgresSessionStore
 
     engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
@@ -172,6 +172,7 @@ async def lifespan(app: FastAPI):
     # Wire defense-in-depth allow-list checker when a DB is available.
     if db_engine is not None:
         from sqlalchemy import text
+
         import api.auth as _auth
 
         def _db_check_allowlist(email: str) -> bool:

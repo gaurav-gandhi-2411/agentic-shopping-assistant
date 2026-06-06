@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.catalogue.loader import load_articles, build_searchable_text, load_config
+from src.catalogue.loader import build_searchable_text, load_articles, load_config
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.sparse_search import SparseRetriever
 
@@ -25,15 +25,15 @@ def main():
 
     df = build_searchable_text(df, config)
 
-    print(f"\n--- Sanity stats ---")
+    print("\n--- Sanity stats ---")
     print(f"Total rows:               {len(df):,}")
     print(f"Non-null detail_desc:     {df['detail_desc'].notna().sum():,}")
 
-    print(f"\nTop 10 product_type_name by frequency:")
+    print("\nTop 10 product_type_name by frequency:")
     for name, count in df["product_type_name"].value_counts().head(10).items():
         print(f"  {name:<35} {count:>5}")
 
-    print(f"\nTop 10 colour_group_name by frequency:")
+    print("\nTop 10 colour_group_name by frequency:")
     for name, count in df["colour_group_name"].value_counts().head(10).items():
         print(f"  {name:<35} {count:>5}")
 

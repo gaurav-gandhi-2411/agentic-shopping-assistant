@@ -1,8 +1,8 @@
 import logging
+from pathlib import Path
 
 import pandas as pd
 import yaml
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
