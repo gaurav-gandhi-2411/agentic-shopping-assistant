@@ -91,15 +91,33 @@ export const api = {
 // ---------------------------------------------------------------------------
 
 // Browsers cannot send custom Authorization headers on WebSocket connections.
-// We pass the JWT as a query parameter instead — this is the pattern baked into
-// the backend's WS auth handler (get_current_user_id_ws).
-// Tokens are valid for one hour; mid-session refresh is out of scope.
-// conversation_id is NOT passed as a query param — the backend reads it from
-// the user_message frame body. Tokens must be percent-encoded because JWTs
-// contain base64url characters that are safe, but the + padding variant and
-// any future header changes could break raw interpolation.
+// Preferred path: exchange a short-lived ticket via POST /auth/ws-ticket and
+// pass ?ticket=<nonce>.  The nonce is 60 s single-use, so it is safe in access
+// logs unlike the full JWT.
+// Fallback path (graceful degradation): if the ticket endpoint fails for any
+// reason we fall back to ?token=<jwt> so the user is never silently blocked.
 export async function getWsUrl(): Promise<string> {
-  const token = await getToken()
   const wsBase = BACKEND_URL.replace(/^http/, "ws")
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/auth/ws-ticket`, {
+      method: "POST",
+      headers: await authHeaders(),
+    })
+    if (res.ok) {
+      const { ticket } = (await res.json()) as { ticket: string }
+      return `${wsBase}/chat/stream?ticket=${encodeURIComponent(ticket)}`
+    }
+    // Non-OK response: fall through to legacy token path.
+    console.warn(`[getWsUrl] ws-ticket endpoint returned ${res.status}, falling back to ?token=`)
+  } catch (err) {
+    // Network or auth error: fall through to legacy token path.
+    console.warn("[getWsUrl] ws-ticket request failed, falling back to ?token=", err)
+  }
+
+  // Legacy fallback — ticket endpoint unavailable or returned an error.
+  // conversation_id is NOT passed as a query param; the backend reads it from
+  // the user_message frame body.  JWTs are percent-encoded defensively.
+  const token = await getToken()
   return `${wsBase}/chat/stream?token=${encodeURIComponent(token)}`
 }

@@ -22,15 +22,25 @@ Env vars (read at call time so monkeypatching works in tests):
   JWT_VERIFICATION_DISABLED — "true" skips all verification (dev only)
   JWT_TEST_PUBLIC_KEY       — PEM RSA public key; bypasses JWKS for unit
                               tests so no network calls are made
+
+WS ticket store:
+  Short-lived (60 s) nonces for WebSocket auth.  The frontend calls
+  POST /auth/ws-ticket (Bearer JWT required) and receives a nonce, then
+  opens the WS with ?ticket=<nonce> instead of ?token=<jwt>.  This
+  prevents the full JWT from appearing in server access logs.
+  The ticket is consumed on first use (one-use) and cleaned up on expiry.
 """
 from __future__ import annotations
 
 import logging
 import os
+import secrets
+import threading
+import time
 from typing import Any
 
 import jwt as pyjwt
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, WebSocket
 from jwt import ExpiredSignatureError, InvalidTokenError
 
 logger = logging.getLogger(__name__)
@@ -43,6 +53,59 @@ _jwks_client: Any = None
 # Replaced at startup by api.main when DATABASE_URL is set.
 # Monkeypatchable in tests: monkeypatch.setattr(api.auth, "_check_allowlist", ...)
 _check_allowlist: Any = lambda email: True
+
+# ---------------------------------------------------------------------------
+# WS ticket store
+# ---------------------------------------------------------------------------
+
+# Maps nonce → (user_id, expires_at_unix_timestamp).
+# Protected by _ticket_lock for multi-threaded safety under uvicorn.
+_ticket_store: dict[str, tuple[str, float]] = {}
+_ticket_lock: threading.Lock = threading.Lock()
+
+_TICKET_TTL_SECONDS: int = 60  # short enough to prevent log-scraping abuse
+
+
+def _cleanup_tickets() -> None:
+    """Remove expired tickets from the store.
+
+    Must be called with _ticket_lock already held.
+    """
+    now = time.time()
+    expired = [k for k, (_, exp) in _ticket_store.items() if exp < now]
+    for k in expired:
+        del _ticket_store[k]
+
+
+def mint_ws_ticket(user_id: str) -> str:
+    """Create a 60-second nonce and store it.
+
+    Returns the nonce string (URL-safe base64, 32 bytes of entropy).
+    Expired tickets are pruned on each call to keep the store bounded.
+    """
+    nonce = secrets.token_urlsafe(32)
+    with _ticket_lock:
+        _cleanup_tickets()
+        _ticket_store[nonce] = (user_id, time.time() + _TICKET_TTL_SECONDS)
+    return nonce
+
+
+def exchange_ws_ticket(nonce: str) -> str | None:
+    """Exchange a nonce for the associated user_id.
+
+    Consumes the ticket (one-use).  Returns None when the nonce is unknown
+    or has already expired.  Expired tickets are pruned on each call.
+    """
+    with _ticket_lock:
+        _cleanup_tickets()
+        entry = _ticket_store.pop(nonce, None)
+    if entry is None:
+        return None
+    user_id, exp = entry
+    if time.time() > exp:
+        # Ticket expired between _cleanup_tickets scan and pop; discard.
+        return None
+    return user_id
 
 
 # ---------------------------------------------------------------------------
@@ -171,28 +234,47 @@ def get_current_user_id(authorization: str = Header(default="")) -> str:
     return sub
 
 
-def get_current_user_id_ws(token: str) -> str:
-    """Extract user_id from a token string for WebSocket connections.
+def get_current_user_id_ws(websocket: WebSocket) -> str:
+    """Extract user_id from a WebSocket connection's query parameters.
 
-    The WebSocket client passes the token as ``?token=<jwt>`` in the connect
-    URL.  The WS handler should close with code 1008 (policy violation) when
-    this raises.
+    Checks for ``?ticket=<nonce>`` first (preferred — nonce is short-lived and
+    single-use, so it is safe to appear in access logs).  Falls back to
+    ``?token=<jwt>`` for backward compatibility with the Streamlit Spaces app
+    and any other client that has not yet migrated.
 
-    When JWT_VERIFICATION_DISABLED=true returns DEV_USER_ID without checking.
+    When JWT_VERIFICATION_DISABLED=true returns DEV_USER_ID without any check.
+
+    The WS handler should close with code 1008 (policy violation) when this
+    raises.
 
     Raises:
-        HTTPException(401) — missing/invalid/expired token.
+        HTTPException(401) — missing/invalid/expired credential.
     """
     if _is_verification_disabled():
         from api.deps import DEV_USER_ID
         return DEV_USER_ID
 
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing token query parameter")
-    payload = verify_jwt(token)
-    sub = payload.get("sub")
-    if not sub:
-        logger.warning("JWT payload missing sub claim (WS path)")
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    _enforce_allowlist(payload)
-    return sub
+    # --- ticket path (preferred) ---
+    nonce = websocket.query_params.get("ticket", "")
+    if nonce:
+        user_id = exchange_ws_ticket(nonce)
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="WS ticket invalid or expired")
+        return user_id
+
+    # --- legacy JWT path (deprecated; kept for backward compatibility) ---
+    token = websocket.query_params.get("token", "")
+    if token:
+        logger.warning(
+            "WS auth via ?token= is deprecated; clients should use POST /auth/ws-ticket "
+            "and pass ?ticket= instead to avoid JWT exposure in server logs"
+        )
+        payload = verify_jwt(token)
+        sub = payload.get("sub")
+        if not sub:
+            logger.warning("JWT payload missing sub claim (WS path)")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        _enforce_allowlist(payload)
+        return sub
+
+    raise HTTPException(status_code=401, detail="Missing ticket or token query parameter")

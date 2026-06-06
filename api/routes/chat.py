@@ -248,11 +248,11 @@ async def ws_chat(websocket: WebSocket) -> None:
     """
     await websocket.accept()
 
-    # Authenticate: token is passed as ?token=<jwt> in the WebSocket URL.
+    # Authenticate: preferred path uses ?ticket=<nonce> (minted by POST /auth/ws-ticket).
+    # Legacy ?token=<jwt> is still accepted for backward compatibility (Streamlit Spaces).
     # Close immediately with 1008 (policy violation) on any auth failure.
-    token = websocket.query_params.get("token", "")
     try:
-        user_id: str = get_current_user_id_ws(token)
+        user_id: str = get_current_user_id_ws(websocket)
     except HTTPException:
         await websocket.close(code=1008, reason="Policy violation: invalid or missing token")
         return

@@ -29,6 +29,7 @@ import sentry_sdk
 
 import api.deps as deps
 from api.logging_config import setup_logging
+from api.routes.auth import router as auth_router
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
 from api.routes.conversations import router as conversations_router
@@ -248,6 +249,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(catalogue_router)
