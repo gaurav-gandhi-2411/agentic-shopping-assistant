@@ -5,6 +5,7 @@ import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api/client"
 import type { ItemSummary } from "@/lib/api/types"
+import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -15,6 +16,12 @@ interface Props {
 export function ItemCard({ item, onSend }: Props) {
   const [showSimilar, setShowSimilar] = useState(false)
   const score = item.score !== null ? Math.round(item.score * 100) : null
+  const { data: brand } = useBrandConfig()
+
+  const buyUrl =
+    item.pdp_handle && brand?.pdp_url_template
+      ? brand.pdp_url_template.replace("{handle}", item.pdp_handle)
+      : null
 
   return (
     <div className="rounded-lg border bg-card overflow-hidden">
@@ -47,12 +54,17 @@ export function ItemCard({ item, onSend }: Props) {
               <Badge>{item.product_type}</Badge>
               {item.colour && <Badge>{item.colour}</Badge>}
             </div>
+            {item.price_inr != null && (
+              <p className="text-xs font-semibold text-foreground mt-1">
+                ₹{item.price_inr.toLocaleString("en-IN")}
+              </p>
+            )}
           </div>
           <div className="flex items-center justify-between mt-1 gap-1 flex-wrap">
             {score !== null && (
               <p className="text-xs text-muted-foreground">{score}% match</p>
             )}
-            <div className={cn("flex gap-2 items-center", score === null && "ml-auto")}>
+            <div className={cn("flex gap-2 items-center flex-wrap", score === null && "ml-auto")}>
               {onSend && (
                 <button
                   className="text-[10px] text-primary hover:text-primary/80 underline underline-offset-2 transition-colors"
@@ -68,6 +80,16 @@ export function ItemCard({ item, onSend }: Props) {
               >
                 {showSimilar ? "Hide similar" : "More like this"}
               </button>
+              {buyUrl && (
+                <a
+                  href={buyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-[10px] font-medium px-2 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0"
+                >
+                  Buy on {brand?.display_name ?? "Shop"}
+                </a>
+              )}
             </div>
           </div>
         </div>

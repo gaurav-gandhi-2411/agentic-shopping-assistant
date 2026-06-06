@@ -10,6 +10,8 @@ export interface ItemSummary {
   image_url: string | null
   detail_desc: string | null
   score: number | null
+  price_inr?: number | null
+  pdp_handle?: string | null
 }
 
 export interface ConversationSummary {

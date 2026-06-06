@@ -80,12 +80,32 @@ class HybridRetriever:
             facets = row["facets"] if isinstance(row["facets"], dict) else {}
 
             if filters:
-                match = all(
+                price_min = filters.get("price_min")
+                price_max = filters.get("price_max")
+                facet_filters = {
+                    k: v for k, v in filters.items() if k not in ("price_min", "price_max")
+                }
+
+                if facet_filters and not all(
                     str(facets.get(k, "")).lower() == str(v).lower()
-                    for k, v in filters.items()
-                )
-                if not match:
+                    for k, v in facet_filters.items()
+                ):
                     continue
+
+                if price_min is not None or price_max is not None:
+                    item_price = (
+                        row.get("price_inr")
+                        if hasattr(row, "get")
+                        else row["price_inr"]
+                        if "price_inr" in row.index
+                        else None
+                    )
+                    if item_price is None or not isinstance(item_price, (int, float)):
+                        continue  # skip items without price when price filter is active
+                    if price_min is not None and float(item_price) < float(price_min):
+                        continue
+                    if price_max is not None and float(item_price) > float(price_max):
+                        continue
 
             results.append({
                 "article_id": article_id,
@@ -97,6 +117,18 @@ class HybridRetriever:
                 "detail_desc": row["detail_desc"],
                 "image_url": row.get("image_url", ""),
                 "score": score,
+                "price_inr": (
+                    float(row["price_inr"])
+                    if "price_inr" in row.index
+                    and row["price_inr"] is not None
+                    and not pd.isna(row["price_inr"])
+                    else None
+                ),
+                "pdp_handle": (
+                    str(row["pdp_handle"])
+                    if "pdp_handle" in row.index and row["pdp_handle"] is not None
+                    else None
+                ),
             })
 
             if len(results) >= top_k:

@@ -19,6 +19,8 @@ class ItemSummary(BaseModel):
     image_url: str | None = None
     detail_desc: str | None = None
     score: float | None = None
+    price_inr: float | None = None
+    pdp_handle: str | None = None
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":
@@ -32,6 +34,8 @@ class ItemSummary(BaseModel):
             image_url=item.get("image_url") or None,
             detail_desc=item.get("detail_desc") or None,
             score=item.get("score"),
+            price_inr=item.get("price_inr"),
+            pdp_handle=item.get("pdp_handle") or None,
         )
 
 

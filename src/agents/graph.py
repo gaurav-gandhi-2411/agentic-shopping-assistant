@@ -174,13 +174,17 @@ STRICT RULES — follow in order:
 
    AVAILABLE DATA — the system has: display_name, colour_group_name, product_type_name,
    department_name, detail_desc (short product description).
-   The system does NOT have: price, size, material/fabric composition, weight, fit,
+   The system has price_inr (INR) for most items. Use price_min and price_max in search
+   filters: {{"price_min": 500}} means ≥₹500; {{"price_max": 2000}} means ≤₹2000.
+   Extract numeric price from user query ("under ₹1000" → price_max: 1000,
+   "above ₹500" → price_min: 500, "around ₹1500" → price_min: 1050, price_max: 1950).
+   The system does NOT have: size, material/fabric composition, weight, fit,
    in-stock status, seller rating.
-   When the user asks about an attribute the system does not have (price, fabric, size,
+   When the user asks about an attribute the system does not have (fabric, size,
    fit, stock, rating), output {{"action": "respond"}} — do NOT clarify. The respond layer
    will deliver the "I don't have that information" message using its grounding rules.
-   When the user combines a valid filter (colour, type) with an unavailable constraint (price,
-   size), apply the valid filter and search — the respond layer will acknowledge the gap.
+   When the user combines a valid filter (colour, type) with an unavailable constraint (size),
+   apply the valid filter and search — the respond layer will acknowledge the gap.
 
    Default rule: if you are not certain clarification is essential, output "respond" or "search".
 9. NEVER repeat the same action twice in a row.
@@ -199,7 +203,7 @@ Never pass the raw user query unchanged when a seasonal or occasion context is p
 Last action taken: {last_action}
 Items retrieved so far: {items_retrieved}
 
-Available facets: colour_group_name, product_type_name, department_name, index_group_name, garment_group_name
+Available facets: colour_group_name, product_type_name, department_name, index_group_name, garment_group_name, price_min, price_max
 
 Current retrieved items (if any):
 {retrieved_summary}
