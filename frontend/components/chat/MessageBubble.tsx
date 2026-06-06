@@ -1,16 +1,79 @@
 "use client"
 
+import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeSanitize from "rehype-sanitize"
 import { cn } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/api/types"
+import { api } from "@/lib/api/client"
 import { ItemCard } from "./ItemCard"
 
 interface Props {
   message: ChatMessage
   onSend?: (text: string) => void
 }
+
+// ---------------------------------------------------------------------------
+// FeedbackButtons — thumbs up / down for assistant messages
+// ---------------------------------------------------------------------------
+
+interface FeedbackButtonsProps {
+  messageId: string  // DB UUID (non-null; callers must guard before rendering)
+}
+
+function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
+  const [selected, setSelected] = useState<1 | -1 | null>(null)
+  const [pending, setPending] = useState(false)
+
+  async function handleRate(rating: 1 | -1) {
+    if (pending) return
+    setPending(true)
+    try {
+      await api.feedback.submit(messageId, rating)
+      setSelected(rating)
+    } catch {
+      // Silently swallow errors — feedback is best-effort; don't disrupt the UX.
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div className="flex gap-1 mt-1">
+      <button
+        aria-label="Thumbs up"
+        onClick={() => handleRate(1)}
+        disabled={pending}
+        className={cn(
+          "rounded px-1.5 py-0.5 text-sm transition-colors",
+          selected === 1
+            ? "bg-emerald-100 text-emerald-700 opacity-100"
+            : "text-muted-foreground opacity-40 hover:opacity-80 hover:bg-muted"
+        )}
+      >
+        👍
+      </button>
+      <button
+        aria-label="Thumbs down"
+        onClick={() => handleRate(-1)}
+        disabled={pending}
+        className={cn(
+          "rounded px-1.5 py-0.5 text-sm transition-colors",
+          selected === -1
+            ? "bg-rose-100 text-rose-700 opacity-100"
+            : "text-muted-foreground opacity-40 hover:opacity-80 hover:bg-muted"
+        )}
+      >
+        👎
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// MessageBubble
+// ---------------------------------------------------------------------------
 
 export function MessageBubble({ message, onSend }: Props) {
   const isUser = message.role === "user"
@@ -79,6 +142,11 @@ export function MessageBubble({ message, onSend }: Props) {
             <ItemCard key={item.article_id} item={item} onSend={onSend} />
           ))}
         </div>
+      )}
+
+      {/* Feedback buttons (assistant messages with a persisted DB id only) */}
+      {!isUser && !message.isStreaming && message.dbId !== null && (
+        <FeedbackButtons messageId={message.dbId} />
       )}
     </div>
   )

@@ -41,6 +41,7 @@ export function useChatStream({
         ...prev,
         {
           id: crypto.randomUUID(),
+          dbId: null,
           role: "user",
           content: text,
           items: [],
@@ -65,6 +66,7 @@ export function useChatStream({
           ...prev,
           {
             id: assistantId,
+            dbId: null,
             role: "assistant",
             content: "Failed to connect — are you signed in?",
             items: [],
@@ -107,6 +109,7 @@ export function useChatStream({
                   ...prev,
                   {
                     id: assistantId,
+                    dbId: null,
                     role: "assistant",
                     content: "",
                     items: [],
@@ -135,10 +138,13 @@ export function useChatStream({
 
             case "done": {
               finished = true
+              // Capture the persisted DB message UUID for feedback calls.
+              // frame.message_id is null when running against InMemorySessionStore.
+              const dbMessageId = frame.message_id ?? null
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
-                    ? { ...m, isStreaming: false, items: pendingItems }
+                    ? { ...m, dbId: dbMessageId, isStreaming: false, items: pendingItems }
                     : m
                 )
               )

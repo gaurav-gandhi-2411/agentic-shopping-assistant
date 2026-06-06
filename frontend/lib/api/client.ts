@@ -72,6 +72,18 @@ export const api = {
     similar: (articleId: string): Promise<ItemSummary[]> =>
       request(`/catalogue/${encodeURIComponent(articleId)}/similar`),
   },
+
+  feedback: {
+    submit: (
+      messageId: string,
+      rating: 1 | -1,
+      comment?: string
+    ): Promise<void> =>
+      request(`/messages/${encodeURIComponent(messageId)}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ rating, comment: comment ?? null }),
+      }),
+  },
 }
 
 // ---------------------------------------------------------------------------

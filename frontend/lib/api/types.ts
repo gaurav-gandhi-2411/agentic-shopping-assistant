@@ -22,13 +22,14 @@ export interface ConversationSummary {
 }
 
 export interface ConversationDetail extends ConversationSummary {
-  messages: Array<{ role: "user" | "assistant"; content: string }>
+  messages: Array<{ id: string | null; role: "user" | "assistant"; content: string }>
   retrieved_items: ItemSummary[]
 }
 
 // In-progress or completed message in the chat UI.
 export interface ChatMessage {
-  id: string
+  id: string       // Stable React key (always present — DB UUID or crypto.randomUUID())
+  dbId: string | null  // Persisted DB message UUID; null when no DB backing (in-memory mode)
   role: "user" | "assistant"
   content: string
   items: ItemSummary[]
@@ -44,6 +45,7 @@ export type WsFrame =
   | { type: "token"; text: string }
   | {
       type: "done"
+      message_id: string | null
       final_state: {
         filters: Record<string, unknown>
         out_of_catalogue: boolean
