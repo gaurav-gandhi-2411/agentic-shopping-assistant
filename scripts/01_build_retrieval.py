@@ -26,8 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from src.catalogue.adapter import adapt_feed
-from src.catalogue.loader import build_searchable_text, load_articles, load_config
-from src.config.brand import BrandConfig, get_brand_config
+from src.catalogue.loader import KEEP_COLUMNS, build_searchable_text, load_articles, load_config
+from src.config.brand import BrandConfig
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.sparse_search import SparseRetriever
 
@@ -76,9 +76,7 @@ def _load_brand_df(brand: str, brand_config: BrandConfig, config: dict, sample: 
             effective_config["catalogue"] = dict(config["catalogue"])
             if sample == 0:
                 # Load without sampling by reading entire CSV then not sampling
-                from pathlib import Path as _Path
-                from src.catalogue.loader import KEEP_COLUMNS
-                csv_path = _Path(effective_config["catalogue"]["articles_csv"])
+                csv_path = Path(effective_config["catalogue"]["articles_csv"])
                 df = pd.read_csv(csv_path, usecols=KEEP_COLUMNS, dtype={"article_id": str})
                 return df.dropna(subset=["detail_desc"]).reset_index(drop=True)
             else:
