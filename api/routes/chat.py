@@ -429,6 +429,16 @@ async def ws_chat(websocket: WebSocket) -> None:
         _persist_result(session, result)
         store.set(conversation_id, session, user_id)
 
+        # Fetch the persisted assistant message UUID so the frontend can
+        # submit feedback.  Only available when PostgresSessionStore is in use;
+        # returns None for InMemorySessionStore (no-op feedback buttons).
+        last_message_id: str | None = None
+        if hasattr(store, "get_last_assistant_message_id"):
+            try:
+                last_message_id = store.get_last_assistant_message_id(conversation_id)
+            except Exception as _mid_exc:
+                logger.warning("could not fetch last message id: %s", _mid_exc)
+
         logger.info(
             "ws turn complete",
             extra={
@@ -444,7 +454,8 @@ async def ws_chat(websocket: WebSocket) -> None:
                     "out_of_catalogue": bool(result.get("out_of_catalogue")),
                     "new_items_this_turn": bool(result.get("new_items_this_turn")),
                     "response": full_response,
-                }
+                },
+                message_id=last_message_id,
             ).model_dump_json()
         )
 

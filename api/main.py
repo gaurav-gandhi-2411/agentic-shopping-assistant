@@ -32,6 +32,7 @@ from api.logging_config import setup_logging
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
 from api.routes.conversations import router as conversations_router
+from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 
 logger = logging.getLogger(__name__)
@@ -250,6 +251,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(catalogue_router)
+    app.include_router(feedback_router)
 
     @app.get("/sentry-debug")
     def sentry_debug():

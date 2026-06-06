@@ -102,6 +102,7 @@ class WSTokenMessage(BaseModel):
 class WSDoneMessage(BaseModel):
     type: Literal["done"] = "done"
     final_state: dict[str, Any]
+    message_id: str | None = None  # UUID of the persisted assistant message; None in memory-only mode
 
 
 class WSErrorMessage(BaseModel):
