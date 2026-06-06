@@ -4,16 +4,23 @@
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-A multi-turn conversational shopping assistant over the H&M fashion catalogue. Combines hybrid
-retrieval (dense + BM25 via Reciprocal Rank Fusion) with a LangGraph agent loop that orchestrates
-search, compare, filter, and outfit-bundling tools — all streamed through a single-process Streamlit app.
+A white-label conversational shopping assistant for Indian D2C fashion brands. Brands plug in
+their catalogue CSV and a brand config YAML; the Docker image handles the rest — hybrid retrieval
+(dense + BM25 via Reciprocal Rank Fusion), a LangGraph agent loop that orchestrates search,
+compare, filter, and outfit-bundling tools, and a streaming FastAPI backend deployable to Google
+Cloud Run.
 
-🔗 **[Live Demo](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)**
+The live demo runs the bundled H&M config against an 1,800-item subset of the H&M dataset as a
+reference implementation. Production deployments swap `BRAND=hm` for `BRAND={your-slug}` and
+point `INDEX_STORE_URI` at your catalogue's GCS bucket.
+
+🔗 **[Live Demo (H&M reference brand)](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)**
 
 ---
 
 ## Table of Contents
 
+- [For Brands](#for-brands)
 - [Motivation](#motivation)
 - [Demo](#demo)
 - [Features](#features)
@@ -31,6 +38,29 @@ search, compare, filter, and outfit-bundling tools — all streamed through a si
 - [Known limitations](#known-limitations)
 - [What I learned](#what-i-learned)
 - [License](#license)
+
+---
+
+## For Brands
+
+The assistant is brand-agnostic at the infrastructure level. The Docker image bundles all brand
+configs; the `BRAND` env var selects which one activates at boot. Each brand supplies:
+
+1. **A catalogue CSV** with columns: `id`, `name`, `type`, `colour`, `department`, `description`,
+   `price_inr`, `handle`
+2. **A brand config YAML** (`brands/{slug}.yaml`) declaring display name, colours, tagline,
+   sizing system, PDP URL template, and suggestion chips
+3. **A GCS bucket path** (`INDEX_STORE_URI`) where the pre-built FAISS + BM25 indices live
+
+Two reference configs ship in the repo:
+
+| Brand slug | Description |
+|---|---|
+| `hm` | H&M — bundled demo, EU sizing, Kaggle dataset |
+| `sample_in` | Desi Drip — Indian brand template, IN sizing, sample feed |
+
+For a step-by-step guide to onboarding a new brand (catalogue prep, index build, Cloud Run
+deploy), see **[CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md)**.
 
 ---
 
@@ -201,14 +231,22 @@ pip install -r requirements.txt
 # Pull local model
 ollama pull llama3.1:8b
 
-# Add H&M data: download articles.csv from Kaggle -> data/hm/articles.csv
-python scripts/01_build_retrieval.py   # ~2 min on CPU, one-time
+# H&M demo brand (default — BRAND=hm):
+# Download articles.csv from Kaggle -> data/hm/articles.csv
+python scripts/01_build_retrieval.py          # builds indices for hm brand (~2 min on CPU)
+
+# Indian brand demo (BRAND=sample_in):
+# Uses the bundled sample feed at data/samples/in_feed.csv
+python scripts/01_build_retrieval.py --brand sample_in
 
 # Verify end-to-end
 python scripts/02_smoke_test.py
 
-# Launch
-streamlit run spaces/app.py
+# Launch (H&M demo brand)
+BRAND=hm streamlit run spaces/app.py
+
+# Launch (Indian brand demo)
+BRAND=sample_in streamlit run spaces/app.py
 ```
 
 ### HuggingFace Space deploy
