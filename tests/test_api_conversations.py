@@ -122,7 +122,11 @@ def test_get_conversation_detail(client: TestClient, seeded_cid: str) -> None:
     data = resp.json()
     assert data["conversation_id"] == seeded_cid
     assert len(data["messages"]) == 4
-    assert data["messages"][0] == {"role": "user", "content": "show me red dresses"}
+    first = data["messages"][0]
+    assert first["role"] == "user"
+    assert first["content"] == "show me red dresses"
+    # id is None for in-memory session store (no DB backing)
+    assert "id" in first
     assert len(data["retrieved_items"]) == 1
     assert data["retrieved_items"][0]["article_id"] == "111"
 
