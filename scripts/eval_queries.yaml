@@ -1,5 +1,5 @@
 # scripts/eval_queries.yaml
-# 32-query evaluation suite for the Agentic Shopping Assistant.
+# 57-query evaluation suite for the Agentic Shopping Assistant.
 # All product_type_name and colour_group_name values verified against
 # data/processed/catalogue.parquet (20,000 items, 107 unique product types).
 #
@@ -15,6 +15,7 @@
 #   tool_expected              – tool name the harness expects to appear in state["tool_calls"]
 #   filter_applied             – dict that must be a subset of state["filters"] after the turn
 #   style_criteria             – any 1 of these strings must appear in the response text (case-insensitive)
+#   max_latency_seconds        – latency_total (main + all setup turns) must not exceed this value
 
 version: "1.0"
 queries:
@@ -395,3 +396,201 @@ queries:
       n_results_min: 2
       tool_expected: "outfit"
       style_criteria: ["outfit", "pair", "complement", "complete", "Starting item"]
+
+  # -----------------------------------------------------------------------
+  # Golden-path queries — ordinary search, refinement, price, outfit.
+  # These represent what real users will actually ask; they must never
+  # regress across code changes.
+  # -----------------------------------------------------------------------
+
+  - id: GP1
+    category: golden_path
+    query: "Show me black t-shirts"
+    checks:
+      n_results_min: 3
+      colour_match: ["Black"]
+      category_present: ["T-shirt"]
+
+  - id: GP2
+    category: golden_path
+    query: "Women's floral dresses"
+    checks:
+      n_results_min: 3
+      category_present: ["Dress"]
+
+  - id: GP3
+    category: golden_path
+    query: "Men's casual shirts"
+    checks:
+      n_results_min: 3
+      category_present: ["Shirt", "Top", "T-shirt"]
+
+  - id: GP4
+    category: golden_path
+    query: "Blue jeans"
+    checks:
+      n_results_min: 2
+      colour_match: ["Dark Blue", "Blue", "Light Blue"]
+
+  - id: GP5
+    category: golden_path
+    query: "Office wear for women"
+    checks:
+      n_results_min: 3
+      category_present: ["Blazer", "Dress", "Trousers", "Blouse"]
+
+  - id: GP6
+    category: golden_path
+    query: "Summer dresses for women"
+    checks:
+      n_results_min: 3
+      category_present: ["Dress"]
+
+  - id: GP7
+    category: golden_path
+    query: "Warm winter coats"
+    checks:
+      n_results_min: 2
+      category_present: ["Coat", "Jacket"]
+
+  - id: GP8
+    category: golden_path
+    query: "Casual tops for women"
+    checks:
+      n_results_min: 3
+      category_present: ["Top", "T-shirt", "Blouse", "Vest top"]
+
+  - id: GP9
+    category: golden_path
+    query: "Men's blazers"
+    checks:
+      n_results_min: 2
+      category_present: ["Blazer"]
+
+  - id: GP10
+    category: golden_path
+    query: "White blouses"
+    checks:
+      n_results_min: 2
+      colour_match: ["White", "Off White"]
+
+  - id: GP11
+    category: golden_path
+    query: "Dresses under ₹1500"
+    checks:
+      n_results_min: 2
+      category_present: ["Dress"]
+      max_latency_seconds: 30
+
+  - id: GP12
+    category: golden_path
+    query: "T-shirts between ₹500 and ₹1200"
+    checks:
+      n_results_min: 2
+      category_present: ["T-shirt"]
+
+  - id: GP13
+    category: golden_path
+    query: "Something to wear to a wedding"
+    checks:
+      n_results_min: 3
+      category_present: ["Dress", "Blazer", "Blouse", "Trousers"]
+
+  - id: GP14
+    category: golden_path
+    query: "Smart casual outfits for men"
+    checks:
+      n_results_min: 3
+
+  - id: GP15
+    category: golden_path
+    query: "Black party dresses"
+    checks:
+      n_results_min: 2
+      colour_match: ["Black"]
+      category_present: ["Dress"]
+
+  - id: GP16
+    category: golden_path
+    query: "Everyday comfortable basics"
+    checks:
+      n_results_min: 3
+
+  - id: GP17
+    category: golden_path
+    query: "Gym wear for women"
+    checks:
+      n_results_min: 2
+
+  - id: GP18
+    category: golden_path
+    query: "Beachwear and swimwear"
+    checks:
+      n_results_min: 2
+      category_present: ["Swimsuit", "Bikini top", "Swimwear bottom"]
+
+  - id: GP19
+    category: golden_path
+    query: "Affordable casual tops under ₹1000"
+    checks:
+      n_results_min: 2
+      max_latency_seconds: 30
+
+  - id: GP20
+    category: golden_path
+    query: "Red evening dress"
+    checks:
+      n_results_min: 2
+      colour_match: ["Red", "Dark Red"]
+      category_present: ["Dress"]
+
+  # -----------------------------------------------------------------------
+  # Multi-turn preference-persistence — verify that context from an earlier
+  # turn (colour, category, price intent) carries through to the refinement.
+  # -----------------------------------------------------------------------
+
+  - id: MP1
+    category: preference_persistence
+    query: "More formal ones"
+    setup_turns:
+      - "Show me blue dresses"
+    checks:
+      n_results_min: 2
+      colour_match: ["Blue", "Dark Blue", "Light Blue"]
+      category_present: ["Dress"]
+
+  - id: MP2
+    category: preference_persistence
+    query: "Can I see more black blazers?"
+    setup_turns:
+      - "Women's blazers in black"
+    checks:
+      n_results_min: 2
+      colour_match: ["Black"]
+      category_present: ["Blazer"]
+
+  - id: MP3
+    category: preference_persistence
+    query: "Only show me options under ₹1500"
+    setup_turns:
+      - "Casual t-shirts for men"
+    checks:
+      n_results_min: 2
+
+  - id: MP4
+    category: preference_persistence
+    query: "What about something more casual?"
+    setup_turns:
+      - "Show me red evening dresses"
+    checks:
+      n_results_min: 2
+      colour_match: ["Red", "Dark Red"]
+
+  - id: MP5
+    category: preference_persistence
+    query: "Can you show me similar items in navy?"
+    setup_turns:
+      - "Green summer tops for women"
+    checks:
+      n_results_min: 2
+      colour_match: ["Dark Blue", "Blue"]
