@@ -55,6 +55,7 @@ KNOWN_CHECK_KEYS = {
     "tool_expected",
     "filter_applied",
     "style_criteria",
+    "max_latency_seconds",
 }
 
 
@@ -362,6 +363,11 @@ def evaluate_checks(checks: dict, result: dict, response_text: str) -> dict[str,
         else:
             text_lower = response_text.lower()
             ev["style_criteria"] = any(w.lower() in text_lower for w in checks["style_criteria"])
+
+    # max_latency_seconds: latency_total (main + setup turns) must not exceed this threshold
+    if "max_latency_seconds" in checks:
+        actual = result.get("latency_total", 0.0)
+        ev["max_latency_seconds"] = actual <= float(checks["max_latency_seconds"])
 
     return ev
 
