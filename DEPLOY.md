@@ -1,7 +1,7 @@
-# Deployment Guide — Fly.io
+# Deployment Guide — Google Cloud Run
 
-This guide deploys the Shopping Assistant **API** container to Fly.io
-(region: `bom`, shared-cpu-1x, 512 MB RAM).
+This guide deploys the Shopping Assistant **API** container to Google Cloud Run
+(region: `asia-south1`, ≥2 GB RAM, min-instances=1).
 
 The Streamlit UI (`spaces/`) is a separate deployment and is not covered here.
 
@@ -9,107 +9,176 @@ The Streamlit UI (`spaces/`) is a separate deployment and is not covered here.
 
 ## Prerequisites
 
-- [flyctl](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated
-- Docker installed locally (for the build)
-- API keys ready: Groq, LangSmith (optional)
+- [gcloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
+  (`gcloud auth login`, `gcloud auth configure-docker`)
+- Docker installed locally
+- A GCP project with the following APIs enabled:
+  - Cloud Run (`run.googleapis.com`)
+  - Artifact Registry (`artifactregistry.googleapis.com`)
+- An Artifact Registry Docker repository (create once):
+  ```bash
+  gcloud artifacts repositories create shopping-assistant \
+    --repository-format=docker \
+    --location=asia-south1 \
+    --description="Shopping Assistant API images"
+  ```
 
 ---
 
-## Step 1 — Sanity check
+## Environment variables
+
+### Required at runtime
+
+| Variable | Purpose |
+|---|---|
+| `BRAND` | Selects the brand config shipped in the image (`hm` for H&M demo, `sample_in` for India sample) |
+| `GROQ_API_KEY` | LLM inference (Groq) |
+| `DATABASE_URL` | Postgres connection string |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Supabase anon/public key |
+| `SUPABASE_SERVICE_KEY` | Supabase service-role key (bypasses RLS for server-side ops) |
+
+### Optional
+
+| Variable | Purpose |
+|---|---|
+| `INDEX_STORE_URI` | GCS URI (`gs://bucket/path/`) from which retrieval indices are loaded at boot. When unset, the container falls back to the indices baked into the image. |
+| `JWT_VERIFICATION_DISABLED` | Set to `true` to skip JWT verification (dev/demo only — never in production). |
+| `SENTRY_DSN` | Sentry project DSN for error reporting. Omit to disable. |
+
+### BRAND= and multi-brand images
+
+All `brands/*.yaml` config files ship inside every image — no rebuild is needed
+to switch brands.  Set `BRAND=<brand_slug>` and the container loads the matching
+config at startup.
+
+| `BRAND` value | Description |
+|---|---|
+| `hm` | H&M fashion demo catalogue |
+| `sample_in` | India sample catalogue (default for local dev) |
+
+### INDEX_STORE_URI (future A5)
+
+When `INDEX_STORE_URI` is set (e.g. `gs://my-bucket/indices/hm/`), the container
+downloads the FAISS index and catalogue parquet from GCS at startup rather than
+using the baked-in files.  This allows index updates without a Docker rebuild.
+Leave unset during local development; the image-embedded indices are used as the
+fallback.
+
+---
+
+## Health probes
+
+Cloud Run requires probes to determine container health:
+
+| Probe | Endpoint | Expected response |
+|---|---|---|
+| **Startup** | `GET /healthz` | `200 {"status": "ok"}` |
+| **Readiness / Liveness** | `GET /readyz` | `200 {"status": "ready", ...}` when indices are loaded, `503` until ready |
+
+`/healthz` returns immediately with no dependency checks — suitable as the
+startup probe.  `/readyz` checks the retriever, catalogue, and LLM client;
+use it as the liveness probe once the container has started.
+
+**Recommended startup probe timeout:** 120 s.  The sentence-transformers model
+load takes ~30 s; the FAISS index load adds more time on cold start.
+
+---
+
+## Quick deploy steps
+
+### 1 — Build the image
 
 ```bash
-fly auth whoami
+# Set your GCP project and image tag
+PROJECT_ID=<your-gcp-project-id>
+REGION=asia-south1
+REPO=shopping-assistant
+IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/api
+
+docker build -t $IMAGE:latest .
+```
+
+### 2 — Push to Artifact Registry
+
+```bash
+docker push $IMAGE:latest
+```
+
+### 3 — Deploy to Cloud Run
+
+```bash
+gcloud run deploy shopping-assistant-api \
+  --image $IMAGE:latest \
+  --region $REGION \
+  --memory 2Gi \
+  --cpu 1 \
+  --min-instances 1 \
+  --max-instances 5 \
+  --concurrency 1 \
+  --timeout 300 \
+  --set-env-vars "BRAND=hm" \
+  --set-secrets "GROQ_API_KEY=groq-api-key:latest,DATABASE_URL=database-url:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_ANON_KEY=supabase-anon-key:latest,SUPABASE_SERVICE_KEY=supabase-service-key:latest" \
+  --port 8080 \
+  --no-allow-unauthenticated
+```
+
+> **Why `--concurrency 1`?**  The API maintains in-memory session state (conversation
+> history, agent loop).  Multiple concurrent requests on the same instance would
+> race on that state.  Use concurrency=1 and let Cloud Run autoscale instances
+> instead.
+
+> **Secrets:** The `--set-secrets` flag maps Google Secret Manager secrets to
+> environment variables.  Create each secret once with
+> `gcloud secrets create <name> --data-file=-`.
+
+### 4 — Configure health probes (Cloud Run v2 YAML — optional but recommended)
+
+After the initial deploy, apply probe configuration via the Cloud Run service
+YAML (`gcloud run services replace`) or through the GCP console:
+
+```yaml
+# Startup probe — fast check, long timeout
+startupProbe:
+  httpGet:
+    path: /healthz
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 12   # 12 × 10 s = 120 s total window
+  timeoutSeconds: 5
+
+# Liveness probe — deeper check after startup
+livenessProbe:
+  httpGet:
+    path: /readyz
+  periodSeconds: 30
+  failureThreshold: 3
+  timeoutSeconds: 10
 ```
 
 ---
 
-## Step 2 — Initialise the app (first deploy only)
+## Smoke tests
+
+Replace `<SERVICE_URL>` with the URL printed by `gcloud run deploy`.
 
 ```bash
-fly launch --no-deploy --copy-config --region bom
-```
+SERVICE_URL=$(gcloud run services describe shopping-assistant-api \
+  --region asia-south1 --format "value(status.url)")
 
-When prompted:
-- **App name:** choose a globally unique name (e.g. `shopping-assistant-gg`); this replaces the placeholder in `fly.toml`
-- **Set up Postgres?** → No
-- **Set up Redis?** → No
-- **Set up Tigris?** → No
-
-`fly launch` updates `fly.toml` with your chosen app name.
-
----
-
-## Step 3 — Set secrets
-
-Secrets are injected as environment variables at runtime; they are never baked
-into the image.  See `api/README.md` for the full env-vars reference.
-
-```bash
-fly secrets set \
-  GROQ_API_KEY=<your-groq-api-key> \
-  LANGSMITH_API_KEY=<your-langsmith-api-key> \
-  LANGCHAIN_TRACING_V2=true \
-  LANGSMITH_PROJECT=shopping-assistant
-```
-
-Only `GROQ_API_KEY` is required.  Omit the LangSmith vars to disable tracing.
-
----
-
-## Step 4 — Deploy
-
-```bash
-fly deploy
-```
-
-The Docker build runs locally (or on a remote builder) and the resulting image
-is pushed to Fly's registry.  First deploy takes ~5–10 minutes (large image
-due to FAISS + sentence-transformers + baked indices).
-
----
-
-## Step 5 — Watch startup logs
-
-```bash
-fly logs
-```
-
-A successful startup looks like:
-
-```
-INFO  Starting up Shopping Assistant API
-INFO  Loading retrieval indices from /app/data/processed
-INFO  Retrieval ready: 20000 items, 20000 dense vectors
-INFO  Initialising LLM client (provider=groq)
-INFO  LLM client ready
-INFO  LangSmith tracing enabled
-INFO  Startup complete
-```
-
----
-
-## Step 6 — Verify
-
-```bash
-fly status      # machine state
-fly open        # opens https://<app>.fly.dev in a browser
-```
-
-Smoke test the liveness probe:
-```bash
-curl https://<app>.fly.dev/healthz
+# Startup probe
+curl -s $SERVICE_URL/healthz
 # → {"status":"ok"}
-```
 
-Readiness probe (will 503 until indices are loaded, then 200):
-```bash
-curl https://<app>.fly.dev/readyz
-# → {"status":"ready","retriever_items":20000,"catalogue_items":20000,"llm":"ok"}
+# Readiness probe (200 when indices loaded, 503 while loading)
+curl -s $SERVICE_URL/readyz
+# → {"status":"ready","checks":{"retriever":"ok (20,000 vectors)","catalogue":"ok (20,000 items)","llm":"ok"},"auth_enabled":true}
 ```
 
 WebSocket smoke test with [wscat](https://github.com/websockets/wscat):
+
 ```bash
-wscat -c wss://<app>.fly.dev/chat/stream
+wscat -c wss://<service-url>/chat/stream
 > {"type":"user_message","message":"show me blue jackets","conversation_id":null}
 < {"type":"session","conversation_id":"<uuid>"}
 < {"type":"routing","decision":{"action":"search","query":"blue jackets"}}
@@ -122,24 +191,62 @@ wscat -c wss://<app>.fly.dev/chat/stream
 
 ---
 
-## Subsequent deploys
+## Per-brand deployments
+
+The same Docker image handles all brands.  Deploy one Cloud Run service per
+brand, differing only in `BRAND=` and (when A5 is live) `INDEX_STORE_URI=`.
+
+| Service name | `BRAND` | `INDEX_STORE_URI` |
+|---|---|---|
+| `shopping-assistant-hm` | `hm` | `gs://my-bucket/indices/hm/` |
+| `shopping-assistant-sample-in` | `sample_in` | `gs://my-bucket/indices/sample_in/` |
 
 ```bash
-fly deploy          # rebuild image + deploy
-fly logs            # watch rollout
-fly status          # confirm healthy
+# Deploy H&M brand service (reuse the same image tag)
+gcloud run deploy shopping-assistant-hm \
+  --image $IMAGE:latest \
+  --region $REGION \
+  --memory 2Gi \
+  --min-instances 1 \
+  --concurrency 1 \
+  --set-env-vars "BRAND=hm,INDEX_STORE_URI=gs://my-bucket/indices/hm/" \
+  --set-secrets "GROQ_API_KEY=groq-api-key:latest,..." \
+  --no-allow-unauthenticated
+
+# Deploy India sample brand service
+gcloud run deploy shopping-assistant-sample-in \
+  --image $IMAGE:latest \
+  --region $REGION \
+  --memory 2Gi \
+  --min-instances 1 \
+  --concurrency 1 \
+  --set-env-vars "BRAND=sample_in,INDEX_STORE_URI=gs://my-bucket/indices/sample_in/" \
+  --set-secrets "GROQ_API_KEY=groq-api-key:latest,..." \
+  --no-allow-unauthenticated
 ```
 
 ---
 
-## Scaling
+## Subsequent deploys
 
-To increase memory (recommended if startup OOMs):
 ```bash
-fly scale memory 1024
+docker build -t $IMAGE:latest . && docker push $IMAGE:latest
+
+gcloud run deploy shopping-assistant-hm \
+  --image $IMAGE:latest \
+  --region $REGION
+# Cloud Run performs a zero-downtime rollout; old revision handles traffic
+# until the new revision passes health probes.
 ```
 
-To add a second machine for redundancy:
-```bash
-fly scale count 2
-```
+---
+
+## Scaling notes
+
+- **Memory:** 2 GB is the minimum for sentence-transformers + FAISS. If the
+  container OOMs on startup, increase to 4 GB: `--memory 4Gi`.
+- **CPU:** 1 vCPU is sufficient for sequential (concurrency=1) requests. For
+  lower cold-start latency, set `--cpu-boost` to allocate extra CPU during
+  startup.
+- **Min instances:** Keep at 1 to avoid cold starts in demo/client environments.
+  Set to 0 only if cost matters more than response latency.
