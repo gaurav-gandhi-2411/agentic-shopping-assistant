@@ -1,0 +1,16 @@
+display_name: "Snitch"
+logo_url: null
+primary_colour: "#E31E2A"
+accent_colour: "#1A1A1A"
+tagline: "Street Smart"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+catalogue_path: "data/raw/shopify/snitch/products.csv"
+pdp_url_template: "https://snitch.co.in/products/{handle}"
+suggestion_chips:
+  - "Oversized shirts"
+  - "Graphic tees under 1000"
+  - "Cargo pants"
+  - "Hoodies and sweatshirts"
+  - "Relaxed fit jeans"

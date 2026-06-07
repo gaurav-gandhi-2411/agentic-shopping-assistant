@@ -1,0 +1,16 @@
+display_name: "Powerlook"
+logo_url: null
+primary_colour: "#1A1A2E"
+accent_colour: "#C8A96A"
+tagline: "Power Your Look"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+catalogue_path: "data/raw/shopify/powerlook/products.csv"
+pdp_url_template: "https://powerlook.in/products/{handle}"
+suggestion_chips:
+  - "Formal shirts for office"
+  - "Slim fit chinos"
+  - "Business casual blazers"
+  - "Smart casual shirts"
+  - "Linen shirts for summer"
