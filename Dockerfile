@@ -29,11 +29,9 @@ COPY src/ ./src/
 COPY api/ ./api/
 COPY config.yaml .
 
-# Bake retrieval indices and catalogue into the image so the container starts
-# without any external data fetch.  data/processed/ contains:
-#   catalogue.parquet, dense.faiss, dense_article_ids.npy,
-#   bm25.pkl, bm25_article_ids.npy, [images/]
-COPY data/processed/ ./data/processed/
+# Indices are loaded from GCS at startup via INDEX_STORE_URI.
+# Create the empty directory so ensure_index_dir can write into it.
+RUN mkdir -p data/processed
 
 EXPOSE 8080
 

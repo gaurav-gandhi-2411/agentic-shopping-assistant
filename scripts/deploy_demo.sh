@@ -6,21 +6,21 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # CONFIGURATION — fill these in before running
 # ---------------------------------------------------------------------------
-GCP_PROJECT="aetherart-497918"
+GCP_PROJECT="iconic-reactor-496423-m4"
 GAR_REGION="asia-south1"           # Artifact Registry region (also Cloud Run region)
 GAR_REPO="shopping-assistant"       # Artifact Registry repository name
 IMAGE_NAME="asa-api"
 IMAGE_TAG="$(git rev-parse --short HEAD)"
 IMAGE="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT}/${GAR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-GCS_BUCKET="asa-demo-indices-aetherart"
+GCS_BUCKET="asa-demo-indices"
 
 # Secrets — read from env so they are never baked into this file.
 # Export them before running: export GROQ_API_KEY=... DEMO_JWT_SECRET=... DATABASE_URL=...
 GROQ_API_KEY="${GROQ_API_KEY:-}"
 DEMO_JWT_SECRET="${DEMO_JWT_SECRET:-}"
 DATABASE_URL="${DATABASE_URL:-}"
-SUPABASE_URL="https://gtvbficptamgtfyyitth.supabase.co"
+SUPABASE_URL="https://zwvvuvaasbotamxbixny.supabase.co"
 VERCEL_URL="${VERCEL_URL:-}"       # Set after first Vercel deploy (or export before running)
 SENTRY_DSN="${SENTRY_DSN:-}"      # Optional
 
@@ -48,9 +48,13 @@ echo "  Run: DATABASE_URL='${DATABASE_URL}' alembic upgrade head"
 echo "  (skipping automatic migration — run it manually if not yet done)"
 
 echo "=== Step 5: Upload indices to GCS ==="
+# rsync with trailing slash on source copies CONTENTS into the GCS prefix,
+# so files land at gs://<bucket>/<brand>/dense.faiss etc.
+# INDEX_STORE_URI is set to gs://<bucket>/ (no brand path) so the application
+# resolves gcs_prefix = "<brand>/" which matches this layout.
 for brand in snitch myntra flipkart; do
   echo "  Uploading ${brand} index..."
-  gcloud storage cp -r "data/processed/${brand}" "gs://${GCS_BUCKET}/${brand}/"
+  gcloud storage rsync --recursive "data/processed/${brand}/" "gs://${GCS_BUCKET}/${brand}/"
 done
 
 # Shared env vars (excluding BRAND and INDEX_STORE_URI which are per-service)
@@ -68,23 +72,23 @@ CR_FLAGS=(
   --timeout=300
 )
 
-echo "=== Step 6: Deploy snitch (min-instances=1, flagship) ==="
+echo "=== Step 6: Deploy snitch (min-instances=0, scale-to-zero) ==="
 gcloud run deploy asa-snitch \
   "${CR_FLAGS[@]}" \
-  --min-instances=1 \
-  --set-env-vars="BRAND=snitch,INDEX_STORE_URI=gs://${GCS_BUCKET}/snitch/,${COMMON_ENV}"
+  --min-instances=0 \
+  --set-env-vars="BRAND=snitch,INDEX_STORE_URI=gs://${GCS_BUCKET}/,${COMMON_ENV}"
 
 echo "=== Step 7: Deploy myntra (min-instances=0, scale-to-zero) ==="
 gcloud run deploy asa-myntra \
   "${CR_FLAGS[@]}" \
   --min-instances=0 \
-  --set-env-vars="BRAND=myntra,INDEX_STORE_URI=gs://${GCS_BUCKET}/myntra/,${COMMON_ENV}"
+  --set-env-vars="BRAND=myntra,INDEX_STORE_URI=gs://${GCS_BUCKET}/,${COMMON_ENV}"
 
 echo "=== Step 8: Deploy flipkart (min-instances=0, scale-to-zero) ==="
 gcloud run deploy asa-flipkart \
   "${CR_FLAGS[@]}" \
   --min-instances=0 \
-  --set-env-vars="BRAND=flipkart,INDEX_STORE_URI=gs://${GCS_BUCKET}/flipkart/,${COMMON_ENV}"
+  --set-env-vars="BRAND=flipkart,INDEX_STORE_URI=gs://${GCS_BUCKET}/,${COMMON_ENV}"
 
 echo ""
 echo "=== Deployment complete ==="

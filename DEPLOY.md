@@ -101,8 +101,8 @@ docker push "${IMAGE}"
 
 ## Deploy Cloud Run services
 
-All three services use the same image. `asa-snitch` keeps one warm instance for the flagship
-demo; `asa-myntra` and `asa-flipkart` scale to zero.
+All three services use the same image and scale to zero (min-instances=0). Cold starts show
+the "warming up…" spinner in the frontend.
 
 ```bash
 CORS_ORIGINS="https://your-project.vercel.app,http://localhost:3000"
@@ -112,10 +112,10 @@ GCS_BUCKET="your-gcs-bucket-name"
 COMMON="--image=${IMAGE} --region=${GAR_REGION} --platform=managed --allow-unauthenticated \
   --memory=2Gi --cpu=1 --concurrency=4 --timeout=300"
 
-# snitch — flagship, keep one instance warm
+# snitch
 gcloud run deploy asa-snitch \
   ${COMMON} \
-  --min-instances=1 \
+  --min-instances=0 \
   --set-env-vars="BRAND=snitch,DEMO_MODE=true,LLM_PROVIDER=groq,\
 GROQ_API_KEY=${GROQ_API_KEY},DEMO_JWT_SECRET=${DEMO_JWT_SECRET},\
 DATABASE_URL=${DATABASE_URL},SUPABASE_URL=${SUPABASE_URL},\
