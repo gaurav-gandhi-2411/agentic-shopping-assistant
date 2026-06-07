@@ -1,0 +1,16 @@
+display_name: "Myntra"
+logo_url: null
+primary_colour: "#FF3F6C"
+accent_colour: "#282C3F"
+tagline: "India's Fashion Destination"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+catalogue_path: "data/raw/myntra/Fashion Dataset.csv"
+pdp_url_template: "https://www.myntra.com/{handle}"
+suggestion_chips:
+  - "Black kurtas under ₹1500"
+  - "Ethnic wear for weddings"
+  - "Summer dresses under ₹2000"
+  - "Formal tops for office"
+  - "Casual western wear"

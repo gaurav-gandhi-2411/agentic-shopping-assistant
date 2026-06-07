@@ -95,9 +95,9 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def client():
-    # lifespan="off" skips startup so no real data files are required.
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    # Instantiate without context manager so the lifespan is never triggered
+    # and no real index files are required.
+    yield TestClient(app, raise_server_exceptions=True)
 
 
 def _make_factory(result: dict[str, Any]):

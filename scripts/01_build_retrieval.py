@@ -31,6 +31,10 @@ from src.config.brand import BrandConfig
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.sparse_search import SparseRetriever
 
+_BRAND_PRESETS: dict[str, list[str]] = {
+    "streetwear": ["Snitch", "Bewakoof", "The Souled Store", "Bonkers Corner"],
+}
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -59,10 +63,38 @@ def _parse_args() -> argparse.Namespace:
             "Defaults to catalogue.sample_num_items from config.yaml."
         ),
     )
+    parser.add_argument(
+        "--brand-filter",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Filter catalogue rows to this brand name (matches brand_name column). "
+            "Useful for building a single-brand demo index from a multi-brand feed. "
+            "Example: --brand-filter Snitch"
+        ),
+    )
+    parser.add_argument(
+        "--brand-preset",
+        default=None,
+        choices=list(_BRAND_PRESETS),
+        help=(
+            "Filter catalogue to a named preset group of brands. "
+            f"Available presets: {', '.join(_BRAND_PRESETS)}. "
+            "Example: --brand-preset streetwear"
+        ),
+    )
     return parser.parse_args()
 
 
-def _load_brand_df(brand: str, brand_config: BrandConfig, config: dict, sample: int | None) -> pd.DataFrame:
+def _load_brand_df(
+    brand: str,
+    brand_config: BrandConfig,
+    config: dict,
+    sample: int | None,
+    *,
+    brand_filter: str | None = None,
+    brand_preset: str | None = None,
+) -> pd.DataFrame:
     """Load and adapt the catalogue for *brand*.
 
     H&M uses the existing :func:`load_articles` path so behaviour is unchanged.
@@ -92,9 +124,29 @@ def _load_brand_df(brand: str, brand_config: BrandConfig, config: dict, sample: 
             f"Set catalogue_path in brands/{brand}.yaml to a valid CSV path."
         )
 
-    print(f"Reading feed from {csv_path} …")
+    print(f"Reading feed from {csv_path} ...")
     df_raw = pd.read_csv(csv_path)
     print(f"Raw feed rows: {len(df_raw):,}  columns: {list(df_raw.columns)}")
+
+    # Brand filter - narrow a multi-brand feed to a specific brand or preset.
+    # Supports both 'brand_name' (generic convention) and 'brand' (Myntra dataset).
+    _brand_col = next(
+        (c for c in ("brand_name", "brand") if c in df_raw.columns), None
+    )
+    if _brand_col:
+        if brand_filter:
+            before = len(df_raw)
+            df_raw = df_raw[
+                df_raw[_brand_col].astype(str).str.lower() == brand_filter.lower()
+            ].reset_index(drop=True)
+            print(f"Brand filter '{brand_filter}' (col={_brand_col}): {before:,} -> {len(df_raw):,} rows")
+        elif brand_preset:
+            preset_brands = [b.lower() for b in _BRAND_PRESETS.get(brand_preset, [])]
+            before = len(df_raw)
+            df_raw = df_raw[
+                df_raw[_brand_col].astype(str).str.lower().isin(preset_brands)
+            ].reset_index(drop=True)
+            print(f"Brand preset '{brand_preset}' (col={_brand_col}): {before:,} -> {len(df_raw):,} rows")
 
     df = adapt_feed(df_raw, brand_config)
     df = df.dropna(subset=["detail_desc"]).reset_index(drop=True)
@@ -146,8 +198,9 @@ def main() -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {save_dir}")
 
-    print("Loading catalogue…")
-    df = _load_brand_df(args.brand, brand_config, config, args.sample)
+    print("Loading catalogue...")
+    df = _load_brand_df(args.brand, brand_config, config, args.sample,
+                        brand_filter=args.brand_filter, brand_preset=args.brand_preset)
     print(f"Loaded catalogue: {len(df):,} articles")
     print(f"Unique product types: {df['product_type_name'].nunique()}")
     print(f"Unique colour groups: {df['colour_group_name'].nunique()}")
@@ -160,7 +213,7 @@ def main() -> None:
 
     # price_inr stats only for brands that carry pricing
     if "price_inr" in df.columns and df["price_inr"].notna().any():
-        print(f"price_inr range:          ₹{df['price_inr'].min():.0f} – ₹{df['price_inr'].max():.0f}")
+        print(f"price_inr range:          Rs.{df['price_inr'].min():.0f} - Rs.{df['price_inr'].max():.0f}")
 
     print("\nTop 10 product_type_name by frequency:")
     for name, count in df["product_type_name"].value_counts().head(10).items():

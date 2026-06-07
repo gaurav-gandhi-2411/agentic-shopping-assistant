@@ -3,7 +3,8 @@
 This guide deploys the Shopping Assistant **API** container to Google Cloud Run
 (region: `asia-south1`, ≥2 GB RAM, min-instances=1).
 
-The Streamlit UI (`spaces/`) is a separate deployment and is not covered here.
+The **Next.js frontend** is deployed separately to Vercel. See the `frontend/SETUP.md`
+for Vercel deploy instructions.
 
 ---
 
@@ -55,15 +56,24 @@ config at startup.
 | `BRAND` value | Description |
 |---|---|
 | `hm` | H&M fashion demo catalogue |
-| `sample_in` | India sample catalogue (default for local dev) |
+| `sample_in` | India sample catalogue |
+| `snitch` | Snitch — men's streetwear (live Shopify) |
+| `powerlook` | Powerlook — men's smart casual (live Shopify) |
+| `fashor` | Fashor — women's ethnic + western (live Shopify) |
+| `virgio` | Virgio — women's sustainable fashion (live Shopify) |
+| `myntra` | Myntra — multi-brand (Kaggle dataset) |
+| `flipkart` | Flipkart — multi-category fashion (Kaggle dataset) |
 
-### INDEX_STORE_URI (future A5)
+Any brand slug in `brands/` can be used. See [BRANDS.md](BRANDS.md) for the full
+reference sheet and per-brand quick-start commands.
 
-When `INDEX_STORE_URI` is set (e.g. `gs://my-bucket/indices/hm/`), the container
+### INDEX_STORE_URI
+
+When `INDEX_STORE_URI` is set (e.g. `gs://my-bucket/indices/snitch/`), the container
 downloads the FAISS index and catalogue parquet from GCS at startup rather than
-using the baked-in files.  This allows index updates without a Docker rebuild.
-Leave unset during local development; the image-embedded indices are used as the
-fallback.
+using baked-in files. This allows index updates without a Docker rebuild.
+Leave unset during local development; set the path to `data/processed/{brand}/`
+to use locally built indices.
 
 ---
 
@@ -199,7 +209,9 @@ brand, differing only in `BRAND=` and (when A5 is live) `INDEX_STORE_URI=`.
 | Service name | `BRAND` | `INDEX_STORE_URI` |
 |---|---|---|
 | `shopping-assistant-hm` | `hm` | `gs://my-bucket/indices/hm/` |
-| `shopping-assistant-sample-in` | `sample_in` | `gs://my-bucket/indices/sample_in/` |
+| `shopping-assistant-snitch` | `snitch` | `gs://my-bucket/indices/snitch/` |
+| `shopping-assistant-fashor` | `fashor` | `gs://my-bucket/indices/fashor/` |
+| `shopping-assistant-{slug}` | `{slug}` | `gs://my-bucket/indices/{slug}/` |
 
 ```bash
 # Deploy H&M brand service (reuse the same image tag)

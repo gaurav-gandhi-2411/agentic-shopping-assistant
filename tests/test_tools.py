@@ -43,6 +43,7 @@ def retriever(config, catalogue_df):
 # search_catalogue
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requires_index
 def test_search_tool_returns_items(retriever, config):
     top_k = config["retrieval"]["final_k"]
     result = search_catalogue("black jacket", None, retriever, top_k)
@@ -56,6 +57,7 @@ def test_search_tool_returns_items(retriever, config):
         assert required.issubset(item.keys())
 
 
+@pytest.mark.requires_index
 def test_search_tool_with_filter(retriever, config):
     top_k = config["retrieval"]["final_k"]
     result = search_catalogue("dress", {"colour_group_name": "Black"}, retriever, top_k)
@@ -68,6 +70,7 @@ def test_search_tool_with_filter(retriever, config):
 # compare_items
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requires_index
 def test_compare_tool_handles_2_items(catalogue_df):
     ids = catalogue_df["article_id"].iloc[:2].tolist()
     result = compare_items(ids, catalogue_df)
@@ -78,6 +81,7 @@ def test_compare_tool_handles_2_items(catalogue_df):
         assert "colour" in item
 
 
+@pytest.mark.requires_index
 def test_compare_tool_handles_1_item_gracefully(catalogue_df):
     ids = catalogue_df["article_id"].iloc[:1].tolist()
     result = compare_items(ids, catalogue_df)
@@ -85,12 +89,14 @@ def test_compare_tool_handles_1_item_gracefully(catalogue_df):
     assert result["n_items"] == 1
 
 
+@pytest.mark.requires_index
 def test_compare_tool_truncates_to_5(catalogue_df):
     ids = catalogue_df["article_id"].iloc[:6].tolist()
     result = compare_items(ids, catalogue_df)
     assert result["n_items"] <= 5
 
 
+@pytest.mark.requires_index
 def test_compare_tool_handles_unknown_id(catalogue_df):
     ids = ["DOES_NOT_EXIST_001", catalogue_df["article_id"].iloc[0]]
     result = compare_items(ids, catalogue_df)

@@ -1,391 +1,218 @@
 # Agentic Shopping Assistant
 
-[![HuggingFace Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-blue)](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-A white-label conversational shopping assistant for Indian D2C fashion brands. Brands plug in
-their catalogue CSV and a brand config YAML; the Docker image handles the rest — hybrid retrieval
-(dense + BM25 via Reciprocal Rank Fusion), a LangGraph agent loop that orchestrates search,
-compare, filter, and outfit-bundling tools, and a streaming FastAPI backend deployable to Google
-Cloud Run.
-
-The live demo runs the bundled H&M config against an 1,800-item subset of the H&M dataset as a
-reference implementation. Production deployments swap `BRAND=hm` for `BRAND={your-slug}` and
-point `INDEX_STORE_URI` at your catalogue's GCS bucket.
-
-🔗 **[Live Demo (H&M reference brand)](https://huggingface.co/spaces/gauravgandhi2411/agentic-shopping-assistant)**
+White-label conversational shopping assistant for Indian D2C fashion brands. Point `BRAND=snitch`
+at a catalogue, deploy one Docker container to Cloud Run, and shoppers get a natural-language
+assistant that retrieves real products, quotes real INR prices, and links directly to the brand's
+own product pages.
 
 ---
 
-## Table of Contents
+## What it does
 
-- [For Brands](#for-brands)
-- [Motivation](#motivation)
-- [Demo](#demo)
-- [Features](#features)
-- [Architecture](#architecture)
-  - [Components](#components)
-  - [Router](#router)
-  - [Outfit bundling](#outfit-bundling)
-- [Tech Stack](#tech-stack)
-- [Evaluation](#evaluation)
-- [Corpus](#corpus)
-- [Setup](#setup)
-  - [Local dev (Ollama)](#local-dev-ollama)
-  - [HuggingFace Space deploy](#huggingface-space-deploy)
-- [Project Structure](#project-structure)
-- [Known limitations](#known-limitations)
-- [What I learned](#what-i-learned)
-- [License](#license)
+Hybrid retrieval (FAISS dense + BM25 sparse, fused via Reciprocal Rank Fusion) backs a LangGraph
+agent loop with six tools: **search**, **compare**, **filter**, **outfit-bundle**, **clarify**, and
+**respond**. Every response is grounded — the agent cannot hallucinate a price, size, or fabric
+that is not in the retrieved item data. Each product card carries a **Buy** CTA that opens the
+real PDP on the brand's own site.
+
+- **INR pricing** — all prices in ₹; `price_min` / `price_max` filtering supported
+- **Indian sizing** — `sizing_system: IN` in the brand config shows Indian size labels
+- **Brand-isolated** — one `BRAND=` env var selects the config; all brands share a single Docker
+  image and each gets its own Cloud Run service
+- **Streaming** — FastAPI WebSocket backend streams tokens to a Next.js 15 frontend
+- **Grounded** — `validate_response()` strips any sentence that references a price, size, or
+  material not present in the retrieved items
 
 ---
 
-## For Brands
+## Demoable brands
 
-The assistant is brand-agnostic at the infrastructure level. The Docker image bundles all brand
-configs; the `BRAND` env var selects which one activates at boot. Each brand supplies:
+| Brand | `BRAND=` | Source | Items | Price range | Demo query |
+|---|---|---|---|---|---|
+| **H&M** | `hm` | Kaggle dataset | ~20 K | SEK | `Black slim fit jeans` |
+| **Sample IN** | `sample_in` | Bundled sample | 500 | ₹499–₹4,999 | `Casual kurtas for office` |
+| **Myntra** | `myntra` | Kaggle dataset | 14 K | ₹169–₹47,999 | `Black kurtas under ₹1500` |
+| **Flipkart** | `flipkart` | Kaggle dataset | 15 K | ₹99–₹7,799 | `Winter jackets for men` |
+| **Snitch** | `snitch` | Live Shopify | 15 K | ₹219–₹5,699 | `Oversized streetwear shirts` |
+| **Powerlook** | `powerlook` | Live Shopify | 927 | ₹399–₹2,599 | `Formal shirts for office` |
+| **Fashor** | `fashor` | Live Shopify | 3.6 K | ₹499–₹7,799 | `Ethnic kurta sets for wedding` |
+| **Virgio** | `virgio` | Live Shopify | 1.8 K | ₹359–₹6,298 | `Sustainable linen dresses` |
 
-1. **A catalogue CSV** with columns: `id`, `name`, `type`, `colour`, `department`, `description`,
-   `price_inr`, `handle`
-2. **A brand config YAML** (`brands/{slug}.yaml`) declaring display name, colours, tagline,
-   sizing system, PDP URL template, and suggestion chips
-3. **A GCS bucket path** (`INDEX_STORE_URI`) where the pre-built FAISS + BM25 indices live
-
-Two reference configs ship in the repo:
-
-| Brand slug | Description |
-|---|---|
-| `hm` | H&M — bundled demo, EU sizing, Kaggle dataset |
-| `sample_in` | Desi Drip — Indian brand template, IN sizing, sample feed |
-
-For a step-by-step guide to onboarding a new brand (catalogue prep, index build, Cloud Run
-deploy), see **[CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md)**.
+See **[BRANDS.md](BRANDS.md)** for the full reference sheet including Buy-CTA URL verification and
+instructions for adding any new Shopify brand.
 
 ---
 
-## Motivation
+## Quick Start (under 10 minutes)
 
-Modern recommender systems surface items efficiently but offer no conversational affordance — users can't refine results, compare options, or ask follow-up questions without resorting to faceted filters. This project explores whether an LLM-orchestrated agent can make a fashion catalogue feel like a conversation with a knowledgeable shop assistant: understanding vague queries, handling multi-turn refinement, comparing items, and suggesting complementary pieces.
+Runs the **Snitch** demo — no external credentials needed except a free Groq API key.
 
-Built entirely on consumer hardware with open-source tooling.
-
----
-
-## Demo
-
-Screenshots to be added.
-
-| Natural-language search with card UI | Multi-turn refinement + compare | Outfit bundling |
-|---|---|---|
-| ![](docs/screenshots/01-search.png) | ![](docs/screenshots/02-compare.png) | ![](docs/screenshots/03-outfit.png) |
-
----
-
-## Features
-
-| Feature | Example |
-|---|---|
-| Natural-language search | "show me something for a beach wedding, not too formal" |
-| Multi-turn refinement | "something more casual" / "in blue instead" |
-| Facet filtering | "only black ones" → applies `colour_group_name: Black` |
-| Item comparison | "compare the first two you showed me" |
-| Outfit bundling | "style this with accessories" / "build an outfit around it" |
-| Card UI with images | Thumbnail, metadata caption, expandable description per result |
-| One-click card actions | **More like this** and **Style this** buttons per card |
-| Prompt chips | Quick-start suggestions on a fresh session |
-
----
-
-## Architecture
-
-```text
-User input
-    │
-    ▼
-┌────────────────────────────────────────────────────────┐
-│                    LangGraph Agent                     │
-│                                                        │
-│  START ──▶ router ──┬──▶ search  ──────────────────┐  │
-│         (LLM)      ├──▶ compare ──────────────────┤  │
-│                    ├──▶ filter  ──────────────────┤  │
-│                     ├──▶ outfit  ───────────────▶ END  │
-│                     ├──▶ clarify ───────────────▶ END  │
-│                     └──▶ respond ───────────────▶ END  │
-│                ▲                                    │  │
-│                └──────────── (loop) ────────────────┘  │
-└────────────────────────────────────────────────────────┘
-           │                        │
-     HybridRetriever             Groq LLM
-   (FAISS + BM25 / RRF)    (llama-3.1-8b-instant)
-           │
-    ConversationMemory
-    (6-turn rolling window)
-```
-
-### Components
-
-| Layer | Implementation |
-|---|---|
-| **LLM** | Groq `llama-3.1-8b-instant` (Space) · Ollama `llama3.1:8b` (local dev) |
-| **Dense retrieval** | FAISS `IndexFlatIP` · `all-MiniLM-L6-v2` (384-dim cosine) |
-| **Sparse retrieval** | BM25Okapi over cleaned product descriptions |
-| **Fusion** | Reciprocal Rank Fusion (k=60) over ranked dense + sparse lists |
-| **Agent loop** | LangGraph `StateGraph` — 6-iteration cap + deterministic loop guard |
-| **Outfit tool** | Rule-based complement selection with colour-compatibility heuristic |
-| **Memory** | Last 6 turns injected into the router prompt each iteration |
-| **UI** | Single-process Streamlit · `st.write_stream()` for token-by-token streaming |
-
-### Router
-
-The LLM router formats conversation history, last tool used, retrieved item count, and active filters
-into a structured prompt and parses one JSON action object. Parameter extraction (search query, filter
-key/value, article IDs) is done by the LLM directly.
-
-Control flow has two enforcement layers:
-
-1. **OOC short-circuit** — out-of-catalogue queries bypass the router and force `search → OOC canned response`
-2. **Code-level guard in `route_decision()`** — after `search` or `compare` with non-empty `retrieved_items`, forces `respond` regardless of router output (eliminates 6-iteration loops)
-
-### Outfit bundling
-
-`suggest_outfit()` classifies the seed item (dress → jacket + accessories; bottom → top + outerwear;
-top → bottoms + outerwear), runs two complement searches, then post-filters by colour compatibility:
-neutral seeds/complements (black, white, grey, beige) are universally compatible; non-neutral seeds
-prefer same-palette complements, falling back to best relevance match if none found.
-
----
-
-## Tech Stack
-
-| Component | Library |
-|---|---|
-| Agent framework | LangGraph StateGraph |
-| Dense retrieval | FAISS IndexFlatIP + sentence-transformers/all-MiniLM-L6-v2 |
-| Sparse retrieval | rank_bm25 (BM25Okapi) |
-| Fusion | Reciprocal Rank Fusion (k=60) |
-| LLM (production) | Groq API + LLaMA 3.1 8B |
-| LLM (local dev) | Ollama + LLaMA 3.1 8B |
-| UI | Streamlit (single-process) |
-| Deployment | HuggingFace Spaces (CPU basic) |
-
----
-
-## Evaluation
-
-A 32-query automated test suite covering 6 categories: colour, occasion, season, style, negation, and tool behaviour. Each query has programmatic pass criteria evaluated without manual review.
-
-| Category | Queries | Notes |
-|---|---|---|
-| Colour | 5 | Exact colour match in retrieval |
-| Occasion | 5 | Date night, beach, office, brunch, garden party |
-| Season | 5 | Winter outerwear, summer light, autumn layers |
-| Style | 5 | Minimalist, smart-casual, feminine, loungewear, basics |
-| Negation | 5 | "not black", "no shorts", "other than dresses" |
-| Tool behaviour | 7 | Compare, outfit, filter, OOC detection, gender facets |
-
-During evaluation, the style category surfaced a colour-tone matching issue: queries like "minimalist wardrobe in neutral tones" returned items the LLM considered tonally compatible but which fell outside a strict neutral palette. The fix: CIELAB ΔE 2000 colour-distance scoring — items are accepted if their perceptual colour distance from the neutral palette is within a configurable threshold, rather than requiring exact colour name matches. This approach mirrors how human perception works and is more robust to catalogue vocabulary variation.
-
-**32-query eval suite (LLM router, Groq):**
-
-| Category | Queries | Result |
-|---|---|---|
-| Colour | 5 | 5/5 |
-| Occasion | 5 | 5/5 |
-| Season | 5 | 5/5 |
-| Style | 5 | 5/5 |
-| Negation | 5 | 5/5 |
-| Tool behaviour | 7 | 7/7 |
-| **Total** | **32** | **32/32 (100%)** |
-
-Detailed results: [`reports/eval_baseline_groq.md`](reports/eval_baseline_groq.md)
-
-Run with:
-
-```bash
-python scripts/eval_harness.py --provider groq --router llm
-```
-
----
-
-## Corpus
-
-**Live Space:** 1,800-item subset of the
-[H&M Personalized Fashion Recommendations](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations)
-dataset, selected by purchase count. Product images resized to 300 px JPEG-75.
-
-**Local:** Full 20,000-article sample (no images). Rebuild indices with
-`python scripts/01_build_retrieval.py`.
-
----
-
-## Setup
-
-### Local dev (Ollama)
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/gaurav-gandhi-2411/agentic-shopping-assistant
 cd agentic-shopping-assistant
 pip install -r requirements.txt
-
-# Pull local model
-ollama pull llama3.1:8b
-
-# H&M demo brand (default — BRAND=hm):
-# Download articles.csv from Kaggle -> data/hm/articles.csv
-python scripts/01_build_retrieval.py          # builds indices for hm brand (~2 min on CPU)
-
-# Indian brand demo (BRAND=sample_in):
-# Uses the bundled sample feed at data/samples/in_feed.csv
-python scripts/01_build_retrieval.py --brand sample_in
-
-# Verify end-to-end
-python scripts/02_smoke_test.py
-
-# Launch (H&M demo brand)
-BRAND=hm streamlit run spaces/app.py
-
-# Launch (Indian brand demo)
-BRAND=sample_in streamlit run spaces/app.py
 ```
 
-### HuggingFace Space deploy
+### 2. Configure your Groq API key
 
 ```bash
-# 1. Build Space-optimised 1800-item subset + resized images (one-time)
-python scripts/03_build_image_subset.py
-
-# 2. Upload data artifacts to the Space repo
-python spaces/upload_artifacts.py --repo <user>/<space> --space
-
-# 3. Deploy code (clone-overlay flow)
-DEPLOY=$(mktemp -d)
-git clone https://huggingface.co/spaces/<user>/<space> "$DEPLOY"
-cp spaces/app.py "$DEPLOY/app.py"
-cp config.yaml  "$DEPLOY/config.yaml"
-cp -r src/. "$DEPLOY/src/"          # note: src/. not src/ -- avoids nested src/src/
-git -C "$DEPLOY" add -A
-git -C "$DEPLOY" commit -m "deploy"
-git -C "$DEPLOY" push
+cp .env.example .env
 ```
 
-Set `GROQ_API_KEY` as a Space secret (`Settings -> Variables and secrets`).
+Open `.env` and make two changes:
+
+```
+GROQ_API_KEY=gsk_...       # your key from console.groq.com (free, no credit card)
+LLM_PROVIDER=groq          # uncomment this line to use Groq instead of Ollama
+```
+
+### 3. Download the Snitch catalogue and build the retrieval index
+
+```bash
+python scripts/download_shopify.py --domain snitch.co.in   # ~30 s, live public API
+python scripts/01_build_retrieval.py --brand snitch --sample 0  # ~4 min on CPU
+```
+
+### 4. Start the backend
+
+```bash
+JWT_VERIFICATION_DISABLED=true BRAND=snitch uvicorn api.main:app --reload
+# → Uvicorn running on http://127.0.0.1:8080
+```
+
+### 5. Start the frontend (new terminal)
+
+```bash
+cd frontend
+cp .env.local.example .env.local    # no edits needed for local dev
+npm install
+npm run dev
+# → Ready on http://localhost:3000
+```
+
+### 6. Open and try it
+
+Open **http://localhost:3000** and type one of the suggestion chips, or try:
+
+> *"Oversized streetwear shirts under ₹1500"*
+
+Every product card shows a real INR price and a **Buy** button that opens the live Snitch product
+page. Multi-turn refinement, comparisons, and outfit bundling all work the same way.
+
+**One-command shortcut** (after running `make install` once):
+
+```bash
+make demo BRAND=snitch
+```
 
 ---
 
-## Project Structure
+## Brand switching
 
-```text
-agentic-shopping-assistant/
-├── config.yaml
-├── requirements.txt
-├── src/
-│   ├── agents/
-│   │   ├── graph.py
-│   │   ├── router.py            # LLMRouterBackend
-│   │   ├── state.py
-│   │   └── tools.py
-│   ├── retrieval/
-│   │   ├── dense_search.py
-│   │   ├── sparse_search.py
-│   │   └── hybrid_search.py
-│   ├── llm/client.py
-│   ├── memory/conversation.py
-│   └── catalogue/loader.py
-├── scripts/
-│   ├── 01_build_retrieval.py
-│   ├── 02_smoke_test.py
-│   ├── 03_build_image_subset.py
-│   ├── train_router_distilbert.py
-│   ├── build_router_dataset_v3_1.py   # dataset builder (base-query-level split)
-│   ├── generate_contrastive_v3_1.py   # contrastive pair generation for V3.1
-│   ├── eval_harness.py                # 32-query automated test suite
-│   └── eval_queries.yaml              # query definitions and pass criteria
-├── reports/                     # eval results (JSON + Markdown)
-├── tests/
-└── spaces/
-    ├── app.py
-    ├── upload_artifacts.py
-    └── README.md
+To switch brands, change `BRAND=` and point to that brand's pre-built index:
+
+```bash
+BRAND=fashor uvicorn api.main:app --reload
+```
+
+Each brand is defined by a single file, `brands/{slug}.yaml`, which sets the display name,
+theme colours, tagline, currency, sizing system, PDP URL template, and suggestion chips. The
+Docker image ships all brand configs; only the `BRAND=` environment variable and `INDEX_STORE_URI`
+differ between Cloud Run deployments.
+
+**Adding a Shopify brand takes under 10 minutes:**
+
+```bash
+python scripts/download_shopify.py --domain yourbrand.com
+cp brands/snitch.yaml brands/yourbrand.yaml   # edit display_name, colours, pdp_url_template
+python scripts/01_build_retrieval.py --brand yourbrand --sample 0
+BRAND=yourbrand uvicorn api.main:app --reload
+```
+
+Full guide — Shopify auto-ingestion, CSV-based ingestion, Cloud Run deploy:
+**[CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md)**
+
+---
+
+## Architecture
+
+```
+Browser (Next.js 15)
+    │  WebSocket /chat/stream  +  REST /conversations/*
+    ▼
+FastAPI (api/)  ── Supabase RS256 JWT auth ── PostgresSessionStore
+    │
+    ▼
+LangGraph StateGraph
+  router_node → search / compare / filter / outfit / clarify / respond
+       │                                        │
+       ▼                                        ▼
+HybridRetriever                            Groq LLM
+(FAISS IndexFlatIP + BM25Okapi / RRF)  (llama-3.1-8b-instant)
+       │
+ConversationMemory (6-turn rolling window, Postgres-backed)
+```
+
+The router uses a two-layer control flow: an LLM router classifies intent and a code-level guard
+in `route_decision()` enforces deterministic transitions after search/compare nodes return results,
+eliminating 6-iteration loops without relying on prompt instructions.
+
+### Tech stack
+
+| Layer | Choice |
+|---|---|
+| Agent framework | LangGraph StateGraph |
+| Dense retrieval | FAISS `IndexFlatIP` + `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
+| Sparse retrieval | `rank_bm25` (BM25Okapi) |
+| Fusion | Reciprocal Rank Fusion (k=60) |
+| LLM | Groq `llama-3.1-8b-instant` (swap via `config.yaml`; Ollama supported for local dev) |
+| API | FastAPI + uvicorn, streaming WebSocket |
+| Frontend | Next.js 15, TanStack Query, Tailwind CSS |
+| Auth | Supabase RS256 JWT (bypassable in dev via `JWT_VERIFICATION_DISABLED=true`) |
+| Deployment | Google Cloud Run (API) + Vercel (frontend) |
+
+**Detailed deploy:** [DEPLOY.md](DEPLOY.md)  
+**Brand onboarding:** [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md)
+
+---
+
+## Tests
+
+```bash
+pytest -m "not requires_ollama"
+# → 106 passed, ~50 skipped, 0 errors
+```
+
+Tests that need pre-built index files skip automatically on a fresh checkout. Run
+`python scripts/01_build_retrieval.py --brand snitch --sample 0` first to un-skip them.
+
+**Eval suite (57 queries):** colour, occasion, season, style, negation, tool behaviour, 20 golden-path
+queries, and 5 multi-product queries. Run with:
+
+```bash
+python -m eval.run --provider groq
 ```
 
 ---
 
 ## Known limitations
 
-- Minor UX quirks — on rare occasions, "More like this" and "Style this" buttons require a second click due to Streamlit render timing; follow-up queries with very short prompts can occasionally surface overlapping items with the prior turn.
-- **Static catalogue** — the index is pre-built; new items require a full re-index and re-upload.
-- **Colour filter precision** — the router maps natural-language colour terms to exact catalogue
-  values (`"navy"` → `"Dark Blue"`). If the LLM picks an invalid value, the filter is silently
-  dropped and search runs unfiltered.
-- **Outfit suggestions are heuristic** — complement categories and colour matching are rule-based,
-  not learned from co-purchase data. Results are plausible but not fashion-expert quality.
-- **Single-session memory** — conversation history lives in Streamlit session state and resets on
-  page refresh or Space restart.
-- **1,800-item Space corpus** — the live demo runs on a purchase-count-selected subset for startup
-  speed; the full 20,000-item index is available locally.
-
----
-
-## What I learned
-
-**Deterministic code guards outperform prompt rules for agent control flow.**
-The router prompt had a STRICT RULE: after a search that returns results, output `respond`.
-The 8B model followed it roughly 70% of the time; on refinement queries it kept re-searching
-for all six iterations before hitting the hard cap. One line in `route_decision()` —
-`if last_tool in {"search", "compare"} and retrieved_items: return "respond"` — fixed it
-completely. For anything structurally important (loop termination, error containment), write a
-code-level guard; don't rely on a prompt instruction to hold under all inputs.
-
-**Semantic similarity doesn't model "I've already seen these."**
-`"something more casual"` after `"show me summer dresses"` returned the same five dresses, because
-`cosine("casual summer dresses", "summer dresses") ≈ 0.99` in MiniLM's embedding space.
-The fix required explicit refinement detection (does the new query mention the dominant product
-type of prior results?), fetching a 3× candidate pool on refinement turns, then excluding prior
-article IDs. Retrieval systems don't intrinsically model user history — that's application logic.
-
-**Two-phase graph + stream is the right Streamlit pattern.**
-Running the full LangGraph graph first (all routing and tool calls, no LLM response) then streaming
-the final answer with `st.write_stream()` gives predictable progress indicators and avoids
-partial-state problems that arise when streaming mid-graph. The cost is that the "Searching..."
-spinner blocks until tool calls finish (~1-2 s), but for a shopping assistant that sequence is
-natural — the user expects results before commentary.
-
-**`on_click` callbacks, not `pending_query + st.rerun()`, for injecting queries from buttons.**
-Setting `session_state.pending_query` then calling `st.rerun()` inside a button handler sets the
-value *after* `st.session_state.pop("pending_query", None)` has already run at the top of the same
-render pass, requiring two clicks. `on_click=callback` fires the callback *before* Streamlit reruns
-the script, so the value is already present when the script reads it — single click, no extra rerun,
-no flag needed.
-
-**Small models fabricate plausible-but-wrong catalogue values.**
-`llama3.1:8b` routinely output `colour_group_name: "Lightweight"` or `product_type_name:
-"Breathable"` — syntactically valid filter JSON, but values absent from the catalogue. Every
-downstream filtered search returned zero results with no visible error. The fix: build a set of
-valid values per facet at graph-construction time and silently reject out-of-vocabulary values
-in the filter node, falling back to an unfiltered search. Defence in depth over prompt instruction.
-
-**Perceptual colour distance (CIELAB ΔE 2000) beats exact string matching for tonal queries.**
-The ST1 query ("Minimalist wardrobe pieces in neutral tones") failed with an exact-name check because
-the reranker returned items like "Light Pink" (ΔE 24.2 from White) — tonally correct but not in
-the palette string list. Switching to CIE ΔE 2000 with a 25-unit threshold correctly accepts
-near-neutral colours and rejects non-neutrals (Greenish Khaki, ΔE 46 from any neutral). The
-`colour-science` library provides `sRGB_to_XYZ → XYZ_to_Lab → delta_E(method="CIE 2000")` in three
-lines; the eval check mirrors the ≥50% threshold used by the existing `colour_match` check.
-
-**Building an evaluation harness is more valuable than fixing bugs ad-hoc.**
-Before the harness, every "fix" felt subjective ("does it work better now?"). After: 32 programmatic
-criteria with pass/fail signal. The harness caught 5 specific failures with clear root causes
-(negation handling, OOC bypass, baby-item leakage, facet vocabulary confusion), and guided targeted
-fixes for each. In production, this kind of evaluation pipeline is what separates
-"ship it" from "we hope it works."
-
-**HuggingFace Spaces has non-obvious deployment traps.**
-`git subtree split --prefix=spaces` pushes `spaces/*` to the Space root but leaves `src/` behind —
-the app imports `src.*` and breaks on startup with a generic `ModuleNotFoundError`. The clone-overlay
-flow (clone Space repo → copy `src/` alongside `app.py` → push) is more explicit and repeatable.
-A second trap: `cp -r src "$DEPLOY/src"` when `$DEPLOY/src/` already exists creates
-`$DEPLOY/src/src/`; `cp -r src/. "$DEPLOY/src/"` copies contents only.
+- **Static catalogue snapshot** — the index is a point-in-time snapshot of the catalogue.
+  New products require a re-download, re-index, and container restart. There is no live stock
+  feed or real-time price sync.
+- **Link-out checkout, no cart** — the Buy CTA opens the brand's product page in a new tab.
+  The assistant does not integrate with a cart, payment processor, or inventory system.
+- **Single-session memory without a database** — conversation history resets on page refresh
+  unless `DATABASE_URL` is set in `.env`. With Supabase configured, sessions persist across
+  restarts.
+- **Outfit suggestions are heuristic** — complement categories and colour matching are rule-based
+  (see `src/agents/tools.py`), not trained from co-purchase data. Results are plausible but not
+  fashion-expert quality.
 
 ---
 

@@ -144,10 +144,16 @@ async def lifespan(app: FastAPI):
     if os.environ.get("LLM_PROVIDER"):
         config["llm"]["provider"] = os.environ["LLM_PROVIDER"]
 
-    logger.info("Loading retrieval indices from %s", _DATA_DIR)
-    df = pd.read_parquet(_DATA_DIR / "catalogue.parquet")
-    dense = DenseRetriever.load(config, _DATA_DIR)
-    sparse = SparseRetriever.load(config, _DATA_DIR)
+    from src.retrieval.index_store import ensure_index_dir
+
+    _brand = os.environ.get("BRAND", "hm")
+    _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
+    index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
+
+    logger.info("Loading retrieval indices from %s", index_dir)
+    df = pd.read_parquet(index_dir / "catalogue.parquet")
+    dense = DenseRetriever.load(config, index_dir)
+    sparse = SparseRetriever.load(config, index_dir)
     retriever = HybridRetriever(dense, sparse, df, config)
     n_vectors = dense.index.ntotal if dense.index is not None else 0
     logger.info("Retrieval ready: %d items, %d dense vectors", len(df), n_vectors)

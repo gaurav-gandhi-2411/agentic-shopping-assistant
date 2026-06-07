@@ -141,12 +141,15 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JWT_VERIFICATION_DISABLED", raising=False)
     # Allow all emails by default; individual tests can tighten this.
     monkeypatch.setattr(auth_module, "_check_allowlist", lambda email: True)
+    # Raise rate limit high so tests never trip the sliding-window limiter.
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "10000")
 
 
 @pytest.fixture
 def client() -> TestClient:
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    # Instantiate without context manager so the lifespan is never triggered
+    # and no real index files are required.
+    yield TestClient(app, raise_server_exceptions=True)
 
 
 # ---------------------------------------------------------------------------

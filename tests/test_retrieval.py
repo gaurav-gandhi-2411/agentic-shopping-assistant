@@ -15,6 +15,8 @@ from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.hybrid_search import HybridRetriever
 from src.retrieval.sparse_search import SparseRetriever
 
+pytestmark = pytest.mark.requires_index
+
 SAVE_DIR = Path("data/processed")
 
 

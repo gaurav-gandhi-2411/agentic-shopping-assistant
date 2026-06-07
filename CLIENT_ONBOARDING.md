@@ -209,8 +209,8 @@ environment variables — no code changes needed.
 
 | Variable | Value | Notes |
 |---|---|---|
-| `BRAND` | `{your-brand-slug}` | Must match the filename in `brands/` (without `.yaml`) |
-| `INDEX_STORE_URI` | `gs://{bucket}/{brand}/` | GCS path to the uploaded indices |
+| `BRAND` | `{your-brand-slug}` | Must match the filename in `brands/` (without `.yaml`). See [BRANDS.md](BRANDS.md) for all available slugs. |
+| `INDEX_STORE_URI` | `gs://{bucket}/{brand}/` | GCS path to the uploaded indices. Also accepts a local path (`data/processed/{brand}/`) for dev. |
 | `GROQ_API_KEY` | `gsk_...` | Groq API key for LLM calls |
 | `DATABASE_URL` | `postgresql://...` | Postgres connection string for session storage |
 | `SUPABASE_URL` | `https://....supabase.co` | Supabase project URL |
@@ -250,6 +250,22 @@ path, and separate env vars. The Docker image is shared.
 
 After the service is live, run these checks:
 
+**Unit test suite:**
+
+Run the backend unit tests on a fresh checkout (no pre-built index files required):
+
+```bash
+pytest -m "not requires_ollama"
+```
+
+A clean result on a fresh checkout looks like:
+
+```
+106 passed, 50 skipped, 0 errors, 0 failures
+```
+
+Tests that need pre-built FAISS/BM25 indices skip automatically when those files are absent (the test suite detects their absence via `tests/conftest.py`). Tests marked `requires_ollama` skip when Ollama is not running. Both sets run normally in a local environment after you run `python scripts/01_build_retrieval.py`.
+
 **Health probes:**
 
 ```bash
@@ -276,7 +292,184 @@ Open the frontend and verify:
 
 ---
 
-## 9. Updating Your Catalogue
+## 9. Worked Example: Myntra Fashion Catalogue
+
+This section walks through a complete ingestion of the [Myntra Fashion Product Dataset](https://www.kaggle.com/datasets/hiteshsuthar101/myntra-fashion-product-dataset) from Kaggle, serving as a concrete reference implementation for any Indian D2C brand.
+
+### Step 1: Download the dataset
+
+```bash
+pip install kaggle   # one-time; configure ~/.kaggle/kaggle.json first
+python scripts/download_myntra.py
+```
+
+The script downloads and unzips the dataset to `data/raw/myntra/`. Check the printed filename and verify it matches `catalogue_path` in `brands/myntra.yaml` (default: `data/raw/myntra/Myntra Fashion Products.csv`).
+
+### Step 2: The brand config
+
+`brands/myntra.yaml` is already included in the repo:
+
+```yaml
+display_name: "Myntra"
+primary_colour: "#FF3F6C"    # Myntra brand pink
+accent_colour:  "#282C3F"    # Myntra dark navy
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+catalogue_path: "data/raw/myntra/Myntra Fashion Products.csv"
+pdp_url_template: "{handle}"  # handle = full Myntra URL → direct product link
+```
+
+### Step 3: Build the full index
+
+```bash
+python scripts/01_build_retrieval.py --brand myntra
+```
+
+For a prospect-specific demo, narrow the index to a single brand:
+
+```bash
+# Single brand
+python scripts/01_build_retrieval.py --brand myntra --brand-filter "Snitch"
+
+# Curated streetwear preset (Snitch + Bewakoof + The Souled Store + Bonkers Corner)
+python scripts/01_build_retrieval.py --brand myntra --brand-preset streetwear
+```
+
+Indices land in `data/processed/myntra/`.
+
+### Step 4: Run locally
+
+```bash
+BRAND=myntra JWT_VERIFICATION_DISABLED=true uvicorn api.main:app --reload
+```
+
+The assistant now serves Myntra products with:
+- Real INR prices (no synthetic values)
+- Working `price_min` / `price_max` filtering
+- "Buy" CTAs that open actual Myntra product pages
+
+### Column mapping reference
+
+| Myntra CSV column | Internal field | Notes |
+|---|---|---|
+| `title` | `prod_name` | Product display name |
+| `price` | `price_inr` | Cleaned from "₹1,299" → 1299.0 |
+| `color` | `colour_group_name` | Title-cased |
+| `sub_category` | `product_type_name` | Falls back to `category` |
+| `description` | `detail_desc` | Drives semantic search |
+| `image_urls` | `image_url` | First URL extracted |
+| `url` | `pdp_handle` | Full Myntra URL |
+| `brand_name` | (filter only) | Used by `--brand-filter` / `--brand-preset` |
+
+---
+
+## 10. Shopify Stores (Automatic Ingestion)
+
+Any brand running Shopify with a public `/products.json` endpoint can be onboarded without
+any custom ETL code. The `download_shopify.py` script handles discovery, pagination, and
+normalisation into the standard catalogue schema.
+
+### How it works
+
+Shopify exposes a read-only public API at `https://{domain}/products.json`. The script:
+
+1. **Checks `robots.txt`** before fetching — skips if `/products.json` is disallowed.
+2. **Probes** `?limit=1` to verify the endpoint is a real Shopify store (returns JSON with a `"products"` key containing `"handle"` fields).
+3. **Paginates** using `?page=N&limit=250` until the response is empty or the 60-page cap (15 000 items) is reached. Pauses 500 ms between pages.
+4. **Normalises** each product to the standard catalogue schema and saves as a CSV.
+
+The output CSV uses the same column names as a manually prepared feed (Section 3), so the
+generic adapter and build script work without any additional configuration.
+
+### Step 1: Download
+
+```bash
+python scripts/download_shopify.py --domain yourbrand.com
+```
+
+Output: `data/raw/shopify/yourbrand/products.csv`
+
+The script prints a summary: total products, top categories, and price range.
+
+### Step 2: Create a brand config
+
+```bash
+cp brands/snitch.yaml brands/yourbrand.yaml
+```
+
+Edit the fields:
+
+```yaml
+display_name: "Your Brand Name"
+primary_colour: "#HEX"
+accent_colour: "#HEX"
+tagline: "Brand tagline"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+catalogue_path: "data/raw/shopify/yourbrand/products.csv"
+pdp_url_template: "https://yourbrand.com/products/{handle}"
+suggestion_chips:
+  - "Query 1"
+  - "Query 2"
+  - "Query 3"
+  - "Query 4"
+```
+
+The `{handle}` placeholder is replaced per product with the Shopify product handle (the slug
+from the store's URL, e.g. `slim-fit-linen-shirt`). The resulting PDP URL matches the exact
+format Shopify uses for product pages.
+
+### Step 3: Build the index
+
+```bash
+python scripts/01_build_retrieval.py --brand yourbrand --sample 0
+```
+
+### Step 4: Verify Buy CTA URLs
+
+Pick 3 handles from the CSV and confirm HTTP 200:
+
+```bash
+python - << 'EOF'
+import requests, pandas as pd
+df = pd.read_csv("data/raw/shopify/yourbrand/products.csv")
+for _, row in df.head(3).iterrows():
+    url = f"https://yourbrand.com/products/{row['handle']}"
+    print(url, requests.get(url, timeout=10).status_code)
+EOF
+```
+
+### Schema mapping
+
+| Shopify product field | CSV column | Internal field |
+|---|---|---|
+| `id` | `id` | `article_id` |
+| `title` | `title` | `prod_name` |
+| `product_type` | `type` | `product_type_name` |
+| `vendor` | `brand` | (filter only — `--brand-filter`) |
+| `body_html` (stripped) | `description` | `detail_desc` |
+| `variants[0].price` | `price_inr` | `price_inr` |
+| `images[0].src` | `image_url` | `image_url` |
+| `handle` | `handle` | `pdp_handle` |
+
+### Probe results for known Indian D2C brands
+
+| Domain | Status | Notes |
+|---|---|---|
+| snitch.co.in | ✓ 15 000 products | Men's streetwear |
+| powerlook.in | ✓ 927 products | Men's smart casual |
+| fashor.com | ✓ 3 618 products | Women's ethnic + western |
+| virgio.com | ✓ 1 810 products | Women's sustainable fashion |
+| bewakoof.com | ✗ 404 | `/products.json` not found |
+| thesouledstore.com | ✗ Not Shopify | Returns HTML, not Shopify API |
+| bonkerscorner.com | ✗ Timeout | Server unreachable |
+| damensch.com | ✗ 404 | `/products.json` not found |
+
+---
+
+## 11. Updating Your Catalogue
 
 Catalogue updates do not require a new Docker image build or a code deploy. The update cycle is:
 

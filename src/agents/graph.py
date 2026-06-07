@@ -564,7 +564,10 @@ def build_graph(
         # LLM-emitted values like "dresses" or "jumpsuit" hit the catalogue.
         remapped: dict[str, str] = {}
         for fk, fv in merged.items():
-            new_fk, new_fv = _FILTER_REMAP.get((fk, fv.lower()), (fk, fv))
+            # Only string filter values participate in _FILTER_REMAP; numeric values
+            # (price_min, price_max) pass through unchanged.
+            lookup_key = (fk, fv.lower()) if isinstance(fv, str) else None
+            new_fk, new_fv = _FILTER_REMAP.get(lookup_key, (fk, fv)) if lookup_key else (fk, fv)
             remapped[new_fk] = new_fv
         merged = remapped
 

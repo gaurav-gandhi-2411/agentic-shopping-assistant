@@ -137,6 +137,7 @@ def test_default_router_is_llm_only():
 # Max iterations cap (mock LLM, always returns search)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requires_index
 def test_agent_max_iterations_cap(config, retriever, catalogue_df):
     # LLM always asks to search — agent must terminate with a final answer.
     # The respond guard (search+results → respond) fires before the iteration cap,
@@ -175,6 +176,7 @@ def _make_counting_memory(llm, config):
     return ConversationMemory(llm, config)
 
 
+@pytest.mark.requires_index
 def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
     """After search returns items, the ALR LLM call is skipped (fast-path fires)."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
@@ -197,6 +199,7 @@ def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
     )
 
 
+@pytest.mark.requires_index
 def test_fast_path_compare_skips_alr(config, retriever, catalogue_df):
     """After compare node runs, the ALR LLM call is skipped (fast-path fires)."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
@@ -233,6 +236,7 @@ def test_fast_path_compare_skips_alr(config, retriever, catalogue_df):
     )
 
 
+@pytest.mark.requires_index
 def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
     """With AGENT_LOOP_FAST_PATH=false the ALR LLM call is NOT skipped."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "false"
@@ -257,6 +261,7 @@ def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
         os.environ["AGENT_LOOP_FAST_PATH"] = "true"
 
 
+@pytest.mark.requires_index
 def test_filter_then_search_hits_llm_router(config, retriever, catalogue_df):
     """filter→search is non-trivial: the ALR must call the LLM to generate the search query."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"

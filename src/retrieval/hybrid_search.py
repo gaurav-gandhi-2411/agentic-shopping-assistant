@@ -115,7 +115,7 @@ class HybridRetriever:
                 "product_type": facets.get("product_type_name", ""),
                 "department": facets.get("department_name", ""),
                 "detail_desc": row["detail_desc"],
-                "image_url": row.get("image_url", ""),
+                "image_url": _img if isinstance(_img := row.get("image_url"), str) and _img else None,
                 "score": score,
                 "price_inr": (
                     float(row["price_inr"])

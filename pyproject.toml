@@ -1,6 +1,7 @@
 [tool.pytest.ini_options]
 markers = [
     "requires_ollama: marks tests that require a running Ollama instance (deselect with -m 'not requires_ollama')",
+    "requires_index: marks tests that require pre-built retrieval index files (deselect with -m 'not requires_index')",
 ]
 
 [tool.ruff]
