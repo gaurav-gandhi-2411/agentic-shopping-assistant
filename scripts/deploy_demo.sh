@@ -51,7 +51,10 @@ for brand in snitch myntra flipkart; do
   gcloud storage cp -r "data/processed/${brand}" "gs://${GCS_BUCKET}/${brand}/"
 done
 
-# Common Cloud Run flags
+# Shared env vars (excluding BRAND and INDEX_STORE_URI which are per-service)
+COMMON_ENV="DEMO_MODE=true,LLM_PROVIDER=groq,GROQ_API_KEY=${GROQ_API_KEY},DEMO_JWT_SECRET=${DEMO_JWT_SECRET},DATABASE_URL=${DATABASE_URL},SUPABASE_URL=${SUPABASE_URL},CORS_ORIGINS=${CORS_ORIGINS},SENTRY_DSN=${SENTRY_DSN}"
+
+# Common Cloud Run flags (no --set-env-vars here — each deploy call builds a single merged string)
 CR_FLAGS=(
   --image="${IMAGE}"
   --region="${GAR_REGION}"
@@ -61,26 +64,25 @@ CR_FLAGS=(
   --cpu=1
   --concurrency=4
   --timeout=300
-  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,GROQ_API_KEY=${GROQ_API_KEY},DEMO_JWT_SECRET=${DEMO_JWT_SECRET},DATABASE_URL=${DATABASE_URL},SUPABASE_URL=${SUPABASE_URL},CORS_ORIGINS=${CORS_ORIGINS},SENTRY_DSN=${SENTRY_DSN}"
 )
 
 echo "=== Step 6: Deploy snitch (min-instances=1, flagship) ==="
 gcloud run deploy asa-snitch \
   "${CR_FLAGS[@]}" \
   --min-instances=1 \
-  --set-env-vars="BRAND=snitch,INDEX_STORE_URI=gs://${GCS_BUCKET}/snitch/"
+  --set-env-vars="BRAND=snitch,INDEX_STORE_URI=gs://${GCS_BUCKET}/snitch/,${COMMON_ENV}"
 
 echo "=== Step 7: Deploy myntra (min-instances=0, scale-to-zero) ==="
 gcloud run deploy asa-myntra \
   "${CR_FLAGS[@]}" \
   --min-instances=0 \
-  --set-env-vars="BRAND=myntra,INDEX_STORE_URI=gs://${GCS_BUCKET}/myntra/"
+  --set-env-vars="BRAND=myntra,INDEX_STORE_URI=gs://${GCS_BUCKET}/myntra/,${COMMON_ENV}"
 
 echo "=== Step 8: Deploy flipkart (min-instances=0, scale-to-zero) ==="
 gcloud run deploy asa-flipkart \
   "${CR_FLAGS[@]}" \
   --min-instances=0 \
-  --set-env-vars="BRAND=flipkart,INDEX_STORE_URI=gs://${GCS_BUCKET}/flipkart/"
+  --set-env-vars="BRAND=flipkart,INDEX_STORE_URI=gs://${GCS_BUCKET}/flipkart/,${COMMON_ENV}"
 
 echo ""
 echo "=== Deployment complete ==="
