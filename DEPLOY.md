@@ -1,21 +1,24 @@
-# Deployment Guide — Google Cloud Run
+# Deployment Guide — Cloud Run + Vercel
 
-This guide deploys the Shopping Assistant **API** container to Google Cloud Run
-(region: `asia-south1`, ≥2 GB RAM, min-instances=1).
+## Architecture
 
-The **Next.js frontend** is deployed separately to Vercel. See the `frontend/SETUP.md`
-for Vercel deploy instructions.
+Three Cloud Run services (one per brand: `asa-snitch`, `asa-myntra`, `asa-flipkart`) run in
+`asia-south1` from a single Docker image, differentiated by the `BRAND` env var. All services
+scale-to-zero except `asa-snitch` (min-instances=1, flagship demo). Retrieval indices are loaded
+from a shared GCS bucket at container startup, so index refreshes don't require a Docker rebuild.
+The Next.js frontend is deployed to Vercel and talks to each backend service directly.
 
 ---
 
 ## Prerequisites
 
-- [gcloud CLI](https://cloud.google.com/sdk/docs/install) installed and authenticated
-  (`gcloud auth login`, `gcloud auth configure-docker`)
+- `gcloud` CLI installed and authenticated (`gcloud auth login`)
 - Docker installed locally
+- Vercel CLI installed (`npm i -g vercel`)
 - A GCP project with the following APIs enabled:
   - Cloud Run (`run.googleapis.com`)
   - Artifact Registry (`artifactregistry.googleapis.com`)
+  - Cloud Storage (`storage.googleapis.com`)
 - An Artifact Registry Docker repository (create once):
   ```bash
   gcloud artifacts repositories create shopping-assistant \
@@ -23,242 +26,205 @@ for Vercel deploy instructions.
     --location=asia-south1 \
     --description="Shopping Assistant API images"
   ```
+- A GCS bucket for retrieval indices (create once):
+  ```bash
+  gcloud storage buckets create gs://$GCS_BUCKET --location=asia-south1
+  ```
+- A Supabase project with the demo schema migration applied (see "Database migration" below)
 
 ---
 
 ## Environment variables
 
-### Required at runtime
+### Backend (set on each Cloud Run service)
 
-| Variable | Purpose |
+| Variable | Required | Value / Notes |
+|---|---|---|
+| `BRAND` | Yes | `snitch`, `myntra`, or `flipkart` — selects brand config at startup |
+| `DEMO_MODE` | Yes | `true` — enables demo rate-limiting and session endpoints |
+| `GROQ_API_KEY` | Yes | Groq inference API key |
+| `DEMO_JWT_SECRET` | Yes | Random 32-byte hex secret for demo session tokens |
+| `DATABASE_URL` | Yes | Supabase Postgres connection string (`postgresql://...`) |
+| `SUPABASE_URL` | Yes | `https://<ref>.supabase.co` |
+| `CORS_ORIGINS` | Yes | Comma-separated allowed origins; must include the Vercel deployment URL |
+| `INDEX_STORE_URI` | Yes | `gs://<bucket>/<brand>/` — GCS path to FAISS index + catalogue parquet |
+| `LLM_PROVIDER` | Yes | `groq` |
+| `SENTRY_DSN` | No | Sentry project DSN; omit to disable error reporting |
+
+### Vercel (set in Vercel project settings or via `vercel env add`)
+
+| Variable | Value |
 |---|---|
-| `BRAND` | Selects the brand config shipped in the image (`hm` for H&M demo, `sample_in` for India sample) |
-| `GROQ_API_KEY` | LLM inference (Groq) |
-| `DATABASE_URL` | Postgres connection string |
+| `NEXT_PUBLIC_SNITCH_BACKEND_URL` | Cloud Run URL for `asa-snitch` |
+| `NEXT_PUBLIC_MYNTRA_BACKEND_URL` | Cloud Run URL for `asa-myntra` |
+| `NEXT_PUBLIC_FLIPKART_BACKEND_URL` | Cloud Run URL for `asa-flipkart` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
+| `NEXT_PUBLIC_BACKEND_URL` | Same as `NEXT_PUBLIC_SNITCH_BACKEND_URL` (fallback for authenticated path) |
+
+---
+
+## Database migration
+
+Run once before first deploy (or after any schema change):
+
+```bash
+DATABASE_URL=<url> alembic upgrade head
+```
+
+This creates the `demo_rate_limits` and `demo_daily_stats` tables required by the demo
+rate-limiting middleware.
+
+---
+
+## Build & push Docker image
+
+```bash
+GCP_PROJECT="your-gcp-project-id"
+GAR_REGION="asia-south1"
+GAR_REPO="shopping-assistant"
+IMAGE_NAME="asa-api"
+IMAGE_TAG="$(git rev-parse --short HEAD)"
+IMAGE="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT}/${GAR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Authenticate Docker to Artifact Registry
+gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet
+
+# Build
+docker build -t "${IMAGE}" .
+
+# Push
+docker push "${IMAGE}"
+```
+
+---
+
+## Deploy Cloud Run services
+
+All three services use the same image. `asa-snitch` keeps one warm instance for the flagship
+demo; `asa-myntra` and `asa-flipkart` scale to zero.
+
+```bash
+CORS_ORIGINS="https://your-project.vercel.app,http://localhost:3000"
+GCS_BUCKET="your-gcs-bucket-name"
+
+# Shared flags
+COMMON="--image=${IMAGE} --region=${GAR_REGION} --platform=managed --allow-unauthenticated \
+  --memory=2Gi --cpu=1 --concurrency=4 --timeout=300"
+
+# snitch — flagship, keep one instance warm
+gcloud run deploy asa-snitch \
+  ${COMMON} \
+  --min-instances=1 \
+  --set-env-vars="BRAND=snitch,DEMO_MODE=true,LLM_PROVIDER=groq,\
+GROQ_API_KEY=${GROQ_API_KEY},DEMO_JWT_SECRET=${DEMO_JWT_SECRET},\
+DATABASE_URL=${DATABASE_URL},SUPABASE_URL=${SUPABASE_URL},\
+CORS_ORIGINS=${CORS_ORIGINS},INDEX_STORE_URI=gs://${GCS_BUCKET}/snitch/"
+
+# myntra — scale-to-zero
+gcloud run deploy asa-myntra \
+  ${COMMON} \
+  --min-instances=0 \
+  --set-env-vars="BRAND=myntra,DEMO_MODE=true,LLM_PROVIDER=groq,\
+GROQ_API_KEY=${GROQ_API_KEY},DEMO_JWT_SECRET=${DEMO_JWT_SECRET},\
+DATABASE_URL=${DATABASE_URL},SUPABASE_URL=${SUPABASE_URL},\
+CORS_ORIGINS=${CORS_ORIGINS},INDEX_STORE_URI=gs://${GCS_BUCKET}/myntra/"
+
+# flipkart — scale-to-zero
+gcloud run deploy asa-flipkart \
+  ${COMMON} \
+  --min-instances=0 \
+  --set-env-vars="BRAND=flipkart,DEMO_MODE=true,LLM_PROVIDER=groq,\
+GROQ_API_KEY=${GROQ_API_KEY},DEMO_JWT_SECRET=${DEMO_JWT_SECRET},\
+DATABASE_URL=${DATABASE_URL},SUPABASE_URL=${SUPABASE_URL},\
+CORS_ORIGINS=${CORS_ORIGINS},INDEX_STORE_URI=gs://${GCS_BUCKET}/flipkart/"
+```
+
+---
+
+## Upload indices to GCS
+
+Run once per brand after building indices locally (`make build-index BRAND=<brand>`):
+
+```bash
+GCS_BUCKET="your-gcs-bucket-name"
+
+gcloud storage cp -r data/processed/snitch    gs://${GCS_BUCKET}/snitch/
+gcloud storage cp -r data/processed/myntra    gs://${GCS_BUCKET}/myntra/
+gcloud storage cp -r data/processed/flipkart  gs://${GCS_BUCKET}/flipkart/
+```
+
+The container loads the index from `INDEX_STORE_URI` at startup. Re-upload and restart
+the service (`gcloud run services update --region=asia-south1 asa-<brand>`) to refresh
+indices without a Docker rebuild.
+
+---
+
+## Deploy Vercel frontend
+
+```bash
+cd frontend
+vercel --prod
+```
+
+Set the six `NEXT_PUBLIC_*` environment variables (see table above) in the Vercel project
+settings dashboard or via CLI before the final production deploy:
+
+```bash
+vercel env add NEXT_PUBLIC_SNITCH_BACKEND_URL   production
+vercel env add NEXT_PUBLIC_MYNTRA_BACKEND_URL   production
+vercel env add NEXT_PUBLIC_FLIPKART_BACKEND_URL production
+vercel env add NEXT_PUBLIC_SUPABASE_URL         production
+vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY    production
+vercel env add NEXT_PUBLIC_BACKEND_URL          production
+```
+
+---
+
+## CORS configuration
+
+Each Cloud Run service's `CORS_ORIGINS` env var must include the Vercel deployment URL.
+After Vercel gives you a permanent URL (e.g. `https://asa-demo.vercel.app`), update all
+three services:
+
+```bash
+VERCEL_URL="https://asa-demo.vercel.app"
+
+for svc in snitch myntra flipkart; do
+  gcloud run services update asa-${svc} \
+    --region=asia-south1 \
+    --update-env-vars="CORS_ORIGINS=${VERCEL_URL},http://localhost:3000"
+done
+```
+
+Also update the `DEMO_CORS_ORIGINS` GitHub secret so future CI deploys use the correct
+origins (see "CI/CD" below).
+
+---
+
+## CI/CD
+
+The workflow at `.github/workflows/deploy-demo.yml` automates the full build-push-deploy
+cycle. It triggers on manual dispatch (`workflow_dispatch`) and accepts optional inputs:
+`brands` (space-separated, default `snitch myntra flipkart`) and `image_tag`.
+
+Authentication uses Workload Identity Federation (WIF) — no service account key JSON is
+stored as a secret. Required GitHub secrets:
+
+| Secret | Description |
+|---|---|
+| `GCP_PROJECT_ID` | GCP project ID |
+| `WIF_PROVIDER` | WIF provider resource name |
+| `WIF_SERVICE_ACCOUNT` | Deploy service account email |
+| `GROQ_API_KEY` | Groq API key |
+| `DEMO_JWT_SECRET` | Demo session token secret |
+| `DATABASE_URL` | Supabase Postgres connection string |
 | `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_ANON_KEY` | Supabase anon/public key |
-| `SUPABASE_SERVICE_KEY` | Supabase service-role key (bypasses RLS for server-side ops) |
+| `GCS_BUCKET` | GCS bucket name (index storage) |
+| `DEMO_CORS_ORIGINS` | Comma-separated allowed origins |
 
-### Optional
-
-| Variable | Purpose |
-|---|---|
-| `INDEX_STORE_URI` | GCS URI (`gs://bucket/path/`) from which retrieval indices are loaded at boot. When unset, the container falls back to the indices baked into the image. |
-| `JWT_VERIFICATION_DISABLED` | Set to `true` to skip JWT verification (dev/demo only — never in production). |
-| `SENTRY_DSN` | Sentry project DSN for error reporting. Omit to disable. |
-
-### BRAND= and multi-brand images
-
-All `brands/*.yaml` config files ship inside every image — no rebuild is needed
-to switch brands.  Set `BRAND=<brand_slug>` and the container loads the matching
-config at startup.
-
-| `BRAND` value | Description |
-|---|---|
-| `hm` | H&M fashion demo catalogue |
-| `sample_in` | India sample catalogue |
-| `snitch` | Snitch — men's streetwear (live Shopify) |
-| `powerlook` | Powerlook — men's smart casual (live Shopify) |
-| `fashor` | Fashor — women's ethnic + western (live Shopify) |
-| `virgio` | Virgio — women's sustainable fashion (live Shopify) |
-| `myntra` | Myntra — multi-brand (Kaggle dataset) |
-| `flipkart` | Flipkart — multi-category fashion (Kaggle dataset) |
-
-Any brand slug in `brands/` can be used. See [BRANDS.md](BRANDS.md) for the full
-reference sheet and per-brand quick-start commands.
-
-### INDEX_STORE_URI
-
-When `INDEX_STORE_URI` is set (e.g. `gs://my-bucket/indices/snitch/`), the container
-downloads the FAISS index and catalogue parquet from GCS at startup rather than
-using baked-in files. This allows index updates without a Docker rebuild.
-Leave unset during local development; set the path to `data/processed/{brand}/`
-to use locally built indices.
-
----
-
-## Health probes
-
-Cloud Run requires probes to determine container health:
-
-| Probe | Endpoint | Expected response |
-|---|---|---|
-| **Startup** | `GET /healthz` | `200 {"status": "ok"}` |
-| **Readiness / Liveness** | `GET /readyz` | `200 {"status": "ready", ...}` when indices are loaded, `503` until ready |
-
-`/healthz` returns immediately with no dependency checks — suitable as the
-startup probe.  `/readyz` checks the retriever, catalogue, and LLM client;
-use it as the liveness probe once the container has started.
-
-**Recommended startup probe timeout:** 120 s.  The sentence-transformers model
-load takes ~30 s; the FAISS index load adds more time on cold start.
-
----
-
-## Quick deploy steps
-
-### 1 — Build the image
+To trigger a deploy from the CLI:
 
 ```bash
-# Set your GCP project and image tag
-PROJECT_ID=<your-gcp-project-id>
-REGION=asia-south1
-REPO=shopping-assistant
-IMAGE=$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/api
-
-docker build -t $IMAGE:latest .
+gh workflow run deploy-demo.yml --field brands="snitch"
 ```
-
-### 2 — Push to Artifact Registry
-
-```bash
-docker push $IMAGE:latest
-```
-
-### 3 — Deploy to Cloud Run
-
-```bash
-gcloud run deploy shopping-assistant-api \
-  --image $IMAGE:latest \
-  --region $REGION \
-  --memory 2Gi \
-  --cpu 1 \
-  --min-instances 1 \
-  --max-instances 5 \
-  --concurrency 1 \
-  --timeout 300 \
-  --set-env-vars "BRAND=hm" \
-  --set-secrets "GROQ_API_KEY=groq-api-key:latest,DATABASE_URL=database-url:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_ANON_KEY=supabase-anon-key:latest,SUPABASE_SERVICE_KEY=supabase-service-key:latest" \
-  --port 8080 \
-  --no-allow-unauthenticated
-```
-
-> **Why `--concurrency 1`?**  The API maintains in-memory session state (conversation
-> history, agent loop).  Multiple concurrent requests on the same instance would
-> race on that state.  Use concurrency=1 and let Cloud Run autoscale instances
-> instead.
-
-> **Secrets:** The `--set-secrets` flag maps Google Secret Manager secrets to
-> environment variables.  Create each secret once with
-> `gcloud secrets create <name> --data-file=-`.
-
-### 4 — Configure health probes (Cloud Run v2 YAML — optional but recommended)
-
-After the initial deploy, apply probe configuration via the Cloud Run service
-YAML (`gcloud run services replace`) or through the GCP console:
-
-```yaml
-# Startup probe — fast check, long timeout
-startupProbe:
-  httpGet:
-    path: /healthz
-  initialDelaySeconds: 10
-  periodSeconds: 10
-  failureThreshold: 12   # 12 × 10 s = 120 s total window
-  timeoutSeconds: 5
-
-# Liveness probe — deeper check after startup
-livenessProbe:
-  httpGet:
-    path: /readyz
-  periodSeconds: 30
-  failureThreshold: 3
-  timeoutSeconds: 10
-```
-
----
-
-## Smoke tests
-
-Replace `<SERVICE_URL>` with the URL printed by `gcloud run deploy`.
-
-```bash
-SERVICE_URL=$(gcloud run services describe shopping-assistant-api \
-  --region asia-south1 --format "value(status.url)")
-
-# Startup probe
-curl -s $SERVICE_URL/healthz
-# → {"status":"ok"}
-
-# Readiness probe (200 when indices loaded, 503 while loading)
-curl -s $SERVICE_URL/readyz
-# → {"status":"ready","checks":{"retriever":"ok (20,000 vectors)","catalogue":"ok (20,000 items)","llm":"ok"},"auth_enabled":true}
-```
-
-WebSocket smoke test with [wscat](https://github.com/websockets/wscat):
-
-```bash
-wscat -c wss://<service-url>/chat/stream
-> {"type":"user_message","message":"show me blue jackets","conversation_id":null}
-< {"type":"session","conversation_id":"<uuid>"}
-< {"type":"routing","decision":{"action":"search","query":"blue jackets"}}
-< {"type":"tool_start","tool":"search"}
-< {"type":"items","items":[...]}
-< {"type":"token","text":"Here "}
-...
-< {"type":"done","final_state":{...}}
-```
-
----
-
-## Per-brand deployments
-
-The same Docker image handles all brands.  Deploy one Cloud Run service per
-brand, differing only in `BRAND=` and (when A5 is live) `INDEX_STORE_URI=`.
-
-| Service name | `BRAND` | `INDEX_STORE_URI` |
-|---|---|---|
-| `shopping-assistant-hm` | `hm` | `gs://my-bucket/indices/hm/` |
-| `shopping-assistant-snitch` | `snitch` | `gs://my-bucket/indices/snitch/` |
-| `shopping-assistant-fashor` | `fashor` | `gs://my-bucket/indices/fashor/` |
-| `shopping-assistant-{slug}` | `{slug}` | `gs://my-bucket/indices/{slug}/` |
-
-```bash
-# Deploy H&M brand service (reuse the same image tag)
-gcloud run deploy shopping-assistant-hm \
-  --image $IMAGE:latest \
-  --region $REGION \
-  --memory 2Gi \
-  --min-instances 1 \
-  --concurrency 1 \
-  --set-env-vars "BRAND=hm,INDEX_STORE_URI=gs://my-bucket/indices/hm/" \
-  --set-secrets "GROQ_API_KEY=groq-api-key:latest,..." \
-  --no-allow-unauthenticated
-
-# Deploy India sample brand service
-gcloud run deploy shopping-assistant-sample-in \
-  --image $IMAGE:latest \
-  --region $REGION \
-  --memory 2Gi \
-  --min-instances 1 \
-  --concurrency 1 \
-  --set-env-vars "BRAND=sample_in,INDEX_STORE_URI=gs://my-bucket/indices/sample_in/" \
-  --set-secrets "GROQ_API_KEY=groq-api-key:latest,..." \
-  --no-allow-unauthenticated
-```
-
----
-
-## Subsequent deploys
-
-```bash
-docker build -t $IMAGE:latest . && docker push $IMAGE:latest
-
-gcloud run deploy shopping-assistant-hm \
-  --image $IMAGE:latest \
-  --region $REGION
-# Cloud Run performs a zero-downtime rollout; old revision handles traffic
-# until the new revision passes health probes.
-```
-
----
-
-## Scaling notes
-
-- **Memory:** 2 GB is the minimum for sentence-transformers + FAISS. If the
-  container OOMs on startup, increase to 4 GB: `--memory 4Gi`.
-- **CPU:** 1 vCPU is sufficient for sequential (concurrency=1) requests. For
-  lower cold-start latency, set `--cpu-boost` to allocate extra CPU during
-  startup.
-- **Min instances:** Keep at 1 to avoid cold starts in demo/client environments.
-  Set to 0 only if cost matters more than response latency.
