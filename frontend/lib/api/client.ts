@@ -1,14 +1,23 @@
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 import type { ConversationDetail, ConversationSummary, ItemSummary } from "./types"
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    const demoUrl = sessionStorage.getItem("demo_backend_url")
+    if (demoUrl) return demoUrl
+  }
+  return process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+}
 
 // ---------------------------------------------------------------------------
 // Auth helpers
 // ---------------------------------------------------------------------------
 
 async function getToken(): Promise<string> {
+  if (typeof window !== "undefined") {
+    const demoToken = sessionStorage.getItem("demo_session_token")
+    if (demoToken) return demoToken
+  }
   const supabase = createSupabaseClient()
   const {
     data: { session },
@@ -29,7 +38,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 // ---------------------------------------------------------------------------
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const res = await fetch(`${getBackendUrl()}${path}`, {
     ...init,
     headers: { ...(await authHeaders()), ...init.headers },
   })
@@ -97,10 +106,10 @@ export const api = {
 // Fallback path (graceful degradation): if the ticket endpoint fails for any
 // reason we fall back to ?token=<jwt> so the user is never silently blocked.
 export async function getWsUrl(): Promise<string> {
-  const wsBase = BACKEND_URL.replace(/^http/, "ws")
+  const wsBase = getBackendUrl().replace(/^http/, "ws")
 
   try {
-    const res = await fetch(`${BACKEND_URL}/auth/ws-ticket`, {
+    const res = await fetch(`${getBackendUrl()}/auth/ws-ticket`, {
       method: "POST",
       headers: await authHeaders(),
     })
