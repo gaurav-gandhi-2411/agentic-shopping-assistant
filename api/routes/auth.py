@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from api.auth import get_current_user_id, mint_ws_ticket
+from api.auth import get_current_user_id_or_demo, mint_ws_ticket
 
 router = APIRouter(tags=["auth"])
 
 
 @router.post("/auth/ws-ticket")
-async def get_ws_ticket(user_id: str = Depends(get_current_user_id)) -> dict[str, str]:
+async def get_ws_ticket(user_id: str = Depends(get_current_user_id_or_demo)) -> dict[str, str]:
     """Mint a 60-second WebSocket authentication ticket.
 
     Requires a valid Bearer JWT in the Authorization header.  Returns a

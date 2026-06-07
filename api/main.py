@@ -33,6 +33,7 @@ from api.routes.brand import router as brand_router
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
 from api.routes.conversations import router as conversations_router
+from api.routes.demo import router as demo_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 
@@ -174,7 +175,7 @@ async def lifespan(app: FastAPI):
     logger.info("LangSmith tracing %s", "enabled" if tracing else "disabled")
 
     session_store, db_engine = _build_session_store(llm, config)
-    deps._init(retriever, df, llm, config, session_store=session_store)
+    deps._init(retriever, df, llm, config, session_store=session_store, db_engine=db_engine)
 
     # Wire defense-in-depth allow-list checker when a DB is available.
     if db_engine is not None:
@@ -192,6 +193,22 @@ async def lifespan(app: FastAPI):
 
         _auth._check_allowlist = _db_check_allowlist
         logger.info("Allow-list DB checker wired (check_email_allowed)")
+
+    # DEMO_MODE startup — init guards and wire cost reporter when active.
+    _demo_mode = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
+    if _demo_mode:
+        from api.demo.guards import init_demo_guards, record_cost
+        if db_engine is not None:
+            init_demo_guards(db_engine, _brand)
+
+        def _demo_cost_reporter(usd_cost: float) -> None:
+            if db_engine is not None:
+                record_cost(_brand, usd_cost, db_engine)
+
+        llm.cost_reporter = _demo_cost_reporter
+        logger.info("DEMO_MODE=true: anonymous session endpoint active (brand=%s)", _brand)
+    else:
+        logger.info("DEMO_MODE=false: authenticated path only")
 
     # Auth status — warn loudly if verification is disabled.
     from api.auth import _is_verification_disabled
@@ -262,6 +279,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(catalogue_router)
+    app.include_router(demo_router)
     app.include_router(feedback_router)
 
     @app.get("/sentry-debug")

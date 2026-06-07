@@ -5,15 +5,16 @@ import asyncio
 import contextvars
 import json
 import logging
+import os
 import threading
 import uuid
 from typing import Any, AsyncIterator
 
 import sentry_sdk
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 import api.deps as deps
-from api.auth import get_current_user_id, get_current_user_id_ws
+from api.auth import get_current_user_id_or_demo, get_current_user_id_ws
 from api.logging_config import conversation_id_var
 from api.rate_limit import get_rate_limiter
 from api.schemas import (
@@ -111,19 +112,46 @@ def _items_from_result(result: dict) -> list[ItemSummary]:
 
 @router.post("/chat", response_model=ChatResponse)
 def post_chat(
+    request: Request,
     body: ChatRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id_or_demo),
 ) -> ChatResponse:
     """Non-streaming chat endpoint.  Full agent round-trip; returns when done."""
-    # Rate limit check — before any work so limit applies to the connection too.
-    limiter = get_rate_limiter()
-    allowed, retry_after = limiter.is_allowed(user_id)
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(retry_after)},
-        )
+    # Rate limit: anonymous demo sessions use Postgres-backed per-IP + daily guards;
+    # authenticated users use the existing in-memory sliding-window limiter.
+    if user_id.startswith("anon:"):
+        client_ip = request.client.host if request.client else "0.0.0.0"
+        _brand = os.environ.get("BRAND", "hm")
+        _engine = deps.get_db_engine()
+        if _engine is not None:
+            from api.demo.guards import (
+                check_daily_cap,
+                check_daily_cost,
+                check_ip_rate_limit,
+                record_request,
+            )
+            ip_allowed, ip_retry = check_ip_rate_limit(client_ip, _brand, _engine)
+            if not ip_allowed:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limit exceeded",
+                    headers={"Retry-After": str(ip_retry)},
+                )
+            if not check_daily_cap(_brand, _engine) or not check_daily_cost(_brand):
+                raise HTTPException(
+                    status_code=429,
+                    detail="Demo limit reached for today — try again tomorrow.",
+                )
+            record_request(_brand, _engine)
+    else:
+        limiter = get_rate_limiter()
+        allowed, retry_after = limiter.is_allowed(user_id)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(retry_after)},
+            )
 
     conversation_id = body.conversation_id or str(uuid.uuid4())
     token = conversation_id_var.set(conversation_id)
@@ -257,18 +285,51 @@ async def ws_chat(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="Policy violation: invalid or missing token")
         return
 
-    # Rate limit check on WS open.
-    limiter = get_rate_limiter()
-    allowed, retry_after = limiter.is_allowed(user_id)
-    if not allowed:
-        await websocket.send_text(
-            WSErrorMessage(
-                message=f"Rate limit exceeded. Retry in {retry_after}s",
-                code="rate_limited",
-            ).model_dump_json()
-        )
-        await websocket.close(code=1008, reason="Rate limit exceeded")
-        return
+    # Rate limit: anonymous demo sessions use Postgres-backed per-IP + daily guards;
+    # authenticated users use the existing in-memory sliding-window limiter.
+    if user_id.startswith("anon:"):
+        client_ip = websocket.client.host if websocket.client else "0.0.0.0"
+        _brand = os.environ.get("BRAND", "hm")
+        _engine = deps.get_db_engine()
+        if _engine is not None:
+            from api.demo.guards import (
+                check_daily_cap,
+                check_daily_cost,
+                check_ip_rate_limit,
+                record_request,
+            )
+            ip_allowed, ip_retry = check_ip_rate_limit(client_ip, _brand, _engine)
+            if not ip_allowed:
+                await websocket.send_text(
+                    WSErrorMessage(
+                        message=f"Rate limit exceeded. Retry in {ip_retry}s",
+                        code="rate_limited",
+                    ).model_dump_json()
+                )
+                await websocket.close(code=1008, reason="Rate limit exceeded")
+                return
+            if not check_daily_cap(_brand, _engine) or not check_daily_cost(_brand):
+                await websocket.send_text(
+                    WSErrorMessage(
+                        message="Demo limit reached for today — try again tomorrow.",
+                        code="demo_limit",
+                    ).model_dump_json()
+                )
+                await websocket.close(code=1008, reason="Demo limit reached")
+                return
+            record_request(_brand, _engine)
+    else:
+        limiter = get_rate_limiter()
+        allowed, retry_after = limiter.is_allowed(user_id)
+        if not allowed:
+            await websocket.send_text(
+                WSErrorMessage(
+                    message=f"Rate limit exceeded. Retry in {retry_after}s",
+                    code="rate_limited",
+                ).model_dump_json()
+            )
+            await websocket.close(code=1008, reason="Rate limit exceeded")
+            return
 
     llm_user_id_var.set(user_id)
     sentry_sdk.set_user({"id": user_id})

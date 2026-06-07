@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
 import re
 import time
 import uuid
-from typing import Iterator, Protocol
+from typing import Callable, Iterator, Protocol
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
@@ -52,6 +54,7 @@ class OllamaClient:
             host=llm_cfg["host"],
             timeout=self.timeout,
         )
+        self.cost_reporter: Callable[[float], None] | None = None
 
     def chat(
         self,
@@ -111,6 +114,8 @@ class OllamaClient:
                     "turn_id": turn_id,
                 })
             )
+            if self.cost_reporter is not None:
+                self.cost_reporter(cost)
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []
@@ -146,6 +151,7 @@ class GroqClient:
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         self._client = _groq_lib.Groq(api_key=api_key)
+        self.cost_reporter: Callable[[float], None] | None = None
 
     def chat(
         self,
@@ -190,6 +196,8 @@ class GroqClient:
                         "turn_id": turn_id,
                     })
                 )
+                if self.cost_reporter is not None:
+                    self.cost_reporter(cost)
                 return resp.choices[0].message.content
             except Exception as exc:
                 attempt += 1
@@ -256,6 +264,8 @@ class GroqClient:
                     "turn_id": turn_id,
                 })
             )
+            if self.cost_reporter is not None:
+                self.cost_reporter(cost)
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []

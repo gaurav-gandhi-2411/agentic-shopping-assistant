@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import jwt as pyjwt
 import pytest

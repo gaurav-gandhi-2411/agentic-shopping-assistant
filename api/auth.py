@@ -278,3 +278,22 @@ def get_current_user_id_ws(websocket: WebSocket) -> str:
         return sub
 
     raise HTTPException(status_code=401, detail="Missing ticket or token query parameter")
+
+
+def get_current_user_id_or_demo(authorization: str = Header(default="")) -> str:
+    """FastAPI dependency — like get_current_user_id, but also accepts HS256 demo
+    session tokens when DEMO_MODE=true.
+
+    When DEMO_MODE=false this function delegates to get_current_user_id() with
+    byte-for-byte identical behaviour — the same 401 paths, same allowlist check,
+    same JWT verification.  The only difference is when DEMO_MODE=true AND the
+    Bearer token decodes successfully as a demo token (type == "demo").
+    """
+    if os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes"):
+        if authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+            from api.demo.session import validate_demo_token
+            anon_id = validate_demo_token(token)
+            if anon_id is not None:
+                return anon_id
+    return get_current_user_id(authorization)
