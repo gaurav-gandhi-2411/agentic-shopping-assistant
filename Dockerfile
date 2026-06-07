@@ -28,6 +28,7 @@ RUN apt-get purge -y --auto-remove build-essential \
 COPY src/ ./src/
 COPY api/ ./api/
 COPY config.yaml .
+COPY brands/ ./brands/
 
 # Indices are loaded from GCS at startup via INDEX_STORE_URI.
 # Create the empty directory so ensure_index_dir can write into it.

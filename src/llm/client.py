@@ -233,7 +233,9 @@ class GroqClient:
                 temperature=temperature if temperature is not None else self.default_temperature,
                 max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
                 stream=True,
-                stream_options={"include_usage": True},
+                # stream_options is not in the groq SDK's TypedDict; pass via extra_body
+                # so the API returns a usage chunk at the end for cost tracking.
+                extra_body={"stream_options": {"include_usage": True}},
             )
             for chunk in stream:
                 if chunk.choices:
