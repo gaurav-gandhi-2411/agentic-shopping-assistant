@@ -636,7 +636,7 @@ def build_graph(
         seen_prod: set[tuple[str, str]] = set()
         deduped: list[dict] = []
         for item in items_out:
-            key = (normalize_prod_name(item.get("prod_name", item["display_name"])), item["colour"].lower())
+            key = (normalize_prod_name(item.get("prod_name", item["display_name"])), (item.get("colour") or "").lower())
             if key not in seen_prod:
                 seen_prod.add(key)
                 deduped.append(item)
@@ -645,7 +645,7 @@ def build_graph(
             for item in candidates:
                 if len(deduped) >= top_k:
                     break
-                key = (normalize_prod_name(item.get("prod_name", item["display_name"])), item["colour"].lower())
+                key = (normalize_prod_name(item.get("prod_name", item["display_name"])), (item.get("colour") or "").lower())
                 if item["article_id"] not in seen_ids_dedup and key not in seen_prod:
                     seen_prod.add(key)
                     deduped.append(item)

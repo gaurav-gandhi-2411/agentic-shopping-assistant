@@ -25,12 +25,12 @@ class ItemSummary(BaseModel):
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":
         return cls(
-            article_id=item.get("article_id", ""),
-            prod_name=item.get("prod_name", ""),
-            display_name=item.get("display_name", ""),
-            colour=item.get("colour", ""),
-            product_type=item.get("product_type", ""),
-            department=item.get("department", ""),
+            article_id=item.get("article_id") or "",
+            prod_name=item.get("prod_name") or "",
+            display_name=item.get("display_name") or "",
+            colour=item.get("colour") or "",
+            product_type=item.get("product_type") or "",
+            department=item.get("department") or "",
             image_url=item.get("image_url") or None,
             detail_desc=item.get("detail_desc") or None,
             score=item.get("score"),
