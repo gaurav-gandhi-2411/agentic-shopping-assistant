@@ -6,21 +6,23 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # CONFIGURATION — fill these in before running
 # ---------------------------------------------------------------------------
-GCP_PROJECT="your-gcp-project-id"
+GCP_PROJECT="aetherart-497918"
 GAR_REGION="asia-south1"           # Artifact Registry region (also Cloud Run region)
 GAR_REPO="shopping-assistant"       # Artifact Registry repository name
 IMAGE_NAME="asa-api"
 IMAGE_TAG="$(git rev-parse --short HEAD)"
 IMAGE="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT}/${GAR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-GCS_BUCKET="your-gcs-bucket-name"
+GCS_BUCKET="asa-demo-indices-aetherart"
 
-GROQ_API_KEY=""           # Required: your Groq API key
-DEMO_JWT_SECRET=""        # Required: random secret, e.g. openssl rand -hex 32
-DATABASE_URL=""           # Required: Supabase Postgres connection string (postgresql://...)
-SUPABASE_URL=""           # Required: https://<ref>.supabase.co
-VERCEL_URL=""             # Required: https://<project>.vercel.app (set after first Vercel deploy)
-SENTRY_DSN=""             # Optional
+# Secrets — read from env so they are never baked into this file.
+# Export them before running: export GROQ_API_KEY=... DEMO_JWT_SECRET=... DATABASE_URL=...
+GROQ_API_KEY="${GROQ_API_KEY:-}"
+DEMO_JWT_SECRET="${DEMO_JWT_SECRET:-}"
+DATABASE_URL="${DATABASE_URL:-}"
+SUPABASE_URL="https://gtvbficptamgtfyyitth.supabase.co"
+VERCEL_URL="${VERCEL_URL:-}"       # Set after first Vercel deploy (or export before running)
+SENTRY_DSN="${SENTRY_DSN:-}"      # Optional
 
 # ---------------------------------------------------------------------------
 # Validation
