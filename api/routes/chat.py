@@ -38,6 +38,11 @@ from src.llm.context import llm_user_id_var
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
+# In-memory session store for anonymous demo users.
+# Keyed on conversation_id; accumulates until container restart (fine for ephemeral demos).
+# Avoids passing anon:uuid user IDs to PostgresSessionStore which expects real UUIDs.
+_DEMO_SESSIONS: dict[str, dict] = {}
+
 
 # ---------------------------------------------------------------------------
 # Session-state helpers
@@ -166,7 +171,11 @@ def post_chat(
     config = deps.get_config()
 
     try:
-        session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
+        _is_anon = user_id.startswith("anon:")
+        if _is_anon:
+            session = _DEMO_SESSIONS.get(conversation_id) or _fresh_session(llm, config)
+        else:
+            session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
 
         memory = session["_memory"]
         factory = deps.get_agent_factory()
@@ -181,7 +190,10 @@ def post_chat(
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
         _persist_result(session, result)
-        store.set(conversation_id, session, user_id)
+        if _is_anon:
+            _DEMO_SESSIONS[conversation_id] = session
+        else:
+            store.set(conversation_id, session, user_id)
 
         tool_calls: list[dict] = result.get("tool_calls", [])
         routing = _extract_routing(tool_calls)
@@ -369,7 +381,11 @@ async def ws_chat(websocket: WebSocket) -> None:
         store: SessionStore = deps.get_session_store()
         llm = deps.get_llm()
         config = deps.get_config()
-        session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
+        _is_anon_ws = user_id.startswith("anon:")
+        if _is_anon_ws:
+            session = _DEMO_SESSIONS.get(conversation_id) or _fresh_session(llm, config)
+        else:
+            session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
 
         factory = deps.get_agent_factory()
         agent = factory(session["_memory"], streaming=True)
@@ -488,13 +504,16 @@ async def ws_chat(websocket: WebSocket) -> None:
         # 8. Persist session and send done
         # ------------------------------------------------------------------
         _persist_result(session, result)
-        store.set(conversation_id, session, user_id)
+        if _is_anon_ws:
+            _DEMO_SESSIONS[conversation_id] = session
+        else:
+            store.set(conversation_id, session, user_id)
 
         # Fetch the persisted assistant message UUID so the frontend can
         # submit feedback.  Only available when PostgresSessionStore is in use;
         # returns None for InMemorySessionStore (no-op feedback buttons).
         last_message_id: str | None = None
-        if hasattr(store, "get_last_assistant_message_id"):
+        if not _is_anon_ws and hasattr(store, "get_last_assistant_message_id"):
             try:
                 last_message_id = store.get_last_assistant_message_id(conversation_id)
             except Exception as _mid_exc:
