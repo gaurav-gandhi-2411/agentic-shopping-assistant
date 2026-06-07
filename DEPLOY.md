@@ -4,7 +4,7 @@
 
 Three Cloud Run services (one per brand: `asa-snitch`, `asa-myntra`, `asa-flipkart`) run in
 `asia-south1` from a single Docker image, differentiated by the `BRAND` env var. All services
-scale-to-zero except `asa-snitch` (min-instances=1, flagship demo). Retrieval indices are loaded
+scale-to-zero (min-instances=0). Retrieval indices are loaded
 from a shared GCS bucket at container startup, so index refreshes don't require a Docker rebuild.
 The Next.js frontend is deployed to Vercel and talks to each backend service directly.
 
