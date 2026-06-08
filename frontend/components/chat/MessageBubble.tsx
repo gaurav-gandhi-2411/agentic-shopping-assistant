@@ -8,19 +8,10 @@ import { cn } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/api/types"
 import { api } from "@/lib/api/client"
 import { ItemCard } from "./ItemCard"
-import { OutfitBoard } from "./OutfitBoard"
 
 interface Props {
   message: ChatMessage
   onSend?: (text: string) => void
-  /** Brand id from the demo session (e.g. "snitch", "myntra"). Passed to OutfitBoard. */
-  brand?: string
-  /**
-   * True only for the most recent assistant message. Suggestion chips are only
-   * rendered here — clicking a chip from an older turn would resend a stale
-   * refinement against a look that has since moved on.
-   */
-  isLatestAssistant?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +75,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
 // MessageBubble
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Props) {
+export function MessageBubble({ message, onSend }: Props) {
   const isUser = message.role === "user"
 
   return (
@@ -97,23 +88,14 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
       {/* Text bubble */}
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
+          "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
           isUser
             ? "bg-primary text-primary-foreground rounded-br-sm"
             : "bg-muted text-foreground rounded-bl-sm"
         )}
       >
         {isUser ? (
-          <>
-            {message.content}
-            {message.imageUrl && (
-              <img
-                src={message.imageUrl}
-                alt="Uploaded"
-                className="h-20 w-auto rounded-md object-cover mt-1"
-              />
-            )}
-          </>
+          message.content
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -154,67 +136,13 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
       </div>
 
       {/* Product cards (assistant messages only) */}
-      {!isUser && message.items.length > 0 && (() => {
-        const isOutfit = message.items.some((it) => it.slot_role != null)
-        if (isOutfit) {
-          const seed = message.items.find((it) => it.slot_role === "seed")
-          return (
-            <div className="w-full max-w-[85%]">
-              <OutfitBoard
-                items={message.items}
-                lookId={message.lookId}
-                occasion={message.occasion}
-                lookGender={message.lookGender}
-                budgetTotalInr={message.budgetTotalInr}
-                outfitRationale={message.outfitRationale}
-                outfitVariants={message.outfitVariants}
-                cartUrl={message.cartUrl}
-                itemLinks={message.itemLinks}
-                suppressedSlots={message.suppressedSlots}
-                lookRole={message.lookRole}
-                lookTitle={message.lookTitle}
-                coordinatedWith={message.coordinatedWith}
-                anchorImageUrl={message.anchorImageUrl}
-                sessionId={message.id}
-                anchorItemId={seed?.article_id ?? ""}
-                anchorCategory={seed?.product_type ?? ""}
-                brand={brand}
-                onSend={onSend}
-              />
-            </div>
-          )
-        }
-        // Full-width responsive grid: the old max-w-[80%] two-column cap left
-        // ~60% of a desktop viewport empty with giant cards (sweep 2026-07-10, P2-9).
-        return (
-          <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {message.items.map((item) => (
-              <ItemCard key={item.article_id} item={item} onSend={onSend} />
-            ))}
-          </div>
-        )
-      })()}
-
-      {/* Backend-suggested follow-up chips — latest assistant message only, so a
-          click always applies to the current (not a stale) look/turn. */}
-      {!isUser &&
-        isLatestAssistant &&
-        !message.isStreaming &&
-        onSend &&
-        message.suggestionChips != null &&
-        message.suggestionChips.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 max-w-[85%]">
-            {message.suggestionChips.map((chip, i) => (
-              <button
-                key={`${chip}-${i}`}
-                onClick={() => onSend(chip)}
-                className="rounded-full border border-champagne/40 bg-background text-xs px-3 py-1 text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
-        )}
+      {!isUser && message.items.length > 0 && (
+        <div className="w-full max-w-[80%] grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {message.items.map((item) => (
+            <ItemCard key={item.article_id} item={item} onSend={onSend} />
+          ))}
+        </div>
+      )}
 
       {/* Feedback buttons (assistant messages with a persisted DB id only) */}
       {!isUser && !message.isStreaming && message.dbId !== null && (

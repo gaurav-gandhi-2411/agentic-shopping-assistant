@@ -4,17 +4,7 @@ from pathlib import Path
 import faiss
 import numpy as np
 import pandas as pd
-import tqdm
-
-# tqdm's TMonitor background thread bootstraps/tears down a lock on every
-# progress-bar instantiation, and SentenceTransformer.encode() creates one
-# internally even when show_progress_bar=False.  Setting monitor_interval=0
-# disables the monitor thread entirely (documented tqdm switch) — this must
-# happen before sentence_transformers is imported/used so its internal tqdm
-# usage picks up the disabled monitor.
-tqdm.tqdm.monitor_interval = 0
-
-from sentence_transformers import SentenceTransformer  # noqa: E402
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +29,7 @@ class DenseRetriever:
             texts,
             batch_size=batch_size,
             normalize_embeddings=True,
-            show_progress_bar=False,
+            show_progress_bar=True,
         )
         embeddings = embeddings.astype(np.float32)
 
@@ -81,7 +71,7 @@ class DenseRetriever:
 
     def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
         query_vec = self.model.encode(
-            [query], normalize_embeddings=True, show_progress_bar=False
+            [query], normalize_embeddings=True
         ).astype(np.float32)
         scores, indices = self.index.search(query_vec, top_k)
         results = []

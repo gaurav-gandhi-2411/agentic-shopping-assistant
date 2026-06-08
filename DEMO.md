@@ -31,7 +31,7 @@ Set these at GitHub → Settings → Secrets and variables → Actions → Repos
 | `DATABASE_URL` | Supabase Postgres connection string (`postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres`) |
 | `SUPABASE_URL` | `https://<ref>.supabase.co` |
 | `GCS_BUCKET` | GCS bucket name used for index storage (no `gs://` prefix) |
-| `DEMO_CORS_ORIGINS` | Single comma-free allowed origin — the canonical Vercel URL. **Must not contain commas**: gcloud `--set-env-vars` treats every comma as an env-var separator, which silently corrupts a multi-origin value. Set to `https://stylemaitri.vercel.app`. |
+| `DEMO_CORS_ORIGINS` | Comma-separated allowed origins — set after step 8 when the Vercel URL is known; placeholder: `http://localhost:3000` |
 
 ---
 
@@ -71,21 +71,19 @@ gcloud storage cp -r data/processed/flipkart/  gs://$GCS_BUCKET/flipkart/
 
 ### 3. Build, push, and deploy to Cloud Run
 
-**Unified service (current deployment target, `asa-stylist-api`):**
-
-```bash
-pwsh scripts/deploy_backend.ps1
-```
-
-See DEPLOY.md, "Deploy backend (unified service)", for the full gotcha list (traffic
-pinning, env-block replacement). There is no CI/GitHub Actions deploy path — the workflow
-that used to cover this was removed 2026-07-09; see DEPLOY.md "CI/CD" for why.
-
-**Per-brand legacy path** (fill in variables first):
+**Option A — local script** (fill in variables first):
 
 ```bash
 bash scripts/deploy_demo.sh
 ```
+
+**Option B — GitHub Actions** (preferred for CI-tracked deploys):
+
+```bash
+gh workflow run deploy-demo.yml --field brands="snitch myntra flipkart"
+```
+
+Or via the GitHub UI: Actions → "Deploy Demo (Cloud Run + Vercel)" → Run workflow.
 
 ---
 
@@ -149,29 +147,26 @@ vercel --prod
 
 ### 7. Update CORS_ORIGINS on Cloud Run services
 
-The canonical Vercel URL is `https://stylemaitri.vercel.app`. Set `CORS_ORIGINS` to this
-single origin — **do not add commas** (e.g. `,http://localhost:3000`). gcloud's
-`--set-env-vars` treats every comma as an env-var separator; a multi-origin value silently
-corrupts the env block.
+After Vercel assigns a permanent URL (e.g. `https://asa-demo.vercel.app`):
 
 ```bash
-VERCEL_URL="https://stylemaitri.vercel.app"
+VERCEL_URL="https://asa-demo.vercel.app"
 
 for svc in snitch myntra flipkart; do
   gcloud run services update asa-$svc \
     --region asia-south1 \
-    --update-env-vars CORS_ORIGINS="${VERCEL_URL}"
+    --update-env-vars CORS_ORIGINS="${VERCEL_URL},http://localhost:3000"
 done
 ```
 
-Also update the `DEMO_CORS_ORIGINS` GitHub secret to the same single-origin value so future
-CI deploys carry the correct origin without a manual patch.
+Also update the `DEMO_CORS_ORIGINS` GitHub secret to the same value so future CI deploys
+carry the correct origins without a manual patch.
 
 ---
 
 ### 8. Smoke-test the public URL
 
-Open `https://stylemaitri.vercel.app/demo` in an incognito browser window. Run through this
+Open `https://asa-demo.vercel.app/demo` in an incognito browser window. Run through this
 checklist:
 
 - [ ] Pick the **Snitch** brand from the brand selector

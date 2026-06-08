@@ -37,15 +37,10 @@ INTERNAL_COLUMNS: list[str] = [
     "size_system",     # str | None — "IN" | "EU" | "alpha"
     "pdp_handle",      # str | None
     "image_url",       # str | None — first product image URL
-    "pdp_live",        # bool | None — True=live, False=dead, None=not checked
-    "gender",           # str: "men" | "women" | "unknown"
-    "type_confidence",  # str: "high" | "medium" | "low" | "unknown"
 ]
 
 # Columns that existed before B2; used for back-compat fill logic
-_LEGACY_COLUMNS: set[str] = set(INTERNAL_COLUMNS) - {
-    "price_inr", "size_system", "pdp_handle", "image_url", "pdp_live", "gender"
-}
+_LEGACY_COLUMNS: set[str] = set(INTERNAL_COLUMNS) - {"price_inr", "size_system", "pdp_handle", "image_url"}
 
 # Default fill values for legacy string columns when the source feed omits them
 _COLUMN_DEFAULTS: dict[str, str] = {
@@ -54,103 +49,7 @@ _COLUMN_DEFAULTS: dict[str, str] = {
     "department_name": "N/A",
     "index_group_name": "N/A",
     "garment_group_name": "N/A",
-    "gender": "unknown",
-    "type_confidence": "unknown",
 }
-
-# ── Colour extraction from product titles ─────────────────────────────────────
-# Deterministic scan: check each phrase (longest first) against the title.
-# Maps to canonical H&M colour_group_name vocabulary so facet filters work.
-# Phrases are sorted longest-first so "dark blue" matches before "blue".
-_COLOUR_PHRASES: list[tuple[str, str]] = sorted(
-    [
-        ("off white", "Off White"),
-        ("off-white", "Off White"),
-        ("dark blue", "Dark Blue"),
-        ("navy blue", "Dark Blue"),
-        ("dark red", "Dark Red"),
-        ("dark green", "Dark Green"),
-        ("dark grey", "Dark Grey"),
-        ("dark gray", "Dark Grey"),
-        ("light blue", "Light Blue"),
-        ("sky blue", "Light Blue"),
-        ("light pink", "Light Pink"),
-        ("baby pink", "Light Pink"),
-        ("powder pink", "Light Pink"),
-        ("light beige", "Light Beige"),
-        ("light grey", "Light Grey"),
-        ("light gray", "Light Grey"),
-        ("silver grey", "Light Grey"),
-        ("navy", "Dark Blue"),
-        ("maroon", "Dark Red"),
-        ("wine", "Dark Red"),
-        ("burgundy", "Dark Red"),
-        ("magenta", "Pink"),
-        ("coral", "Pink"),
-        ("rose", "Pink"),
-        ("peach", "Light Pink"),
-        ("cream", "Off White"),
-        ("ivory", "Off White"),
-        ("beige", "Beige"),
-        ("khaki", "Khaki"),
-        ("olive", "Khaki"),
-        ("mustard", "Yellow"),
-        ("lemon", "Yellow"),
-        ("yellow", "Yellow"),
-        ("orange", "Orange"),
-        ("turquoise", "Turquoise"),
-        ("teal", "Turquoise"),
-        ("mint", "Green"),
-        ("green", "Green"),
-        ("purple", "Purple"),
-        ("lavender", "Purple"),
-        ("violet", "Purple"),
-        ("lilac", "Purple"),
-        ("brown", "Brown"),
-        ("tan", "Brown"),
-        ("camel", "Brown"),
-        ("chocolate", "Brown"),
-        ("black", "Black"),
-        ("white", "White"),
-        ("grey", "Grey"),
-        ("gray", "Grey"),
-        ("silver", "Grey"),
-        ("blue", "Blue"),
-        ("red", "Red"),
-        ("pink", "Pink"),
-        ("multi", None),   # multicoloured → skip (no canonical match)
-        ("print", None),   # "floral print" → skip
-    ],
-    key=lambda t: -len(t[0]),   # longest phrase first
-)
-
-
-def extract_colour_from_title(title: str) -> str | None:
-    """Scan a product title for the first colour keyword; return canonical colour or None.
-
-    Uses a longest-match priority list to avoid 'blue' matching before 'dark blue'.
-    Returns None for multicoloured / printed / unrecognised items.
-    """
-    if not title:
-        return None
-    lower = title.lower()
-    for phrase, canonical in _COLOUR_PHRASES:
-        if phrase in lower:
-            return canonical   # None for "multi"/"print" → caller treats as unknown
-    return None
-
-
-# ── Gender keyword sets ────────────────────────────────────────────────────────
-# Women checked BEFORE men so "women's kurta" doesn't false-match "men" substring
-_GENDER_WOMEN_KEYWORDS: frozenset[str] = frozenset({
-    "saree", "lehenga", "dupatta", "kurti", "anarkali", "sharara",
-    "salwar kameez", "palazzo", "ghagra", "choli",
-    "women", "woman", "ladies", "female", "girl", "girls",
-})
-_GENDER_MEN_KEYWORDS: frozenset[str] = frozenset({
-    "sherwani", "bandhgala",
-    "men", "man", "male", "boys", "boy",
-})
 
 # ── Generic/Shopify column mapping ─────────────────────────────────────────────
 # Each entry: internal_column -> ordered list of candidate source column names.
@@ -170,27 +69,6 @@ _GENERIC_COLUMN_MAP: dict[str, list[str]] = {
     "pdp_handle":               ["handle", "slug", "url"],
     "image_url":                ["image_url", "image_urls", "image"],
 }
-
-
-# ── Gender derivation ──────────────────────────────────────────────────────────
-
-def derive_item_gender(prod_name: str, product_type_name: str, brand_default: str) -> str:
-    """Derive per-item gender via fallback chain.
-
-    1. Name/type keyword scan (women-specific → women; men-specific → men).
-       Check women BEFORE men so "women's kurta" doesn't match "men" inside "women".
-    2. Brand default if not "mixed" or "unknown".
-    3. Return "unknown".
-    """
-    combined = (prod_name + " " + product_type_name).lower()
-    # Women keywords take priority (checked first to avoid "women" matching "men" sub-string)
-    if any(kw in combined for kw in _GENDER_WOMEN_KEYWORDS):
-        return "women"
-    if any(kw in combined for kw in _GENDER_MEN_KEYWORDS):
-        return "men"
-    if brand_default and brand_default.lower() not in ("mixed", "unknown", ""):
-        return brand_default.lower()
-    return "unknown"
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -234,8 +112,7 @@ def adapt_feed(
         out = _adapt_myntra(df, effective_size_system)
     else:
         logger.debug("adapt_feed: detected generic layout (%d rows)", len(df))
-        brand_gender_default: str = getattr(brand_config, "gender_default", "unknown") or "unknown"
-        out = _adapt_generic(df, effective_size_system, brand_gender_default)
+        out = _adapt_generic(df, effective_size_system)
 
     # Guarantee column order and completeness
     out = _ensure_schema(out)
@@ -264,46 +141,12 @@ def _adapt_hm(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
     if "pdp_handle" not in out.columns:
         out["pdp_handle"] = None
     out["size_system"] = size_system  # broadcasts to all rows
-
-    # Derive gender from the already-populated index_group_name
-    def _ig_to_gender(ig: object) -> str:
-        s = str(ig or "").lower()
-        if "menswear" in s or s == "men":
-            return "men"
-        if "ladieswear" in s or "women" in s or "ladies" in s:
-            return "women"
-        return "unknown"
-
-    out["gender"] = out["index_group_name"].apply(_ig_to_gender)
-
-    # Normalise garment_type: run deterministic normalizer and, when confidence
-    # is high or medium, overwrite product_type_name with the canonical garment type.
-    from src.catalogue.normalizer import normalize_garment_type as _normalize  # noqa: PLC0415
-
-    _norm_results = [
-        _normalize(str(n), str(pt))
-        for n, pt in zip(
-            out.get("prod_name", pd.Series(dtype=str)).fillna(""),
-            out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
-        )
-    ]
-    _confident_mask = [r.type_confidence in ("high", "medium") for r in _norm_results]
-    out["product_type_name"] = [
-        r.garment_type if confident else orig
-        for r, confident, orig in zip(_norm_results, _confident_mask, out["product_type_name"])
-    ]
-    out["type_confidence"] = [r.type_confidence for r in _norm_results]
-
     return out
 
 
 # ── Generic/Shopify mapping ────────────────────────────────────────────────────
 
-def _adapt_generic(
-    df: pd.DataFrame,
-    size_system: str | None,
-    brand_gender_default: str = "unknown",
-) -> pd.DataFrame:
+def _adapt_generic(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
     """Map generic feed columns to the internal schema."""
     out = pd.DataFrame(index=df.index)
 
@@ -326,44 +169,8 @@ def _adapt_generic(
     if out["price_inr"].notna().any():
         out["price_inr"] = pd.to_numeric(out["price_inr"], errors="coerce")
 
-    # Extract colour from product title when the feed has no colour column.
-    # Shopify stores embed colour in the product name ("Black Solid Halter Neck...").
-    if out["colour_group_name"].isna().all():
-        out["colour_group_name"] = out["prod_name"].fillna("").apply(extract_colour_from_title)
-
     # Size system — broadcast scalar
     out["size_system"] = size_system
-
-    # Derive per-item gender
-    out["gender"] = [
-        derive_item_gender(
-            str(n or ""),
-            str(pt or ""),
-            brand_gender_default,
-        )
-        for n, pt in zip(
-            out.get("prod_name", pd.Series(dtype=str)).fillna(""),
-            out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
-        )
-    ]
-
-    # Normalise garment_type: run deterministic normalizer and, when confidence
-    # is high or medium, overwrite product_type_name with the canonical garment type.
-    from src.catalogue.normalizer import normalize_garment_type as _normalize  # noqa: PLC0415
-
-    _norm_results = [
-        _normalize(str(n), str(pt))
-        for n, pt in zip(
-            out.get("prod_name", pd.Series(dtype=str)).fillna(""),
-            out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
-        )
-    ]
-    _confident_mask = [r.type_confidence in ("high", "medium") for r in _norm_results]
-    out["product_type_name"] = [
-        r.garment_type if confident else orig
-        for r, confident, orig in zip(_norm_results, _confident_mask, out["product_type_name"])
-    ]
-    out["type_confidence"] = [r.type_confidence for r in _norm_results]
 
     return out
 
@@ -457,20 +264,10 @@ def _adapt_myntra(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
     else:
         out["price_inr"] = None
 
-    # image_url: single URL per product in this dataset.
-    # Upgrade http:// → https:// — Myntra CDN serves over HTTPS; plain HTTP
-    # causes mixed-content blocks when the app is served over HTTPS.
-    def _upgrade_https(v: object) -> str | None:
-        if not pd.notna(v):
-            return None
-        s = str(v).strip()
-        if not s:
-            return None
-        if s.startswith("http://"):
-            s = "https://" + s[7:]
-        return s
-
-    out["image_url"] = df.get("img", pd.Series(dtype=str, index=df.index)).apply(_upgrade_https)
+    # image_url: single URL per product in this dataset
+    out["image_url"] = df.get("img", pd.Series(dtype=str, index=df.index)).apply(
+        lambda v: str(v).strip() if pd.notna(v) and str(v).strip() else None
+    )
 
     # pdp_handle: type-slug/brand-slug/name-slug/id/buy — mirrors real Myntra PDP URLs
     # pdp_url_template in brands/myntra.yaml = "https://www.myntra.com/{handle}"
@@ -483,46 +280,13 @@ def _adapt_myntra(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
         for b, n, pid, pt in zip(brand_src, name_src2, pid_src, pt_src)
     ]
 
-    # Normalise garment_type: run deterministic normalizer and, when confidence
-    # is high or medium, overwrite product_type_name with the canonical garment type.
-    # Adds type_confidence column for filtering/reporting.
-    from src.catalogue.normalizer import normalize_garment_type as _normalize  # noqa: PLC0415
-
-    _brand_col = df.get("brand", pd.Series("", index=df.index)).fillna("").astype(str)
-    _norm_results = [
-        _normalize(str(n), str(pt), str(b))
-        for n, pt, b in zip(
-            out["prod_name"].fillna(""),
-            out["product_type_name"].fillna(""),
-            _brand_col,
-        )
-    ]
-    _confident_mask = [r.type_confidence in ("high", "medium") for r in _norm_results]
-    # Overwrite product_type_name only for high/medium confidence items
-    out["product_type_name"] = [
-        r.garment_type if confident else orig
-        for r, confident, orig in zip(_norm_results, _confident_mask, out["product_type_name"])
-    ]
-    out["type_confidence"] = [r.type_confidence for r in _norm_results]
-
     # Legacy string columns — fill with defaults
     out["size_system"] = size_system
     out["product_group_name"] = "N/A"
     out["graphical_appearance_name"] = "N/A"
     out["department_name"] = "N/A"
+    out["index_group_name"] = "N/A"
     out["garment_group_name"] = "N/A"
-
-    # Derive per-item gender and map to index_group_name for filter compatibility
-    out["gender"] = [
-        derive_item_gender(n, pt, "women")
-        for n, pt in zip(
-            out["prod_name"].fillna("").astype(str),
-            out["product_type_name"].fillna("").astype(str),
-        )
-    ]
-    out["index_group_name"] = out["gender"].map(
-        {"men": "Menswear", "women": "Ladieswear"}
-    ).fillna("N/A")
 
     return out
 

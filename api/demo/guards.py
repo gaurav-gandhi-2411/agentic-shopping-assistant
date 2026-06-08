@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import threading
 import time
 from typing import Any
@@ -15,21 +14,8 @@ logger = logging.getLogger(__name__)
 # Rate-limit / cap constants
 # ---------------------------------------------------------------------------
 
-# 35/hr sized for a genuine exploration session (search + refine + outfit +
-# partner look, ~10 requests) without hitting 429 mid-session, while staying
-# bounded against single-IP abuse. DEMO_PER_IP_HOUR_LIMIT env var can still
-# override without a code change or Docker rebuild if it needs tuning again.
-def _get_per_ip_limit() -> int:
-    return max(1, int(os.environ.get("DEMO_PER_IP_HOUR_LIMIT", "35")))
-
-
-# Kept at the same 20x ratio to the per-IP limit as the original 200/10
-# default. DEMO_DAILY_REQUEST_CAP env var can still override without a code
-# change or Docker rebuild. The $0.50/day _DAILY_COST_CAP_USD below is the
-# actual cost backstop, so this cap exists to bound request volume, not spend.
-def _get_daily_request_cap() -> int:
-    return max(1, int(os.environ.get("DEMO_DAILY_REQUEST_CAP", "700")))
-
+_PER_IP_LIMIT: int = 10  # messages per rolling UTC hour, per IP per brand
+_DAILY_REQUEST_CAP: int = 200  # requests per brand per UTC day
 _DAILY_COST_CAP_USD: float = 0.50  # USD per brand per UTC day
 
 # ---------------------------------------------------------------------------
@@ -124,7 +110,7 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
             ).fetchone()
             current_count = int(row[0]) if row else 0
 
-            if current_count >= _get_per_ip_limit():
+            if current_count >= _PER_IP_LIMIT:
                 # Seconds until the current UTC hour rolls over.
                 retry_after = 3600 - int(time.time()) % 3600
                 return (False, retry_after)
@@ -156,7 +142,7 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
 
 
 def check_daily_cap(brand: str, engine: Any) -> bool:
-    """Return True if today's request_count is below the daily request cap.
+    """Return True if today's request_count is below _DAILY_REQUEST_CAP.
 
     Fails open on DB error.
     """
@@ -173,7 +159,7 @@ def check_daily_cap(brand: str, engine: Any) -> bool:
                 {"brand": brand, "date": today},
             ).fetchone()
             count = int(row[0]) if row else 0
-            return count < _get_daily_request_cap()
+            return count < _DAILY_REQUEST_CAP
     except Exception:
         logger.warning(
             "check_daily_cap: DB error for brand=%s; failing open",

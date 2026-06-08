@@ -1,5 +1,0 @@
-## What & why (2–4 lines)
-## Changes (bulleted, grouped)
-## Testing (what was run, what it proves)
-## Screenshots (before/after — required for any visible UI change, else "n/a")
-## Risk & rollback (blast radius, revert plan)

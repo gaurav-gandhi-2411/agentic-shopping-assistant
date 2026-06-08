@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-"""Outfit coherence eval — 38 anchors.
+"""Outfit coherence eval — 36 anchors.
 
 Runnable as:
     python -m eval.outfit_coherence
     python eval/outfit_coherence.py
 """
 
-import sys  # noqa: E402
-from dataclasses import dataclass, field  # noqa: E402
-from pathlib import Path  # noqa: E402
-from typing import Any  # noqa: E402
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
-import pandas as pd  # noqa: E402
+import pandas as pd
 
 # Ensure repo root is on sys.path regardless of invocation style
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +20,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.agents.outfit.composer import compose_outfit  # noqa: E402
+
 
 # ── Synthetic item pool ─────────────────────────────────────────────────────
 
@@ -31,7 +32,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Shirt",
         "colour": "Blue",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 999.0,
         "detail_desc": "cotton slim fit formal shirt",
         "pdp_handle": "w001",
@@ -42,7 +42,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Shirt",
         "colour": "White",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 1299.0,
         "detail_desc": "formal white shirt",
         "pdp_handle": "w002",
@@ -53,7 +52,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Jeans",
         "colour": "Black",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 1499.0,
         "detail_desc": "slim fit black jeans",
         "pdp_handle": "w003",
@@ -64,7 +62,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Blazer",
         "colour": "Grey",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 2499.0,
         "detail_desc": "formal grey blazer",
         "pdp_handle": "w004",
@@ -76,7 +73,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Dress",
         "colour": "Pink",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1999.0,
         "detail_desc": "floral cotton midi dress",
         "pdp_handle": "w005",
@@ -87,7 +83,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Blouse",
         "colour": "White",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 899.0,
         "detail_desc": "casual white blouse",
         "pdp_handle": "w006",
@@ -98,7 +93,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Trousers",
         "colour": "Black",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1199.0,
         "detail_desc": "formal black trousers",
         "pdp_handle": "w007",
@@ -109,7 +103,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Jacket",
         "colour": "Blue",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1799.0,
         "detail_desc": "casual denim jacket",
         "pdp_handle": "w008",
@@ -120,7 +113,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Top",
         "colour": "Red",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 599.0,
         "detail_desc": "casual red crop top",
         "pdp_handle": "w009",
@@ -131,7 +123,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Shoes",
         "colour": "White",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1499.0,
         "detail_desc": "casual white sneakers",
         "pdp_handle": "w010",
@@ -143,7 +134,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Anarkali",
         "colour": "Blue",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 3499.0,
         "detail_desc": "embellished zari anarkali festive",
         "pdp_handle": "e001",
@@ -154,7 +144,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Lehenga",
         "colour": "Pink",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 7999.0,
         "detail_desc": "heavily embroidered bridal lehenga sequin zari",
         "pdp_handle": "e002",
@@ -165,7 +154,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Dupatta",
         "colour": "Yellow",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 799.0,
         "detail_desc": "silk dupatta ethnic accessory",
         "pdp_handle": "e003",
@@ -176,7 +164,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Palazzo",
         "colour": "Green",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 999.0,
         "detail_desc": "ethnic palazzo bottom",
         "pdp_handle": "e004",
@@ -187,7 +174,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Kurti",
         "colour": "Pink",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 899.0,
         "detail_desc": "casual cotton kurti",
         "pdp_handle": "e005",
@@ -198,7 +184,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Kurta",
         "colour": "Blue",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1299.0,
         "detail_desc": "cotton printed kurta casual",
         "pdp_handle": "e006",
@@ -209,7 +194,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Juttis",
         "colour": "Gold",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 999.0,
         "detail_desc": "ethnic juttis footwear",
         "pdp_handle": "e007",
@@ -220,7 +204,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Churidar",
         "colour": "Red",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 599.0,
         "detail_desc": "ethnic churidar bottom",
         "pdp_handle": "e008",
@@ -231,7 +214,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Lehenga",
         "colour": "Yellow",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 4999.0,
         "detail_desc": "cotton floral printed lightweight lehenga yellow haldi",
         "pdp_handle": "e009",
@@ -242,7 +224,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Kurta",
         "colour": "Orange",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1199.0,
         "detail_desc": "tie-dye cotton floral kurta lightweight haldi",
         "pdp_handle": "e010",
@@ -253,7 +234,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Dupatta",
         "colour": "Turquoise",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1499.0,
         "detail_desc": "zari embellished dupatta",
         "pdp_handle": "e011",
@@ -264,7 +244,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Sharara",
         "colour": "Pink",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1799.0,
         "detail_desc": "ethnic sharara palazzo sangeet festive",
         "pdp_handle": "e012",
@@ -275,7 +254,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Heels",
         "colour": "Gold",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1599.0,
         "detail_desc": "ethnic heels juttis festive footwear",
         "pdp_handle": "e013",
@@ -286,7 +264,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Saree",
         "colour": "Red",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 5999.0,
         "detail_desc": "embellished zari silk saree traditional",
         "pdp_handle": "e014",
@@ -297,7 +274,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Jewellery",
         "colour": "Gold",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 1299.0,
         "detail_desc": "ethnic jewellery accessory gold",
         "pdp_handle": "e015",
@@ -309,7 +285,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Kurta",
         "colour": "Blue",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 1299.0,
         "detail_desc": "cotton kurta festive ethnic men",
         "pdp_handle": "m001",
@@ -320,7 +295,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Churidar",
         "colour": "White",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 799.0,
         "detail_desc": "churidar pyjama ethnic bottom men",
         "pdp_handle": "m002",
@@ -331,7 +305,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Nehru Jacket",
         "colour": "Blue",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 1799.0,
         "detail_desc": "nehru jacket waistcoat ethnic outerwear men",
         "pdp_handle": "m003",
@@ -342,7 +315,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Mojaris",
         "colour": "Brown",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 999.0,
         "detail_desc": "mojaris juttis ethnic footwear men",
         "pdp_handle": "m004",
@@ -353,7 +325,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Sherwani",
         "colour": "Red",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 9999.0,
         "detail_desc": "embellished sherwani wedding formal men",
         "pdp_handle": "m005",
@@ -364,7 +335,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Pyjama",
         "colour": "Gold",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 899.0,
         "detail_desc": "ethnic pyjama churidar bottom men",
         "pdp_handle": "m006",
@@ -376,7 +346,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Dupatta",
         "colour": "Black",
         "index_group_name": "Menswear",
-        "gender": "men",
         "price_inr": 499.0,
         "detail_desc": "dupatta ethnic",
         "pdp_handle": "m007",
@@ -388,7 +357,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Clutch",
         "colour": "Beige",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 999.0,
         "detail_desc": "ethnic clutch bag accessory",
         "pdp_handle": "a001",
@@ -400,7 +368,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Dupatta",
         "colour": "Yellow",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 299.0,
         "detail_desc": "cotton dupatta lightweight casual",
         "pdp_handle": "b001",
@@ -411,7 +378,6 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Palazzo",
         "colour": "Green",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 499.0,
         "detail_desc": "ethnic palazzo bottom budget",
         "pdp_handle": "b002",
@@ -422,132 +388,9 @@ _POOL_DICTS: list[dict[str, Any]] = [
         "product_type": "Churidar",
         "colour": "Blue",
         "index_group_name": "Ladieswear",
-        "gender": "women",
         "price_inr": 399.0,
         "detail_desc": "churidar bottom budget ethnic",
         "pdp_handle": "b003",
-    },
-]
-
-
-# Pool 2: Dirty-data pool — simulates Myntra pre-fix state where all items have
-# gender="unknown" (index_group_name="N/A"). Used by case 37 to assert that
-# a men's look returns ZERO women's items and ZERO dupatta after the gender gate fix.
-_DIRTY_POOL: list[dict] = [
-    {
-        "article_id": "D001",
-        "prod_name": "Women Navy Kurta",
-        "product_type": "Kurta",
-        "colour": "Blue",
-        "index_group_name": "N/A",
-        "gender": "unknown",
-        "price_inr": 1299.0,
-        "detail_desc": "cotton kurta festive ethnic women",
-        "pdp_handle": "d001",
-    },
-    {
-        "article_id": "D002",
-        "prod_name": "Green Palazzo Pants",
-        "product_type": "Palazzo",
-        "colour": "Green",
-        "index_group_name": "N/A",
-        "gender": "unknown",
-        "price_inr": 999.0,
-        "detail_desc": "ethnic palazzo bottom women",
-        "pdp_handle": "d002",
-    },
-    {
-        "article_id": "D003",
-        "prod_name": "Silk Dupatta",
-        "product_type": "Dupatta",
-        "colour": "Pink",
-        "index_group_name": "N/A",
-        "gender": "unknown",
-        "price_inr": 799.0,
-        "detail_desc": "silk dupatta ethnic accessory",
-        "pdp_handle": "d003",
-    },
-    {
-        "article_id": "D004",
-        "prod_name": "Pink Anarkali Suit",
-        "product_type": "Anarkali",
-        "colour": "Pink",
-        "index_group_name": "N/A",
-        "gender": "unknown",
-        "price_inr": 3499.0,
-        "detail_desc": "embellished anarkali festive women",
-        "pdp_handle": "d004",
-    },
-    {
-        "article_id": "D005",
-        "prod_name": "Gold Juttis",
-        "product_type": "Juttis",
-        "colour": "Gold",
-        "index_group_name": "N/A",
-        "gender": "unknown",
-        "price_inr": 999.0,
-        "detail_desc": "ethnic juttis footwear women",
-        "pdp_handle": "d005",
-    },
-]
-
-# Pool 3: Men's pool — simulates a Snitch-style catalogue with clean men's ethnic items.
-# Used by case 38 to assert that a men's ethnic look IS correctly composed (kurta→bottom).
-_MENS_POOL: list[dict] = [
-    {
-        "article_id": "S001",
-        "prod_name": "Men Royal Blue Kurta",
-        "product_type": "Kurta",
-        "colour": "Blue",
-        "index_group_name": "Menswear",
-        "gender": "men",
-        "price_inr": 1299.0,
-        "detail_desc": "cotton kurta festive ethnic men",
-        "pdp_handle": "s001",
-    },
-    {
-        "article_id": "S002",
-        "prod_name": "Men Off-White Churidar",
-        "product_type": "Churidar",
-        "colour": "White",
-        "index_group_name": "Menswear",
-        "gender": "men",
-        "price_inr": 799.0,
-        "detail_desc": "churidar pyjama ethnic bottom men",
-        "pdp_handle": "s002",
-    },
-    {
-        "article_id": "S003",
-        "prod_name": "Men Navy Nehru Jacket",
-        "product_type": "Nehru Jacket",
-        "colour": "Blue",
-        "index_group_name": "Menswear",
-        "gender": "men",
-        "price_inr": 1799.0,
-        "detail_desc": "nehru jacket waistcoat ethnic outerwear men",
-        "pdp_handle": "s003",
-    },
-    {
-        "article_id": "S004",
-        "prod_name": "Men Brown Mojaris",
-        "product_type": "Mojaris",
-        "colour": "Brown",
-        "index_group_name": "Menswear",
-        "gender": "men",
-        "price_inr": 999.0,
-        "detail_desc": "mojaris juttis ethnic footwear men",
-        "pdp_handle": "s004",
-    },
-    {
-        "article_id": "S005",
-        "prod_name": "Men Gold Pyjama",
-        "product_type": "Pyjama",
-        "colour": "Gold",
-        "index_group_name": "Menswear",
-        "gender": "men",
-        "price_inr": 899.0,
-        "detail_desc": "ethnic pyjama churidar bottom men",
-        "pdp_handle": "s005",
     },
 ]
 
@@ -566,7 +409,6 @@ def _build_catalogue_df(pool: list[dict[str, Any]]) -> pd.DataFrame:
             "product_type_name": pt,
             "colour_group_name": colour,
             "index_group_name": ig,
-            "gender": item.get("gender", "unknown"),
             "department_name": "N/A",
             "detail_desc": item.get("detail_desc", ""),
             "price_inr": item.get("price_inr", 0.0),
@@ -816,18 +658,18 @@ def _build_cases() -> list[AnchorCase]:
         AnchorCase(
             case_id=19,
             anchor_article_id="E009",
-            occasion="haldi",
+            occasion="haldi_mehendi",
             gender="women",
-            pass_description="Yellow floral lehenga at haldi → accessory+footwear; no top/bottom",
+            pass_description="Yellow floral lehenga at haldi_mehendi → accessory+footwear; no top/bottom",
             expected_slots=["accessory", "footwear"],
             forbidden_slots=["top", "bottom"],
         ),
         AnchorCase(
             case_id=20,
             anchor_article_id="E010",
-            occasion="haldi",
+            occasion="haldi_mehendi",
             gender="women",
-            pass_description="Orange tie-dye kurta at haldi → bottom+accessory; accessory=dupatta",
+            pass_description="Orange tie-dye kurta at haldi_mehendi → bottom+accessory; accessory=dupatta",
             expected_slots=["bottom", "accessory"],
             required_keywords_in_slot={"accessory": ["dupatta"]},
         ),
@@ -936,9 +778,9 @@ def _build_cases() -> list[AnchorCase]:
         AnchorCase(
             case_id=32,
             anchor_article_id="E002",
-            occasion="haldi",
+            occasion="haldi_mehendi",
             gender="women",
-            pass_description="Lehenga at haldi → accessory+footwear; no top/bottom (one_piece still applies)",
+            pass_description="Lehenga at haldi_mehendi → accessory+footwear; no top/bottom (one_piece still applies)",
             expected_slots=["accessory", "footwear"],
             forbidden_slots=["top", "bottom"],
         ),
@@ -974,36 +816,6 @@ def _build_cases() -> list[AnchorCase]:
             occasion="festive_puja",
             gender="men",
             pass_description="HARD GATE: M007 poison dupatta in pool; must NOT appear in any men's complement",
-            forbidden_keywords_in_complements=["dupatta"],
-            is_hard_gate=True,
-        ),
-        # ── Dirty-data anchor 37 — gender gate on unknown items ─────────────
-        # NOTE: This case uses _DIRTY_POOL (all gender="unknown"); run separately in _run_eval.
-        # Registered here for documentation; the actual pool override happens in _run_eval.
-        AnchorCase(
-            case_id=37,
-            anchor_article_id="D001",
-            occasion="festive_puja",
-            gender="men",
-            pass_description=(
-                "DIRTY-DATA: men's festive query against women-only unknown-gender pool. "
-                "After fix: seed_item is None (no menswear found) OR zero women's items, zero dupatta."
-            ),
-            forbidden_keywords_in_complements=["dupatta", "palazzo", "anarkali", "saree"],
-            is_hard_gate=True,
-        ),
-        # ── Men's-pool anchor 38 — must-compose men's ethnic look ────────────
-        # NOTE: This case uses _MENS_POOL; run separately in _run_eval.
-        AnchorCase(
-            case_id=38,
-            anchor_article_id="S001",
-            occasion="festive_puja",
-            gender="men",
-            pass_description=(
-                "MEN'S-POOL: men's festive kurta against men's catalogue. "
-                "Must compose bottom (churidar/pyjama) and NO dupatta."
-            ),
-            expected_slots=["bottom"],
             forbidden_keywords_in_complements=["dupatta"],
             is_hard_gate=True,
         ),
@@ -1108,25 +920,6 @@ def _run_case(
     return CaseResult(case=case, hard_pass=hard_pass, soft_pass=soft_pass, notes=notes)
 
 
-def _build_pool_retriever(pool: list[dict]) -> "MiniRetriever":
-    """Build a MiniRetriever from an arbitrary item pool."""
-    return MiniRetriever([
-        {
-            "article_id": item["article_id"],
-            "prod_name": item["prod_name"],
-            "product_type": item["product_type"],
-            "colour": item["colour"],
-            "index_group_name": item.get("index_group_name", "N/A"),
-            "gender": item.get("gender", "unknown"),
-            "detail_desc": item.get("detail_desc", ""),
-            "price_inr": item.get("price_inr", 0.0),
-            "pdp_handle": item.get("pdp_handle", ""),
-            "image_url": None,
-        }
-        for item in pool
-    ])
-
-
 def _run_eval() -> None:
     pool = _POOL_DICTS
     catalogue_df = _build_catalogue_df(pool)
@@ -1141,7 +934,6 @@ def _run_eval() -> None:
             "product_type": item["product_type"],
             "colour": item["colour"],
             "index_group_name": item["index_group_name"],
-            "gender": item.get("gender", "unknown"),
             "detail_desc": item.get("detail_desc", ""),
             "price_inr": item.get("price_inr", 0.0),
             "pdp_handle": item.get("pdp_handle", ""),
@@ -1151,23 +943,9 @@ def _run_eval() -> None:
     retriever = MiniRetriever(retriever_pool)
     cases = _build_cases()
 
-    # Special pool infrastructure for cases 37 and 38
-    _dirty_catalogue = _build_catalogue_df(_DIRTY_POOL)
-    _dirty_retriever = _build_pool_retriever(_DIRTY_POOL)
-    _mens_catalogue = _build_catalogue_df(_MENS_POOL)
-    _mens_retriever = _build_pool_retriever(_MENS_POOL)
-    _SPECIAL_POOL_MAP: dict[int, tuple] = {
-        37: (_dirty_catalogue, _dirty_retriever),
-        38: (_mens_catalogue, _mens_retriever),
-    }
-
     results: list[CaseResult] = []
     for case in cases:
-        if case.case_id in _SPECIAL_POOL_MAP:
-            _cat, _ret = _SPECIAL_POOL_MAP[case.case_id]
-            r = _run_case(case, _cat, _ret)
-        else:
-            r = _run_case(case, catalogue_df, retriever)
+        r = _run_case(case, catalogue_df, retriever)
         results.append(r)
 
     # ── Print table ─────────────────────────────────────────────────────────
@@ -1214,9 +992,6 @@ def _run_eval() -> None:
 def _anchor_display_name(article_id: str) -> str:
     """Resolve a short display name from article_id for the report table."""
     lookup = {item["article_id"]: item["prod_name"] for item in _POOL_DICTS}
-    # Extend with dirty-data and men's pool items
-    for item in _DIRTY_POOL + _MENS_POOL:
-        lookup[item["article_id"]] = item["prod_name"]
     name = lookup.get(article_id, article_id)
     # Truncate to 28 chars for table alignment
     return name[:28] if len(name) > 28 else name
@@ -1262,7 +1037,6 @@ def test_no_dupatta_for_men() -> None:
             "product_type": item["product_type"],
             "colour": item["colour"],
             "index_group_name": item["index_group_name"],
-            "gender": item.get("gender", "unknown"),
             "detail_desc": item.get("detail_desc", ""),
             "price_inr": item.get("price_inr", 0.0),
             "pdp_handle": item.get("pdp_handle", ""),

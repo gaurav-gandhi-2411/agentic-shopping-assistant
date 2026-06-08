@@ -27,7 +27,6 @@ class BrandConfig(BaseModel):
     currency: str = "INR"             # ISO 4217 currency code
     locale: str = "en-IN"             # BCP-47 locale tag
     sizing_system: str = "IN"         # "IN" | "EU" | "alpha"
-    gender_default: str = "women"     # "men" | "women" | "mixed" (mixed → infer from item)
 
     # Catalogue
     catalogue_path: str = "data/processed/catalogue.parquet"
@@ -36,22 +35,14 @@ class BrandConfig(BaseModel):
 
 @functools.lru_cache(maxsize=1)
 def get_brand_config() -> BrandConfig:
-    """Load and cache the active brand config.
-
-    BRAND env var selects the brand (default: "unified", the cross-store B2C
-    deployment — Style Maitri). This matches api/main.py's unified-mode
-    detection, where an unset BRAND also means unified mode.
-    """
-    brand = os.environ.get("BRAND", "unified")
+    """Load and cache the active brand config. BRAND env var selects the brand (default: hm)."""
+    brand = os.environ.get("BRAND", "hm")
     config_path = BRANDS_DIR / f"{brand}.yaml"
     if not config_path.exists():
         raise FileNotFoundError(
             f"Brand config not found: {config_path}. "
             f"Available brands: {[p.stem for p in BRANDS_DIR.glob('*.yaml')]}"
         )
-    # Explicit encoding: brand YAML files carry non-ASCII copy (e.g. "₹" in
-    # suggestion_chips) and this must not depend on the platform's default
-    # text encoding (cp1252 on Windows would mangle it into mojibake).
-    with config_path.open(encoding="utf-8") as f:
+    with config_path.open() as f:
         data = yaml.safe_load(f)
     return BrandConfig.model_validate(data)

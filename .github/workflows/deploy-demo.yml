@@ -1,0 +1,114 @@
+name: Deploy Demo (Cloud Run + Vercel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      brands:
+        description: 'Space-separated brands to deploy (snitch myntra flipkart)'
+        required: false
+        default: 'snitch myntra flipkart'
+      image_tag:
+        description: 'Docker image tag (default: git SHA)'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write   # Required for Workload Identity Federation
+
+env:
+  GAR_REGION: asia-south1
+  GAR_REPO: shopping-assistant
+  IMAGE_NAME: asa-api
+  GCP_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker image
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GAR_REGION }}-docker.pkg.dev --quiet
+
+      - name: Resolve image tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${{ github.sha }}"
+            TAG="${TAG:0:8}"
+          fi
+          IMAGE="${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME }}:${TAG}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image
+        run: docker build -t "${{ steps.meta.outputs.image }}" .
+
+      - name: Push to Artifact Registry
+        run: docker push "${{ steps.meta.outputs.image }}"
+
+  deploy-cloud-run:
+    name: Deploy ${{ matrix.brand }} to Cloud Run
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - brand: snitch
+            min_instances: 1
+          - brand: myntra
+            min_instances: 0
+          - brand: flipkart
+            min_instances: 0
+    # Only deploy brands listed in the input.
+    if: contains(github.event.inputs.brands || 'snitch myntra flipkart', matrix.brand)
+
+    steps:
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "asa-${{ matrix.brand }}" \
+            --image="${{ needs.build-and-push.outputs.image }}" \
+            --region="${{ env.GAR_REGION }}" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --memory=2Gi \
+            --cpu=1 \
+            --concurrency=4 \
+            --timeout=300 \
+            --min-instances=${{ matrix.min_instances }} \
+            --set-env-vars="BRAND=${{ matrix.brand }},DEMO_MODE=true,LLM_PROVIDER=groq,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},DEMO_JWT_SECRET=${{ secrets.DEMO_JWT_SECRET }},DATABASE_URL=${{ secrets.DATABASE_URL }},SUPABASE_URL=${{ secrets.SUPABASE_URL }},CORS_ORIGINS=${{ secrets.DEMO_CORS_ORIGINS }},INDEX_STORE_URI=gs://${{ secrets.GCS_BUCKET }}/${{ matrix.brand }}/"
+
+      - name: Get service URL
+        run: |
+          URL=$(gcloud run services describe "asa-${{ matrix.brand }}" \
+            --region="${{ env.GAR_REGION }}" \
+            --format='value(status.url)')
+          echo "Service deployed: ${{ matrix.brand }}: ${URL}"
