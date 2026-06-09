@@ -135,34 +135,33 @@ class TestFabricScoreDelta:
 # ── coherence ──────────────────────────────────────────────────────────────
 
 class TestIsCoherentCandidate:
-    def _make_item(self, product_type: str, prod_name: str = "") -> dict:
-        return {"product_type": product_type, "prod_name": prod_name}
+    def _make_item(self, product_type: str, prod_name: str = "", gender: str = "unknown") -> dict:
+        return {"product_type": product_type, "prod_name": prod_name, "gender": gender}
 
     def test_dupatta_rejected_for_men(self) -> None:
-        item = self._make_item("Dupatta", "silk dupatta")
+        item = self._make_item("Dupatta", "silk dupatta", gender="women")
         assert is_coherent_candidate(item, "sangeet", "men", "accessory") is False
 
     def test_dupatta_allowed_for_women(self) -> None:
-        item = self._make_item("Dupatta", "silk dupatta")
-        # dupatta gate only rejects when slot_name == "accessory" AND is_men; here women → True
+        item = self._make_item("Dupatta", "silk dupatta", gender="women")
         result = is_coherent_candidate(item, "sangeet", "women", "accessory")
         assert result is True
 
     def test_western_item_rejected_for_ethnic_only(self) -> None:
-        item = self._make_item("Dress", "floral dress")
+        item = self._make_item("Dress", "floral dress", gender="women")
         assert is_coherent_candidate(item, "sangeet", "women", "top") is False
 
     def test_western_formal_allowed_for_men_wedding_guest(self) -> None:
-        item = self._make_item("Blazer", "formal blazer")
+        item = self._make_item("Blazer", "formal blazer", gender="men")
         result = is_coherent_candidate(item, "wedding_guest", "men", "outerwear")
         assert result is True
 
     def test_western_casual_rejected_for_ethnic_heavy_occasion(self) -> None:
-        item = self._make_item("T-shirt", "casual tshirt")
+        item = self._make_item("T-shirt", "casual tshirt", gender="women")
         assert is_coherent_candidate(item, "festive_puja", "women", "top") is False
 
     def test_ethnic_item_always_passes(self) -> None:
-        item = self._make_item("Kurta", "festive kurta")
+        item = self._make_item("Kurta", "festive kurta", gender="men")
         assert is_coherent_candidate(item, "sangeet", "men", "top") is True
 
 
