@@ -22,6 +22,11 @@ class AgentState(TypedDict):
     out_of_catalogue: bool | None      # True when query is clearly outside H&M's product domain
     excluded_colours: list[str] | None  # Colours to exclude (parsed from negation queries)
 
+    # Outfit composition context — set by outfit_node, persisted for flywheel event logging
+    occasion: str | None        # one of the 9 occasion slugs
+    look_gender: str | None     # "men" | "women" | "unisex"
+    look_id: str | None         # UUID of the current composed look
+
     # Conversation memory — the ConversationMemory instance for this conversation.
     # Injected into the initial state so the compiled graph singleton can access it
     # without needing memory as a constructor argument.  No node returns this field;

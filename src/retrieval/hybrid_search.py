@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 
 import pandas as pd
@@ -129,9 +131,17 @@ class HybridRetriever:
                     if "pdp_handle" in row.index and row["pdp_handle"] is not None
                     else None
                 ),
+                "pdp_live": (
+                    bool(row["pdp_live"])
+                    if "pdp_live" in row.index and row["pdp_live"] is not None and not pd.isna(row["pdp_live"])
+                    else None
+                ),
             })
 
             if len(results) >= top_k:
                 break
 
-        return results
+        # Deprioritize items with known-dead PDP links — move them to end of list
+        live = [it for it in results if it.get("pdp_live") is not False]
+        dead = [it for it in results if it.get("pdp_live") is False]
+        return live + dead

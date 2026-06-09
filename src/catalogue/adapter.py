@@ -37,10 +37,13 @@ INTERNAL_COLUMNS: list[str] = [
     "size_system",     # str | None — "IN" | "EU" | "alpha"
     "pdp_handle",      # str | None
     "image_url",       # str | None — first product image URL
+    "pdp_live",        # bool | None — True=live, False=dead, None=not checked
 ]
 
 # Columns that existed before B2; used for back-compat fill logic
-_LEGACY_COLUMNS: set[str] = set(INTERNAL_COLUMNS) - {"price_inr", "size_system", "pdp_handle", "image_url"}
+_LEGACY_COLUMNS: set[str] = set(INTERNAL_COLUMNS) - {
+    "price_inr", "size_system", "pdp_handle", "image_url", "pdp_live"
+}
 
 # Default fill values for legacy string columns when the source feed omits them
 _COLUMN_DEFAULTS: dict[str, str] = {
@@ -264,10 +267,20 @@ def _adapt_myntra(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
     else:
         out["price_inr"] = None
 
-    # image_url: single URL per product in this dataset
-    out["image_url"] = df.get("img", pd.Series(dtype=str, index=df.index)).apply(
-        lambda v: str(v).strip() if pd.notna(v) and str(v).strip() else None
-    )
+    # image_url: single URL per product in this dataset.
+    # Upgrade http:// → https:// — Myntra CDN serves over HTTPS; plain HTTP
+    # causes mixed-content blocks when the app is served over HTTPS.
+    def _upgrade_https(v: object) -> str | None:
+        if not pd.notna(v):
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        if s.startswith("http://"):
+            s = "https://" + s[7:]
+        return s
+
+    out["image_url"] = df.get("img", pd.Series(dtype=str, index=df.index)).apply(_upgrade_https)
 
     # pdp_handle: type-slug/brand-slug/name-slug/id/buy — mirrors real Myntra PDP URLs
     # pdp_url_template in brands/myntra.yaml = "https://www.myntra.com/{handle}"

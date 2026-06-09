@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import urllib.request
 from pathlib import Path
 
 import pandas as pd
@@ -54,6 +56,58 @@ KEEP_COLUMNS = [
     "garment_group_name",
     "detail_desc",
 ]
+
+
+def validate_pdp_links(
+    df: pd.DataFrame,
+    pdp_url_template: str,
+    *,
+    sample_n: int = 50,
+    timeout: int = 5,
+) -> pd.DataFrame:
+    """Check a sample of PDP links; mark dead ones so search can deprioritize.
+
+    Only runs when VALIDATE_PDP_LINKS=1 env var is set (slow: makes HTTP requests).
+    Returns df with a new bool column 'pdp_live' (True=live, False=dead, None=not checked).
+
+    Parameters
+    ----------
+    df:
+        Catalogue DataFrame with ``pdp_handle`` and ``article_id`` columns.
+    pdp_url_template:
+        URL template string containing ``{handle}`` placeholder, e.g.
+        ``"https://snitch.co.in/products/{handle}"``.
+    sample_n:
+        Number of rows to sample for validation (default 50).
+    timeout:
+        Per-request HTTP timeout in seconds (default 5).
+    """
+    if os.environ.get("VALIDATE_PDP_LINKS", "0") != "1":
+        df = df.copy()
+        df["pdp_live"] = None
+        return df
+
+    has_handle = df["pdp_handle"].notna() & df["pdp_handle"].str.strip().str.len().gt(0)
+    sample = df[has_handle].sample(n=min(sample_n, has_handle.sum()), random_state=42)
+    dead_ids: set[str] = set()
+
+    for _, row in sample.iterrows():
+        url = pdp_url_template.replace("{handle}", str(row["pdp_handle"]))
+        try:
+            req = urllib.request.Request(
+                url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status >= 400:
+                    dead_ids.add(str(row["article_id"]))
+        except Exception:
+            dead_ids.add(str(row["article_id"]))
+
+    df = df.copy()
+    df["pdp_live"] = None
+    df.loc[df["article_id"].isin(sample["article_id"]), "pdp_live"] = True
+    df.loc[df["article_id"].isin(dead_ids), "pdp_live"] = False
+    return df
 
 
 def load_articles(config: dict) -> pd.DataFrame:

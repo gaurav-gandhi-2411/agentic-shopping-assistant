@@ -21,6 +21,8 @@ class ItemSummary(BaseModel):
     score: float | None = None
     price_inr: float | None = None
     pdp_handle: str | None = None
+    outfit_slot: str | None = None   # e.g. "bottom", "accessory", "footwear"
+    slot_role: str | None = None     # "seed" or "complement"
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":
@@ -36,6 +38,8 @@ class ItemSummary(BaseModel):
             score=item.get("score"),
             price_inr=item.get("price_inr"),
             pdp_handle=item.get("pdp_handle") or None,
+            outfit_slot=item.get("_slot") or None,
+            slot_role=item.get("_role") or None,
         )
 
 
@@ -60,6 +64,10 @@ class ChatResponse(BaseModel):
     routing: dict[str, Any] = Field(default_factory=dict)
     out_of_catalogue: bool = False
     new_items_this_turn: bool = False
+    look_id: str | None = None
+    occasion: str | None = None
+    look_gender: str | None = None
+    budget_total_inr: float | None = None
 
 
 # ---------------------------------------------------------------------------
