@@ -148,21 +148,26 @@ STRICT RULES — follow in order:
    "black blazers", "grey trousers"), include both in filters to prevent type leakage:
    {{"action": "search", "query": "red dress", "filters": {{"colour_group_name": "Red", "product_type_name": "Dress"}}}}
 6. Use "compare" when the user explicitly asks to compare items.
-7. Use "outfit" ONLY when a seed item is available:
-   (a) items_retrieved > 0 (user has prior results to style around), OR
-   (b) user explicitly references a specific shown item ("style this", "what goes with the
-       Riviera", "complete this look")
-   Look up the article_id from Current retrieved items by matching the name. If unclear, use
-   the first item.
+7. Use "outfit" when any of these hold:
+   (a) items_retrieved > 0 (user has prior results to style around) — look up the article_id
+       from Current retrieved items by matching the name; if unclear, use the first item.
+   (b) User explicitly references a specific shown item ("style this", "what goes with the
+       Riviera", "complete this look").
+   (c) Query carries CLEAR occasion + outfit-building intent even at items_retrieved=0.
+       Signals: explicit occasion name (sangeet, festive, wedding, haldi, puja, traditional,
+       ethnic, party) PLUS an action verb (build, create, put together, make, style, compose,
+       suggest, give me, show me a complete/full look). Use {{"article_id": null}} — the
+       composer will find an anchor from the catalogue automatically.
+       Examples:
+       - "Build me a sangeet look under ₹5000" → {{"action": "outfit", "article_id": null, "occasion": "sangeet", "gender": "women", "budget_inr": 5000}}
+       - "Create a festive kurta outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "festive_puja", "gender": "men", "budget_inr": null}}
+       - "Put together a wedding guest look" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "women", "budget_inr": null}}
    Always include "occasion" (one of: casual, smart_casual, office, haldi_mehendi, party_evening,
-   festive_puja, wedding_guest, sangeet, traditional_ethnic — default "casual") and "gender"
-   (men/women/unisex — default from context) in the outfit plan. Include "budget_inr" (float)
-   if the user mentioned a budget; omit or set null otherwise.
-   For fresh occasion/event requests with NO prior items, use SEARCH to find a hero item first:
-   - "build me a complete outfit for a wedding" (items_retrieved=0) → {{"action": "search", "query": "wedding dress elegant formal"}}
-   - "put together a date night outfit" (items_retrieved=0) → {{"action": "search", "query": "date night dress blouse evening"}}
-   - "style this dress" (items_retrieved > 0) → outfit
-   - "complete the look" (after a search) → outfit
+   festive_puja, wedding_guest, sangeet, traditional_ethnic — default "casual"), "gender"
+   (men/women/unisex — default from context), and "budget_inr" (float or null).
+   EXCEPTION — bare requests with NO occasion signal still need search first:
+   - "build me a complete outfit" (no occasion) → search
+   - "style me" (no occasion, no gender signal) → search or clarify
    Do NOT use "outfit" for suitability questions ("which works for beach day", "is this
    appropriate for X") — use "respond" instead.
 8. Use "clarify" ONLY when there is NO actionable signal — no product type, no occasion, no
@@ -888,11 +893,18 @@ def build_graph(
         items_out = ([seed] if seed else []) + complements
         answer = f"**Outfit suggestion**\n\n{rationale}"
         if empty_slots:
-            slot_str = " and ".join(empty_slots)
-            answer += (
-                f"\n\n_Note: I couldn't find suitable {slot_str} to complete this look "
-                f"in the current catalogue._"
-            )
+            for _slot in empty_slots:
+                if _slot == "footwear" and budget_inr:
+                    answer += (
+                        f"\n\n_Note: No footwear was found within your "
+                        f"₹{budget_inr:,.0f} budget — you may want to source footwear "
+                        f"separately or try without a budget constraint._"
+                    )
+                else:
+                    answer += (
+                        f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+                        f"this look in the current catalogue._"
+                    )
 
         update: dict = {
             "retrieved_items": items_out,
