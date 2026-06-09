@@ -101,8 +101,8 @@ def log_event(engine: Any, event: StylingEvent) -> None:
                        look_total_inr, metadata)
                     VALUES
                       (:event_type, :session_id, :user_id, :look_id, :anchor_item_id,
-                       :anchor_category, :filled_slots::jsonb, :occasion, :price_band, :brand,
-                       :look_total_inr, :metadata::jsonb)
+                       :anchor_category, CAST(:filled_slots AS jsonb), :occasion, :price_band, :brand,
+                       :look_total_inr, CAST(:metadata AS jsonb))
                     """
                 ),
                 row,
