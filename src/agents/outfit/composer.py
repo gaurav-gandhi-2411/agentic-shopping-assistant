@@ -11,6 +11,7 @@ from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY
 from src.agents.outfit.slots import (
     classify_anchor,
     fabric_score_delta,
+    gender_allowed,
     get_fill_slots,
     is_ethnic_item,
 )
@@ -39,9 +40,14 @@ class PairingStat:
 
 
 def _infer_gender(item: dict, brand_gender_default: str) -> str:
-    """Infer gender from item's index_group_name field, then brand default."""
+    """Infer gender from item's explicit gender field, then index_group_name, then brand default."""
+    # Check explicit gender column first (written at index build time)
+    derived = (item.get("gender") or "").lower()
+    if derived in ("men", "women"):
+        return derived
+    # Fall back to index_group_name / department
     ig = (item.get("index_group_name") or item.get("department") or "").lower()
-    if "menswear" in ig or "men" in ig:
+    if "menswear" in ig or ig == "men":
         return "men"
     if "ladieswear" in ig or "women" in ig or "ladies" in ig:
         return "women"
@@ -81,13 +87,22 @@ def compose_outfit(
         # Occasion-driven entry: retrieve an anchor appropriate for the occasion
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
         candidates = retriever.search(anchor_query, top_k=10)
-        # Filter by coherence (anchor must match occasion ethnic_lean)
+        # Filter by occasion coherence AND gender compatibility
         valid = [
             c for c in candidates
             if _anchor_matches_occasion(c, occasion_slug)
+            and gender_allowed(
+                (c.get("gender") or "unknown").lower(),
+                gender if gender != "unisex" else "unisex",
+            )
         ]
         if not valid:
-            return _empty_result(look_id, occasion_slug, gender, "No suitable anchor found.")
+            _no_anchor_msg = (
+                f"No {gender} items found in this catalogue for a "
+                f"{occasion_slug.replace('_', ' ')} look. "
+                f"Try a catalogue that stocks {gender}'s fashion."
+            )
+            return _empty_result(look_id, occasion_slug, gender, _no_anchor_msg)
         seed_item = valid[0]
         seed_item["_role"] = "seed"
         seed_article_id = seed_item["article_id"]
@@ -200,6 +215,9 @@ def _find_best_candidate(
             (item.get("colour") or "").lower(),
         )
         if item_key in seen_prod_colour:
+            continue
+        # Per-item gender hard gate (belt-and-suspenders; coherence.py also checks this)
+        if not gender_allowed((item.get("gender") or "unknown").lower(), gender):
             continue
         if not is_coherent_candidate(item, occasion_slug, gender, slot_name):
             continue

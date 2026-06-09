@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
-from src.agents.outfit.slots import is_western_item
+from src.agents.outfit.slots import WOMEN_ONLY_ETHNIC_KEYWORDS, gender_allowed, is_western_item
 
 # Jewel tones valid as co-stars in ethnic/festive occasions (multi_jewel harmony tier)
 _JEWEL_TONES: frozenset[str] = frozenset({
@@ -25,7 +25,9 @@ def is_coherent_candidate(
     """Return False if candidate violates any hard coherence gate; True otherwise.
 
     Hard gates (in priority order):
-    1. Dupatta slot: reject for men.
+    0. Women-only ethnic categories (dupatta/saree/lehenga): hard reject for men.
+    0b. Per-item gender mismatch: unknown gender is excluded from gendered looks.
+    1. Dupatta slot: reject for men (belt-and-suspenders, also caught by gate 0).
     2. ethnic_only occasion: reject western items in any slot.
     3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's wedding_guest).
     4. Ethnic anchor + formality >= 4: reject western candidates in non-outerwear slots.
@@ -34,6 +36,18 @@ def is_coherent_candidate(
     is_men = gender.lower() == "men"
     pt = candidate.get("product_type") or candidate.get("product_type_name") or ""
     name = candidate.get("prod_name") or candidate.get("display_name") or ""
+
+    # Gate 0: women-only ethnic categories are a hard reject for men's looks,
+    # belt-and-suspenders even if gender derivation missed them.
+    if is_men:
+        combined = (pt + " " + name).lower()
+        if any(kw in combined for kw in WOMEN_ONLY_ETHNIC_KEYWORDS):
+            return False
+
+    # Gate 0b: per-item gender mismatch — unknown is excluded from gendered looks.
+    candidate_gender = (candidate.get("gender") or "unknown").lower()
+    if not gender_allowed(candidate_gender, gender):
+        return False
 
     # Gate 1: dupatta is women-only
     if slot_name == "accessory" and is_men:

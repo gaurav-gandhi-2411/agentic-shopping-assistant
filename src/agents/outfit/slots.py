@@ -37,6 +37,16 @@ MEN_FORMALWEAR_KEYWORDS: frozenset[str] = frozenset({
     "sherwani", "bandhgala", "nehru jacket",
 })
 
+# Occasions where footwear is required (formality >= 3, ethnic)
+_FORMAL_ETHNIC_OCCASIONS: frozenset[str] = frozenset({
+    "sangeet", "haldi_mehendi", "festive_puja", "wedding_guest", "traditional_ethnic",
+})
+
+# Women-only ethnic categories — hard reject for men's looks regardless of gender field
+WOMEN_ONLY_ETHNIC_KEYWORDS: frozenset[str] = frozenset({
+    "dupatta", "saree", "lehenga",
+})
+
 # Fabric/embellishment keywords for haldi_mehendi vs sangeet scoring
 SANGEET_EMBELLISHMENT_KEYWORDS: frozenset[str] = frozenset({
     "embroidered", "embroidery", "sequin", "zari", "embellished",
@@ -97,6 +107,19 @@ class SlotSpec:
     required: bool = True    # if True, empty slot is a hard failure; if False, optional
 
 
+def gender_allowed(item_gender: str, look_gender: str) -> bool:
+    """Return True if item gender is compatible with look gender.
+
+    "unknown" is excluded from all gendered (men/women) looks — never guessed in.
+    "unisex" look accepts everything.
+    """
+    ig = (item_gender or "unknown").lower()
+    lg = look_gender.lower()
+    if lg in ("men", "women"):
+        return ig == lg
+    return True  # unisex
+
+
 def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[SlotSpec]:
     """Return ordered list of SlotSpecs to fill for a given anchor + gender + occasion.
 
@@ -110,13 +133,19 @@ def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[S
             return [
                 SlotSpec("bottom", "churidar pyjama dhoti ethnic bottom", required=True),
                 SlotSpec("outerwear", "nehru jacket waistcoat ethnic waistcoat", required=False),
-                SlotSpec("footwear", "mojaris juttis kolhapuris ethnic footwear", required=False),
+                SlotSpec(
+                    "footwear", "mojaris juttis kolhapuris ethnic footwear",
+                    required=occasion_slug in _FORMAL_ETHNIC_OCCASIONS,
+                ),
             ]
         else:
             return [
                 SlotSpec("bottom", "palazzo churidar salwar sharara ethnic bottom", required=True),
                 SlotSpec("accessory", "dupatta ethnic dupatta", required=True),
-                SlotSpec("footwear", "juttis heels wedges ethnic footwear", required=False),
+                SlotSpec(
+                    "footwear", "juttis heels wedges ethnic footwear",
+                    required=occasion_slug in _FORMAL_ETHNIC_OCCASIONS,
+                ),
             ]
 
     if anchor_class == "ethnic_one_piece":
@@ -139,13 +168,19 @@ def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[S
         if is_men:
             return [
                 SlotSpec("top", "kurta ethnic top", required=True),
-                SlotSpec("footwear", "mojaris juttis ethnic footwear", required=False),
+                SlotSpec(
+                    "footwear", "mojaris juttis ethnic footwear",
+                    required=occasion_slug in _FORMAL_ETHNIC_OCCASIONS,
+                ),
             ]
         else:
             return [
                 SlotSpec("top", "kurta kurti ethnic top kameez", required=True),
                 SlotSpec("accessory", "dupatta ethnic dupatta", required=True),
-                SlotSpec("footwear", "juttis heels ethnic footwear", required=False),
+                SlotSpec(
+                    "footwear", "juttis heels ethnic footwear",
+                    required=occasion_slug in _FORMAL_ETHNIC_OCCASIONS,
+                ),
             ]
 
     if anchor_class == "outerwear":
