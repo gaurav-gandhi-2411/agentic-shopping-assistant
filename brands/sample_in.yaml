@@ -6,6 +6,7 @@ tagline: "Fashion that feels like you"
 currency: "INR"
 locale: "en-IN"
 sizing_system: "IN"
+gender_default: "mixed"
 catalogue_path: "data/samples/in_feed.csv"
 pdp_url_template: "https://desidrip.in/products/{handle}"
 suggestion_chips:

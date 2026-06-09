@@ -7,12 +7,12 @@ Runnable as:
     python eval/outfit_coherence.py
 """
 
-import sys
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+import sys  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 
 # Ensure repo root is on sys.path regardless of invocation style
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -20,7 +20,6 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.agents.outfit.composer import compose_outfit  # noqa: E402
-
 
 # ── Synthetic item pool ─────────────────────────────────────────────────────
 

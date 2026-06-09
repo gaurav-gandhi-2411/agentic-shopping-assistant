@@ -26,7 +26,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from src.catalogue.adapter import adapt_feed
-from src.catalogue.loader import KEEP_COLUMNS, build_searchable_text, load_articles, load_config
+from src.catalogue.loader import (
+    KEEP_COLUMNS,
+    build_searchable_text,
+    load_articles,
+    load_config,
+    validate_pdp_links,
+)
 from src.config.brand import BrandConfig
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.sparse_search import SparseRetriever
@@ -150,6 +156,10 @@ def _load_brand_df(
 
     df = adapt_feed(df_raw, brand_config)
     df = df.dropna(subset=["detail_desc"]).reset_index(drop=True)
+
+    # Optionally validate PDP links (only when VALIDATE_PDP_LINKS=1 — makes HTTP requests)
+    if brand_config.pdp_url_template:
+        df = validate_pdp_links(df, brand_config.pdp_url_template)
 
     if sample is not None and sample > 0:
         seed = config["catalogue"].get("seed", 42)

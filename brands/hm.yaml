@@ -6,6 +6,7 @@ tagline: "Fashion and quality at the best price"
 currency: "INR"
 locale: "en-IN"
 sizing_system: "EU"
+gender_default: "mixed"
 catalogue_path: "data/processed/catalogue.parquet"
 pdp_url_template: "https://www2.hm.com/en_in/productpage.{handle}.html"
 suggestion_chips:

@@ -6,6 +6,7 @@ tagline: "Fashion. Conscious."
 currency: "INR"
 locale: "en-IN"
 sizing_system: "IN"
+gender_default: "women"
 catalogue_path: "data/raw/shopify/virgio/products.csv"
 pdp_url_template: "https://virgio.com/products/{handle}"
 suggestion_chips:
