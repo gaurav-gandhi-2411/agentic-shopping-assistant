@@ -38,11 +38,12 @@ INTERNAL_COLUMNS: list[str] = [
     "pdp_handle",      # str | None
     "image_url",       # str | None — first product image URL
     "pdp_live",        # bool | None — True=live, False=dead, None=not checked
+    "gender",           # str: "men" | "women" | "unknown"
 ]
 
 # Columns that existed before B2; used for back-compat fill logic
 _LEGACY_COLUMNS: set[str] = set(INTERNAL_COLUMNS) - {
-    "price_inr", "size_system", "pdp_handle", "image_url", "pdp_live"
+    "price_inr", "size_system", "pdp_handle", "image_url", "pdp_live", "gender"
 }
 
 # Default fill values for legacy string columns when the source feed omits them
@@ -52,7 +53,20 @@ _COLUMN_DEFAULTS: dict[str, str] = {
     "department_name": "N/A",
     "index_group_name": "N/A",
     "garment_group_name": "N/A",
+    "gender": "unknown",
 }
+
+# ── Gender keyword sets ────────────────────────────────────────────────────────
+# Women checked BEFORE men so "women's kurta" doesn't false-match "men" substring
+_GENDER_WOMEN_KEYWORDS: frozenset[str] = frozenset({
+    "saree", "lehenga", "dupatta", "kurti", "anarkali", "sharara",
+    "salwar kameez", "palazzo", "ghagra", "choli",
+    "women", "woman", "ladies", "female", "girl", "girls",
+})
+_GENDER_MEN_KEYWORDS: frozenset[str] = frozenset({
+    "sherwani", "bandhgala",
+    "men", "man", "male", "boys", "boy",
+})
 
 # ── Generic/Shopify column mapping ─────────────────────────────────────────────
 # Each entry: internal_column -> ordered list of candidate source column names.
@@ -72,6 +86,27 @@ _GENERIC_COLUMN_MAP: dict[str, list[str]] = {
     "pdp_handle":               ["handle", "slug", "url"],
     "image_url":                ["image_url", "image_urls", "image"],
 }
+
+
+# ── Gender derivation ──────────────────────────────────────────────────────────
+
+def derive_item_gender(prod_name: str, product_type_name: str, brand_default: str) -> str:
+    """Derive per-item gender via fallback chain.
+
+    1. Name/type keyword scan (women-specific → women; men-specific → men).
+       Check women BEFORE men so "women's kurta" doesn't match "men" inside "women".
+    2. Brand default if not "mixed" or "unknown".
+    3. Return "unknown".
+    """
+    combined = (prod_name + " " + product_type_name).lower()
+    # Women keywords take priority (checked first to avoid "women" matching "men" sub-string)
+    if any(kw in combined for kw in _GENDER_WOMEN_KEYWORDS):
+        return "women"
+    if any(kw in combined for kw in _GENDER_MEN_KEYWORDS):
+        return "men"
+    if brand_default and brand_default.lower() not in ("mixed", "unknown", ""):
+        return brand_default.lower()
+    return "unknown"
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -115,7 +150,8 @@ def adapt_feed(
         out = _adapt_myntra(df, effective_size_system)
     else:
         logger.debug("adapt_feed: detected generic layout (%d rows)", len(df))
-        out = _adapt_generic(df, effective_size_system)
+        brand_gender_default: str = getattr(brand_config, "gender_default", "unknown") or "unknown"
+        out = _adapt_generic(df, effective_size_system, brand_gender_default)
 
     # Guarantee column order and completeness
     out = _ensure_schema(out)
@@ -144,12 +180,27 @@ def _adapt_hm(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
     if "pdp_handle" not in out.columns:
         out["pdp_handle"] = None
     out["size_system"] = size_system  # broadcasts to all rows
+
+    # Derive gender from the already-populated index_group_name
+    def _ig_to_gender(ig: object) -> str:
+        s = str(ig or "").lower()
+        if "menswear" in s or s == "men":
+            return "men"
+        if "ladieswear" in s or "women" in s or "ladies" in s:
+            return "women"
+        return "unknown"
+
+    out["gender"] = out["index_group_name"].apply(_ig_to_gender)
     return out
 
 
 # ── Generic/Shopify mapping ────────────────────────────────────────────────────
 
-def _adapt_generic(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
+def _adapt_generic(
+    df: pd.DataFrame,
+    size_system: str | None,
+    brand_gender_default: str = "unknown",
+) -> pd.DataFrame:
     """Map generic feed columns to the internal schema."""
     out = pd.DataFrame(index=df.index)
 
@@ -174,6 +225,19 @@ def _adapt_generic(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
 
     # Size system — broadcast scalar
     out["size_system"] = size_system
+
+    # Derive per-item gender
+    out["gender"] = [
+        derive_item_gender(
+            str(n or ""),
+            str(pt or ""),
+            brand_gender_default,
+        )
+        for n, pt in zip(
+            out.get("prod_name", pd.Series(dtype=str)).fillna(""),
+            out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
+        )
+    ]
 
     return out
 
@@ -298,8 +362,19 @@ def _adapt_myntra(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
     out["product_group_name"] = "N/A"
     out["graphical_appearance_name"] = "N/A"
     out["department_name"] = "N/A"
-    out["index_group_name"] = "N/A"
     out["garment_group_name"] = "N/A"
+
+    # Derive per-item gender and map to index_group_name for filter compatibility
+    out["gender"] = [
+        derive_item_gender(n, pt, "women")
+        for n, pt in zip(
+            out["prod_name"].fillna("").astype(str),
+            out["product_type_name"].fillna("").astype(str),
+        )
+    ]
+    out["index_group_name"] = out["gender"].map(
+        {"men": "Menswear", "women": "Ladieswear"}
+    ).fillna("N/A")
 
     return out
 

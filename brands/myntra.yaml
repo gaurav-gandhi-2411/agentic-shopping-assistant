@@ -6,7 +6,7 @@ tagline: "India's Fashion Destination"
 currency: "INR"
 locale: "en-IN"
 sizing_system: "IN"
-gender_default: "mixed"
+gender_default: "women"
 catalogue_path: "data/raw/myntra/Fashion Dataset.csv"
 pdp_url_template: "https://www.myntra.com/{handle}"
 suggestion_chips:
