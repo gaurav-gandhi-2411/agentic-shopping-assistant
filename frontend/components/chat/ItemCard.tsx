@@ -35,6 +35,7 @@ export function ItemCard({ item, onSend }: Props) {
               width={64}
               height={80}
               sizes="64px"
+              unoptimized
               className="w-full h-full object-cover"
             />
           ) : (
@@ -159,6 +160,7 @@ function SimilarItemRow({
             width={32}
             height={40}
             sizes="32px"
+            unoptimized
             className="w-full h-full object-cover"
           />
         ) : (

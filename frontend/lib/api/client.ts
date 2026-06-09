@@ -1,5 +1,5 @@
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
-import type { ConversationDetail, ConversationSummary, ItemSummary } from "./types"
+import type { ConversationDetail, ConversationSummary, DashboardData, ItemSummary } from "./types"
 
 function getBackendUrl(): string {
   if (typeof window !== "undefined") {
@@ -92,6 +92,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ rating, comment: comment ?? null }),
       }),
+  },
+
+  dashboard: {
+    get: (): Promise<DashboardData> => request("/dashboard"),
   },
 }
 
