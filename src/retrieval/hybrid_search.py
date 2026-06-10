@@ -7,14 +7,41 @@ import pandas as pd
 from .dense_search import DenseRetriever
 from .sparse_search import SparseRetriever
 
-_CATEGORY_SUFFIXES = frozenset({
-    "blouse", "shirt", "top", "tee", "t shirt", "tshirt",
-    "dress", "skirt", "trousers", "trouser", "pants", "jeans",
-    "jacket", "coat", "blazer", "sweater", "jumper",
-    "cardigan", "hoodie", "shoe", "shoes", "bag", "shorts",
-    "leggings", "tights", "vest", "bodysuit", "dungarees",
-    "jumpsuit", "playsuit", "bikini",
-})
+_CATEGORY_SUFFIXES = frozenset(
+    {
+        "blouse",
+        "shirt",
+        "top",
+        "tee",
+        "t shirt",
+        "tshirt",
+        "dress",
+        "skirt",
+        "trousers",
+        "trouser",
+        "pants",
+        "jeans",
+        "jacket",
+        "coat",
+        "blazer",
+        "sweater",
+        "jumper",
+        "cardigan",
+        "hoodie",
+        "shoe",
+        "shoes",
+        "bag",
+        "shorts",
+        "leggings",
+        "tights",
+        "vest",
+        "bodysuit",
+        "dungarees",
+        "jumpsuit",
+        "playsuit",
+        "bikini",
+    }
+)
 
 
 def normalize_prod_name(name: str) -> str:
@@ -109,34 +136,45 @@ class HybridRetriever:
                     if price_max is not None and float(item_price) > float(price_max):
                         continue
 
-            results.append({
-                "article_id": article_id,
-                "prod_name": row.get("prod_name", ""),
-                "display_name": row["display_name"],
-                "colour": facets.get("colour_group_name", ""),
-                "product_type": facets.get("product_type_name", ""),
-                "department": facets.get("department_name", ""),
-                "detail_desc": row["detail_desc"],
-                "image_url": _img if isinstance(_img := row.get("image_url"), str) and _img else None,
-                "score": score,
-                "price_inr": (
-                    float(row["price_inr"])
-                    if "price_inr" in row.index
-                    and row["price_inr"] is not None
-                    and not pd.isna(row["price_inr"])
-                    else None
-                ),
-                "pdp_handle": (
-                    str(row["pdp_handle"])
-                    if "pdp_handle" in row.index and row["pdp_handle"] is not None
-                    else None
-                ),
-                "pdp_live": (
-                    bool(row["pdp_live"])
-                    if "pdp_live" in row.index and row["pdp_live"] is not None and not pd.isna(row["pdp_live"])
-                    else None
-                ),
-            })
+            results.append(
+                {
+                    "article_id": article_id,
+                    "prod_name": row.get("prod_name", ""),
+                    "display_name": row["display_name"],
+                    "colour": facets.get("colour_group_name", ""),
+                    "product_type": facets.get("product_type_name", ""),
+                    "department": facets.get("department_name", ""),
+                    "detail_desc": row["detail_desc"],
+                    "image_url": _img
+                    if isinstance(_img := row.get("image_url"), str) and _img
+                    else None,
+                    "score": score,
+                    "price_inr": (
+                        float(row["price_inr"])
+                        if "price_inr" in row.index
+                        and row["price_inr"] is not None
+                        and not pd.isna(row["price_inr"])
+                        else None
+                    ),
+                    "pdp_handle": (
+                        str(row["pdp_handle"])
+                        if "pdp_handle" in row.index and row["pdp_handle"] is not None
+                        else None
+                    ),
+                    "pdp_live": (
+                        bool(row["pdp_live"])
+                        if "pdp_live" in row.index
+                        and row["pdp_live"] is not None
+                        and not pd.isna(row["pdp_live"])
+                        else None
+                    ),
+                    "gender": (
+                        str(row["gender"]).lower()
+                        if "gender" in row.index and row["gender"] is not None
+                        else "unknown"
+                    ),
+                }
+            )
 
             if len(results) >= top_k:
                 break

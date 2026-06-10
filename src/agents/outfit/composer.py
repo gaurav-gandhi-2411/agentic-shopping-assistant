@@ -89,7 +89,8 @@ def compose_outfit(
         candidates = retriever.search(anchor_query, top_k=10)
         # Filter by occasion coherence AND gender compatibility
         valid = [
-            c for c in candidates
+            c
+            for c in candidates
             if _anchor_matches_occasion(c, occasion_slug)
             and gender_allowed(
                 (c.get("gender") or "unknown").lower(),
@@ -109,8 +110,7 @@ def compose_outfit(
 
     # Resolve gender from seed item if not explicitly provided
     effective_gender = (
-        gender if gender != "unisex"
-        else _infer_gender(seed_item, brand_gender_default)
+        gender if gender != "unisex" else _infer_gender(seed_item, brand_gender_default)
     )
 
     anchor_product_type = seed_item.get("product_type") or ""
@@ -125,9 +125,7 @@ def compose_outfit(
     empty_slots: list[str] = []
     seen_ids: set[str] = {seed_article_id}
     seen_prod_colour: set[tuple[str, str]] = set()
-    seen_prod_colour.add(
-        (normalize_prod_name(anchor_name), anchor_colour)
-    )
+    seen_prod_colour.add((normalize_prod_name(anchor_name), anchor_colour))
 
     running_total = seed_item.get("price_inr") or 0.0
 
@@ -149,10 +147,14 @@ def compose_outfit(
             candidate["_slot"] = slot_spec.slot_name
             complements.append(candidate)
             seen_ids.add(candidate["article_id"])
-            seen_prod_colour.add((
-                normalize_prod_name(candidate.get("prod_name") or candidate.get("display_name") or ""),
-                (candidate.get("colour") or "").lower(),
-            ))
+            seen_prod_colour.add(
+                (
+                    normalize_prod_name(
+                        candidate.get("prod_name") or candidate.get("display_name") or ""
+                    ),
+                    (candidate.get("colour") or "").lower(),
+                )
+            )
             running_total += candidate.get("price_inr") or 0.0
         elif slot_spec.required:
             empty_slots.append(slot_spec.slot_name)
@@ -166,16 +168,19 @@ def compose_outfit(
             f"Styled **{seed_display}** with {', '.join(comp_names)}."
         )
     else:
-        rationale = (
-            f"Showing **{seed_display}** — no complementary items found for this occasion."
-        )
+        rationale = f"Showing **{seed_display}** — no complementary items found for this occasion."
 
     budget_total = running_total if running_total > 0 else None
 
     logger.debug(
         "[composer] look_id=%s occasion=%s gender=%s anchor_class=%s slots=%s empty=%s budget_total=%s",
-        look_id, occasion_slug, effective_gender, anchor_class,
-        [c["_slot"] for c in complements], empty_slots, budget_total,
+        look_id,
+        occasion_slug,
+        effective_gender,
+        anchor_class,
+        [c["_slot"] for c in complements],
+        empty_slots,
+        budget_total,
     )
 
     return {
@@ -264,7 +269,12 @@ def _flywheel_boost(
     boost = FLYWHEEL_ALPHA * positive_rate
     logger.debug(
         "[flywheel] anchor=%s slot=%s occ=%s positive_rate=%.2f boost=%.3f signals=%d",
-        anchor_class, fill_slot, occasion_slug, positive_rate, boost, total,
+        anchor_class,
+        fill_slot,
+        occasion_slug,
+        positive_rate,
+        boost,
+        total,
     )
     return boost
 
@@ -278,11 +288,9 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
             if is_men
             else "sherwani kurta lehenga anarkali festive embellished"
         ),
-        "haldi_mehendi":      "kurta kurti lehenga cotton floral yellow festive",
+        "haldi_mehendi": "kurta kurti lehenga cotton floral yellow festive",
         "festive_puja": (
-            "kurta festive ethnic nehru jacket"
-            if is_men
-            else "kurta kurti anarkali festive ethnic"
+            "kurta festive ethnic nehru jacket" if is_men else "kurta kurti anarkali festive ethnic"
         ),
         "wedding_guest": (
             "sherwani kurta wedding formal ethnic"
@@ -290,26 +298,10 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
             else "lehenga anarkali saree wedding ethnic formal"
         ),
         "traditional_ethnic": "saree lehenga traditional ethnic",
-        "party_evening": (
-            "shirt formal party"
-            if is_men
-            else "dress evening party top formal"
-        ),
-        "office": (
-            "shirt formal office"
-            if is_men
-            else "top blouse formal shirt"
-        ),
-        "smart_casual": (
-            "shirt casual"
-            if is_men
-            else "top casual blouse"
-        ),
-        "casual": (
-            "shirt casual tshirt"
-            if is_men
-            else "top casual tshirt"
-        ),
+        "party_evening": ("shirt formal party" if is_men else "dress evening party top formal"),
+        "office": ("shirt formal office" if is_men else "top blouse formal shirt"),
+        "smart_casual": ("shirt casual" if is_men else "top casual blouse"),
+        "casual": ("shirt casual tshirt" if is_men else "top casual tshirt"),
     }
     return queries.get(occasion_slug, "top casual")
 
@@ -317,6 +309,7 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
 def _anchor_matches_occasion(item: dict, occasion_slug: str) -> bool:
     """Check if an item retrieved as anchor is coherent with the occasion."""
     from src.agents.outfit.occasions import OCCASIONS
+
     occ = OCCASIONS.get(occasion_slug)
     if occ is None:
         return True
@@ -344,6 +337,7 @@ def _row_to_item(article_id: str, row: pd.Series, facets: dict, role: str) -> di
         "score": 1.0,
         "price_inr": row.get("price_inr"),
         "pdp_handle": row.get("pdp_handle"),
+        "gender": str(row.get("gender") or "unknown").lower(),
         "_role": role,
     }
 
