@@ -217,6 +217,10 @@ def post_chat(
             routing=routing,
             out_of_catalogue=bool(result.get("out_of_catalogue")),
             new_items_this_turn=bool(result.get("new_items_this_turn")),
+            look_id=result.get("look_id"),
+            occasion=result.get("occasion"),
+            look_gender=result.get("look_gender"),
+            budget_total_inr=result.get("budget_total_inr"),
         )
 
     finally:
@@ -534,6 +538,10 @@ async def ws_chat(websocket: WebSocket) -> None:
                     "out_of_catalogue": bool(result.get("out_of_catalogue")),
                     "new_items_this_turn": bool(result.get("new_items_this_turn")),
                     "response": full_response,
+                    "look_id": result.get("look_id"),
+                    "occasion": result.get("occasion"),
+                    "look_gender": result.get("look_gender"),
+                    "budget_total_inr": result.get("budget_total_inr"),
                 },
                 message_id=last_message_id,
             ).model_dump_json()

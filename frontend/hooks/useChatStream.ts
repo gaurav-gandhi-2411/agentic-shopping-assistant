@@ -141,10 +141,23 @@ export function useChatStream({
               // Capture the persisted DB message UUID for feedback calls.
               // frame.message_id is null when running against InMemorySessionStore.
               const dbMessageId = frame.message_id ?? null
+              const lookId = frame.final_state.look_id ?? null
+              const occasion = frame.final_state.occasion ?? null
+              const lookGender = frame.final_state.look_gender ?? null
+              const budgetTotalInr = frame.final_state.budget_total_inr ?? null
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
-                    ? { ...m, dbId: dbMessageId, isStreaming: false, items: pendingItems }
+                    ? {
+                        ...m,
+                        dbId: dbMessageId,
+                        isStreaming: false,
+                        items: pendingItems,
+                        lookId,
+                        occasion,
+                        lookGender,
+                        budgetTotalInr,
+                      }
                     : m
                 )
               )

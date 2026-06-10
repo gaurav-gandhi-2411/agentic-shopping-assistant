@@ -6,6 +6,7 @@ tagline: "Power Your Look"
 currency: "INR"
 locale: "en-IN"
 sizing_system: "IN"
+gender_default: "men"
 catalogue_path: "data/raw/shopify/powerlook/products.csv"
 pdp_url_template: "https://powerlook.in/products/{handle}"
 suggestion_chips:

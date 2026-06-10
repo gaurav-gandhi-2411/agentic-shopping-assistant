@@ -27,6 +27,7 @@ class BrandConfig(BaseModel):
     currency: str = "INR"             # ISO 4217 currency code
     locale: str = "en-IN"             # BCP-47 locale tag
     sizing_system: str = "IN"         # "IN" | "EU" | "alpha"
+    gender_default: str = "women"     # "men" | "women" | "mixed" (mixed → infer from item)
 
     # Catalogue
     catalogue_path: str = "data/processed/catalogue.parquet"

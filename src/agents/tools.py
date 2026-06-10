@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 
 import pandas as pd
 
+from src.agents.outfit.composer import compose_outfit
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
@@ -206,3 +209,23 @@ def suggest_outfit(
         "outfit_rationale": rationale,
         "empty_slots": empty_slots,
     }
+
+
+def compose_outfit_tool(
+    seed_article_id: str | None,
+    occasion_slug: str,
+    gender: str,
+    catalogue_df: pd.DataFrame,
+    retriever: HybridRetriever,
+    budget_inr: float | None = None,
+) -> dict:
+    """Occasion-aware outfit composition. Delegates to src.agents.outfit.composer."""
+    return compose_outfit(
+        catalogue_df=catalogue_df,
+        retriever=retriever,
+        seed_article_id=seed_article_id,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        budget_inr=budget_inr,
+        pairing_stats=None,  # flywheel stats injected later when F phase is complete
+    )

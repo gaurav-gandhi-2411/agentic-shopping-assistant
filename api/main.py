@@ -33,7 +33,9 @@ from api.routes.brand import router as brand_router
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
 from api.routes.conversations import router as conversations_router
+from api.routes.dashboard import router as dashboard_router
 from api.routes.demo import router as demo_router
+from api.routes.events import router as events_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 
@@ -279,7 +281,9 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(catalogue_router)
+    app.include_router(dashboard_router)
     app.include_router(demo_router)
+    app.include_router(events_router)
     app.include_router(feedback_router)
 
     @app.get("/sentry-debug")

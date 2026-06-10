@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import type { ChatMessage } from "@/lib/api/types"
 import { api } from "@/lib/api/client"
 import { ItemCard } from "./ItemCard"
+import { OutfitBoard } from "./OutfitBoard"
 
 interface Props {
   message: ChatMessage
@@ -136,13 +137,35 @@ export function MessageBubble({ message, onSend }: Props) {
       </div>
 
       {/* Product cards (assistant messages only) */}
-      {!isUser && message.items.length > 0 && (
-        <div className="w-full max-w-[80%] grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {message.items.map((item) => (
-            <ItemCard key={item.article_id} item={item} onSend={onSend} />
-          ))}
-        </div>
-      )}
+      {!isUser && message.items.length > 0 && (() => {
+        const isOutfit = message.items.some((it) => it.slot_role != null)
+        if (isOutfit) {
+          const seed = message.items.find((it) => it.slot_role === "seed")
+          return (
+            <div className="w-full max-w-[85%]">
+              <OutfitBoard
+                items={message.items}
+                lookId={message.lookId}
+                occasion={message.occasion}
+                lookGender={message.lookGender}
+                budgetTotalInr={message.budgetTotalInr}
+                sessionId={message.id}
+                anchorItemId={seed?.article_id ?? ""}
+                anchorCategory={seed?.product_type ?? ""}
+                brand={undefined}
+                onSend={onSend}
+              />
+            </div>
+          )
+        }
+        return (
+          <div className="w-full max-w-[80%] grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {message.items.map((item) => (
+              <ItemCard key={item.article_id} item={item} onSend={onSend} />
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Feedback buttons (assistant messages with a persisted DB id only) */}
       {!isUser && !message.isStreaming && message.dbId !== null && (

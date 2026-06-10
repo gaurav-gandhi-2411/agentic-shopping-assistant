@@ -6,6 +6,7 @@ tagline: "India's Fashion Marketplace"
 currency: "INR"
 locale: "en-IN"
 sizing_system: "IN"
+gender_default: "mixed"
 catalogue_path: "data/raw/flipkart/fashion_products.csv"
 pdp_url_template: "{handle}"
 suggestion_chips:
