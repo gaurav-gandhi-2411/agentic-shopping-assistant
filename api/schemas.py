@@ -6,8 +6,22 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
+# Cart / buy-link models
+# ---------------------------------------------------------------------------
+
+
+class ItemLink(BaseModel):
+    """Per-item buy link included in cart action responses."""
+
+    article_id: str
+    name: str
+    buy_url: str
+
+
+# ---------------------------------------------------------------------------
 # Shared item model
 # ---------------------------------------------------------------------------
+
 
 class ItemSummary(BaseModel):
     article_id: str
@@ -44,6 +58,24 @@ class ItemSummary(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Outfit variants
+# ---------------------------------------------------------------------------
+
+class OutfitVariant(BaseModel):
+    """One switchable outfit variant (base, colour story, or formality lean)."""
+
+    variant_id: str
+    label: str                    # short chip label: "Base", "Colour story", "Dressier", "Lighter"
+    rationale: str
+    items: list[ItemSummary]
+    occasion: str | None = None
+    budget_total_inr: float | None = None
+    # Cart action fields — populated for outfit responses; None for non-outfit turns.
+    cart_url: str | None = None
+    item_links: list[ItemLink] | None = None
+
+
+# ---------------------------------------------------------------------------
 # HTTP /chat
 # ---------------------------------------------------------------------------
 
@@ -68,6 +100,11 @@ class ChatResponse(BaseModel):
     occasion: str | None = None
     look_gender: str | None = None
     budget_total_inr: float | None = None
+    outfit_rationale: str | None = None
+    outfit_variants: list[OutfitVariant] | None = None
+    # Cart action fields — populated for outfit responses; None otherwise.
+    cart_url: str | None = None
+    item_links: list[ItemLink] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,3 +162,49 @@ class WSErrorMessage(BaseModel):
 
 class WSCancelledMessage(BaseModel):
     type: Literal["cancelled"] = "cancelled"
+
+
+# ---------------------------------------------------------------------------
+# Saved looks / share
+# ---------------------------------------------------------------------------
+
+
+class SaveLookRequest(BaseModel):
+    """Body for POST /looks — persist the current outfit board for sharing."""
+
+    session_id: str = Field(..., description="Anonymous demo session identifier.")
+    brand: str = Field(..., description="Brand slug, e.g. 'hm' or 'myntra'.")
+    look_id: str | None = Field(default=None, description="Ephemeral look id from the outfit engine.")
+    occasion: str | None = Field(default=None, description="Occasion label, e.g. 'casual'.")
+    look_gender: str | None = Field(default=None, description="Gender label: 'men', 'women', 'unisex'.")
+    anchor_item_id: str | None = Field(default=None, description="Anchor catalogue item id.")
+    look_total_inr: int | None = Field(default=None, description="Basket total in INR.")
+    snapshot: dict = Field(
+        ...,
+        description=(
+            "Self-contained board payload: items[] with article_id/name/colour/type/"
+            "slot/role/image_url/price_inr/pdp_handle/buy_url, plus rationale, "
+            "cart_url, item_links, variant label."
+        ),
+    )
+    # user_id is always None for anonymous sessions; reserved for future auth wiring.
+    user_id: str | None = Field(default=None, description="Authenticated user UUID, or None for anonymous.")
+
+
+class SaveLookResponse(BaseModel):
+    """Response for POST /looks."""
+
+    id: str = Field(..., description="UUID of the saved look (also the share slug).")
+    share_path: str = Field(..., description="Relative path for the read-only shared board, e.g. /look/{id}.")
+
+
+class SharedLookResponse(BaseModel):
+    """Response for GET /looks/{look_id} — public read-only shared board payload."""
+
+    id: str
+    brand: str
+    occasion: str | None = None
+    look_gender: str | None = None
+    look_total_inr: int | None = None
+    snapshot: dict
+    created_at: str

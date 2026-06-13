@@ -38,6 +38,8 @@ from api.routes.demo import router as demo_router
 from api.routes.events import router as events_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
+from api.routes.image_style import router as image_style_router
+from api.routes.looks import router as looks_router
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +278,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(health_router)
+    app.include_router(image_style_router)
     app.include_router(brand_router)
     app.include_router(auth_router)
     app.include_router(chat_router)
@@ -285,6 +288,7 @@ def create_app() -> FastAPI:
     app.include_router(demo_router)
     app.include_router(events_router)
     app.include_router(feedback_router)
+    app.include_router(looks_router)
 
     @app.get("/sentry-debug")
     def sentry_debug():

@@ -39,3 +39,11 @@ api:
   host: "127.0.0.1"
   port: 8080
   cors_origins: ["http://localhost:8501"]
+
+clip:
+  model: "clip-ViT-B-32"
+  batch_size: 64
+  index_dir: "data/processed/clip"
+
+features:
+  image_input_enabled: true

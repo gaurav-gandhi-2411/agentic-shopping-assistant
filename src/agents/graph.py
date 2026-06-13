@@ -7,6 +7,8 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.grounding import validate_response
+from src.agents.outfit.composer import compose_outfit_variants
+from src.agents.outfit.rationale import generate_rationales
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import (
@@ -849,49 +851,70 @@ def build_graph(
 
         # Guard: if still no seed (e.g. occasion request misrouted here with no prior items),
         # use occasion-driven entry (seed_article_id=None) rather than failing hard.
-        if not article_id:
-            # Try occasion-driven compose (no seed) — if catalogue has no ethnic items for
-            # sangeet, composer returns gracefully. If truly no anchor found, fall back message.
-            result = compose_outfit_tool(
-                seed_article_id=None,
-                occasion_slug=occasion_slug,
-                gender=gender,
-                catalogue_df=catalogue_df,
-                retriever=retriever,
-                budget_inr=budget_inr,
+        # First check viability with a single compose call before variant expansion.
+        probe = compose_outfit_tool(
+            seed_article_id=article_id or None,
+            occasion_slug=occasion_slug,
+            gender=gender,
+            catalogue_df=catalogue_df,
+            retriever=retriever,
+            budget_inr=budget_inr,
+        )
+        if probe.get("seed_item") is None:
+            answer = (
+                "To build an outfit, tell me the occasion and your budget — "
+                "e.g. 'sangeet look under ₹5000' — or click 'Style this' on a specific item."
             )
-            if result.get("seed_item") is None:
-                answer = (
-                    "To build an outfit, tell me the occasion and your budget — "
-                    "e.g. 'sangeet look under ₹5000' — or click 'Style this' on a specific item."
-                )
-                if streaming_mode:
-                    return {
-                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
-                        "final_answer": None,
-                        "messages": [],
-                    }
+            if streaming_mode:
                 return {
-                    "final_answer": answer,
-                    "messages": [{"role": "assistant", "content": answer}],
+                    "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                    "final_answer": None,
+                    "messages": [],
                 }
-        else:
-            result = compose_outfit_tool(
-                seed_article_id=article_id,
+            return {
+                "final_answer": answer,
+                "messages": [{"role": "assistant", "content": answer}],
+            }
+
+        # Compose 1-3 variants (base + up to 2 alternates)
+        try:
+            look_variants = compose_outfit_variants(
+                catalogue_df,
+                retriever,
+                seed_article_id=article_id or None,
                 occasion_slug=occasion_slug,
                 gender=gender,
-                catalogue_df=catalogue_df,
-                retriever=retriever,
                 budget_inr=budget_inr,
+                pairing_stats=None,  # flywheel stats injected when F phase completes
+                brand_gender_default=_brand_cfg.gender_default,
             )
+        except Exception as _ve:
+            logger.warning("[outfit] compose_outfit_variants failed (%s) — using probe", _ve)
+            look_variants = [probe]
 
+        # Generate grounded rationales for all variants (one batched LLM call)
+        try:
+            rationales = generate_rationales(
+                look_variants, llm, occasion=occasion_slug, gender=gender
+            )
+        except Exception as _re:
+            logger.warning("[outfit] generate_rationales failed (%s) — using templates", _re)
+            from src.agents.outfit.rationale import template_rationale
+            rationales = [template_rationale(v) for v in look_variants]
+
+        # Attach rationale to each variant
+        for look, rat in zip(look_variants, rationales):
+            look["rationale"] = rat
+
+        # Base variant drives the primary items/look_id/rationale response fields
+        result = look_variants[0]
         seed = result.get("seed_item")
         complements = result.get("complements", [])
-        rationale = result.get("outfit_rationale", "")
+        base_rationale = result.get("rationale") or result.get("outfit_rationale", "")
         empty_slots = result.get("empty_slots", [])
 
         items_out = ([seed] if seed else []) + complements
-        answer = f"**Outfit suggestion**\n\n{rationale}"
+        answer = f"**Outfit suggestion**\n\n{base_rationale}"
         if empty_slots:
             for _slot in empty_slots:
                 if _slot == "footwear" and budget_inr:
@@ -915,6 +938,8 @@ def build_graph(
             "look_id": result.get("look_id"),
             "occasion": result.get("occasion"),
             "look_gender": result.get("gender"),
+            "outfit_rationale": base_rationale,
+            "outfit_variants": look_variants,
         }
         if streaming_mode:
             update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})

@@ -20,7 +20,9 @@ from api.rate_limit import get_rate_limiter
 from api.schemas import (
     ChatRequest,
     ChatResponse,
+    ItemLink,
     ItemSummary,
+    OutfitVariant,
     WSCancelledMessage,
     WSDoneMessage,
     WSErrorMessage,
@@ -32,6 +34,7 @@ from api.schemas import (
     WSUserMessage,
 )
 from api.session import SessionStore
+from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
 from src.llm.context import llm_user_id_var
 
@@ -77,6 +80,9 @@ def _build_invoke_state(session: dict, user_message: str) -> dict:
         "new_items_this_turn": False,
         "out_of_catalogue": False,
         "excluded_colours": session.get("excluded_colours"),
+        # Outfit fields — reset each turn; populated by outfit_node only
+        "outfit_rationale": None,
+        "outfit_variants": None,
         # ConversationMemory for this conversation — accessed by LLMRouterBackend
         # via state["_memory"] so the compiled graph singleton is memory-agnostic.
         "_memory": session["_memory"],
@@ -96,6 +102,84 @@ def _persist_result(session: dict, result: dict) -> None:
     if "_summary" in result:
         session["_summary"] = result["_summary"]
         session["_summary_message_count"] = result.get("_summary_message_count", 0)
+
+
+def _build_outfit_variants(result: dict) -> list[OutfitVariant] | None:
+    """Convert raw outfit_variants list from agent state into OutfitVariant schema objects.
+
+    Returns None when no outfit_variants are present in the result (non-outfit turns).
+    Each variant look dict is expected to carry: look_id, variant_label, rationale,
+    seed_item, complements, occasion, budget_total_inr.
+
+    Cart fields (cart_url, item_links) are populated per-variant using
+    build_cart_action with the active BRAND env var.
+    """
+    raw_variants: list[dict] | None = result.get("outfit_variants")
+    if not raw_variants:
+        return None
+
+    brand = os.environ.get("BRAND", "hm")
+
+    out: list[OutfitVariant] = []
+    for variant in raw_variants:
+        seed = variant.get("seed_item")
+        complements = variant.get("complements") or []
+        all_items = ([seed] if seed else []) + complements
+        try:
+            item_summaries = [ItemSummary.from_agent_item(it) for it in all_items]
+
+            # Build cart action for this variant's item set
+            cart_action = build_cart_action(all_items, brand)
+            cart_url = cart_action.get("cart_url")
+            raw_links = cart_action.get("item_links") or []
+            item_links = [
+                ItemLink(
+                    article_id=lk["article_id"],
+                    name=lk["name"],
+                    buy_url=lk["buy_url"],
+                )
+                for lk in raw_links
+            ] or None
+
+            ov = OutfitVariant(
+                variant_id=variant.get("look_id") or "",
+                label=variant.get("variant_label") or "Base",
+                rationale=variant.get("rationale") or variant.get("outfit_rationale") or "",
+                items=item_summaries,
+                occasion=variant.get("occasion"),
+                budget_total_inr=variant.get("budget_total_inr"),
+                cart_url=cart_url,
+                item_links=item_links,
+            )
+            out.append(ov)
+        except Exception as _e:
+            logger.warning("outfit_variants: skipping malformed variant: %s", _e)
+
+    return out or None
+
+
+def _build_base_cart_action(result: dict, brand: str) -> tuple[str | None, list[ItemLink] | None]:
+    """Build cart action for the base outfit look (non-variant path).
+
+    Extracts seed + complements from the top-level result dict (populated by the
+    outfit node for single-look responses). Returns (cart_url, item_links) tuple;
+    both None when no outfit items are present.
+    """
+    seed = result.get("seed_item")
+    complements = result.get("complements") or []
+    all_items = ([seed] if seed else []) + complements
+    if not all_items:
+        # Fall back to retrieved_items when no seed/complements (non-outfit turns)
+        return None, None
+
+    cart_action = build_cart_action(all_items, brand)
+    cart_url = cart_action.get("cart_url")
+    raw_links = cart_action.get("item_links") or []
+    item_links = [
+        ItemLink(article_id=lk["article_id"], name=lk["name"], buy_url=lk["buy_url"])
+        for lk in raw_links
+    ] or None
+    return cart_url, item_links
 
 
 def _extract_routing(tool_calls: list[dict]) -> dict:
@@ -199,6 +283,12 @@ def post_chat(
         routing = _extract_routing(tool_calls)
         items = _items_from_result(result)
         response_text = result.get("final_answer") or ""
+        _brand = os.environ.get("BRAND", "hm")
+        _outfit_variants = _build_outfit_variants(result)
+
+        # Populate base-look cart action (covers single-look responses that don't
+        # go through the outfit_variants path, and gives a top-level cart_url).
+        _base_cart_url, _base_item_links = _build_base_cart_action(result, _brand)
 
         logger.info(
             "chat turn complete",
@@ -221,6 +311,10 @@ def post_chat(
             occasion=result.get("occasion"),
             look_gender=result.get("look_gender"),
             budget_total_inr=result.get("budget_total_inr"),
+            outfit_rationale=result.get("outfit_rationale"),
+            outfit_variants=_outfit_variants,
+            cart_url=_base_cart_url,
+            item_links=_base_item_links,
         )
 
     finally:
@@ -531,6 +625,9 @@ async def ws_chat(websocket: WebSocket) -> None:
             },
         )
 
+        _ws_brand = os.environ.get("BRAND", "hm")
+        _ws_variants = _build_outfit_variants(result)
+        _ws_base_cart_url, _ws_base_item_links = _build_base_cart_action(result, _ws_brand)
         await websocket.send_text(
             WSDoneMessage(
                 final_state={
@@ -542,6 +639,16 @@ async def ws_chat(websocket: WebSocket) -> None:
                     "occasion": result.get("occasion"),
                     "look_gender": result.get("look_gender"),
                     "budget_total_inr": result.get("budget_total_inr"),
+                    "outfit_rationale": result.get("outfit_rationale"),
+                    "outfit_variants": (
+                        [v.model_dump() for v in _ws_variants]
+                        if _ws_variants else None
+                    ),
+                    "cart_url": _ws_base_cart_url,
+                    "item_links": (
+                        [lk.model_dump() for lk in _ws_base_item_links]
+                        if _ws_base_item_links else None
+                    ),
                 },
                 message_id=last_message_id,
             ).model_dump_json()

@@ -40,12 +40,16 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Unauthenticated users may only access /login and /auth/*.
+  // Unauthenticated users may only access /login, /auth/*, /demo/*, /embed/*, /pdp-demo/*.
+  // /embed and /pdp-demo are public-facing widget routes — they bootstrap their
+  // own anonymous demo session via POST /demo/session (same as /demo).
   if (
     !user &&
     !pathname.startsWith("/login") &&
     !pathname.startsWith("/auth") &&
-    !pathname.startsWith("/demo")
+    !pathname.startsWith("/demo") &&
+    !pathname.startsWith("/embed") &&
+    !pathname.startsWith("/pdp-demo")
   ) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"

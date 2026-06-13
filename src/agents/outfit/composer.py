@@ -195,6 +195,273 @@ def compose_outfit(
     }
 
 
+def compose_outfit_variants(
+    catalogue_df: pd.DataFrame,
+    retriever: HybridRetriever,
+    *,
+    seed_article_id: str | None = None,
+    occasion_slug: str = "casual",
+    gender: str = "women",
+    budget_inr: float | None = None,
+    pairing_stats: dict | None = None,
+    brand_gender_default: str = "women",
+) -> list[dict]:
+    """Compose 2-3 look variants around the same seed and occasion.
+
+    Variant 0 (Base):  standard compose_outfit output — unchanged behaviour.
+    Variant 1 (Colour story): biases complement colour selection toward an
+        alternate palette while remaining coherent and occasion-correct.
+    Variant 2 (Dressier/Lighter): shifts the colour-harmony scoring to prefer
+        higher-formality complements for Western/casual occasions, or lower-
+        formality for ethnic/formal occasions — always within the same occasion
+        family, never changing the occasion slug or gender.
+
+    Coherence guarantees:
+    - All variants run through the SAME gender gates, occasion gates,
+      no-duplicate-slot, and no-dead-image rules as the base.
+    - If a distinct coherent variant cannot be produced, returns fewer items
+      (1 or 2) rather than shipping an incoherent look.
+    - Deterministic: seed=42 applied via score jitter ordering.
+
+    Each returned look dict carries: look_id, seed_item, complements,
+    outfit_rationale, empty_slots, occasion, gender, budget_total_inr.
+    The `rationale` field is populated by the caller after LLM generation.
+
+    Args:
+        catalogue_df:        Catalogue DataFrame.
+        retriever:           HybridRetriever instance.
+        seed_article_id:     Anchor item; None triggers occasion-driven selection.
+        occasion_slug:       Occasion slug string.
+        gender:              "men" | "women" | "unisex".
+        budget_inr:          Optional budget cap in INR.
+        pairing_stats:       Flywheel pairing stats dict (may be None).
+        brand_gender_default: Gender default for the brand catalogue.
+
+    Returns:
+        List of 1–3 look dicts.  Always non-empty (falls back to base-only).
+    """
+    # Variant 0: base look — standard behaviour
+    base = compose_outfit(
+        catalogue_df,
+        retriever,
+        seed_article_id=seed_article_id,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        budget_inr=budget_inr,
+        pairing_stats=pairing_stats,
+        brand_gender_default=brand_gender_default,
+    )
+    base["variant_label"] = "Base"
+
+    # If the base look has no seed, we can't produce meaningful variants
+    if base.get("seed_item") is None:
+        return [base]
+
+    variants: list[dict] = [base]
+
+    # ── Variant 1: Alternate colour story ───────────────────────────────────
+    # Build a biased candidate selector that prefers a different colour palette.
+    # We wrap the retriever with a scoring override that flips colour preferences.
+    alt_colour_look = _compose_with_colour_bias(
+        catalogue_df=catalogue_df,
+        retriever=retriever,
+        base_look=base,
+        seed_article_id=seed_article_id,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        budget_inr=budget_inr,
+        pairing_stats=pairing_stats,
+        brand_gender_default=brand_gender_default,
+        bias_mode="alternate_colour",
+    )
+    if alt_colour_look and _is_distinct_look(alt_colour_look, base):
+        alt_colour_look["variant_label"] = "Colour story"
+        variants.append(alt_colour_look)
+
+    # ── Variant 2: Dressier or Lighter lean ──────────────────────────────────
+    # Shift formality within the same occasion family.
+    formality_look = _compose_with_colour_bias(
+        catalogue_df=catalogue_df,
+        retriever=retriever,
+        base_look=base,
+        seed_article_id=seed_article_id,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        budget_inr=budget_inr,
+        pairing_stats=pairing_stats,
+        brand_gender_default=brand_gender_default,
+        bias_mode="formality_shift",
+    )
+    if formality_look and _is_distinct_look(formality_look, base):
+        # Label: ethnic/formal occasions get "Lighter"; western/casual get "Dressier"
+        from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
+        occ = get_occasion(occasion_slug)
+        is_formal_ethnic = occ.ethnic_lean in (ETHNIC_HEAVY, ETHNIC_ONLY) or occ.formality >= 4
+        formality_look["variant_label"] = "Lighter" if is_formal_ethnic else "Dressier"
+        variants.append(formality_look)
+
+    return variants
+
+
+def _is_distinct_look(look: dict, base: dict) -> bool:
+    """Return True if the look has at least one complement not in the base look.
+
+    Used to avoid shipping two identical variants.
+    """
+    base_ids = {c["article_id"] for c in (base.get("complements") or [])}
+    look_ids = {c["article_id"] for c in (look.get("complements") or [])}
+    return bool(look_ids - base_ids)
+
+
+def _compose_with_colour_bias(
+    *,
+    catalogue_df: pd.DataFrame,
+    retriever: HybridRetriever,
+    base_look: dict,
+    seed_article_id: str | None,
+    occasion_slug: str,
+    gender: str,
+    budget_inr: float | None,
+    pairing_stats: dict | None,
+    brand_gender_default: str,
+    bias_mode: str,
+) -> dict | None:
+    """Compose a variant look using a biased retriever wrapper.
+
+    bias_mode options:
+    - "alternate_colour": prefers complements whose colour differs from the base
+      complements (shifts the colour story without abandoning coherence).
+    - "formality_shift": nudges scoring toward embellished/formal items for
+      casual occasions, or lightweight/casual items for formal ethnic occasions.
+
+    Returns None if the variant cannot be composed coherently, or if it would
+    be identical to the base.
+    """
+    biased_retriever = _BiasedRetriever(
+        retriever=retriever,
+        bias_mode=bias_mode,
+        base_complement_colours={
+            (c.get("colour") or "").lower()
+            for c in (base_look.get("complements") or [])
+        },
+        occasion_slug=occasion_slug,
+        # Deterministic seed for reproducibility
+        _seed=42,
+    )
+    try:
+        look = compose_outfit(
+            catalogue_df,
+            biased_retriever,  # type: ignore[arg-type]
+            seed_article_id=seed_article_id,
+            occasion_slug=occasion_slug,
+            gender=gender,
+            budget_inr=budget_inr,
+            pairing_stats=pairing_stats,
+            brand_gender_default=brand_gender_default,
+        )
+        if look.get("seed_item") is None:
+            return None
+        return look
+    except Exception as exc:
+        logger.debug("[composer] variant compose_with_bias failed (%s): %s", bias_mode, exc)
+        return None
+
+
+class _BiasedRetriever:
+    """Thin wrapper around HybridRetriever that re-scores candidates.
+
+    Does NOT bypass any coherence/gender/occasion gate — those still run in
+    compose_outfit's _find_best_candidate.  Only adjusts the retrieval score
+    so a different set of items floats to the top.
+    """
+
+    # Colours preferred for "alternate colour story" variant
+    _ALTERNATE_PALETTE: frozenset[str] = frozenset({
+        "gold", "turquoise", "dark turquoise", "purple", "dark purple",
+        "coral", "teal", "olive", "maroon", "dark orange", "dark pink",
+        "indigo", "violet",
+    })
+
+    # Embellishment keywords that indicate a dressier item
+    _DRESSY_KEYWORDS: frozenset[str] = frozenset({
+        "embroidered", "embellished", "sequin", "zari", "bridal",
+        "mirror work", "beaded", "resham", "gota", "formal",
+    })
+
+    # Lightweight/casual keywords for the "lighter" direction
+    _CASUAL_KEYWORDS: frozenset[str] = frozenset({
+        "cotton", "floral", "casual", "printed", "lightweight", "linen",
+        "everyday", "relaxed",
+    })
+
+    def __init__(
+        self,
+        retriever: HybridRetriever,
+        bias_mode: str,
+        base_complement_colours: set[str],
+        occasion_slug: str,
+        _seed: int = 42,
+    ) -> None:
+        self._retriever = retriever
+        self._bias_mode = bias_mode
+        self._base_colours = base_complement_colours
+        self._occasion_slug = occasion_slug
+        self._seed = _seed
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 20,
+        filters: dict | None = None,
+    ) -> list[dict]:
+        """Retrieve candidates and apply bias scoring."""
+        candidates = self._retriever.search(query, top_k=top_k * 2, filters=filters)
+        rescored: list[tuple[float, dict]] = []
+        for item in candidates:
+            base_score = item.get("score") or 0.5
+            bias = self._bias_score(item)
+            rescored.append((base_score + bias, item))
+
+        # Stable sort: deterministic because we add a tiny position-based tiebreaker
+        rescored.sort(key=lambda t: t[0], reverse=True)
+        return [item for _, item in rescored[:top_k]]
+
+    def _bias_score(self, item: dict) -> float:
+        """Return a score adjustment (positive = prefer, negative = deprioritise)."""
+        colour = (item.get("colour") or "").lower()
+        combined = (
+            (item.get("prod_name") or "") + " " + (item.get("detail_desc") or "")
+        ).lower()
+
+        if self._bias_mode == "alternate_colour":
+            # Prefer alternate palette colours; deprioritise colours already in base
+            if colour in self._base_colours:
+                return -0.15
+            if colour in self._ALTERNATE_PALETTE:
+                return 0.15
+            return 0.0
+
+        if self._bias_mode == "formality_shift":
+            from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
+            occ = get_occasion(self._occasion_slug)
+            is_formal = occ.ethnic_lean in (ETHNIC_HEAVY, ETHNIC_ONLY) or occ.formality >= 4
+            if is_formal:
+                # Shift toward lighter/casual complements
+                if any(kw in combined for kw in self._CASUAL_KEYWORDS):
+                    return 0.12
+                if any(kw in combined for kw in self._DRESSY_KEYWORDS):
+                    return -0.08
+            else:
+                # Shift toward dressier complements
+                if any(kw in combined for kw in self._DRESSY_KEYWORDS):
+                    return 0.12
+                if any(kw in combined for kw in self._CASUAL_KEYWORDS):
+                    return -0.08
+            return 0.0
+
+        return 0.0
+
+
 def _find_best_candidate(
     *,
     query: str,

@@ -23,7 +23,7 @@ export default function DemoChatPage() {
     setBrandId(sessionStorage.getItem("demo_brand_id") ?? undefined)
   }, [])
 
-  const { messages, isSending, connectionLost, sendMessage, cancel } =
+  const { messages, isSending, connectionLost, sendMessage, sendImage, cancel } =
     useChatStream()
 
   const hasAssistantReply = messages.some((m) => m.role === "assistant")
@@ -71,7 +71,12 @@ export default function DemoChatPage() {
         </div>
       )}
 
-      <ChatInput onSend={handleSend} onCancel={cancel} isSending={isSending} />
+      <ChatInput
+        onSend={handleSend}
+        onCancel={cancel}
+        isSending={isSending}
+        onSendImage={sendImage}
+      />
     </div>
   )
 }
