@@ -1,39 +1,23 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
+import { EMBED_ALLOWED_ANCESTORS } from "./config/embed-allowlist"
 
 // ---------------------------------------------------------------------------
 // Embed-route CSP: frame-ancestors allowlist.
 //
-// Only our own Vercel deployment and known brand storefront domains may embed
-// the /embed/* route in an <iframe>. Any other origin will be blocked by the
-// browser's CSP frame-ancestors directive.
+// Only THIS origin ('self') and explicitly listed brand storefront domains may
+// embed the /embed/* route in an <iframe>.  Any other origin is blocked.
+//
+// The mock-PDP demo pages live at /pdp-demo/[brand] on THIS app
+// (asa-stylist.vercel.app), so they frame /embed/* same-origin — 'self'
+// covers them without needing a Vercel wildcard.
+//
+// To add a client domain: edit config/embed-allowlist.ts and redeploy.
 //
 // Note: X-Frame-Options is intentionally NOT set on /embed/* — it would block
 // all framing. It is only set as a fallback on other routes.
 // ---------------------------------------------------------------------------
-const EMBED_FRAME_ANCESTORS = [
-  "'self'",
-  // Vercel preview deployments
-  "https://*.vercel.app",
-  // Snitch
-  "https://snitch.co.in",
-  "https://*.snitch.co.in",
-  // Powerlook
-  "https://powerlook.in",
-  "https://*.powerlook.in",
-  // Fashor
-  "https://fashor.com",
-  "https://*.fashor.com",
-  // Virgio
-  "https://virgio.com",
-  "https://*.virgio.com",
-  // Myntra
-  "https://myntra.com",
-  "https://*.myntra.com",
-  // Flipkart
-  "https://flipkart.com",
-  "https://*.flipkart.com",
-].join(" ")
+const EMBED_FRAME_ANCESTORS = ["'self'", ...EMBED_ALLOWED_ANCESTORS].join(" ")
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
