@@ -8,6 +8,7 @@ import { ChatInput } from "@/components/chat/ChatInput"
 
 export default function DemoChatPage() {
   const [brandName, setBrandName] = useState<string | null>(null)
+  const [brandId, setBrandId] = useState<string | undefined>(undefined)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export default function DemoChatPage() {
       return
     }
     setBrandName(name)
+    setBrandId(sessionStorage.getItem("demo_brand_id") ?? undefined)
   }, [])
 
   const { messages, isSending, connectionLost, sendMessage, cancel } =
@@ -55,7 +57,7 @@ export default function DemoChatPage() {
       </header>
 
       {/* Chat area */}
-      <MessageList messages={messages} isSending={isSending} onSend={handleSend} />
+      <MessageList messages={messages} isSending={isSending} onSend={handleSend} brand={brandId} />
 
       {connectionLost && (
         <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive text-center">

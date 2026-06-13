@@ -13,6 +13,8 @@ import { OutfitBoard } from "./OutfitBoard"
 interface Props {
   message: ChatMessage
   onSend?: (text: string) => void
+  /** Brand id from the demo session (e.g. "snitch", "myntra"). Passed to OutfitBoard. */
+  brand?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +78,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
 // MessageBubble
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, onSend }: Props) {
+export function MessageBubble({ message, onSend, brand }: Props) {
   const isUser = message.role === "user"
 
   return (
@@ -149,10 +151,14 @@ export function MessageBubble({ message, onSend }: Props) {
                 occasion={message.occasion}
                 lookGender={message.lookGender}
                 budgetTotalInr={message.budgetTotalInr}
+                outfitRationale={message.outfitRationale}
+                outfitVariants={message.outfitVariants}
+                cartUrl={message.cartUrl}
+                itemLinks={message.itemLinks}
                 sessionId={message.id}
                 anchorItemId={seed?.article_id ?? ""}
                 anchorCategory={seed?.product_type ?? ""}
-                brand={undefined}
+                brand={brand}
                 onSend={onSend}
               />
             </div>

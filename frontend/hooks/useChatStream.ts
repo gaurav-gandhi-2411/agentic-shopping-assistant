@@ -145,6 +145,10 @@ export function useChatStream({
               const occasion = frame.final_state.occasion ?? null
               const lookGender = frame.final_state.look_gender ?? null
               const budgetTotalInr = frame.final_state.budget_total_inr ?? null
+              const outfitRationale = frame.final_state.outfit_rationale ?? null
+              const outfitVariants = frame.final_state.outfit_variants ?? null
+              const cartUrl = frame.final_state.cart_url ?? null
+              const itemLinks = frame.final_state.item_links ?? null
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -157,6 +161,10 @@ export function useChatStream({
                         occasion,
                         lookGender,
                         budgetTotalInr,
+                        outfitRationale,
+                        outfitVariants,
+                        cartUrl,
+                        itemLinks,
                       }
                     : m
                 )

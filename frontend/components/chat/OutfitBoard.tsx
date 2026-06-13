@@ -1,9 +1,31 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
+import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles } from "lucide-react"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
-import type { ItemSummary } from "@/lib/api/types"
+import type { ItemLink, ItemSummary, LookSnapshot, OutfitVariant, SaveLookResponse } from "@/lib/api/types"
+
+// ---------------------------------------------------------------------------
+// Shopify brand ids — these backends support Shopify cart permalinks.
+// ---------------------------------------------------------------------------
+const SHOPIFY_BRANDS = new Set(["snitch", "powerlook", "fashor", "virgio"])
+
+// ---------------------------------------------------------------------------
+// Default backend URL (used for look saves and reads — shared table).
+// Falls back to demo session URL if available.
+// ---------------------------------------------------------------------------
+function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    const demoUrl = sessionStorage.getItem("demo_backend_url")
+    if (demoUrl) return demoUrl
+  }
+  return process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+}
+
+// ---------------------------------------------------------------------------
+// Interfaces
+// ---------------------------------------------------------------------------
 
 interface OutfitBoardProps {
   items: ItemSummary[]
@@ -11,6 +33,12 @@ interface OutfitBoardProps {
   occasion: string | null | undefined
   lookGender: string | null | undefined
   budgetTotalInr: number | null | undefined
+  outfitRationale?: string | null
+  outfitVariants?: OutfitVariant[] | null
+  /** Top-level cart URL for non-variant flow (Shopify brands). */
+  cartUrl?: string | null
+  /** Top-level per-item links for non-variant flow (non-Shopify). */
+  itemLinks?: ItemLink[] | null
   sessionId: string
   anchorItemId: string
   anchorCategory: string
@@ -18,12 +46,16 @@ interface OutfitBoardProps {
   onSend?: (text: string) => void
 }
 
-// Format occasion slug for display (e.g. "sangeet_look" -> "Sangeet Look")
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Format occasion slug for display — "sangeet_look" → "Sangeet Look". */
 function formatOccasion(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-// Post a flywheel event — fire-and-forget, never throw
+/** Post a flywheel event — fire-and-forget, never throw. */
 async function postEvent(backendUrl: string, token: string, payload: object): Promise<void> {
   try {
     await fetch(`${backendUrl}/events`, {
@@ -32,9 +64,41 @@ async function postEvent(backendUrl: string, token: string, payload: object): Pr
       body: JSON.stringify(payload),
     })
   } catch {
-    // Telemetry is best-effort; swallow errors silently
+    // Telemetry is best-effort; swallow errors silently.
   }
 }
+
+/** Retrieve demo session credentials from sessionStorage (browser-only). */
+function getDemoSession(): { token: string | null; backendUrl: string } {
+  if (typeof window === "undefined") {
+    return { token: null, backendUrl: "http://localhost:8000" }
+  }
+  return {
+    token: sessionStorage.getItem("demo_session_token"),
+    backendUrl:
+      sessionStorage.getItem("demo_backend_url") ??
+      process.env.NEXT_PUBLIC_BACKEND_URL ??
+      "http://localhost:8000",
+  }
+}
+
+/** Persist a saved look id to localStorage so the user can revisit. */
+function persistSavedLookId(id: string): void {
+  try {
+    const raw = localStorage.getItem("asa_saved_looks")
+    const ids: string[] = raw ? (JSON.parse(raw) as string[]) : []
+    if (!ids.includes(id)) {
+      ids.unshift(id)
+      localStorage.setItem("asa_saved_looks", JSON.stringify(ids.slice(0, 50)))
+    }
+  } catch {
+    // localStorage unavailable or full; best-effort.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OutfitBoard
+// ---------------------------------------------------------------------------
 
 export function OutfitBoard({
   items,
@@ -42,6 +106,10 @@ export function OutfitBoard({
   occasion,
   lookGender,
   budgetTotalInr,
+  outfitRationale,
+  outfitVariants,
+  cartUrl: topLevelCartUrl,
+  itemLinks: topLevelItemLinks,
   sessionId,
   anchorItemId,
   anchorCategory,
@@ -51,25 +119,47 @@ export function OutfitBoard({
   const { data: brandConfig } = useBrandConfig()
   const loggedRef = useRef(false)
 
-  const seed = items.find((it) => it.slot_role === "seed")
-  const complements = items.filter((it) => it.slot_role === "complement")
+  // Determine the active variant — default to the first one (should be "Base").
+  // When variants are absent or singular we fall back to the raw items prop.
+  const hasMultipleVariants = outfitVariants != null && outfitVariants.length >= 2
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(
+    hasMultipleVariants ? outfitVariants![0].variant_id : null,
+  )
+
+  // Save / share state.
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [savedLookId, setSavedLookId] = useState<string | null>(null)
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // Derive the displayed items, rationale, budget, and buy links from the active variant (if any).
+  const activeVariant =
+    hasMultipleVariants && activeVariantId != null
+      ? (outfitVariants!.find((v) => v.variant_id === activeVariantId) ?? outfitVariants![0])
+      : null
+
+  const displayItems = activeVariant ? activeVariant.items : items
+  const displayRationale = activeVariant ? activeVariant.rationale : (outfitRationale ?? null)
+  const displayBudget = activeVariant ? activeVariant.budget_total_inr : budgetTotalInr
+
+  // Buy link resolution: prefer variant-level, fall back to top-level message fields.
+  const activeCartUrl = activeVariant?.cart_url ?? topLevelCartUrl ?? null
+  const activeItemLinks = activeVariant?.item_links ?? topLevelItemLinks ?? null
+  const isShopify = brand != null && SHOPIFY_BRANDS.has(brand)
+
+  const seed = displayItems.find((it) => it.slot_role === "seed")
+  const complements = displayItems.filter((it) => it.slot_role === "complement")
   const allOutfitItems = seed ? [seed, ...complements] : complements
 
-  // Log look_shown once on mount
+  // Log look_shown once on mount — uses the base items/budget from props
+  // (not variant-derived), as the look exposure event is for the whole look.
   useEffect(() => {
     if (loggedRef.current || !lookId) return
     loggedRef.current = true
-    // Get auth token from sessionStorage (demo) or skip (token fetching is async; best-effort)
-    const demoToken =
-      typeof window !== "undefined" ? sessionStorage.getItem("demo_session_token") : null
-    const backendUrl =
-      typeof window !== "undefined"
-        ? (sessionStorage.getItem("demo_backend_url") ??
-          process.env.NEXT_PUBLIC_BACKEND_URL ??
-          "http://localhost:8000")
-        : "http://localhost:8000"
-    if (demoToken) {
-      postEvent(backendUrl, demoToken, {
+    const { token, backendUrl } = getDemoSession()
+    if (token) {
+      const baseComplements = items.filter((it) => it.slot_role === "complement")
+      postEvent(backendUrl, token, {
         event_type: "look_shown",
         session_id: sessionId,
         look_id: lookId,
@@ -78,7 +168,7 @@ export function OutfitBoard({
         occasion: occasion ?? null,
         brand: brand ?? null,
         look_total_inr: budgetTotalInr ? Math.round(budgetTotalInr) : null,
-        filled_slots: complements.map((c) => ({
+        filled_slots: baseComplements.map((c) => ({
           slot: c.outfit_slot,
           item_id: c.article_id,
           brand: brand,
@@ -88,18 +178,31 @@ export function OutfitBoard({
     }
   }, [lookId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleBuyTheLook() {
+  function handleVariantSwitch(variant: OutfitVariant) {
+    if (variant.variant_id === activeVariantId) return
+    setActiveVariantId(variant.variant_id)
+
+    // Engagement log — only fires on user-initiated switches (not initial render).
+    const { token, backendUrl } = getDemoSession()
+    if (token && lookId) {
+      postEvent(backendUrl, token, {
+        event_type: "variant_selected",
+        session_id: sessionId,
+        look_id: lookId,
+        variant_id: variant.variant_id,
+        variant_label: variant.label,
+        occasion: occasion ?? null,
+        brand: brand ?? null,
+      })
+    }
+  }
+
+  /** Fire add_the_look flywheel event (shared by both Shopify and non-Shopify paths). */
+  function fireAddTheLookEvent() {
     if (!lookId) return
-    const demoToken =
-      typeof window !== "undefined" ? sessionStorage.getItem("demo_session_token") : null
-    const backendUrl =
-      typeof window !== "undefined"
-        ? (sessionStorage.getItem("demo_backend_url") ??
-          process.env.NEXT_PUBLIC_BACKEND_URL ??
-          "http://localhost:8000")
-        : "http://localhost:8000"
-    if (demoToken) {
-      postEvent(backendUrl, demoToken, {
+    const { token, backendUrl } = getDemoSession()
+    if (token) {
+      postEvent(backendUrl, token, {
         event_type: "add_the_look",
         session_id: sessionId,
         look_id: lookId,
@@ -107,7 +210,7 @@ export function OutfitBoard({
         anchor_category: anchorCategory,
         occasion: occasion ?? null,
         brand: brand ?? null,
-        look_total_inr: budgetTotalInr ? Math.round(budgetTotalInr) : null,
+        look_total_inr: displayBudget ? Math.round(displayBudget) : null,
         filled_slots: complements.map((c) => ({
           slot: c.outfit_slot,
           item_id: c.article_id,
@@ -116,15 +219,138 @@ export function OutfitBoard({
         })),
       })
     }
-    // Open each item's PDP in a new tab
-    allOutfitItems.forEach((item) => {
-      if (item.pdp_handle && brandConfig?.pdp_url_template) {
-        window.open(
-          brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle),
-          "_blank",
-        )
+  }
+
+  /** Shopify path: open the cart permalink in a new tab. */
+  function handleShopifyCart() {
+    fireAddTheLookEvent()
+    if (activeCartUrl) {
+      window.open(activeCartUrl, "_blank", "noopener,noreferrer")
+    }
+  }
+
+  /** Non-Shopify path: open each item's buy_url in a new tab. */
+  function handleOpenAllItems() {
+    fireAddTheLookEvent()
+    if (activeItemLinks && activeItemLinks.length > 0) {
+      activeItemLinks.forEach((link) => {
+        window.open(link.buy_url, "_blank", "noopener,noreferrer")
+      })
+    } else {
+      // Fallback: open pdp_handle links via brandConfig template.
+      allOutfitItems.forEach((item) => {
+        if (item.pdp_handle && brandConfig?.pdp_url_template) {
+          window.open(
+            brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle),
+            "_blank",
+          )
+        }
+      })
+    }
+  }
+
+  /** Build a self-contained snapshot of the currently active variant/look. */
+  function buildSnapshot(): LookSnapshot {
+    // Build per-item buy_url: prefer item_links map, then pdp template.
+    const itemLinkMap = new Map<string, string>(
+      (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
+    )
+
+    const snapshotItems = displayItems.map((item) => {
+      const buyUrl =
+        itemLinkMap.get(item.article_id) ??
+        (item.pdp_handle && brandConfig?.pdp_url_template
+          ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
+          : null)
+      return {
+        article_id: item.article_id,
+        display_name: item.display_name ?? item.prod_name,
+        prod_name: item.prod_name,
+        colour: item.colour,
+        product_type: item.product_type,
+        outfit_slot: item.outfit_slot ?? null,
+        slot_role: item.slot_role ?? null,
+        image_url: item.image_url ?? null,
+        price_inr: item.price_inr ?? null,
+        pdp_handle: item.pdp_handle ?? null,
+        buy_url: buyUrl ?? null,
       }
     })
+
+    return {
+      items: snapshotItems,
+      rationale: displayRationale ?? null,
+      cart_url: activeCartUrl ?? null,
+      item_links: activeItemLinks ?? null,
+      variant_label: activeVariant?.label ?? null,
+      occasion: occasion ?? null,
+      look_gender: lookGender ?? null,
+      budget_total_inr: displayBudget ?? null,
+      brand: brand ?? null,
+    }
+  }
+
+  async function handleSaveLook() {
+    if (saveState === "saving" || saveState === "saved") return
+    setSaveState("saving")
+    const { token, backendUrl } = getDemoSession()
+    try {
+      const snapshot = buildSnapshot()
+      const body = {
+        session_id: sessionId,
+        brand: brand ?? null,
+        look_id: lookId ?? null,
+        occasion: occasion ?? null,
+        look_gender: lookGender ?? null,
+        anchor_item_id: anchorItemId,
+        look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+        snapshot,
+      }
+      const res = await fetch(`${backendUrl}/looks`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`POST /looks returned ${res.status}`)
+      const data = (await res.json()) as SaveLookResponse
+      persistSavedLookId(data.id)
+      setSavedLookId(data.id)
+      const url = `${window.location.origin}${data.share_path}`
+      setShareUrl(url)
+      setSaveState("saved")
+
+      // Fire save_look flywheel event.
+      if (token) {
+        postEvent(backendUrl, token, {
+          event_type: "save_look",
+          session_id: sessionId,
+          look_id: lookId ?? data.id,
+          anchor_item_id: anchorItemId,
+          anchor_category: anchorCategory,
+          occasion: occasion ?? null,
+          brand: brand ?? null,
+          look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+        })
+      }
+    } catch {
+      setSaveState("error")
+      // Reset error state after 3 s so the user can retry.
+      setTimeout(() => setSaveState("idle"), 3000)
+    }
+  }
+
+  async function handleCopyShareUrl() {
+    if (!shareUrl) return
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API blocked; fall through silently.
+    }
   }
 
   if (allOutfitItems.length === 0) return null
@@ -133,9 +359,14 @@ export function OutfitBoard({
     .map((c) => c.outfit_slot)
     .filter(Boolean) as string[]
 
+  // Per-item link map for SlotCard buy overlays on non-Shopify brands.
+  const itemLinkMap = new Map<string, string>(
+    (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
+  )
+
   return (
     <div className="w-full rounded-xl border bg-card p-4 space-y-3">
-      {/* Header */}
+      {/* Header — occasion + gender badges */}
       <div className="flex items-center gap-2">
         {occasion && (
           <span className="inline-block rounded-full bg-primary/10 text-primary text-xs font-semibold px-3 py-1">
@@ -149,6 +380,25 @@ export function OutfitBoard({
         )}
       </div>
 
+      {/* Variant switcher — shown only when ≥2 variants are present */}
+      {hasMultipleVariants && (
+        <div className="flex flex-wrap gap-1.5">
+          {outfitVariants!.map((v) => (
+            <button
+              key={v.variant_id}
+              onClick={() => handleVariantSwitch(v)}
+              className={
+                v.variant_id === activeVariantId
+                  ? "rounded-full text-xs font-semibold px-3 py-1 bg-primary text-primary-foreground transition-colors"
+                  : "rounded-full text-xs px-3 py-1 border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              }
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Slot grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {allOutfitItems.map((item) => (
@@ -157,18 +407,85 @@ export function OutfitBoard({
             item={item}
             pdpUrlTemplate={brandConfig?.pdp_url_template}
             isSeed={item.slot_role === "seed"}
+            overrideBuyUrl={itemLinkMap.get(item.article_id) ?? null}
           />
         ))}
       </div>
 
-      {/* Buy the look */}
-      {budgetTotalInr != null && (
-        <button
-          onClick={handleBuyTheLook}
-          className="w-full rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
-        >
-          Buy the look — ₹{Math.round(budgetTotalInr).toLocaleString("en-IN")}
-        </button>
+      {/* Stylist's note — rationale block */}
+      {displayRationale && (
+        <div className="flex gap-2 rounded-lg bg-muted/60 px-3 py-2.5">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" />
+          <p className="text-xs italic text-muted-foreground leading-relaxed">
+            <span className="not-italic font-semibold text-foreground/70">Stylist&rsquo;s note&nbsp;</span>
+            {displayRationale}
+          </p>
+        </div>
+      )}
+
+      {/* Add the look — Shopify: single cart URL; non-Shopify: open-all */}
+      {displayBudget != null && (
+        <div className="space-y-2">
+          {isShopify && activeCartUrl ? (
+            <button
+              onClick={handleShopifyCart}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
+            >
+              <ShoppingBag className="h-4 w-4" />
+              Add the look to cart — ₹{Math.round(displayBudget).toLocaleString("en-IN")}
+            </button>
+          ) : (
+            <button
+              onClick={handleOpenAllItems}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open all items — ₹{Math.round(displayBudget).toLocaleString("en-IN")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Save + share controls — interactive mode only */}
+      {onSend && (
+        <div className="space-y-2">
+          {saveState !== "saved" && (
+            <button
+              onClick={() => void handleSaveLook()}
+              disabled={saveState === "saving"}
+              className="w-full flex items-center justify-center gap-2 rounded-lg border text-sm font-medium py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-60 disabled:cursor-wait"
+            >
+              <Bookmark className="h-4 w-4" />
+              {saveState === "saving"
+                ? "Saving…"
+                : saveState === "error"
+                  ? "Failed to save — tap to retry"
+                  : "Save look"}
+            </button>
+          )}
+
+          {saveState === "saved" && shareUrl && (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2.5 space-y-2">
+              <div className="flex items-center gap-2">
+                <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <span className="text-xs font-medium text-foreground/80">Look saved!</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <code className="flex-1 text-[10px] text-muted-foreground bg-background rounded px-2 py-1 border truncate select-all">
+                  {shareUrl}
+                </code>
+                <button
+                  onClick={() => void handleCopyShareUrl()}
+                  className="shrink-0 rounded px-2 py-1 text-xs border hover:bg-accent transition-colors flex items-center gap-1"
+                  aria-label="Copy share link"
+                >
+                  {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Refinement chips */}
@@ -199,19 +516,28 @@ export function OutfitBoard({
   )
 }
 
+// ---------------------------------------------------------------------------
+// SlotCard
+// ---------------------------------------------------------------------------
+
 function SlotCard({
   item,
   pdpUrlTemplate,
   isSeed,
+  overrideBuyUrl,
 }: {
   item: ItemSummary
   pdpUrlTemplate: string | undefined
   isSeed: boolean
+  overrideBuyUrl: string | null
 }) {
+  // Priority: override (from item_links) → pdp_handle template.
   const buyUrl =
-    item.pdp_handle && pdpUrlTemplate
+    overrideBuyUrl ??
+    (item.pdp_handle && pdpUrlTemplate
       ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
-      : null
+      : null)
+
   const slotLabel = isSeed
     ? "Hero"
     : item.outfit_slot
@@ -255,6 +581,10 @@ function SlotCard({
     </a>
   )
 }
+
+// ---------------------------------------------------------------------------
+// RefinementChip
+// ---------------------------------------------------------------------------
 
 function RefinementChip({ label, onClick }: { label: string; onClick: () => void }) {
   return (
