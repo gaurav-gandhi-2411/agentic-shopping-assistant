@@ -15,12 +15,15 @@ notebooks/
 
 # Model checkpoints and raw data
 models/
-data/raw/
-data/hm/
-data/processed/   # indices loaded from GCS at runtime via INDEX_STORE_URI
+data/                  # ALL local data — indices, CLIP, variant maps, raw — loaded from GCS at runtime
+demo_indices/          # local experiment indices; never baked into the image
+
+# Frontend build artefacts
+frontend/node_modules/
+frontend/.next/
 
 # Python artefacts
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *.egg-info/
 dist/
@@ -32,10 +35,15 @@ build/
 venv/
 env/
 
-# Local config and secrets
+# Local config and secrets — CRITICAL: must never enter the image
 .env
 .env.*
 *.env
+
+# Local FAISS / parquet that may appear at repo root or scripts output
+*.faiss
+*.parquet
+*.npy
 
 # Dev tooling caches
 .pytest_cache/

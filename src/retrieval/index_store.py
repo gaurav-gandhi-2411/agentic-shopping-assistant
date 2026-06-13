@@ -10,6 +10,9 @@ _INDEX_FILES = frozenset(
     ["dense.faiss", "bm25.pkl", "bm25_article_ids.npy", "dense_article_ids.npy", "catalogue.parquet"]
 )
 
+# CLIP index filenames expected under gs://<bucket>/<prefix>/clip/<brand>/
+_CLIP_FILES = frozenset(["clip.faiss", "clip_article_ids.npy"])
+
 
 def ensure_index_dir(
     brand: str,
@@ -63,3 +66,99 @@ def _download_from_gcs(uri: str, brand: str, local_dir: Path) -> None:
         blob.download_to_filename(str(dest))
 
     logger.info("Index download complete: %d files", len(blobs))
+
+
+def download_supplementary_assets(uri: str, brand: str, repo_root: Path) -> None:
+    """Download CLIP index and Shopify variant map for *brand* from GCS.
+
+    Called at startup alongside :func:`ensure_index_dir` when ``INDEX_STORE_URI``
+    is set.  Both asset families degrade gracefully when absent (the respective
+    feature simply becomes unavailable), so missing blobs are logged as warnings
+    rather than raising.
+
+    Assets downloaded:
+    - ``gs://<bucket>/<prefix>/clip/<brand>/clip.faiss``          →
+      ``<repo_root>/data/processed/clip/<brand>/clip.faiss``
+    - ``gs://<bucket>/<prefix>/clip/<brand>/clip_article_ids.npy`` →
+      ``<repo_root>/data/processed/clip/<brand>/clip_article_ids.npy``
+    - ``gs://<bucket>/<prefix>/shopify_variants/<brand>.json``     →
+      ``<repo_root>/data/processed/shopify_variants/<brand>.json``
+
+    Args:
+        uri:       The ``INDEX_STORE_URI`` value (e.g. ``gs://asa-demo-indices/``).
+        brand:     Active brand slug (from the ``BRAND`` env var).
+        repo_root: Absolute path to the repository root; used to compute local
+                   destination paths that match what the loaders expect.
+    """
+    from google.cloud import storage  # type: ignore[import-untyped]  # noqa: I001  # lazy: only when INDEX_STORE_URI is set
+
+    parsed = urlparse(uri)
+    bucket_name = parsed.netloc
+    path_prefix = parsed.path.strip("/")
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+
+    # ------------------------------------------------------------------
+    # 1. CLIP index: gs://<bucket>/<prefix>/clip/<brand>/{clip.faiss,clip_article_ids.npy}
+    # ------------------------------------------------------------------
+    clip_local_dir = repo_root / "data" / "processed" / "clip" / brand
+    clip_local_dir.mkdir(parents=True, exist_ok=True)
+
+    clip_gcs_prefix = f"{path_prefix}/clip/{brand}/" if path_prefix else f"clip/{brand}/"
+
+    logger.info(
+        "Downloading CLIP index from gs://%s/%s → %s",
+        bucket_name,
+        clip_gcs_prefix,
+        clip_local_dir,
+    )
+    for filename in _CLIP_FILES:
+        blob_name = f"{clip_gcs_prefix}{filename}"
+        blob = bucket.blob(blob_name)
+        dest = clip_local_dir / filename
+        try:
+            blob.download_to_filename(str(dest))
+            logger.info("  gs://%s/%s → %s", bucket_name, blob_name, dest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "CLIP asset not found or download failed — image-search feature will be "
+                "unavailable for brand=%s. blob=gs://%s/%s error=%s",
+                brand,
+                bucket_name,
+                blob_name,
+                exc,
+            )
+
+    # ------------------------------------------------------------------
+    # 2. Shopify variant map: gs://<bucket>/<prefix>/shopify_variants/<brand>.json
+    # ------------------------------------------------------------------
+    variants_local_dir = repo_root / "data" / "processed" / "shopify_variants"
+    variants_local_dir.mkdir(parents=True, exist_ok=True)
+
+    variants_blob_name = (
+        f"{path_prefix}/shopify_variants/{brand}.json"
+        if path_prefix
+        else f"shopify_variants/{brand}.json"
+    )
+    variants_dest = variants_local_dir / f"{brand}.json"
+
+    logger.info(
+        "Downloading Shopify variant map from gs://%s/%s → %s",
+        bucket_name,
+        variants_blob_name,
+        variants_dest,
+    )
+    blob = bucket.blob(variants_blob_name)
+    try:
+        blob.download_to_filename(str(variants_dest))
+        logger.info("  gs://%s/%s → %s", bucket_name, variants_blob_name, variants_dest)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Shopify variant map not found or download failed — cart-link feature will be "
+            "unavailable for brand=%s. blob=gs://%s/%s error=%s",
+            brand,
+            bucket_name,
+            variants_blob_name,
+            exc,
+        )

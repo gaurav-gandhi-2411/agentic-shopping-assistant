@@ -149,11 +149,16 @@ async def lifespan(app: FastAPI):
     if os.environ.get("LLM_PROVIDER"):
         config["llm"]["provider"] = os.environ["LLM_PROVIDER"]
 
-    from src.retrieval.index_store import ensure_index_dir
+    from src.retrieval.index_store import download_supplementary_assets, ensure_index_dir
 
     _brand = os.environ.get("BRAND", "hm")
     _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
     index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
+
+    # Download CLIP index and Shopify variant map from GCS (same bucket, active brand only).
+    # Failures are non-fatal — each feature degrades gracefully when its assets are absent.
+    if _index_store_uri:
+        download_supplementary_assets(_index_store_uri, _brand, _REPO_ROOT)
 
     logger.info("Loading retrieval indices from %s", index_dir)
     df = pd.read_parquet(index_dir / "catalogue.parquet")

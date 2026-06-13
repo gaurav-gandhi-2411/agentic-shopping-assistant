@@ -11,6 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Baked model cache location — kept under /app so it survives layer caching
+# and is owned by the non-root user we switch to at runtime.
+# Both HF_HOME and SENTENCE_TRANSFORMERS_HOME point here so every path
+# sentence-transformers and HuggingFace Hub resolves at runtime hits the
+# pre-baked directory without any network calls.
+ENV HF_HOME=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/sentence_transformers
+
 # Install CPU-only torch first so sentence-transformers doesn't pull the
 # ~2 GB CUDA wheel.  All other deps are pinned by requirements.txt.
 RUN pip install --no-cache-dir \
@@ -23,6 +31,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # build-essential is no longer needed after wheels are compiled.
 RUN apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Bake the CLIP model weights (~350 MB) into the image at build time so
+# cold-start never triggers a runtime download.  The sentence-transformers
+# cache is written to SENTENCE_TRANSFORMERS_HOME (set above).
+# This layer is cached by Docker as long as requirements.txt and the torch
+# install layer are unchanged.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('clip-ViT-B-32')"
 
 # Application source and config
 COPY src/ ./src/
