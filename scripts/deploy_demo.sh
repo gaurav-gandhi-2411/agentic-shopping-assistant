@@ -21,7 +21,7 @@ GROQ_API_KEY="${GROQ_API_KEY:-}"
 DEMO_JWT_SECRET="${DEMO_JWT_SECRET:-}"
 DATABASE_URL="${DATABASE_URL:-}"
 SUPABASE_URL="https://zwvvuvaasbotamxbixny.supabase.co"
-VERCEL_URL="${VERCEL_URL:-}"       # Set after first Vercel deploy (or export before running)
+VERCEL_URL="${VERCEL_URL:-https://asa-stylist.vercel.app}"  # Canonical production URL; override via export if needed
 SENTRY_DSN="${SENTRY_DSN:-}"      # Optional
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,9 @@ if [[ -z "$GROQ_API_KEY" || -z "$DEMO_JWT_SECRET" || -z "$DATABASE_URL" || -z "$
   exit 1
 fi
 
-CORS_ORIGINS="${VERCEL_URL},http://localhost:3000"
+# gcloud --set-env-vars treats every comma as a separator; a multi-origin value silently
+# corrupts the env block. Keep this single-origin and comma-free.
+CORS_ORIGINS="${VERCEL_URL}"
 
 echo "=== Step 1: Configure Docker for Artifact Registry ==="
 gcloud auth configure-docker "${GAR_REGION}-docker.pkg.dev" --quiet

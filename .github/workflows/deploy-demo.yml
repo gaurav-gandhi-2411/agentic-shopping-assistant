@@ -94,6 +94,11 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          # IMPORTANT: gcloud --set-env-vars treats every comma as an env-var separator.
+          # A multi-value CORS_ORIGINS (e.g. "https://a.vercel.app,http://localhost:3000")
+          # would silently split into CORS_ORIGINS=https://a.vercel.app and a corrupt
+          # second variable. DEMO_CORS_ORIGINS MUST therefore be a single comma-free origin
+          # (the canonical Vercel URL). Do not add localhost or extra origins to this secret.
           gcloud run deploy "asa-${{ matrix.brand }}" \
             --image="${{ needs.build-and-push.outputs.image }}" \
             --region="${{ env.GAR_REGION }}" \

@@ -31,7 +31,7 @@ Set these at GitHub → Settings → Secrets and variables → Actions → Repos
 | `DATABASE_URL` | Supabase Postgres connection string (`postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres`) |
 | `SUPABASE_URL` | `https://<ref>.supabase.co` |
 | `GCS_BUCKET` | GCS bucket name used for index storage (no `gs://` prefix) |
-| `DEMO_CORS_ORIGINS` | Comma-separated allowed origins — set after step 8 when the Vercel URL is known; placeholder: `http://localhost:3000` |
+| `DEMO_CORS_ORIGINS` | Single comma-free allowed origin — the canonical Vercel URL. **Must not contain commas**: gcloud `--set-env-vars` treats every comma as an env-var separator, which silently corrupts a multi-origin value. Set to `https://asa-stylist.vercel.app`. |
 
 ---
 
@@ -147,26 +147,29 @@ vercel --prod
 
 ### 7. Update CORS_ORIGINS on Cloud Run services
 
-After Vercel assigns a permanent URL (e.g. `https://asa-demo.vercel.app`):
+The canonical Vercel URL is `https://asa-stylist.vercel.app`. Set `CORS_ORIGINS` to this
+single origin — **do not add commas** (e.g. `,http://localhost:3000`). gcloud's
+`--set-env-vars` treats every comma as an env-var separator; a multi-origin value silently
+corrupts the env block.
 
 ```bash
-VERCEL_URL="https://asa-demo.vercel.app"
+VERCEL_URL="https://asa-stylist.vercel.app"
 
 for svc in snitch myntra flipkart; do
   gcloud run services update asa-$svc \
     --region asia-south1 \
-    --update-env-vars CORS_ORIGINS="${VERCEL_URL},http://localhost:3000"
+    --update-env-vars CORS_ORIGINS="${VERCEL_URL}"
 done
 ```
 
-Also update the `DEMO_CORS_ORIGINS` GitHub secret to the same value so future CI deploys
-carry the correct origins without a manual patch.
+Also update the `DEMO_CORS_ORIGINS` GitHub secret to the same single-origin value so future
+CI deploys carry the correct origin without a manual patch.
 
 ---
 
 ### 8. Smoke-test the public URL
 
-Open `https://asa-demo.vercel.app/demo` in an incognito browser window. Run through this
+Open `https://asa-stylist.vercel.app/demo` in an incognito browser window. Run through this
 checklist:
 
 - [ ] Pick the **Snitch** brand from the brand selector

@@ -46,7 +46,7 @@ The Next.js frontend is deployed to Vercel and talks to each backend service dir
 | `DEMO_JWT_SECRET` | Yes | Random 32-byte hex secret for demo session tokens |
 | `DATABASE_URL` | Yes | Supabase Postgres connection string (`postgresql://...`) |
 | `SUPABASE_URL` | Yes | `https://<ref>.supabase.co` |
-| `CORS_ORIGINS` | Yes | Comma-separated allowed origins; must include the Vercel deployment URL |
+| `CORS_ORIGINS` | Yes | Single comma-free allowed origin (the Vercel URL). gcloud `--set-env-vars` treats every comma as a separator — a multi-origin value silently corrupts the env block. Use `https://asa-stylist.vercel.app`. |
 | `INDEX_STORE_URI` | Yes | `gs://<bucket>/<brand>/` — GCS path to FAISS index + catalogue parquet |
 | `LLM_PROVIDER` | Yes | `groq` |
 | `SENTRY_DSN` | No | Sentry project DSN; omit to disable error reporting |
@@ -105,7 +105,9 @@ All three services use the same image and scale to zero (min-instances=0). Cold 
 the "warming up…" spinner in the frontend.
 
 ```bash
-CORS_ORIGINS="https://your-project.vercel.app,http://localhost:3000"
+# CORS_ORIGINS must be a single comma-free origin. gcloud --set-env-vars treats every comma
+# as an env-var separator; adding ",http://localhost:3000" silently corrupts the env block.
+CORS_ORIGINS="https://asa-stylist.vercel.app"
 GCS_BUCKET="your-gcs-bucket-name"
 
 # Shared flags
@@ -183,22 +185,24 @@ vercel env add NEXT_PUBLIC_BACKEND_URL          production
 
 ## CORS configuration
 
-Each Cloud Run service's `CORS_ORIGINS` env var must include the Vercel deployment URL.
-After Vercel gives you a permanent URL (e.g. `https://asa-demo.vercel.app`), update all
-three services:
+Each Cloud Run service's `CORS_ORIGINS` env var must be set to the canonical Vercel URL:
+`https://asa-stylist.vercel.app`. **Keep the value comma-free** — gcloud's `--set-env-vars`
+treats every comma as an env-var separator, so a multi-origin string (e.g.
+`https://asa-stylist.vercel.app,http://localhost:3000`) silently splits into two env vars
+and corrupts the env block.
 
 ```bash
-VERCEL_URL="https://asa-demo.vercel.app"
+VERCEL_URL="https://asa-stylist.vercel.app"
 
 for svc in snitch myntra flipkart; do
   gcloud run services update asa-${svc} \
     --region=asia-south1 \
-    --update-env-vars="CORS_ORIGINS=${VERCEL_URL},http://localhost:3000"
+    --update-env-vars="CORS_ORIGINS=${VERCEL_URL}"
 done
 ```
 
-Also update the `DEMO_CORS_ORIGINS` GitHub secret so future CI deploys use the correct
-origins (see "CI/CD" below).
+Also update the `DEMO_CORS_ORIGINS` GitHub secret to the same single-origin value so future
+CI deploys use the correct origin (see "CI/CD" below).
 
 ---
 
@@ -221,7 +225,7 @@ stored as a secret. Required GitHub secrets:
 | `DATABASE_URL` | Supabase Postgres connection string |
 | `SUPABASE_URL` | Supabase project URL |
 | `GCS_BUCKET` | GCS bucket name (index storage) |
-| `DEMO_CORS_ORIGINS` | Comma-separated allowed origins |
+| `DEMO_CORS_ORIGINS` | Single comma-free allowed origin (`https://asa-stylist.vercel.app`); see CORS configuration note above |
 
 To trigger a deploy from the CLI:
 
