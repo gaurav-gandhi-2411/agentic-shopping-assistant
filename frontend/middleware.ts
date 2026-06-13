@@ -70,7 +70,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals, static files, and common image extensions.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Skip Next.js internals, static files, root-level JS/text/icon assets, and common image extensions.
+    // widget.js must be excluded so anonymous users can load the embed loader script (HTTP 200)
+    // without hitting the auth redirect. The pattern also covers any other root-level .js/.txt/.ico
+    // files that should be publicly accessible without authentication.
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:js|txt|ico|svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

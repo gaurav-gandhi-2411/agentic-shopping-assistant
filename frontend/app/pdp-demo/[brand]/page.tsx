@@ -12,6 +12,7 @@
 
 import type { Metadata } from "next"
 import Script from "next/script"
+import { AddToBagButton } from "@/components/pdp/AddToBagButton"
 
 // ---------------------------------------------------------------------------
 // Brand-specific product catalogue snapshots
@@ -285,13 +286,8 @@ export default async function MockPdpPage({
               </div>
 
               {/* Add to bag (non-functional — demo only) */}
-              <button
-                className="w-full py-3 rounded-xl text-white font-semibold text-base transition-opacity hover:opacity-90 active:opacity-75"
-                style={{ backgroundColor: product.accentHex }}
-                onClick={() => alert("This is a demo page — the button is non-functional.")}
-              >
-                Add to Bag
-              </button>
+              {/* Extracted to a client component: onClick is illegal in Server Components. */}
+              <AddToBagButton accentHex={product.accentHex} />
 
               {/*
                 ============================================================
