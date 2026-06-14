@@ -1,0 +1,433 @@
+# Cross-store retrieval eval fixture — 36 text queries
+#
+# Fields per case:
+#   id:                    unique identifier
+#   query:                 free-text query sent to HybridRetriever
+#   expected_product_types: list of product_type_name values (exact catalogue strings)
+#                           that count as a relevant hit; union-matched (OR logic)
+#   expected_colours:      optional list of colour_group_name values; if present, a
+#                          hit must ALSO match one of these colours to be relevant
+#   min_relevant:          minimum number of relevant hits expected in top-10
+#                          (soft expectation for documentation; not a pass/fail gate)
+#   notes:                 free-text rationale
+#
+# All product_type_name values verified against data/processed/unified/catalogue.parquet.
+# Stores covered per query noted in comments (snitch, myntra, flipkart, fashor, virgio, powerlook).
+
+queries:
+
+  # ── Western women ─────────────────────────────────────────────────────────
+
+  - id: CSR-01
+    query: "black dress women"
+    expected_product_types:
+      - Dress
+      - Dresses
+      - Topwear
+      - Fashion
+    min_relevant: 5
+    notes: "Cross-store: myntra(Dress), fashor(Dresses), virgio(Dress). flipkart(Topwear) is a valid broad type."
+
+  - id: CSR-02
+    query: "midi dress floral"
+    expected_product_types:
+      - Dress
+      - Dresses
+      - Topwear
+    min_relevant: 5
+    notes: "fashor(Dresses) + virgio(Dress) + myntra(Dress) — 3-store overlap possible."
+
+  - id: CSR-03
+    query: "maxi dress women"
+    expected_product_types:
+      - Dress
+      - Dresses
+      - Topwear
+      - Fashion
+    min_relevant: 5
+    notes: "myntra, fashor, virgio all carry maxi dresses."
+
+  - id: CSR-04
+    query: "women crop top"
+    expected_product_types:
+      - Top
+      - Topwear
+      - Shirts
+      - Shirt
+      - T-Shirts
+    min_relevant: 5
+    notes: "myntra(Top), virgio(Top), flipkart(Topwear), snitch(Shirts) all plausible."
+
+  - id: CSR-05
+    query: "women skirt casual"
+    expected_product_types:
+      - Skirt
+      - Topwear
+    min_relevant: 4
+    notes: "myntra(Skirt), virgio(Skirt) — limited cross-store but both should surface."
+
+  - id: CSR-06
+    query: "denim jacket women"
+    expected_product_types:
+      - Jacket
+      - Jackets
+      - Topwear
+      - Winter Wear
+    min_relevant: 5
+    notes: "myntra(Jacket), virgio(Shirt area), flipkart(Winter Wear) expected."
+
+  - id: CSR-07
+    query: "formal dress women office"
+    expected_product_types:
+      - Dress
+      - Dresses
+      - Topwear
+      - Fashion
+    min_relevant: 4
+    notes: "myntra, virgio, fashor all carry formal dresses."
+
+  - id: CSR-08
+    query: "pink women blouse top"
+    expected_product_types:
+      - Top
+      - Topwear
+      - Shirts
+      - Shirt
+      - Blouse
+    expected_colours:
+      - Pink
+      - Light Pink
+      - Baby Pink
+      - Peach
+      - Light Peach
+    min_relevant: 3
+    notes: >
+      Colour filter deliberately retained despite only myntra populating colour_group_name.
+      This query intentionally measures myntra-only colour-matched tops (documents the
+      cross-store colour-data gap as a measurable limitation).
+
+  # ── Western men ───────────────────────────────────────────────────────────
+
+  - id: CSR-09
+    query: "white men slim fit shirt"
+    expected_product_types:
+      - Shirt
+      - Shirts
+      - Topwear
+    min_relevant: 5
+    notes: >
+      No colour filter: snitch, powerlook, virgio, flipkart all have colour_group_name=None,
+      so a colour filter would silently exclude all non-myntra results. Type-only relevance
+      measures whether the retriever returns shirts at all across stores.
+
+  - id: CSR-10
+    query: "men oversized shirt"
+    expected_product_types:
+      - Shirt
+      - Shirts
+      - Topwear
+      - Overshirt
+    min_relevant: 5
+    notes: "snitch(Shirts, Overshirt), powerlook(Shirt), myntra(Shirt), virgio(Shirt)."
+
+  - id: CSR-11
+    query: "blue denim jeans men"
+    expected_product_types:
+      - Jeans
+      - Bottomwear
+      - Bottom
+    min_relevant: 5
+    notes: >
+      No colour filter: snitch, flipkart, virgio have colour_group_name=None, so a blue
+      colour filter would only pass myntra results. Flipkart labels all jeans as Bottomwear
+      (not Jeans), which this fixture accepts as relevant. Type-only measure.
+
+  - id: CSR-12
+    query: "men cargo pants"
+    expected_product_types:
+      - Cargo Pants
+      - Bottomwear
+      - Trousers
+      - Bottom
+      - Jeans
+    min_relevant: 4
+    notes: "snitch(Cargo Pants), flipkart(Bottomwear), myntra(Trousers area)."
+
+  - id: CSR-13
+    query: "men casual trousers"
+    expected_product_types:
+      - Trousers
+      - Bottomwear
+      - Bottom
+      - Cargo Pants
+      - Jeans
+    min_relevant: 4
+    notes: "snitch(Trousers), flipkart(Bottomwear), virgio(Trouser), powerlook(Bottom)."
+
+  - id: CSR-14
+    query: "men polo t-shirt"
+    expected_product_types:
+      - T-Shirts
+      - T-Shirt
+      - Topwear
+      - Shirts
+    min_relevant: 5
+    notes: "snitch(T-Shirts), powerlook(T-Shirt), flipkart(Topwear) — polo is sub-type."
+
+  - id: CSR-15
+    query: "men formal dress shirt navy blue"
+    expected_product_types:
+      - Shirt
+      - Shirts
+      - Topwear
+      - Overshirt
+    min_relevant: 4
+    notes: >
+      No colour filter: powerlook, snitch, virgio have colour_group_name=None despite
+      prod_name containing navy/blue. Colour filter would silently exclude valid cross-store
+      hits. Type-only measurement. Actual top-10 includes Shirt from powerlook/snitch
+      AND spurious Dress from myntra (matching navy blue colour but wrong category).
+
+  - id: CSR-16
+    query: "men black t-shirt"
+    expected_product_types:
+      - T-Shirts
+      - T-Shirt
+      - Topwear
+      - Shirts
+    min_relevant: 5
+    notes: >
+      No colour filter: snitch, powerlook, flipkart have colour_group_name=None. The
+      retriever actually does surface black t-shirts from these stores; type-only
+      measurement captures that correctly without penalising the missing colour metadata.
+
+  # ── Ethnic women ──────────────────────────────────────────────────────────
+
+  - id: CSR-17
+    query: "floral kurta women"
+    expected_product_types:
+      - Kurta
+      - Kurtas
+      - Kurti
+      - Kurti/Tunics
+      - 3P Kurta Set
+      - 2P Kurta Set
+      - Kurtas, Ethnic Sets and Bottoms
+      - Fashion
+    min_relevant: 7
+    notes: "myntra(Kurta), fashor(Kurtas, Kurta Sets), flipkart(Kurtas & Ethnic Sets)."
+
+  - id: CSR-18
+    query: "ethnic kurta set women"
+    expected_product_types:
+      - 3P Kurta Set
+      - 2P Kurta Set
+      - Kurta
+      - Kurtas
+      - Kurti
+      - Kurta Set
+      - Kurtas, Ethnic Sets and Bottoms
+      - Fashion
+    min_relevant: 7
+    notes: "fashor(3P/2P Kurta Sets), myntra(Kurta), flipkart(Kurtas & Ethnic Sets)."
+
+  - id: CSR-19
+    query: "dupatta women ethnic"
+    expected_product_types:
+      - Dupatta
+    min_relevant: 8
+    notes: "Predominantly myntra. Tests that sparse BM25 keyword match works."
+
+  - id: CSR-20
+    query: "saree silk"
+    expected_product_types:
+      - Saree
+      - Fashion
+    min_relevant: 7
+    notes: "Almost entirely myntra. Tests single-store concentration detection."
+
+  - id: CSR-21
+    query: "lehenga choli bridal"
+    expected_product_types:
+      - Lehenga
+      - Fashion
+    min_relevant: 6
+    notes: "myntra(Lehenga). Tests store-monoculture for ethnic formals."
+
+  - id: CSR-22
+    query: "women palazzo pants ethnic"
+    expected_product_types:
+      - Palazzo
+      - Bottomwear
+      - Bottom
+    min_relevant: 5
+    notes: "myntra(Palazzo), virgio potential. Ethnic bottom crossover query."
+
+  - id: CSR-23
+    query: "kurti short women casual"
+    expected_product_types:
+      - Kurti
+      - Kurti/Tunics
+      - Kurta
+      - Kurtas
+      - Fashion
+    min_relevant: 5
+    notes: "myntra(Kurti), fashor(Kurti/Tunics, Kurtas)."
+
+  - id: CSR-24
+    query: "pink salwar suit women"
+    expected_product_types:
+      - Salwar
+      - Dress
+      - Saree
+      - Fashion
+      - 3P Kurta Set
+    expected_colours:
+      - Pink
+      - Light Pink
+      - Baby Pink
+    min_relevant: 3
+    notes: "myntra dominant. Tests that colour + ethnic category works."
+
+  - id: CSR-25
+    query: "women sharara ethnic"
+    expected_product_types:
+      - Sharara
+      - Palazzo
+      - 3P Kurta Set
+      - Fashion
+    min_relevant: 3
+    notes: "Sharara is a niche type; mostly myntra. Lower bar."
+
+  # ── Cross-gender / unisex ─────────────────────────────────────────────────
+
+  - id: CSR-26
+    query: "white sneakers casual"
+    expected_product_types:
+      - Shoes
+      - Footwear
+      - Casual Shoes
+      - Sports Shoes
+      - Topwear
+      - Fashion
+    min_relevant: 2
+    notes: >
+      Footwear is sparse in this catalogue. Expect low relevance — this is the classic
+      white-sneakers failure mode. Kept to track improvement over time.
+
+  - id: CSR-27
+    query: "co-ord set women"
+    expected_product_types:
+      - Co-Ord
+      - Co-ord
+      - Fashion
+      - Dress
+      - Topwear
+    min_relevant: 2
+    notes: "virgio(Co-Ord), powerlook(Co-ord). Co-ord naming inconsistency is expected."
+
+  - id: CSR-28
+    query: "jacket oversized men"
+    expected_product_types:
+      - Jacket
+      - Jackets
+      - Overshirt
+      - Winter Wear
+      - Shirts
+      - Topwear
+    min_relevant: 4
+    notes: "myntra(Jacket), virgio(Shirt area), flipkart(Winter Wear), snitch(Shirts/Overshirt)."
+
+  - id: CSR-29
+    query: "black jeans slim fit"
+    expected_product_types:
+      - Jeans
+      - Bottomwear
+      - Bottom
+    min_relevant: 5
+    notes: >
+      No colour filter: snitch, flipkart, virgio have colour_group_name=None (real items
+      ARE black jeans per prod_name, but metadata absent). Type-only measurement; actual
+      results correctly surface Jeans from myntra/snitch and Bottomwear from flipkart.
+
+  - id: CSR-30
+    query: "floral printed dress summer"
+    expected_product_types:
+      - Dress
+      - Dresses
+      - Topwear
+      - Fashion
+    min_relevant: 5
+    notes: "myntra(Dress), fashor(Dresses), virgio(Dress). 3-store test."
+
+  - id: CSR-31
+    query: "men linen shirt summer"
+    expected_product_types:
+      - Shirt
+      - Shirts
+      - Topwear
+      - Overshirt
+    min_relevant: 5
+    notes: "snitch has linen shirts heavily; powerlook, myntra also carry them."
+
+  - id: CSR-32
+    query: "women winter jacket coat"
+    expected_product_types:
+      - Jacket
+      - Jackets
+      - Winter Wear
+      - Topwear
+    min_relevant: 5
+    notes: "flipkart(Winter Wear), myntra(Jacket). Cross-store winter category."
+
+  - id: CSR-33
+    query: "men check shirt casual"
+    expected_product_types:
+      - Shirt
+      - Shirts
+      - Topwear
+      - Overshirt
+    min_relevant: 5
+    notes: "snitch, powerlook, myntra, virgio all carry check/plaid shirts."
+
+  - id: CSR-34
+    query: "women red ethnic dress"
+    expected_product_types:
+      - Dress
+      - Dresses
+      - Kurta
+      - Kurtas
+      - Fashion
+      - 3P Kurta Set
+      - 2P Kurta Set
+    expected_colours:
+      - Red
+      - Maroon
+      - Wine
+      - Dark Red
+    min_relevant: 4
+    notes: "Red ethnic crossover — myntra, fashor both have options."
+
+  - id: CSR-35
+    query: "men striped polo shirt"
+    expected_product_types:
+      - T-Shirts
+      - T-Shirt
+      - Shirts
+      - Topwear
+      - Shirt
+    min_relevant: 5
+    notes: "snitch(T-Shirts), powerlook(T-Shirt), flipkart(Topwear). Polo sub-type."
+
+  - id: CSR-36
+    query: "women ethnic kurti set dupatta"
+    expected_product_types:
+      - 3P Kurta Set
+      - 2P Kurta Set
+      - Kurti
+      - Kurta
+      - Kurtas
+      - Fashion
+      - Kurtas, Ethnic Sets and Bottoms
+    min_relevant: 6
+    notes: "fashor(Kurta Sets), myntra(Kurta/Kurti), flipkart. Multi-store ethnic multi-piece."

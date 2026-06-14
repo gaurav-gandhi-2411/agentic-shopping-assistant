@@ -1,0 +1,218 @@
+# Price-match precision eval fixtures — Phase D
+#
+# HARD NEGATIVES: confusable brand-collision pairs from the real unified catalogue.
+# The matcher MUST reject all of these (different products sharing a brand token).
+#
+# TRUE POSITIVES: synthetic cross-store pairs that represent what a genuine
+# cross-listing looks like (same brand, near-identical title, same type+gender,
+# differing store/price).  These are eval fixtures ONLY — they are NOT injected
+# into the live catalogue.  They verify the matcher can fire when a real
+# cross-listing exists (recall sanity check, so the rule is not a trivial reject-all).
+#
+# GATE: precision >= 0.95, recall > 0 (at least one true positive caught).
+
+hard_negatives:
+  - id: "HN-01"
+    label: "Free Authority hooded sweatshirt (myntra/women) vs vest (flipkart/men)"
+    notes: >
+      Same brand token 'free authority' but Shirt vs Innerwear and Swimwear,
+      women vs men, and completely different titles. Should be rejected on
+      product_type mismatch alone (+ gender + title).
+    query_item:
+      article_id: "16724768"
+      prod_name: "Free Authority Women Olive Green Captain America Printed Hooded Sweatshirt"
+      product_type_name: "Shirt"
+      gender: "women"
+      store: "myntra"
+      price_inr: 1699.0
+    candidate_item:
+      article_id: "c8cccb65-d8b9-582f-a37e-3f88b00d136f"
+      prod_name: "Free Authority Men Vest"
+      product_type_name: "Innerwear and Swimwear"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 424.0
+    expected_match: false
+
+  - id: "HN-02"
+    label: "Fusion Beats top (myntra/women) vs Fusion football shoes (flipkart/men)"
+    notes: >
+      Brand prefix 'fusion' shared but Top vs Men's Footwear, women vs men,
+      and company names differ (Fusion Beats vs Fusion/Vector). Should be
+      rejected on product_type + gender + title.
+    query_item:
+      article_id: "7485587"
+      prod_name: "Fusion Beats Women Black Printed Top"
+      product_type_name: "Top"
+      gender: "women"
+      store: "myntra"
+      price_inr: 1999.0
+    candidate_item:
+      article_id: "7c142e88-2d96-5fc2-a1e8-6f8979b74063"
+      prod_name: "Fusion Football Shoes For Men (Red)"
+      product_type_name: "Men's Footwear"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 480.0
+    expected_match: false
+
+  - id: "HN-03"
+    label: "Next One jeans (myntra/women) vs Next Skin underwear (flipkart/men)"
+    notes: >
+      'next' prefix shared but Jeans vs Innerwear and Swimwear, women vs men,
+      and full company names differ (Next One vs Next Skin). Should be rejected
+      on product_type + gender + title.
+    query_item:
+      article_id: "18957826"
+      prod_name: "Next One Women Navy Blue Straight Fit High-Rise Light Fade Stretchable Jeans"
+      product_type_name: "Jeans"
+      gender: "women"
+      store: "myntra"
+      price_inr: 2999.0
+    candidate_item:
+      article_id: "a926b90f-1639-5d50-9bf1-64b6829e6c90"
+      prod_name: "Next Skin - Ultrasoft Micromodal Breathable Underwear Men Trunks"
+      product_type_name: "Innerwear and Swimwear"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 1363.0
+    expected_match: false
+
+  - id: "HN-04"
+    label: "Fusion Crest shirt (snitch/men) vs Fusion football shoes (flipkart/men)"
+    notes: >
+      'fusion' shared, same gender (men), but Shirts vs Men's Footwear and
+      completely different product. Should be rejected on product_type + title.
+    query_item:
+      article_id: "8214843261090"
+      prod_name: "Fusion Crest Brown Shirt"
+      product_type_name: "Shirts"
+      gender: "men"
+      store: "snitch"
+      price_inr: 719.0
+    candidate_item:
+      article_id: "7c142e88-2d96-5fc2-a1e8-6f8979b74063"
+      prod_name: "Fusion Football Shoes For Men (Red)"
+      product_type_name: "Men's Footwear"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 480.0
+    expected_match: false
+
+  - id: "HN-05"
+    label: "Same brand token, different product_type within same store (snitch)"
+    notes: >
+      'abstract' prefix in snitch appears on shirts AND accessories. Within-store
+      match should never fire (same-store exclusion gate), but verifies the
+      same-store check.
+    query_item:
+      article_id: "9243869249698"
+      prod_name: "Abstract Box Fit 100% Viscose Shirt"
+      product_type_name: "Shirts"
+      gender: "men"
+      store: "snitch"
+      price_inr: 899.0
+    candidate_item:
+      article_id: "9243869249699"
+      prod_name: "Abstract Box Fit 100% Viscose Shirt"
+      product_type_name: "Shirts"
+      gender: "men"
+      store: "snitch"
+      price_inr: 899.0
+    expected_match: false
+
+  - id: "HN-06"
+    label: "Fusion Beats shrug (myntra/women) vs Fusion football shoes (flipkart/men)"
+    notes: >
+      Another Fusion Beats women's item vs Fusion footwear. Both product_type
+      and gender differ. Should be rejected.
+    query_item:
+      article_id: "13210_shrug"
+      prod_name: "Fusion Beats Orange Polyester Sheer Shrug"
+      product_type_name: "Fashion"
+      gender: "women"
+      store: "myntra"
+      price_inr: 1299.0
+    candidate_item:
+      article_id: "7c142e88-fusion-shoes"
+      prod_name: "Fusion White Red Football Shoes For Men (Red, White)"
+      product_type_name: "Men's Footwear"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 399.0
+    expected_match: false
+
+true_positives:
+  - id: "TP-01"
+    label: "Synthetic: same brand/title/type/gender, two stores, different price"
+    notes: >
+      Simulates what a genuine cross-store listing of the exact same product
+      looks like. 'GlobalBrand Men Slim Fit Cotton Shirt' available at two
+      imaginary stores with a small price difference. The matcher should accept.
+      These items are NOT in the live catalogue.
+    query_item:
+      article_id: "SYNTHETIC-TP01-A"
+      prod_name: "GlobalBrand Men Slim Fit Cotton Shirt"
+      product_type_name: "Shirts"
+      gender: "men"
+      store: "myntra"
+      price_inr: 1499.0
+      pdp_handle: "shirts/globalbrand/slim-fit-cotton-shirt/SYNTHETIC-TP01-A/buy"
+    candidate_item:
+      article_id: "SYNTHETIC-TP01-B"
+      prod_name: "GlobalBrand Men Slim Fit Cotton Shirt"
+      product_type_name: "Shirts"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 1299.0
+      pdp_handle: "https://www.flipkart.com/globalbrand-slim-fit-shirt"
+    expected_match: true
+
+  - id: "TP-02"
+    label: "Synthetic: very minor wording variation, still above threshold"
+    notes: >
+      'GlobalBrand Women Floral Printed Wrap Dress' vs
+      'GlobalBrand Women Floral Print Wrap Dress' (singular vs plural 'print').
+      Both same brand/type/gender/stores. Should match above 0.90 threshold.
+    query_item:
+      article_id: "SYNTHETIC-TP02-A"
+      prod_name: "GlobalBrand Women Floral Printed Wrap Dress"
+      product_type_name: "Dress"
+      gender: "women"
+      store: "myntra"
+      price_inr: 2199.0
+      pdp_handle: "dresses/globalbrand/floral-printed-wrap-dress/SYNTHETIC-TP02-A/buy"
+    candidate_item:
+      article_id: "SYNTHETIC-TP02-B"
+      prod_name: "GlobalBrand Women Floral Print Wrap Dress"
+      product_type_name: "Dress"
+      gender: "women"
+      store: "flipkart"
+      price_inr: 1999.0
+      pdp_handle: "https://www.flipkart.com/globalbrand-floral-wrap-dress"
+    expected_match: true
+
+  - id: "TP-03"
+    label: "Synthetic: gender unknown on one side - gender check skipped"
+    notes: >
+      One store has gender='unknown', the other has gender='men'. Since one
+      side lacks known gender, the gender gate is skipped. Product type and
+      title must match — they do. Both stores are multi-brand (myntra, flipkart)
+      so brand extraction works correctly.
+    query_item:
+      article_id: "SYNTHETIC-TP03-A"
+      prod_name: "GlobalBrand Men Regular Fit Cargo Pants"
+      product_type_name: "Trousers"
+      gender: "unknown"
+      store: "myntra"
+      price_inr: 1799.0
+      pdp_handle: "trousers/globalbrand/regular-fit-cargo-pants/SYNTHETIC-TP03-A/buy"
+    candidate_item:
+      article_id: "SYNTHETIC-TP03-B"
+      prod_name: "GlobalBrand Men Regular Fit Cargo Pants"
+      product_type_name: "Trousers"
+      gender: "men"
+      store: "flipkart"
+      price_inr: 1599.0
+      pdp_handle: "https://www.flipkart.com/globalbrand-cargo-pants"
+    expected_match: true

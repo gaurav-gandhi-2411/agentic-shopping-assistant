@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 VALID_EVENT_TYPES: frozenset[str] = frozenset({
     "look_shown", "item_view", "add_single", "add_the_look",
-    "swap_slot", "thumbs_up", "thumbs_down",
+    "swap_slot", "thumbs_up", "thumbs_down", "variant_selected",
+    "save_look",
 })
 
 # (upper_bound_exclusive, band_label) — checked in order; first match wins.

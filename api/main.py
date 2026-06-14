@@ -38,6 +38,8 @@ from api.routes.demo import router as demo_router
 from api.routes.events import router as events_router
 from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
+from api.routes.image_style import router as image_style_router
+from api.routes.looks import router as looks_router
 
 logger = logging.getLogger(__name__)
 
@@ -147,19 +149,37 @@ async def lifespan(app: FastAPI):
     if os.environ.get("LLM_PROVIDER"):
         config["llm"]["provider"] = os.environ["LLM_PROVIDER"]
 
-    from src.retrieval.index_store import ensure_index_dir
+    from src.retrieval.index_store import (
+        UNIFIED_BRAND,
+        download_supplementary_assets,
+        ensure_index_dir,
+    )
 
-    _brand = os.environ.get("BRAND", "hm")
+    # Determine active brand / mode.
+    # Unified mode: UNIFIED=1 OR BRAND=unified OR BRAND unset (new default for cross-store B2C).
+    # Per-brand mode: BRAND=<slug> with UNIFIED unset/0.
+    _unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
+    _brand_env = os.environ.get("BRAND", "")
+    if _unified_flag or _brand_env == UNIFIED_BRAND or not _brand_env:
+        _brand = UNIFIED_BRAND
+    else:
+        _brand = _brand_env
+
     _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
     index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
 
-    logger.info("Loading retrieval indices from %s", index_dir)
+    # Download CLIP index and Shopify variant map from GCS (same bucket, active brand only).
+    # Failures are non-fatal — each feature degrades gracefully when its assets are absent.
+    if _index_store_uri:
+        download_supplementary_assets(_index_store_uri, _brand, _REPO_ROOT)
+
+    logger.info("Loading retrieval indices from %s (mode=%s)", index_dir, _brand)
     df = pd.read_parquet(index_dir / "catalogue.parquet")
     dense = DenseRetriever.load(config, index_dir)
     sparse = SparseRetriever.load(config, index_dir)
     retriever = HybridRetriever(dense, sparse, df, config)
     n_vectors = dense.index.ntotal if dense.index is not None else 0
-    logger.info("Retrieval ready: %d items, %d dense vectors", len(df), n_vectors)
+    logger.info("Retrieval ready: %d items, %d dense vectors (mode=%s)", len(df), n_vectors, _brand)
 
     logger.info("Initialising LLM client (provider=%s)", config["llm"]["provider"])
     llm = get_llm_client(config)
@@ -276,6 +296,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(health_router)
+    app.include_router(image_style_router)
     app.include_router(brand_router)
     app.include_router(auth_router)
     app.include_router(chat_router)
@@ -285,6 +306,7 @@ def create_app() -> FastAPI:
     app.include_router(demo_router)
     app.include_router(events_router)
     app.include_router(feedback_router)
+    app.include_router(looks_router)
 
     @app.get("/sentry-debug")
     def sentry_debug():

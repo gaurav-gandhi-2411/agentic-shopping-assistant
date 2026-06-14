@@ -34,4 +34,7 @@ pyjwt[crypto]>=2.8.0
 sentry-sdk[fastapi]>=2.0.0
 google-cloud-storage>=2.14.0
 
+pillow-heif>=1.4.0
+python-multipart>=0.0.9
+
 pytest>=8.0.0

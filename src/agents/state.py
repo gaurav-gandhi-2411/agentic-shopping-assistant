@@ -26,6 +26,8 @@ class AgentState(TypedDict):
     occasion: str | None        # one of the 9 occasion slugs
     look_gender: str | None     # "men" | "women" | "unisex"
     look_id: str | None         # UUID of the current composed look
+    outfit_rationale: str | None    # grounded rationale for the base variant
+    outfit_variants: list | None    # list of variant look dicts (1-3)
 
     # Conversation memory — the ConversationMemory instance for this conversation.
     # Injected into the initial state so the compiled graph singleton can access it

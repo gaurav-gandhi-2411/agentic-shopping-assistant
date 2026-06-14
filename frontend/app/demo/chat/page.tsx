@@ -8,20 +8,25 @@ import { ChatInput } from "@/components/chat/ChatInput"
 
 export default function DemoChatPage() {
   const [brandName, setBrandName] = useState<string | null>(null)
+  const [brandId, setBrandId] = useState<string | undefined>(undefined)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)
     const name = sessionStorage.getItem("demo_brand_name")
     if (!name || !sessionStorage.getItem("demo_session_token")) {
-      // No valid demo session — send back to the brand picker.
+      // No valid demo session — send back to the entry page.
       window.location.replace("/demo")
       return
     }
     setBrandName(name)
+    // "unified" brand id is the cross-store default; pass undefined so
+    // OutfitBoard doesn't try to gate on a single Shopify brand.
+    const storedId = sessionStorage.getItem("demo_brand_id")
+    setBrandId(storedId === "unified" ? undefined : (storedId ?? undefined))
   }, [])
 
-  const { messages, isSending, connectionLost, sendMessage, cancel } =
+  const { messages, isSending, connectionLost, sendMessage, sendImage, cancel } =
     useChatStream()
 
   const hasAssistantReply = messages.some((m) => m.role === "assistant")
@@ -55,7 +60,7 @@ export default function DemoChatPage() {
       </header>
 
       {/* Chat area */}
-      <MessageList messages={messages} isSending={isSending} onSend={handleSend} />
+      <MessageList messages={messages} isSending={isSending} onSend={handleSend} brand={brandId} />
 
       {connectionLost && (
         <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive text-center">
@@ -69,7 +74,12 @@ export default function DemoChatPage() {
         </div>
       )}
 
-      <ChatInput onSend={handleSend} onCancel={cancel} isSending={isSending} />
+      <ChatInput
+        onSend={handleSend}
+        onCancel={cancel}
+        isSending={isSending}
+        onSendImage={sendImage}
+      />
     </div>
   )
 }

@@ -1,4 +1,61 @@
 // Mirror types from api/schemas.py and api/routes/conversations.py
+// OutfitVariant mirrors the OutfitVariant pydantic model in the backend ChatResponse.
+
+// ---------------------------------------------------------------------------
+// Shared-look types — mirrors POST /looks and GET /looks/{id}
+// ---------------------------------------------------------------------------
+
+/** Per-item buy link returned by non-Shopify brand backends. */
+export interface ItemLink {
+  article_id: string
+  name: string
+  buy_url: string
+}
+
+/**
+ * The self-contained snapshot stored when a look is saved.
+ * Typed loosely so partial-data (older saves) never crash the reader.
+ */
+export interface LookSnapshot {
+  items: Array<{
+    article_id: string
+    display_name?: string | null
+    prod_name?: string | null
+    colour?: string | null
+    product_type?: string | null
+    outfit_slot?: string | null
+    slot_role?: string | null
+    image_url?: string | null
+    price_inr?: number | null
+    pdp_handle?: string | null
+    buy_url?: string | null
+  }>
+  rationale?: string | null
+  cart_url?: string | null
+  item_links?: ItemLink[] | null
+  variant_label?: string | null
+  occasion?: string | null
+  look_gender?: string | null
+  budget_total_inr?: number | null
+  brand?: string | null
+}
+
+/** Response from POST /looks */
+export interface SaveLookResponse {
+  id: string
+  share_path: string
+}
+
+/** Response from GET /looks/{id} */
+export interface SharedLook {
+  id: string
+  brand: string | null
+  occasion: string | null
+  look_gender: string | null
+  look_total_inr: number | null
+  snapshot: LookSnapshot
+  created_at: string
+}
 
 // ---------------------------------------------------------------------------
 // Dashboard types — mirrors api/routes/dashboard.py response shape
@@ -45,6 +102,33 @@ export interface DashboardData {
 // Catalogue / conversation types
 // ---------------------------------------------------------------------------
 
+export interface OutfitVariant {
+  variant_id: string
+  label: "Base" | "Colour story" | "Dressier" | "Lighter"
+  rationale: string
+  items: ItemSummary[]
+  occasion: string | null
+  budget_total_inr: number | null
+  /** Shopify cart permalink pre-filled with all variant items; null for non-Shopify brands. */
+  cart_url?: string | null
+  /** Per-item buy links; present when cart_url is null (non-Shopify). */
+  item_links?: ItemLink[] | null
+}
+
+/**
+ * A cross-store listing of the same product at a (possibly) different price.
+ * Prices are catalogue SNAPSHOTS — NOT real-time.
+ * Always render with a snapshot disclaimer (e.g. "snapshot price").
+ */
+export interface PriceMatch {
+  store: string
+  store_display: string
+  price_inr: number | null
+  pdp_url: string | null
+  confidence: number
+  is_snapshot_price: true  // always true; signals the price is not real-time
+}
+
 export interface ItemSummary {
   article_id: string
   prod_name: string
@@ -59,6 +143,17 @@ export interface ItemSummary {
   pdp_handle?: string | null
   outfit_slot?: string | null
   slot_role?: string | null
+  /** Cross-store fields — populated in unified mode; null in legacy per-brand mode. */
+  store?: string | null
+  store_display?: string | null
+  /** Server-built deep-link; use directly as the buy button href. */
+  pdp_url?: string | null
+  /**
+   * Cross-store same-product listings, lowest price first.
+   * Null/absent when item is not found in other stores (current reality for ~all items).
+   * Prices are SNAPSHOT — never real-time. Display with snapshot disclaimer.
+   */
+  price_matches?: PriceMatch[] | null
 }
 
 export interface ConversationSummary {
@@ -87,6 +182,12 @@ export interface ChatMessage {
   occasion?: string | null
   lookGender?: string | null
   budgetTotalInr?: number | null
+  outfitRationale?: string | null
+  outfitVariants?: OutfitVariant[] | null
+  /** Shopify cart URL for the base (first) look; null for non-Shopify brands. */
+  cartUrl?: string | null
+  /** Per-item buy links for non-Shopify brands. */
+  itemLinks?: ItemLink[] | null
 }
 
 // Discriminated union of every frame the WS server can send.
@@ -108,6 +209,12 @@ export type WsFrame =
         occasion?: string | null
         look_gender?: string | null
         budget_total_inr?: number | null
+        outfit_rationale?: string | null
+        outfit_variants?: OutfitVariant[] | null
+        /** Shopify cart permalink for the look; null for non-Shopify brands. */
+        cart_url?: string | null
+        /** Per-item buy links for non-Shopify brands. */
+        item_links?: ItemLink[] | null
       }
     }
   | { type: "cancelled" }

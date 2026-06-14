@@ -1,7 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+
+// ---------------------------------------------------------------------------
+// UNIFIED MODE (Phase B — cross-store default)
+// ---------------------------------------------------------------------------
+// The brand picker is SHELVED, not removed.  In unified mode the page skips
+// the grid entirely and starts a demo session directly against the single
+// NEXT_PUBLIC_BACKEND_URL endpoint.  To re-enable the brand picker set
+// NEXT_PUBLIC_MULTI_BRAND=1 in the Vercel environment.
+//
+// Per-brand env vars (NEXT_PUBLIC_SNITCH_BACKEND_URL etc.) and the BRANDS
+// array below are preserved so the per-brand path is fully reversible.
+// ---------------------------------------------------------------------------
 
 interface Brand {
   id: string
@@ -13,6 +25,7 @@ interface Brand {
 
 // Backend URLs come from build-time env vars set per-brand in Vercel.
 // If a var is unset the service is not available in this deploy.
+// (Preserved for the shelved per-brand path.)
 const BRANDS: Brand[] = [
   {
     id: "snitch",
@@ -37,6 +50,13 @@ const BRANDS: Brand[] = [
   },
 ].filter((b) => b.backendUrl !== "")
 
+// Unified backend — used in the default cross-store flow.
+const UNIFIED_BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+
+// When NEXT_PUBLIC_MULTI_BRAND=1 the picker is shown instead of auto-starting.
+const MULTI_BRAND_MODE = process.env.NEXT_PUBLIC_MULTI_BRAND === "1"
+
 interface DemoSessionResponse {
   session_token: string
   ws_ticket: string
@@ -49,6 +69,45 @@ export default function DemoPickerPage() {
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // ---------------------------------------------------------------------------
+  // Unified auto-start: skip the picker and go straight into chat.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (MULTI_BRAND_MODE) return // picker mode — don't auto-start
+    void startUnifiedSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function startUnifiedSession() {
+    setLoading("unified")
+    setError(null)
+    try {
+      const res = await fetch(`${UNIFIED_BACKEND_URL}/demo/session`, {
+        method: "POST",
+      })
+      if (res.status === 429) {
+        setError("This demo has reached its daily limit — check back tomorrow.")
+        setLoading(null)
+        return
+      }
+      if (!res.ok) throw new Error(`Backend returned ${res.status}`)
+      const data = (await res.json()) as DemoSessionResponse
+      // Store in sessionStorage — cleared automatically when the tab closes.
+      sessionStorage.setItem("demo_session_token", data.session_token)
+      sessionStorage.setItem("demo_backend_url", UNIFIED_BACKEND_URL)
+      // Use a generic "unified" brand id so the chat page doesn't redirect back.
+      sessionStorage.setItem("demo_brand_id", "unified")
+      sessionStorage.setItem("demo_brand_name", "Shopping Assistant")
+      router.push("/demo/chat")
+    } catch {
+      setError("Could not reach the assistant — please try again in a moment.")
+      setLoading(null)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-brand handler (shelved path — only reachable when NEXT_PUBLIC_MULTI_BRAND=1)
+  // ---------------------------------------------------------------------------
   async function handleBrandSelect(brand: Brand) {
     setLoading(brand.id)
     setError(null)
@@ -63,7 +122,6 @@ export default function DemoPickerPage() {
       }
       if (!res.ok) throw new Error(`Backend returned ${res.status}`)
       const data = (await res.json()) as DemoSessionResponse
-      // Store in sessionStorage — cleared automatically when the tab closes.
       sessionStorage.setItem("demo_session_token", data.session_token)
       sessionStorage.setItem("demo_backend_url", brand.backendUrl)
       sessionStorage.setItem("demo_brand_id", brand.id)
@@ -75,6 +133,45 @@ export default function DemoPickerPage() {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  // Default unified mode: show a loading/connecting state while the session
+  // starts, or an error message if it failed.
+  if (!MULTI_BRAND_MODE) {
+    return (
+      <main className="flex-1 flex flex-col items-center justify-center p-8">
+        <div className="max-w-xl w-full text-center">
+          <h1 className="text-3xl font-bold mb-2 tracking-tight">
+            Agentic Shopping Assistant
+          </h1>
+          <p className="text-muted-foreground mb-8 text-sm">
+            AI-powered fashion discovery across Indian brands.
+          </p>
+          {loading === "unified" && !error && (
+            <p className="text-sm text-muted-foreground">Connecting…</p>
+          )}
+          {error && (
+            <>
+              <p className="text-destructive text-sm mb-4">{error}</p>
+              <button
+                onClick={() => void startUnifiedSession()}
+                className="text-sm text-primary underline underline-offset-2"
+              >
+                Try again
+              </button>
+            </>
+          )}
+          <p className="text-xs text-muted-foreground mt-8">
+            No account required · Conversations are not saved · Rate-limited
+          </p>
+        </div>
+      </main>
+    )
+  }
+
+  // Shelved per-brand picker (only shown when NEXT_PUBLIC_MULTI_BRAND=1)
   return (
     <main className="flex-1 flex flex-col items-center justify-center p-8">
       <div className="max-w-xl w-full text-center">
@@ -99,7 +196,7 @@ export default function DemoPickerPage() {
             {BRANDS.map((brand) => (
               <button
                 key={brand.id}
-                onClick={() => handleBrandSelect(brand)}
+                onClick={() => void handleBrandSelect(brand)}
                 disabled={loading !== null}
                 className="group relative flex flex-col items-start p-5 rounded-xl border-2
                            border-border bg-card hover:border-foreground hover:shadow-lg

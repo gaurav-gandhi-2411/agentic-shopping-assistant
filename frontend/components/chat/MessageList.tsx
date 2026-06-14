@@ -8,9 +8,11 @@ interface Props {
   messages: ChatMessage[]
   isSending: boolean
   onSend?: (text: string) => void
+  /** Brand id propagated to OutfitBoard for buy link resolution. */
+  brand?: string
 }
 
-export function MessageList({ messages, isSending, onSend }: Props) {
+export function MessageList({ messages, isSending, onSend, brand }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const isStreamingRef = useRef(false)
 
@@ -42,7 +44,7 @@ export function MessageList({ messages, isSending, onSend }: Props) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
       {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} onSend={onSend} />
+        <MessageBubble key={message.id} message={message} onSend={onSend} brand={brand} />
       ))}
       {/* Typing indicator while the agent is running but no token yet */}
       {isSending && !messages.some((m) => m.isStreaming) && (
