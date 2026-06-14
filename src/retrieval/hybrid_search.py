@@ -43,6 +43,12 @@ _CATEGORY_SUFFIXES = frozenset(
     }
 )
 
+# Store-redundancy penalty applied per additional item from the same store.
+# With penalty=0.5, the 2nd item from store X costs 0.5*(1-λ) in score, the 3rd costs
+# 0.25*(1-λ), etc.  Chosen so a second item from the same store is penalised but can still
+# beat an irrelevant item from a different store.
+_STORE_PENALTY: float = 0.5
+
 
 def normalize_prod_name(name: str) -> str:
     """Normalize a product name for dedup.
@@ -66,6 +72,98 @@ def normalize_prod_name(name: str) -> str:
     return " ".join(words)
 
 
+def store_diversity_rerank(
+    candidates: list[dict],
+    top_k: int,
+    store_diversity: float,
+) -> list[dict]:
+    """Greedy MMR-style re-rank to spread results across stores.
+
+    Formula
+    -------
+    At each greedy step, score every remaining candidate as::
+
+        mmr_score(item) = λ * rel_norm(item) - (1-λ) * (1 - penalty ** n_store)
+
+    where:
+      - λ = 1 - store_diversity  (so λ=1.0 → pure relevance, λ=0.5 → balanced)
+      - rel_norm(item) = item's RRF score / max_rrf_score  (normalised to [0,1])
+      - n_store = how many items from item's store are already in selected list
+      - penalty = _STORE_PENALTY = 0.5  (geometric decay per extra same-store item)
+      - redundancy term = 1 - 0.5**n_store   (0 when n_store=0; →1 as n_store grows)
+
+    Properties:
+      - store_diversity=0.0 → redundancy term is zero → pure relevance order preserved
+      - store_diversity=1.0 → λ=0 → pure diversity (ignores relevance)
+      - The #1 RRF result is always selected first (rel_norm=1, redundancy=0 at step 0),
+        preserving the most-relevant result at the top.
+
+    Guards (skip re-rank, return pure-relevance order):
+      - store_diversity == 0.0
+      - fewer than 2 distinct stores in the candidate window
+
+    Parameters
+    ----------
+    candidates:
+        Full list of filter-passing result dicts, ordered by descending RRF score.
+        Each must have 'score' (RRF float) and 'store' (str | None).
+    top_k:
+        Number of items to return.
+    store_diversity:
+        Knob in [0.0, 1.0].  0.0 = pure relevance (current behaviour). Default
+        in config.yaml is 0.0; owner sets to desired value after reviewing sweep table.
+
+    Returns
+    -------
+    Re-ranked list of at most top_k items.
+    """
+    if not candidates:
+        return []
+
+    # Guard: no-op when knob is off
+    if store_diversity == 0.0:
+        return candidates[:top_k]
+
+    # Guard: no-op if fewer than 2 distinct stores in candidate window
+    distinct_stores = {c["store"] for c in candidates if c["store"]}
+    if len(distinct_stores) < 2:
+        return candidates[:top_k]
+
+    lam = 1.0 - store_diversity
+
+    # Normalise RRF scores to [0,1] over the candidate window
+    max_score = max(c["score"] for c in candidates)
+    if max_score <= 0:
+        return candidates[:top_k]
+
+    selected: list[dict] = []
+    remaining: list[dict] = list(candidates)
+    store_counts: dict[str | None, int] = {}
+
+    for _ in range(min(top_k, len(candidates))):
+        best_item: dict | None = None
+        best_mmr: float = float("-inf")
+
+        for item in remaining:
+            rel_norm = item["score"] / max_score
+            n_store = store_counts.get(item["store"], 0)
+            redundancy = 1.0 - (_STORE_PENALTY**n_store)
+            mmr = lam * rel_norm - (1.0 - lam) * redundancy
+            if mmr > best_mmr:
+                best_mmr = mmr
+                best_item = item
+
+        if best_item is None:
+            break
+
+        selected.append(best_item)
+        remaining.remove(best_item)
+        s = best_item["store"]
+        store_counts[s] = store_counts.get(s, 0) + 1
+
+    return selected
+
+
 class HybridRetriever:
     def __init__(
         self,
@@ -82,8 +180,8 @@ class HybridRetriever:
     def search(
         self,
         query: str,
-        top_k: int = None,
-        filters: dict = None,
+        top_k: int | None = None,
+        filters: dict | None = None,
     ) -> list[dict]:
         if top_k is None:
             top_k = self.config["retrieval"]["final_k"]
@@ -108,7 +206,9 @@ class HybridRetriever:
             store_filter = filters.get("store") or None
             remaining_filters = {k: v for k, v in filters.items() if k != "store"} or None
 
-        results = []
+        # Collect ALL filter-passing candidates from the full RRF window.
+        # We do NOT truncate here — diversity re-rank needs the full candidate pool.
+        candidates: list[dict] = []
         for article_id, score in ranked:
             if article_id not in self.catalogue_df.index:
                 continue
@@ -155,7 +255,7 @@ class HybridRetriever:
                     if price_max is not None and float(item_price) > float(price_max):
                         continue
 
-            results.append(
+            candidates.append(
                 {
                     "article_id": article_id,
                     "prod_name": row.get("prod_name", ""),
@@ -200,8 +300,13 @@ class HybridRetriever:
                 }
             )
 
-            if len(results) >= top_k:
-                break
+        # --- Store-diversity re-rank (MMR nudge) ---
+        # Guard: skip when a store filter is set (user explicitly narrowed to one store).
+        store_diversity: float = self.config["retrieval"].get("store_diversity", 0.0)
+        if store_filter is not None:
+            results = candidates[:top_k]
+        else:
+            results = store_diversity_rerank(candidates, top_k, store_diversity)
 
         # Deprioritize items with known-dead PDP links — move them to end of list
         live = [it for it in results if it.get("pdp_live") is not False]
