@@ -9,6 +9,13 @@ Non-Shopify brands (myntra, flipkart):
     Returns per-item buy links and kind="open_all" so the UI can
     offer "Open all in new tabs" behaviour instead.
 
+Cross-store looks (unified mode — items span more than one store):
+    Per the spec, there is NO single cross-store cart.  Each item is
+    bought via its own store's deep-link (item.pdp_url or build_pdp_url).
+    build_cart_action returns kind="open_all", cart_url=None, and
+    item_links where each buy_url is that item's OWN store's PDP.
+    Never defaults a non-Myntra item to myntra.com.
+
 Variant IDs are resolved from pre-built JSON maps at:
     data/processed/shopify_variants/{brand}.json
 
@@ -22,6 +29,8 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+
+from src.config.stores import build_pdp_url as _stores_build_pdp_url
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +119,7 @@ def _pdp_url(brand: str, handle: str) -> str:
 # ---------------------------------------------------------------------------
 
 def build_cart_action(items: list[dict], brand: str) -> dict:
-    """Build a cart action dict for a list of look items from a single brand.
+    """Build a cart action dict for a list of look items.
 
     Parameters
     ----------
@@ -119,8 +128,12 @@ def build_cart_action(items: list[dict], brand: str) -> dict:
         - ``article_id``: str
         - ``pdp_handle``: str | None  — used for variant lookup + PDP fallback
         - ``display_name`` or ``prod_name``: str
+        - ``store``: str | None  — per-item store slug (populated since Phase E)
     brand:
-        Brand slug (e.g. "snitch", "myntra").
+        Brand slug (e.g. "snitch", "myntra", "unified").  When ``brand``
+        is ``"unified"`` or items span more than one store, the cross-store
+        path is taken regardless of the ``brand`` argument — each item uses
+        its OWN store for link building.
 
     Returns
     -------
@@ -135,9 +148,13 @@ def build_cart_action(items: list[dict], brand: str) -> dict:
 
     Notes
     -----
-    - For Shopify brands, ``cart_url`` is the multi-item Shopify cart permalink;
-      ``item_links`` always contains per-item PDP links too (for UI "individual buy" buttons).
-    - For non-Shopify, ``cart_url`` is None; ``item_links`` contains per-item links.
+    - **Cross-store look** (items span >1 distinct store, or brand="unified"):
+      ``kind="open_all"``, ``cart_url=None``, each ``buy_url`` is built from
+      the item's OWN ``store`` field via ``build_pdp_url``.  A non-Myntra item
+      is never defaulted to myntra.com.
+    - **Single Shopify store**: ``cart_url`` is the multi-item Shopify cart
+      permalink; ``item_links`` always contains per-item PDP links too.
+    - **Single non-Shopify store**: ``cart_url`` is None; per-item links.
     - Items with no ``pdp_handle`` and no variant mapping appear in ``missing``.
     - Empty ``items`` list returns an empty-but-valid response with kind="open_all".
     """
@@ -149,14 +166,86 @@ def build_cart_action(items: list[dict], brand: str) -> dict:
             "missing": [],
         }
 
-    is_shopify = brand in SHOPIFY_BRANDS
+    # Resolve per-item stores; prefer item["store"] over the passed brand arg.
+    item_stores = {
+        str(it.get("store") or "").strip().lower()
+        for it in items
+        if it.get("store")
+    }
 
+    # Determine the effective single store slug (may be None/empty for legacy items).
+    # Use item-level store when all items share one; fall back to passed brand.
+    if len(item_stores) == 1:
+        effective_store = next(iter(item_stores))
+    elif not item_stores:
+        # No per-item store info — legacy path: use brand arg as-is.
+        effective_store = brand
+    else:
+        # Multiple stores — cross-store look.
+        effective_store = None
+
+    # Cross-store look: items span >1 store OR the caller passed brand="unified"
+    # (indicating the unified cross-store index is in use).
+    # Spec: no single cart across stores; buy per-item via each item's OWN deep-link.
+    # When brand="unified" we always use per-item links so the Shopify cart path is
+    # never accidentally triggered for a look assembled from the unified index.
+    is_cross_store = effective_store is None or brand == "unified"
+    if is_cross_store:
+        return _build_cross_store_action(items)
+
+    # Single-store paths (legacy per-brand behaviour preserved).
+    is_shopify = effective_store in SHOPIFY_BRANDS
     if is_shopify:
-        variant_map = _load_variant_map(brand)
-        domain = _BRAND_DOMAIN.get(brand, "")
-        return _build_shopify_action(items, brand, domain, variant_map)
+        variant_map = _load_variant_map(effective_store)
+        domain = _BRAND_DOMAIN.get(effective_store, "")
+        return _build_shopify_action(items, effective_store, domain, variant_map)
 
-    return _build_open_all_action(items, brand)
+    return _build_open_all_action(items, effective_store)
+
+
+def _build_cross_store_action(items: list[dict]) -> dict:
+    """Build a per-item open-all action for a cross-store look.
+
+    Each item's buy_url is built from its OWN ``store`` field via
+    ``build_pdp_url`` from src.config.stores.  A non-Myntra item is
+    never defaulted to myntra.com — if no URL can be resolved the item
+    appears in ``missing``.
+
+    Returns kind="open_all", cart_url=None.
+    """
+    item_links: list[dict] = []
+    missing: list[str] = []
+
+    for item in items:
+        article_id = str(item.get("article_id") or "")
+        name = item.get("display_name") or item.get("prod_name") or article_id
+        store = (item.get("store") or "").strip().lower() or None
+
+        # Build the URL using the item's own store — never fall back to a
+        # different store's domain (spec: no cross-store cart, no myntra fallback).
+        buy_url = _stores_build_pdp_url(store, item)
+
+        if buy_url:
+            item_links.append({
+                "article_id": article_id,
+                "name": name,
+                "buy_url": buy_url,
+            })
+        else:
+            missing.append(article_id)
+            logger.debug(
+                "Cross-store: no PDP URL resolved for article_id=%s store=%s handle=%s",
+                article_id,
+                store,
+                item.get("pdp_handle"),
+            )
+
+    return {
+        "kind": "open_all",
+        "cart_url": None,
+        "item_links": item_links,
+        "missing": missing,
+    }
 
 
 def _build_shopify_action(

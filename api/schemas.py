@@ -100,6 +100,10 @@ class OutfitVariant(BaseModel):
     occasion: str | None = None
     budget_total_inr: float | None = None
     # Cart action fields — populated for outfit responses; None for non-outfit turns.
+    # cart_url is None for cross-store looks (items span multiple stores): the spec
+    # requires per-item deep-links in that case — there is no single cross-store cart.
+    # item_links carry each item's OWN store PDP URL so the frontend can open them
+    # individually ("Buy at {store_display}") without any Myntra fallback for non-Myntra items.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
 

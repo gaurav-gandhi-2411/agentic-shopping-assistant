@@ -604,6 +604,14 @@ def _row_to_item(article_id: str, row: pd.Series, facets: dict, role: str) -> di
         "score": 1.0,
         "price_inr": row.get("price_inr"),
         "pdp_handle": row.get("pdp_handle"),
+        # Phase E: extract store so the seed item carries store context for deep-link
+        # building (build_pdp_url) and cross-store cart detection.  Mirror the pattern
+        # used by hybrid_search.py when populating complement candidates.
+        "store": (
+            str(row["store"])
+            if "store" in row.index and row["store"] is not None
+            else None
+        ),
         "gender": str(row.get("gender") or "unknown").lower(),
         "_role": role,
     }
