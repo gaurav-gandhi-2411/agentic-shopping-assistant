@@ -1,4 +1,4 @@
-"""Build script: merge all 7 per-brand indices into a single cross-store unified index.
+"""Build script: merge all 6 live per-brand indices into a single cross-store unified index.
 
 Outputs
 -------
@@ -12,7 +12,7 @@ Outputs
 
 Design decisions
 ----------------
-- article_id is globally unique across all 7 brands (zero cross-brand collisions verified).
+- article_id is globally unique across all 6 brands (zero cross-brand collisions verified).
   Intra-brand duplicates exist in the Myntra catalogue (106 duplicate/junk rows); these are
   deduped at load time.  Raw article_ids are kept unchanged — no store:: namespacing needed.
 - Dense and CLIP FAISS indices: concatenate per-brand IndexFlatIP by reading vectors via
@@ -21,7 +21,7 @@ Design decisions
   concatenation is semantically correct with no re-embedding required.
 - BM25: IDF is corpus-global so we REBUILD from the merged corpus (NOT concatenate pickles).
   Tokenisation matches SparseRetriever._tokenize exactly.
-- Catalogue: union of all 7 parquets; `store` column added from the brand slug where missing;
+- Catalogue: union of all 6 parquets; `store` column added from the brand slug where missing;
   pdp_live preserved where present, left absent (NaN) otherwise.
   HybridRetriever treats NaN pdp_live as "unknown" — not moved to the dead pile.
 - Deterministic: numpy seed=42 (no shuffling; guard on any future stochastic steps).
@@ -29,7 +29,7 @@ Design decisions
 
 Usage
 -----
-    python scripts/build_unified_index.py                    # build all 7 brands
+    python scripts/build_unified_index.py                    # build all 6 live brands
     python scripts/build_unified_index.py --dry-run          # print counts only
 """
 from __future__ import annotations
@@ -70,19 +70,17 @@ _CLIP_DIR = _DATA_DIR / "clip"
 _UNIFIED_DIR = _DATA_DIR / "unified"
 _CLIP_UNIFIED_DIR = _CLIP_DIR / "unified"
 
-# HM lives directly in data/processed/ (legacy flat layout); all others in data/processed/<brand>/
-_BRAND_DIRS: dict[str, Path] = {
-    "hm": _DATA_DIR,
-    "myntra": _DATA_DIR / "myntra",
-    "flipkart": _DATA_DIR / "flipkart",
-    "snitch": _DATA_DIR / "snitch",
-    "fashor": _DATA_DIR / "fashor",
-    "powerlook": _DATA_DIR / "powerlook",
-    "virgio": _DATA_DIR / "virgio",
-}
+# hm excluded — archival Kaggle data, no live PDP/image; requeue for partner-API phase.
+EXCLUDED_STORES: frozenset[str] = frozenset({"hm"})
+
+# Canonical set of live stores included in the unified index (all have working deep-links + images).
+UNIFIED_STORES: tuple[str, ...] = ("myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio")
+
+# Directory layout: all brands live in data/processed/<brand>/
+_BRAND_DIRS: dict[str, Path] = {brand: _DATA_DIR / brand for brand in UNIFIED_STORES}
 
 _CLIP_BRAND_DIRS: dict[str, Path] = {
-    brand: _CLIP_DIR / brand for brand in _BRAND_DIRS
+    brand: _CLIP_DIR / brand for brand in UNIFIED_STORES
 }
 
 # Must match what 01_build_retrieval.py / build_clip_index.py embedded with.
@@ -434,7 +432,7 @@ def _report_sizes(output_dirs: list[Path]) -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Merge 7 per-brand indices into a single unified cross-store index.",
+        description="Merge 6 live per-brand indices into a single unified cross-store index.",
     )
     parser.add_argument(
         "--dry-run",
@@ -445,7 +443,9 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Build the unified cross-store index.
+    """Build the unified cross-store index from the 6 live stores (UNIFIED_STORES).
+
+    H&M is excluded (see EXCLUDED_STORES) — archival Kaggle data, no live PDP/image.
 
     Steps:
     1. Load + clean (dedup) per-brand catalogues.
@@ -458,7 +458,7 @@ def main() -> None:
     """
     args = _parse_args()
 
-    brands = list(_BRAND_DIRS.keys())  # canonical order
+    brands = list(UNIFIED_STORES)  # canonical order; EXCLUDED_STORES (hm) are omitted
 
     if args.dry_run:
         print("\n=== DRY RUN — no files written ===")
@@ -475,7 +475,7 @@ def main() -> None:
         print("===================================\n")
         return
 
-    print("\n=== Building unified cross-store index ===")
+    print("\n=== Building unified cross-store index (6 live stores) ===")
     t_start = time.perf_counter()
 
     # Step 1 — load and clean per-brand catalogues

@@ -52,8 +52,9 @@ from typing import Any
 STORE_CONFIG: dict[str, dict[str, Any]] = {
     "hm": {
         "display_name": "H&M",
-        # No live PDP URLs in the ingested H&M dataset; handle is NULL for all rows.
-        # When H&M joins the live catalogue pipeline, add a pdp_url_template here.
+        # Dormant — hm is excluded from the unified index (archival Kaggle data, no live
+        # PDP/image; requeue for partner-API phase).  Entry kept as dead-code documentation
+        # so build_pdp_url returns None for any stale hm rows rather than crashing.
         "pdp_url_template": None,
         # Phase F: affiliate_param = None  # e.g. "utm_source=asa&utm_medium=app"
     },

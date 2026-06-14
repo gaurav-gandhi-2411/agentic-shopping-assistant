@@ -74,11 +74,22 @@ def test_unified_catalogue_has_store_column(unified_df: pd.DataFrame) -> None:
     assert unified_df["store"].notna().all(), "Some rows have null store"
 
 
-def test_unified_catalogue_spans_all_7_stores(unified_df: pd.DataFrame) -> None:
-    """All 7 expected stores must be present."""
-    expected = {"hm", "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio"}
+def test_unified_catalogue_spans_all_6_stores(unified_df: pd.DataFrame) -> None:
+    """All 6 live stores must be present; H&M must be absent (excluded — archival data)."""
+    expected = {"myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio"}
     actual = set(unified_df["store"].unique())
-    assert expected == actual, f"Missing stores: {expected - actual}"
+    assert expected == actual, (
+        f"Store set mismatch. Missing: {expected - actual}. Unexpected: {actual - expected}"
+    )
+
+
+def test_hm_not_in_unified_catalogue(unified_df: pd.DataFrame) -> None:
+    """H&M must NOT appear in the unified catalogue (excluded — archival Kaggle data, no live PDP)."""
+    stores_present = set(unified_df["store"].unique())
+    assert "hm" not in stores_present, (
+        "H&M was found in the unified catalogue. "
+        "It must be excluded (archival data, no live PDP/image)."
+    )
 
 
 def test_unified_article_ids_globally_unique(unified_df: pd.DataFrame) -> None:
@@ -116,14 +127,27 @@ def test_unified_clip_ids_aligned(unified_df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 
+_VALID_STORES = frozenset({"myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio"})
+
+
 def test_black_dress_spans_multiple_stores(unified_retriever) -> None:
-    """'black dress' must return hits from more than one store."""
+    """'black dress' must return hits from >=2 of the 6 live stores; hm must never appear."""
     results = unified_retriever.search("black dress", top_k=20)
     assert len(results) > 0, "No results for 'black dress'"
     stores = {r["store"] for r in results if r.get("store")}
+
+    # hm must never appear — it is excluded from the unified index
+    assert "hm" not in stores, (
+        f"H&M appeared in 'black dress' results — it must be excluded from the unified index. "
+        f"Stores present: {stores}"
+    )
+    # All returned stores must be from the known-valid set
+    unknown = stores - _VALID_STORES
+    assert not unknown, f"Unknown store(s) in results: {unknown}"
+
     assert len(stores) >= 2, (
         f"'black dress' only hit store(s): {stores}. "
-        "Expected results from multiple stores in unified mode."
+        "Expected results from >=2 of the 6 live stores."
     )
     # Use ASCII-safe output to avoid cp1252 encoding errors on Windows
     print(f"\n'black dress' stores: {sorted(stores)}")
@@ -133,13 +157,23 @@ def test_black_dress_spans_multiple_stores(unified_retriever) -> None:
 
 
 def test_white_sneakers_spans_multiple_stores(unified_retriever) -> None:
-    """'white sneakers' must return hits from more than one store."""
+    """'white sneakers' must return hits from >=2 of the 6 live stores; hm must never appear."""
     results = unified_retriever.search("white sneakers", top_k=20)
     assert len(results) > 0, "No results for 'white sneakers'"
     stores = {r["store"] for r in results if r.get("store")}
+
+    # hm must never appear — it is excluded from the unified index
+    assert "hm" not in stores, (
+        f"H&M appeared in 'white sneakers' results — it must be excluded. "
+        f"Stores present: {stores}"
+    )
+    # All returned stores must be from the known-valid set
+    unknown = stores - _VALID_STORES
+    assert not unknown, f"Unknown store(s) in results: {unknown}"
+
     assert len(stores) >= 2, (
         f"'white sneakers' only hit store(s): {stores}. "
-        "Expected results from multiple stores."
+        "Expected results from >=2 of the 6 live stores."
     )
     print(f"\n'white sneakers' stores: {sorted(stores)}")
     for r in results[:5]:
