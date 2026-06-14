@@ -3,9 +3,9 @@
 import { useState } from "react"
 import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
-import { Store } from "lucide-react"
+import { Store, Tag } from "lucide-react"
 import { api } from "@/lib/api/client"
-import type { ItemSummary } from "@/lib/api/types"
+import type { ItemSummary, PriceMatch } from "@/lib/api/types"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 import { cn } from "@/lib/utils"
@@ -115,6 +115,11 @@ export function ItemCard({ item, onSend }: Props) {
       {showSimilar && (
         <SimilarItemsPanel articleId={item.article_id} onSend={onSend} />
       )}
+
+      {/* Cross-store price matches — only rendered when matches exist */}
+      {item.price_matches && item.price_matches.length > 0 && (
+        <PriceMatchPanel matches={item.price_matches} />
+      )}
     </div>
   )
 }
@@ -203,6 +208,50 @@ function SimilarItemRow({
           Style this
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * Cross-store price-match panel — shows same product in other stores, lowest price first.
+ * Prices are catalogue snapshots; the panel explicitly labels them as such.
+ * Rendered only when price_matches is non-empty (current reality: fires ~never).
+ */
+function PriceMatchPanel({ matches }: { matches: PriceMatch[] }) {
+  return (
+    <div className="border-t bg-muted/20 px-3 py-2">
+      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1">
+        <Tag className="h-2.5 w-2.5" aria-hidden />
+        Also available at
+      </p>
+      <div className="flex flex-col gap-1">
+        {matches.map((m) => (
+          <div key={m.store} className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[10px] font-medium text-foreground truncate">
+                {m.store_display}
+              </span>
+              {m.price_inr != null && (
+                <span className="text-[10px] text-muted-foreground">
+                  &#8377;{m.price_inr.toLocaleString("en-IN")}
+                  {" "}
+                  <span className="italic">(snapshot price)</span>
+                </span>
+              )}
+            </div>
+            {m.pdp_url && (
+              <a
+                href={m.pdp_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shrink-0"
+              >
+                View
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -4,11 +4,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 
 import api.deps as deps
 from api.auth import get_current_user_id
-from api.schemas import ItemSummary
+from api.schemas import ItemSummary, PriceMatch
+from src.catalogue.entity_resolution import (
+    find_cross_store_matches,
+    get_cached_brand_index,
+    get_cached_brand_stores_map,
+)
 from src.config.stores import build_pdp_url, get_store_display_name
 from src.retrieval.hybrid_search import store_diversity_rerank
 
@@ -21,12 +27,68 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/catalogue", tags=["catalogue"])
 
 
-def _row_to_item(article_id: str, row: Any, score: float | None = None) -> ItemSummary:
+def _build_price_matches(
+    row_dict: dict[str, Any],
+    catalogue_df: pd.DataFrame,
+) -> list[PriceMatch] | None:
+    """Run the precision-gated cross-store matcher and return PriceMatch objects.
+
+    Uses the precomputed brand-stores map to skip the O(n) scan for single-store
+    brands (the ~99.9% case), making the hot path essentially free.
+
+    Returns None (not []) when no matches are found, which serialises to null
+    in the JSON response and avoids an empty list allocation.
+    """
+    brand_map = get_cached_brand_stores_map(catalogue_df)
+    b_index = get_cached_brand_index(catalogue_df)
+    raw_matches = find_cross_store_matches(
+        row_dict,
+        catalogue_df,
+        brand_stores_map=brand_map,
+        brand_index=b_index,
+    )
+    if not raw_matches:
+        return None
+    return [
+        PriceMatch(
+            store=m["store"],
+            store_display=m["store_display"],
+            price_inr=m["price_inr"],
+            pdp_url=m["pdp_url"],
+            confidence=m["confidence"],
+            is_snapshot_price=True,
+        )
+        for m in raw_matches
+    ]
+
+
+def _row_to_item(
+    article_id: str,
+    row: Any,
+    score: float | None = None,
+    catalogue_df: pd.DataFrame | None = None,
+) -> ItemSummary:
+    """Convert one catalogue row to an ItemSummary.
+
+    Parameters
+    ----------
+    article_id:
+        The catalogue article identifier.
+    row:
+        A pandas Series or dict-like object with catalogue fields.
+    score:
+        Optional relevance score from the retriever.
+    catalogue_df:
+        Full catalogue DataFrame.  When provided, the precision-gated
+        cross-store price matcher runs and populates ``price_matches``.
+        When None (e.g. in similarity lookup), price_matches is omitted.
+    """
     facets = row.get("facets", {}) if isinstance(row.get("facets"), dict) else {}
     store = row.get("store") or None
     row_dict: dict[str, Any] = row if isinstance(row, dict) else (
         row.to_dict() if hasattr(row, "to_dict") else dict(row)
     )
+    price_matches = _build_price_matches(row_dict, catalogue_df) if catalogue_df is not None else None
     return ItemSummary(
         article_id=article_id,
         prod_name=row.get("prod_name", ""),
@@ -42,6 +104,7 @@ def _row_to_item(article_id: str, row: Any, score: float | None = None) -> ItemS
         store=store,
         store_display=get_store_display_name(store),
         pdp_url=build_pdp_url(store, row_dict),
+        price_matches=price_matches,
     )
 
 
@@ -50,13 +113,13 @@ def get_item(
     article_id: str,
     _user_id: str = Depends(get_current_user_id),
 ) -> ItemSummary:
-    """Return full metadata for a single catalogue item."""
+    """Return full metadata for a single catalogue item, including cross-store price matches."""
     df = deps.get_catalogue_df()
     indexed = df.set_index("article_id") if "article_id" in df.columns else df
     if article_id not in indexed.index:
         raise HTTPException(status_code=404, detail=f"Item {article_id!r} not found")
     row = indexed.loc[article_id]
-    return _row_to_item(article_id, row)
+    return _row_to_item(article_id, row, catalogue_df=df)
 
 
 @router.get("/{article_id}/similar", response_model=list[ItemSummary])

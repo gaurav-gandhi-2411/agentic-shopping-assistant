@@ -23,6 +23,21 @@ class ItemLink(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PriceMatch(BaseModel):
+    """A cross-store listing of the same product at a (possibly) different price.
+
+    Prices are catalogue SNAPSHOTS — not real-time.  Always display a snapshot
+    disclaimer when rendering PriceMatch data to users.
+    """
+
+    store: str
+    store_display: str
+    price_inr: float | None = None
+    pdp_url: str | None = None
+    confidence: float
+    is_snapshot_price: bool = True   # always True — prices are not real-time
+
+
 class ItemSummary(BaseModel):
     article_id: str
     prod_name: str
@@ -41,6 +56,10 @@ class ItemSummary(BaseModel):
     store: str | None = None          # store slug, e.g. "myntra", "snitch"
     store_display: str | None = None  # human-readable name, e.g. "Myntra", "Snitch"
     pdp_url: str | None = None        # server-built deep-link; use directly in the frontend
+    # Phase-D price-match: cross-store same-product listings, lowest price first.
+    # None/empty = item not found in other stores (current reality for ~all items).
+    # Prices are SNAPSHOT — never real-time.  Frontend must display snapshot disclaimer.
+    price_matches: list[PriceMatch] | None = None
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":

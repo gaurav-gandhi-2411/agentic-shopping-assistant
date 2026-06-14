@@ -115,6 +115,20 @@ export interface OutfitVariant {
   item_links?: ItemLink[] | null
 }
 
+/**
+ * A cross-store listing of the same product at a (possibly) different price.
+ * Prices are catalogue SNAPSHOTS — NOT real-time.
+ * Always render with a snapshot disclaimer (e.g. "snapshot price").
+ */
+export interface PriceMatch {
+  store: string
+  store_display: string
+  price_inr: number | null
+  pdp_url: string | null
+  confidence: number
+  is_snapshot_price: true  // always true; signals the price is not real-time
+}
+
 export interface ItemSummary {
   article_id: string
   prod_name: string
@@ -134,6 +148,12 @@ export interface ItemSummary {
   store_display?: string | null
   /** Server-built deep-link; use directly as the buy button href. */
   pdp_url?: string | null
+  /**
+   * Cross-store same-product listings, lowest price first.
+   * Null/absent when item is not found in other stores (current reality for ~all items).
+   * Prices are SNAPSHOT — never real-time. Display with snapshot disclaimer.
+   */
+  price_matches?: PriceMatch[] | null
 }
 
 export interface ConversationSummary {
