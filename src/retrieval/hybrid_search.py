@@ -101,6 +101,13 @@ class HybridRetriever:
 
         ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
+        # Extract optional store filter before iterating (not a facet — lives in `store` column)
+        store_filter: str | None = None
+        remaining_filters: dict | None = None
+        if filters:
+            store_filter = filters.get("store") or None
+            remaining_filters = {k: v for k, v in filters.items() if k != "store"} or None
+
         results = []
         for article_id, score in ranked:
             if article_id not in self.catalogue_df.index:
@@ -108,11 +115,23 @@ class HybridRetriever:
             row = self.catalogue_df.loc[article_id]
             facets = row["facets"] if isinstance(row["facets"], dict) else {}
 
-            if filters:
-                price_min = filters.get("price_min")
-                price_max = filters.get("price_max")
+            # --- Store filter (cross-store unified index only; no-op on per-brand indices) ---
+            if store_filter is not None:
+                item_store = (
+                    str(row["store"]).lower()
+                    if "store" in row.index and row["store"] is not None
+                    else ""
+                )
+                if item_store != store_filter.lower():
+                    continue
+
+            if remaining_filters:
+                price_min = remaining_filters.get("price_min")
+                price_max = remaining_filters.get("price_max")
                 facet_filters = {
-                    k: v for k, v in filters.items() if k not in ("price_min", "price_max")
+                    k: v
+                    for k, v in remaining_filters.items()
+                    if k not in ("price_min", "price_max")
                 }
 
                 if facet_filters and not all(
@@ -149,6 +168,11 @@ class HybridRetriever:
                     if isinstance(_img := row.get("image_url"), str) and _img
                     else None,
                     "score": score,
+                    "store": (
+                        str(row["store"])
+                        if "store" in row.index and row["store"] is not None
+                        else None
+                    ),
                     "price_inr": (
                         float(row["price_inr"])
                         if "price_inr" in row.index

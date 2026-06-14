@@ -13,6 +13,10 @@ _INDEX_FILES = frozenset(
 # CLIP index filenames expected under gs://<bucket>/<prefix>/clip/<brand>/
 _CLIP_FILES = frozenset(["clip.faiss", "clip_article_ids.npy"])
 
+# Sentinel value: when BRAND is set to this string (or left unset with UNIFIED=1),
+# the service loads the cross-store unified index instead of a per-brand index.
+UNIFIED_BRAND = "unified"
+
 
 def ensure_index_dir(
     brand: str,
@@ -21,12 +25,27 @@ def ensure_index_dir(
 ) -> Path:
     """Return the local directory containing retrieval index files for *brand*.
 
-    Local (dev) mode: INDEX_STORE_URI unset → returns default_dir for hm,
-    default_dir/<brand> for all other brands (matches 01_build_retrieval.py --out).
+    Unified mode (brand == "unified"):
+        - Local: returns default_dir/unified/
+        - GCS:   downloads gs://<bucket>/<prefix>/unified/ blobs into default_dir/unified/
 
-    GCS mode: INDEX_STORE_URI set → downloads brand-keyed blobs from
-    gs://<bucket>/<prefix>/<brand>/ into default_dir/<brand>/ and returns that path.
+    Per-brand mode (legacy):
+        - Local: returns default_dir for hm, default_dir/<brand> for all other brands.
+        - GCS:   downloads brand-keyed blobs from gs://<bucket>/<prefix>/<brand>/
+
+    This function is additive — the per-brand path is unchanged so existing per-brand
+    deployments continue to work without modification.
     """
+    if brand == UNIFIED_BRAND:
+        # Unified cross-store index
+        local_unified_dir = default_dir / UNIFIED_BRAND
+        if not index_store_uri:
+            return local_unified_dir
+        local_unified_dir.mkdir(parents=True, exist_ok=True)
+        _download_from_gcs(index_store_uri, UNIFIED_BRAND, local_unified_dir)
+        return local_unified_dir
+
+    # --- legacy per-brand path (unchanged) ---
     if not index_store_uri:
         if brand == "hm":
             return default_dir
