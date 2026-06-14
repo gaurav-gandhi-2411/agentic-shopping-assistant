@@ -2,14 +2,17 @@
 
 import { useEffect, useRef, useState } from "react"
 import Image from "next/image"
-import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles } from "lucide-react"
+import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } from "lucide-react"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
+import { getStoreDisplayName } from "@/lib/stores"
 import type { ItemLink, ItemSummary, LookSnapshot, OutfitVariant, SaveLookResponse } from "@/lib/api/types"
 
 // ---------------------------------------------------------------------------
-// Shopify brand ids — these backends support Shopify cart permalinks.
+// Shopify store slugs — these stores support Shopify cart permalinks.
+// In unified cross-store mode outfits may mix items from multiple stores, so
+// we check per-item store rather than a single board-level brand.
 // ---------------------------------------------------------------------------
-const SHOPIFY_BRANDS = new Set(["snitch", "powerlook", "fashor", "virgio"])
+const SHOPIFY_STORE_SLUGS = new Set(["snitch", "powerlook", "fashor", "virgio"])
 
 // ---------------------------------------------------------------------------
 // Default backend URL (used for look saves and reads — shared table).
@@ -145,7 +148,14 @@ export function OutfitBoard({
   // Buy link resolution: prefer variant-level, fall back to top-level message fields.
   const activeCartUrl = activeVariant?.cart_url ?? topLevelCartUrl ?? null
   const activeItemLinks = activeVariant?.item_links ?? topLevelItemLinks ?? null
-  const isShopify = brand != null && SHOPIFY_BRANDS.has(brand)
+
+  // Cross-store Shopify check: only enable cart permalink when a single-store Shopify
+  // cart_url is present.  In mixed-store outfits (unified mode) we degrade gracefully
+  // to the open-all / per-item deep-link path regardless of the top-level brand prop.
+  // Legacy per-brand mode still works: brand="snitch" + activeCartUrl → Shopify path.
+  const isShopify =
+    activeCartUrl != null &&
+    (brand != null ? SHOPIFY_STORE_SLUGS.has(brand) : false)
 
   const seed = displayItems.find((it) => it.slot_role === "seed")
   const complements = displayItems.filter((it) => it.slot_role === "complement")
@@ -229,21 +239,25 @@ export function OutfitBoard({
     }
   }
 
-  /** Non-Shopify path: open each item's buy_url in a new tab. */
+  /** Non-Shopify / cross-store path: open each item's deep-link in a new tab. */
   function handleOpenAllItems() {
     fireAddTheLookEvent()
     if (activeItemLinks && activeItemLinks.length > 0) {
+      // Prefer server-supplied item_links (cart_links helper output).
       activeItemLinks.forEach((link) => {
         window.open(link.buy_url, "_blank", "noopener,noreferrer")
       })
     } else {
-      // Fallback: open pdp_handle links via brandConfig template.
+      // Cross-store fallback: use server-built pdp_url per item (unified mode),
+      // then pdp_handle + brandConfig template (legacy per-brand mode).
       allOutfitItems.forEach((item) => {
-        if (item.pdp_handle && brandConfig?.pdp_url_template) {
-          window.open(
-            brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle),
-            "_blank",
-          )
+        const url =
+          item.pdp_url ??
+          (item.pdp_handle && brandConfig?.pdp_url_template
+            ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
+            : null)
+        if (url) {
+          window.open(url, "_blank", "noopener,noreferrer")
         }
       })
     }
@@ -251,7 +265,8 @@ export function OutfitBoard({
 
   /** Build a self-contained snapshot of the currently active variant/look. */
   function buildSnapshot(): LookSnapshot {
-    // Build per-item buy_url: prefer item_links map, then pdp template.
+    // Build per-item buy_url: prefer item_links map, then server-built pdp_url,
+    // then legacy pdp_handle + template (for backward compat with per-brand mode).
     const itemLinkMap = new Map<string, string>(
       (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
     )
@@ -259,6 +274,7 @@ export function OutfitBoard({
     const snapshotItems = displayItems.map((item) => {
       const buyUrl =
         itemLinkMap.get(item.article_id) ??
+        item.pdp_url ??
         (item.pdp_handle && brandConfig?.pdp_url_template
           ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
           : null)
@@ -531,9 +547,10 @@ function SlotCard({
   isSeed: boolean
   overrideBuyUrl: string | null
 }) {
-  // Priority: override (from item_links) → pdp_handle template.
+  // Priority: override (from item_links) → server-built pdp_url → legacy pdp_handle template.
   const buyUrl =
     overrideBuyUrl ??
+    item.pdp_url ??
     (item.pdp_handle && pdpUrlTemplate
       ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
       : null)
@@ -575,6 +592,13 @@ function SlotCard({
         {item.price_inr != null && (
           <p className="text-xs text-muted-foreground mt-0.5">
             ₹{item.price_inr.toLocaleString("en-IN")}
+          </p>
+        )}
+        {/* Store badge — shown on each card so mixed-store outfits are clear */}
+        {(item.store_display ?? item.store) && (
+          <p className="inline-flex items-center gap-0.5 mt-0.5 text-[9px] font-medium text-primary/80 bg-primary/10 rounded-sm px-1 py-0.5 leading-none">
+            <Store className="h-2 w-2" aria-hidden />
+            {item.store_display ?? getStoreDisplayName(item.store) ?? item.store}
           </p>
         )}
       </div>

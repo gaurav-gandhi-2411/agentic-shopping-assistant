@@ -37,9 +37,24 @@ from api.session import SessionStore
 from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
 from src.llm.context import llm_user_id_var
+from src.retrieval.index_store import UNIFIED_BRAND
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
+
+
+def _resolve_brand() -> str:
+    """Resolve the active brand slug using the same logic as api/main.py.
+
+    In unified (cross-store) mode — BRAND unset, BRAND=unified, or UNIFIED=1 —
+    returns UNIFIED_BRAND so cart-link helpers receive the correct brand context.
+    In legacy per-brand mode returns the BRAND env var value.
+    """
+    _unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
+    _brand_env = os.environ.get("BRAND", "")
+    if _unified_flag or _brand_env == UNIFIED_BRAND or not _brand_env:
+        return UNIFIED_BRAND
+    return _brand_env
 
 # In-memory session store for anonymous demo users.
 # Keyed on conversation_id; accumulates until container restart (fine for ephemeral demos).
@@ -118,7 +133,7 @@ def _build_outfit_variants(result: dict) -> list[OutfitVariant] | None:
     if not raw_variants:
         return None
 
-    brand = os.environ.get("BRAND", "hm")
+    brand = _resolve_brand()
 
     out: list[OutfitVariant] = []
     for variant in raw_variants:
@@ -210,7 +225,7 @@ def post_chat(
     # authenticated users use the existing in-memory sliding-window limiter.
     if user_id.startswith("anon:"):
         client_ip = request.client.host if request.client else "0.0.0.0"
-        _brand = os.environ.get("BRAND", "hm")
+        _brand = _resolve_brand()
         _engine = deps.get_db_engine()
         if _engine is not None:
             from api.demo.guards import (
@@ -283,7 +298,7 @@ def post_chat(
         routing = _extract_routing(tool_calls)
         items = _items_from_result(result)
         response_text = result.get("final_answer") or ""
-        _brand = os.environ.get("BRAND", "hm")
+        _brand = _resolve_brand()
         _outfit_variants = _build_outfit_variants(result)
 
         # Populate base-look cart action (covers single-look responses that don't
@@ -399,7 +414,7 @@ async def ws_chat(websocket: WebSocket) -> None:
     # authenticated users use the existing in-memory sliding-window limiter.
     if user_id.startswith("anon:"):
         client_ip = websocket.client.host if websocket.client else "0.0.0.0"
-        _brand = os.environ.get("BRAND", "hm")
+        _brand = _resolve_brand()
         _engine = deps.get_db_engine()
         if _engine is not None:
             from api.demo.guards import (
@@ -625,7 +640,7 @@ async def ws_chat(websocket: WebSocket) -> None:
             },
         )
 
-        _ws_brand = os.environ.get("BRAND", "hm")
+        _ws_brand = _resolve_brand()
         _ws_variants = _build_outfit_variants(result)
         _ws_base_cart_url, _ws_base_item_links = _build_base_cart_action(result, _ws_brand)
         await websocket.send_text(

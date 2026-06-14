@@ -15,12 +15,15 @@ export default function DemoChatPage() {
     setMounted(true)
     const name = sessionStorage.getItem("demo_brand_name")
     if (!name || !sessionStorage.getItem("demo_session_token")) {
-      // No valid demo session — send back to the brand picker.
+      // No valid demo session — send back to the entry page.
       window.location.replace("/demo")
       return
     }
     setBrandName(name)
-    setBrandId(sessionStorage.getItem("demo_brand_id") ?? undefined)
+    // "unified" brand id is the cross-store default; pass undefined so
+    // OutfitBoard doesn't try to gate on a single Shopify brand.
+    const storedId = sessionStorage.getItem("demo_brand_id")
+    setBrandId(storedId === "unified" ? undefined : (storedId ?? undefined))
   }, [])
 
   const { messages, isSending, connectionLost, sendMessage, sendImage, cancel } =

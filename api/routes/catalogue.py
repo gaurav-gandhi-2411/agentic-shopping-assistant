@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import api.deps as deps
 from api.auth import get_current_user_id
 from api.schemas import ItemSummary
+from src.config.stores import build_pdp_url, get_store_display_name
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/catalogue", tags=["catalogue"])
@@ -16,6 +17,10 @@ router = APIRouter(prefix="/catalogue", tags=["catalogue"])
 
 def _row_to_item(article_id: str, row: Any, score: float | None = None) -> ItemSummary:
     facets = row.get("facets", {}) if isinstance(row.get("facets"), dict) else {}
+    store = row.get("store") or None
+    row_dict: dict[str, Any] = row if isinstance(row, dict) else (
+        row.to_dict() if hasattr(row, "to_dict") else dict(row)
+    )
     return ItemSummary(
         article_id=article_id,
         prod_name=row.get("prod_name", ""),
@@ -26,6 +31,11 @@ def _row_to_item(article_id: str, row: Any, score: float | None = None) -> ItemS
         image_url=row.get("image_url") or None,
         detail_desc=row.get("detail_desc") or None,
         score=score,
+        price_inr=float(row.get("price_inr")) if row.get("price_inr") is not None else None,
+        pdp_handle=str(row.get("pdp_handle")) if row.get("pdp_handle") is not None else None,
+        store=store,
+        store_display=get_store_display_name(store),
+        pdp_url=build_pdp_url(store, row_dict),
     )
 
 

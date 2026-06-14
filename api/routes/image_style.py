@@ -46,6 +46,7 @@ from src.agents.outfit.cart_links import build_cart_action
 from src.agents.outfit.composer import compose_outfit_variants
 from src.agents.outfit.image_anchor import find_anchor_from_image
 from src.agents.outfit.rationale import generate_rationales, template_rationale
+from src.retrieval.index_store import UNIFIED_BRAND
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["style"])
@@ -167,7 +168,16 @@ async def post_style_from_image(
     Returns 413 for files exceeding the 15 MB limit.
     """
     config = deps.get_config()
-    brand = os.environ.get("BRAND", "hm")
+    # Resolve the active brand the same way api/main.py does at startup:
+    # unified mode (BRAND unset or "unified" or UNIFIED=1) → "unified".
+    # This ensures image search queries the cross-store CLIP index rather
+    # than falling back to the legacy H&M-only index.
+    _unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
+    _brand_env = os.environ.get("BRAND", "")
+    if _unified_flag or _brand_env == UNIFIED_BRAND or not _brand_env:
+        brand = UNIFIED_BRAND
+    else:
+        brand = _brand_env
 
     # ── Demo guards (same as POST /chat) ──────────────────────────────────────
     if user_id.startswith("anon:"):

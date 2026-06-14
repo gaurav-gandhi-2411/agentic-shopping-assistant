@@ -129,6 +129,11 @@ export interface ItemSummary {
   pdp_handle?: string | null
   outfit_slot?: string | null
   slot_role?: string | null
+  /** Cross-store fields — populated in unified mode; null in legacy per-brand mode. */
+  store?: string | null
+  store_display?: string | null
+  /** Server-built deep-link; use directly as the buy button href. */
+  pdp_url?: string | null
 }
 
 export interface ConversationSummary {

@@ -35,11 +35,18 @@ class ItemSummary(BaseModel):
     score: float | None = None
     price_inr: float | None = None
     pdp_handle: str | None = None
-    outfit_slot: str | None = None   # e.g. "bottom", "accessory", "footwear"
-    slot_role: str | None = None     # "seed" or "complement"
+    outfit_slot: str | None = None    # e.g. "bottom", "accessory", "footwear"
+    slot_role: str | None = None      # "seed" or "complement"
+    # Cross-store fields (populated in unified mode; None for legacy per-brand responses)
+    store: str | None = None          # store slug, e.g. "myntra", "snitch"
+    store_display: str | None = None  # human-readable name, e.g. "Myntra", "Snitch"
+    pdp_url: str | None = None        # server-built deep-link; use directly in the frontend
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":
+        from src.config.stores import build_pdp_url, get_store_display_name
+
+        store = item.get("store") or None
         return cls(
             article_id=item.get("article_id") or "",
             prod_name=item.get("prod_name") or "",
@@ -54,6 +61,9 @@ class ItemSummary(BaseModel):
             pdp_handle=item.get("pdp_handle") or None,
             outfit_slot=item.get("_slot") or None,
             slot_role=item.get("_role") or None,
+            store=store,
+            store_display=get_store_display_name(store),
+            pdp_url=build_pdp_url(store, item),
         )
 
 
