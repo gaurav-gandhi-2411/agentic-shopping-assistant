@@ -3,10 +3,6 @@ name: Deploy Demo (Cloud Run + Vercel)
 on:
   workflow_dispatch:
     inputs:
-      brands:
-        description: 'Space-separated brands to deploy (snitch myntra flipkart)'
-        required: false
-        default: 'snitch myntra flipkart'
       image_tag:
         description: 'Docker image tag (default: git SHA)'
         required: false
@@ -67,20 +63,11 @@ jobs:
         run: docker push "${{ steps.meta.outputs.image }}"
 
   deploy-cloud-run:
-    name: Deploy ${{ matrix.brand }} to Cloud Run
+    name: Deploy unified service to Cloud Run
     needs: build-and-push
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - brand: snitch
-            min_instances: 1
-          - brand: myntra
-            min_instances: 0
-          - brand: flipkart
-            min_instances: 0
-    # Only deploy brands listed in the input.
-    if: contains(github.event.inputs.brands || 'snitch myntra flipkart', matrix.brand)
+    outputs:
+      url: ${{ steps.url.outputs.url }}
 
     steps:
       - name: Authenticate to GCP via WIF
@@ -99,21 +86,27 @@ jobs:
           # would silently split into CORS_ORIGINS=https://a.vercel.app and a corrupt
           # second variable. DEMO_CORS_ORIGINS MUST therefore be a single comma-free origin
           # (the canonical Vercel URL). Do not add localhost or extra origins to this secret.
-          gcloud run deploy "asa-${{ matrix.brand }}" \
+          #
+          # BRAND is intentionally absent — the API auto-selects unified mode when BRAND
+          # is unset (see api/main.py: _unified_flag logic).
+          gcloud run deploy "asa-stylist-api" \
             --image="${{ needs.build-and-push.outputs.image }}" \
             --region="${{ env.GAR_REGION }}" \
             --platform=managed \
             --allow-unauthenticated \
-            --memory=2Gi \
+            --memory=4Gi \
             --cpu=1 \
             --concurrency=4 \
             --timeout=300 \
-            --min-instances=${{ matrix.min_instances }} \
-            --set-env-vars="BRAND=${{ matrix.brand }},DEMO_MODE=true,LLM_PROVIDER=groq,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},DEMO_JWT_SECRET=${{ secrets.DEMO_JWT_SECRET }},DATABASE_URL=${{ secrets.DATABASE_URL }},SUPABASE_URL=${{ secrets.SUPABASE_URL }},CORS_ORIGINS=${{ secrets.DEMO_CORS_ORIGINS }},INDEX_STORE_URI=gs://${{ secrets.GCS_BUCKET }}/${{ matrix.brand }}/"
+            --min-instances=0 \
+            --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},DEMO_JWT_SECRET=${{ secrets.DEMO_JWT_SECRET }},DATABASE_URL=${{ secrets.DATABASE_URL }},SUPABASE_URL=${{ secrets.SUPABASE_URL }},CORS_ORIGINS=${{ secrets.DEMO_CORS_ORIGINS }},INDEX_STORE_URI=gs://${{ secrets.GCS_BUCKET }}/unified/"
 
       - name: Get service URL
+        id: url
         run: |
-          URL=$(gcloud run services describe "asa-${{ matrix.brand }}" \
+          URL=$(gcloud run services describe "asa-stylist-api" \
             --region="${{ env.GAR_REGION }}" \
             --format='value(status.url)')
-          echo "Service deployed: ${{ matrix.brand }}: ${URL}"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Unified service deployed: ${URL}"
+          echo "Next: update NEXT_PUBLIC_BACKEND_URL in Vercel to ${URL}"
