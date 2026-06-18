@@ -34,9 +34,10 @@ from __future__ import annotations
 import io
 import logging
 import os
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 import api.deps as deps
@@ -151,6 +152,7 @@ async def post_style_from_image(
     request: Request,
     file: UploadFile,
     user_id: Annotated[str, Depends(get_current_user_id_or_demo)],
+    conversation_id: Annotated[str | None, Form()] = None,
 ) -> JSONResponse:
     """Compose a look from an uploaded fashion image.
 
@@ -326,7 +328,55 @@ async def post_style_from_image(
 
     cart_action = build_cart_action(all_base_items, brand)
 
+    # ── Persist session so follow-up chat turns can resume context ────────────
+    # Generate a fresh conversation_id when the client did not supply one.
+    cid = conversation_id or str(uuid.uuid4())
+    _is_anon = user_id.startswith("anon:")
+    try:
+        from api.routes.chat import _DEMO_SESSIONS
+
+        store = deps.get_session_store()
+        # Compose a minimal session state in the same shape as _persist_result
+        # in chat.py so that a follow-up POST /chat or WS /chat/stream can load
+        # it and resume with the image outfit as context.
+        if _is_anon:
+            existing = _DEMO_SESSIONS.get(cid) or {}
+        else:
+            existing = store.get(cid, user_id) or {}
+
+        existing.update(
+            {
+                "retrieved_items": all_base_items,
+                "look_id": base.get("look_id"),
+                "occasion": occasion,
+                "look_gender": gender,
+                "budget_total_inr": base.get("budget_total_inr"),
+                "outfit_rationale": base.get("outfit_rationale"),
+                "filters": {"gender": gender},
+                "new_items_this_turn": True,
+            }
+        )
+        # Ensure ConversationMemory exists so _build_invoke_state in chat.py
+        # does not KeyError on session["_memory"] when resuming this session.
+        if "_memory" not in existing:
+            from src.memory.conversation import ConversationMemory
+
+            llm = deps.get_llm()
+            config = deps.get_config()
+            existing["_memory"] = ConversationMemory(llm, config)
+        if "messages" not in existing:
+            existing["messages"] = []
+
+        if _is_anon:
+            _DEMO_SESSIONS[cid] = existing
+        else:
+            store.set(cid, existing, user_id)
+    except Exception as _sess_exc:
+        # Session persistence is best-effort; never fail the image response.
+        logger.warning("image session persist failed: %s", _sess_exc)
+
     payload = {
+        "conversation_id": cid,
         "anchor_article_id": anchor_id,
         "look_id": base.get("look_id"),
         "occasion": occasion,
