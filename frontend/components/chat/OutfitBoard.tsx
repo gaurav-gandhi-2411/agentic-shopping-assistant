@@ -14,6 +14,17 @@ import type { ItemLink, ItemSummary, LookSnapshot, OutfitVariant, SaveLookRespon
 // ---------------------------------------------------------------------------
 const SHOPIFY_STORE_SLUGS = new Set(["snitch", "powerlook", "fashor", "virgio"])
 
+const VARIANT_LABEL_MAP = {
+  "Base": "Style 1",
+  "Colour story": "Colour Palette",
+  "Dressier": "Dressed Up",
+  "Lighter": "Casual Edit",
+} as const
+
+function humanLabel(label: string): string {
+  return (VARIANT_LABEL_MAP as Record<string, string>)[label] ?? label
+}
+
 // ---------------------------------------------------------------------------
 // Default backend URL (used for look saves and reads — shared table).
 // Falls back to demo session URL if available.
@@ -409,7 +420,7 @@ export function OutfitBoard({
                   : "rounded-full text-xs px-3 py-1 border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
               }
             >
-              {v.label}
+              {humanLabel(v.label)}
             </button>
           ))}
         </div>
@@ -568,7 +579,7 @@ function SlotCard({
       rel="noopener noreferrer"
       className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
     >
-      <div className="relative aspect-[4/5] bg-muted">
+      <div className="relative aspect-[4/5] bg-muted max-h-52 overflow-hidden">
         {item.image_url ? (
           <Image
             src={item.image_url}
