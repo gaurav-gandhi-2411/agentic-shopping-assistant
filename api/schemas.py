@@ -1,9 +1,20 @@
 """Pydantic request/response models for the Shopping Assistant API."""
 from __future__ import annotations
 
+import math as _math
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+def _ns(val: object, default: str = "") -> str:
+    """Null-safe string coercion: returns default for None, float NaN, or the string 'nan'."""
+    if val is None:
+        return default
+    if isinstance(val, float) and _math.isnan(val):
+        return default
+    s = str(val)
+    return default if s.lower() == "nan" else s
 
 # ---------------------------------------------------------------------------
 # Cart / buy-link models
@@ -68,11 +79,11 @@ class ItemSummary(BaseModel):
         store = item.get("store") or None
         return cls(
             article_id=item.get("article_id") or "",
-            prod_name=item.get("prod_name") or "",
-            display_name=item.get("display_name") or "",
-            colour=item.get("colour") or "",
-            product_type=item.get("product_type") or "",
-            department=item.get("department") or "",
+            prod_name=_ns(item.get("prod_name")),
+            display_name=_ns(item.get("display_name") or item.get("prod_name")),
+            colour=_ns(item.get("colour")),
+            product_type=_ns(item.get("product_type")),
+            department=_ns(item.get("department")),
             image_url=item.get("image_url") or None,
             detail_desc=item.get("detail_desc") or None,
             score=item.get("score"),

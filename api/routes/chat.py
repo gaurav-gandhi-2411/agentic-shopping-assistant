@@ -207,7 +207,9 @@ def _extract_routing(tool_calls: list[dict]) -> dict:
 def _items_from_result(result: dict) -> list[ItemSummary]:
     if not result.get("new_items_this_turn"):
         return []
-    return [ItemSummary.from_agent_item(it) for it in result.get("retrieved_items", [])]
+    # "always visual" hard rule: drop items without an image before serialising
+    raw = [it for it in result.get("retrieved_items", []) if it.get("image_url")]
+    return [ItemSummary.from_agent_item(it) for it in raw]
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +563,9 @@ async def ws_chat(websocket: WebSocket) -> None:
         if result.get("new_items_this_turn") and result.get("retrieved_items"):
             # Full ItemSummary inline (not just article_ids) so the frontend can render
             # product cards without N+1 catalogue fetches per item.
-            items = [ItemSummary.from_agent_item(it) for it in result["retrieved_items"]]
+            # "always visual" hard rule: drop items without an image before serialising.
+            _ws_raw = [it for it in result["retrieved_items"] if it.get("image_url")]
+            items = [ItemSummary.from_agent_item(it) for it in _ws_raw]
             await websocket.send_text(WSItemsMessage(items=items).model_dump_json())
 
         # ------------------------------------------------------------------

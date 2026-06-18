@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from typing import TYPE_CHECKING
 
 from src.agents.grounding import validate_rationale
@@ -22,6 +23,16 @@ if TYPE_CHECKING:
     from src.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_str(val: object) -> str:
+    """Return str(val) unless val is None, float NaN, or the sentinel string 'nan'."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and math.isnan(val):
+        return ""
+    s = str(val)
+    return "" if s.lower() == "nan" else s
 
 # ── Prompt template ────────────────────────────────────────────────────────────
 
@@ -59,14 +70,14 @@ def build_fact_sheet(look: dict) -> dict:
     occasion = look.get("occasion") or "casual"
     gender = look.get("gender") or "women"
 
-    seed_colour = (seed.get("colour") or "").lower().strip()
-    seed_type = (seed.get("product_type") or "").lower().strip()
+    seed_colour = _safe_str(seed.get("colour")).lower().strip()
+    seed_type = _safe_str(seed.get("product_type")).lower().strip()
 
     complement_pairs = []
     for comp in complements:
         slot = comp.get("_slot") or ""
-        colour = (comp.get("colour") or "").lower().strip()
-        pt = (comp.get("product_type") or "").lower().strip()
+        colour = _safe_str(comp.get("colour")).lower().strip()
+        pt = _safe_str(comp.get("product_type")).lower().strip()
         if slot or colour or pt:
             complement_pairs.append({"slot": slot, "colour": colour, "type": pt})
 
@@ -180,14 +191,14 @@ def template_rationale(look: dict) -> str:
     complements = look.get("complements") or []
     occasion = (look.get("occasion") or "casual").replace("_", " ")
 
-    seed_colour = (seed.get("colour") or "").lower() or "classic"
-    seed_type = (seed.get("product_type") or "").lower() or "piece"
+    seed_colour = _safe_str(seed.get("colour")).lower() or "classic"
+    seed_type = _safe_str(seed.get("product_type")).lower() or "piece"
 
     if complements:
         comp_names = []
         for c in complements[:2]:  # mention at most 2
-            ct = (c.get("product_type") or c.get("display_name") or "").lower()
-            cc = (c.get("colour") or "").lower()
+            ct = (_safe_str(c.get("product_type")) or _safe_str(c.get("display_name"))).lower()
+            cc = _safe_str(c.get("colour")).lower()
             if ct and cc:
                 comp_names.append(f"{cc} {ct}")
             elif ct:

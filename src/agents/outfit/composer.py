@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from dataclasses import dataclass
 
@@ -590,16 +591,28 @@ def _anchor_matches_occasion(item: dict, occasion_slug: str) -> bool:
     return True
 
 
+def _safe_str(val: object) -> str:
+    """Return str(val) unless val is None, float NaN, or the sentinel string 'nan'."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and math.isnan(val):
+        return ""
+    s = str(val)
+    return "" if s.lower() == "nan" else s
+
+
 def _row_to_item(article_id: str, row: pd.Series, facets: dict, role: str) -> dict:
     return {
         "article_id": article_id,
-        "display_name": row.get("display_name") or str(row.get("prod_name") or ""),
-        "prod_name": str(row.get("prod_name") or ""),
-        "colour": facets.get("colour_group_name") or str(row.get("colour_group_name") or ""),
-        "product_type": facets.get("product_type_name") or str(row.get("product_type_name") or ""),
-        "department": facets.get("department_name") or str(row.get("department_name") or ""),
-        "index_group_name": str(row.get("index_group_name") or ""),
-        "detail_desc": str(row.get("detail_desc") or ""),
+        "display_name": _safe_str(row.get("display_name") or row.get("prod_name")),
+        "prod_name": _safe_str(row.get("prod_name")),
+        "colour": _safe_str(facets.get("colour_group_name") or row.get("colour_group_name")),
+        "product_type": _safe_str(
+            facets.get("product_type_name") or row.get("product_type_name")
+        ),
+        "department": _safe_str(facets.get("department_name") or row.get("department_name")),
+        "index_group_name": _safe_str(row.get("index_group_name")),
+        "detail_desc": _safe_str(row.get("detail_desc")),
         "image_url": row.get("image_url"),
         "score": 1.0,
         "price_inr": row.get("price_inr"),
