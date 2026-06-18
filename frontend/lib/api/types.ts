@@ -188,6 +188,8 @@ export interface ChatMessage {
   cartUrl?: string | null
   /** Per-item buy links for non-Shopify brands. */
   itemLinks?: ItemLink[] | null
+  /** Local object URL for an uploaded image; present on user messages from sendImage(). */
+  imageUrl?: string | null
 }
 
 // Discriminated union of every frame the WS server can send.

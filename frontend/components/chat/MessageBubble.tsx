@@ -98,7 +98,16 @@ export function MessageBubble({ message, onSend, brand }: Props) {
         )}
       >
         {isUser ? (
-          message.content
+          <>
+            {message.content}
+            {message.imageUrl && (
+              <img
+                src={message.imageUrl}
+                alt="Uploaded"
+                className="h-20 w-auto rounded-md object-cover mt-1"
+              />
+            )}
+          </>
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

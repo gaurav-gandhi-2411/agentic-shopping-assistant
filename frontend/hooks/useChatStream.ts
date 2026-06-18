@@ -12,6 +12,7 @@ const RETRY_DELAYS = [1000, 2000, 4000]
 // Same shape as an outfit chat turn's final_state fields.
 // ---------------------------------------------------------------------------
 interface StyleFromImageResponse {
+  conversation_id?: string | null
   items: ItemSummary[]
   look_id?: string | null
   occasion?: string | null
@@ -324,7 +325,9 @@ export function useChatStream({
   const sendImage = useCallback(async (file: File): Promise<void> => {
     if (isSending) return
 
-    // Optimistic user bubble — text only, thumbnail shown in ChatInput chip.
+    const imagePreviewUrl = URL.createObjectURL(file)
+
+    // Optimistic user bubble — includes local preview thumbnail.
     const userMsgId = crypto.randomUUID()
     setMessages((prev) => [
       ...prev,
@@ -335,6 +338,7 @@ export function useChatStream({
         content: "Styling around your uploaded photo",
         items: [],
         isStreaming: false,
+        imageUrl: imagePreviewUrl,
       },
     ])
     setIsSending(true)
@@ -357,8 +361,15 @@ export function useChatStream({
       const backendBase = getDemoBackendBase()
       const token = getDemoSessionToken()
 
+      // Re-use or seed a conversation_id so the backend can persist this
+      // image look into the session store.  Subsequent sendMessage calls pass
+      // conversationIdRef.current, which we update below after a successful
+      // response — this is the fix for G1 (image upload context retention).
+      const cid = conversationIdRef.current ?? crypto.randomUUID()
+
       const body = new FormData()
       body.append("file", file)
+      body.append("conversation_id", cid)
 
       const headers: Record<string, string> = {}
       if (token) headers["Authorization"] = `Bearer ${token}`
@@ -383,6 +394,13 @@ export function useChatStream({
       }
 
       const data = (await res.json()) as StyleFromImageResponse
+
+      // Update the conversation_id ref so follow-up sendMessage calls resume
+      // the session that now contains the image outfit context.
+      const returnedCid = data.conversation_id ?? cid
+      conversationIdRef.current = returnedCid
+      setConversationId(returnedCid)
+      onConversationId?.(returnedCid)
 
       setMessages((prev) =>
         prev.map((m) =>
