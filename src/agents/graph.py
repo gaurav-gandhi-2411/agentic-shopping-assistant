@@ -459,6 +459,22 @@ def build_graph(
         r"\bteen\b": "Divided", r"\bteens\b": "Divided",
     }
 
+    # Deterministic garment-type keyword rules applied against the RAW user message.
+    # Unlike auto-facet extraction (which uses the LLM-simplified query and can lose
+    # the garment type), these match on raw_query so "dress" is never silently dropped.
+    # "dress → Dress" is the critical case: without it, embedding similarity pulls kurtis
+    # (4,443 items) over dresses (1,544 items) in the unified catalogue after H&M removal.
+    _PRODUCT_TYPE_KEYWORDS: list[tuple[str, str]] = [
+        (r"\bdress(?:es)?\b", "Dress"),
+        (r"\bkurti\b", "Kurti"),
+        (r"\bkurta\b", "Kurta"),
+        (r"\bskirt(?:s)?\b", "Skirt"),
+        (r"\bblaz(?:er|ers)\b", "Blazer"),
+        (r"\bjean(?:s)?\b", "Jeans"),
+        (r"\bsaree\b|\bsari\b|\bsarees\b", "Saree"),
+        (r"\btrouser(?:s)?\b", "Trousers"),
+    ]
+
     # Build a set of valid values per facet once at graph-construction time.
     _valid_facet_values: dict[str, set[str]] = {
         col: set(catalogue_df[col].dropna().str.lower().unique())
@@ -558,6 +574,16 @@ def build_graph(
             has_child = any(kw in raw_lower for kw in _CHILD_KEYWORDS)
             if has_sleep and not has_child:
                 merged = {**merged, "index_group_name": "ladieswear"}
+
+        # Garment-type keyword enforcement — uses raw_query so "black dress for women"
+        # always pins product_type_name=Dress even when the LLM simplifies the query
+        # to just "black women" and the auto-facet below misses the type.
+        if "product_type_name" not in merged:
+            raw_lower = raw_query.lower()
+            for pattern, ptype in _PRODUCT_TYPE_KEYWORDS:
+                if re.search(pattern, raw_lower, re.IGNORECASE):
+                    merged = {**merged, "product_type_name": ptype}
+                    break
 
         # Auto-extract facet filters from the query when the LLM omitted them.
         # LLM-emitted filters take precedence (facets already in merged are skipped).

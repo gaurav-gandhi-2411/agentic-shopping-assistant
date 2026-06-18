@@ -670,39 +670,77 @@ def _load_unified_retriever():
 # ---------------------------------------------------------------------------
 
 def _check_g2b_text_search_images() -> None:
-    """G2b: text search must return only items with non-null image_url."""
+    """G2b: 'black dress for women' must return dresses with images (not kurtis).
+
+    Two sub-checks:
+    1. Unfiltered search — all results have non-null image_url.
+    2. Filtered search (product_type_name=dress, index_group_name=ladieswear) —
+       all results must have product_type == 'Dress', confirming the garment-type
+       filter works.  This is the fix for the 'kurtis returned instead of dresses'
+       bug: the graph now deterministically sets the filter from raw_query.
+    """
     unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
     if not unified_faiss.exists():
-        _record("G2b", "text search returns images", "SKIP",
+        _record("G2b", "black dress returns dresses (not kurtis)", "SKIP",
                 f"unified index not present: {unified_faiss}")
         return
 
     try:
         retriever, _df = _load_unified_retriever()
     except Exception as exc:
-        _record("G2b", "text search returns images", "FAIL",
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
                 f"failed to load unified retriever: {type(exc).__name__}: {exc}")
         return
 
+    # Sub-check 1: unfiltered — images present
     try:
         results = retriever.search("black dress for women", top_k=10)
     except Exception as exc:
-        _record("G2b", "text search returns images", "FAIL",
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
                 f"retriever.search raised {type(exc).__name__}: {exc}")
         return
 
     if not results:
-        _record("G2b", "text search returns images", "FAIL", "search returned 0 results")
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
+                "search returned 0 results")
         return
 
     missing_image = [r["article_id"] for r in results if not r.get("image_url")]
     if missing_image:
-        _record("G2b", "text search returns images", "FAIL",
-                f"{len(missing_image)}/{len(results)} results have null image_url: "
-                f"{missing_image}")
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
+                f"{len(missing_image)}/{len(results)} results have null image_url")
+        return
+
+    # Sub-check 2: with garment-type filter — results must be Dress, not kurtis
+    try:
+        filtered = retriever.search(
+            "black dress for women",
+            top_k=10,
+            filters={"product_type_name": "dress", "index_group_name": "ladieswear"},
+        )
+    except Exception as exc:
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
+                f"filtered search raised {type(exc).__name__}: {exc}")
+        return
+
+    if not filtered:
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
+                "filtered search returned 0 results (no black dresses in index?)")
+        return
+
+    wrong_type = [
+        (r["article_id"], r.get("product_type", ""))
+        for r in filtered
+        if r.get("product_type", "").lower() not in ("dress", "")
+    ]
+    if wrong_type:
+        _record("G2b", "black dress returns dresses (not kurtis)", "FAIL",
+                f"{len(wrong_type)}/{len(filtered)} results are NOT dresses: "
+                f"{wrong_type[:3]}")
     else:
-        _record("G2b", "text search returns images", "PASS",
-                f"all {len(results)} results have non-null image_url")
+        _record("G2b", "black dress returns dresses (not kurtis)", "PASS",
+                f"images ✓ all {len(results)} unfiltered; "
+                f"garment type ✓ all {len(filtered)} filtered results are Dress")
 
 
 # ---------------------------------------------------------------------------
