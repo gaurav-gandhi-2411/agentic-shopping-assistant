@@ -18,7 +18,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from api.schemas import SaveLookRequest, SaveLookResponse, SharedLookResponse
-from src.storage.saved_looks import get_look, save_look
+from src.storage.saved_looks import get_look, get_look_memory, save_look, save_look_memory
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +62,25 @@ async def post_look(body: SaveLookRequest, request: Request) -> SaveLookResponse
     """
     engine = _get_engine(request)
     if engine is None:
-        logger.warning("looks: no DB engine; cannot persist saved look")
-        raise HTTPException(
-            status_code=503,
-            detail="Saving a look requires a database. DATABASE_URL is not configured.",
-        )
+        # Dev fallback: use in-memory store (persists for process lifetime only)
+        logger.info("looks: no DB engine; using in-memory fallback for local dev")
+        try:
+            new_id = save_look_memory(
+                session_id=body.session_id,
+                user_id=body.user_id,
+                brand=body.brand,
+                look_id=body.look_id,
+                occasion=body.occasion,
+                look_gender=body.look_gender,
+                anchor_item_id=body.anchor_item_id,
+                look_total_inr=body.look_total_inr,
+                snapshot=body.snapshot,
+            )
+        except Exception as exc:
+            logger.error("looks: in-memory save failed: %s", exc)
+            raise HTTPException(status_code=500, detail="Failed to save look") from exc
+        logger.info("looks: memory-saved look id=%s session=%s", new_id, body.session_id)
+        return SaveLookResponse(id=new_id, share_path=f"/look/{new_id}")
 
     try:
         new_id = save_look(
@@ -110,10 +124,18 @@ async def get_look_by_id(look_id: str, request: Request) -> SharedLookResponse:
     """
     engine = _get_engine(request)
     if engine is None:
-        logger.warning("looks: no DB engine; cannot fetch shared look")
-        raise HTTPException(
-            status_code=503,
-            detail="Look sharing requires a database. DATABASE_URL is not configured.",
+        # Dev fallback: check in-memory store
+        record = get_look_memory(look_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"Look {look_id!r} not found")
+        return SharedLookResponse(
+            id=record["id"],
+            brand=record["brand"],
+            occasion=record["occasion"],
+            look_gender=record["look_gender"],
+            look_total_inr=record["look_total_inr"],
+            snapshot=record["snapshot"],
+            created_at=record["created_at"],
         )
 
     try:

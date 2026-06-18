@@ -3,11 +3,17 @@
 Insert-only: save_look() appends a row; get_look() reads it back.  No UPDATE
 or DELETE paths exist — a saved look is immutable once written.  The row id
 (UUID) doubles as the public share slug so no secondary lookup table is needed.
+
+When DATABASE_URL is not configured (local dev), the in-memory fallback
+(save_look_memory / get_look_memory) is used instead.  Data persists for the
+process lifetime only — sufficient for local testing and QA checks.
 """
 from __future__ import annotations
 
+import datetime as _datetime
 import json
 import logging
+import uuid as _uuid_module
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -157,3 +163,76 @@ def get_look(engine: Any, look_id: str) -> dict | None:
         "snapshot": snapshot,
         "created_at": row[10],
     }
+
+
+# ---------------------------------------------------------------------------
+# In-memory fallback store — dev / local testing (no DB required)
+# ---------------------------------------------------------------------------
+
+# Dict keyed by look UUID string -> saved look record dict.
+# Persists for the lifetime of the process; cleared between QA test runs.
+_MEMORY_STORE: dict[str, dict] = {}
+
+
+def save_look_memory(
+    *,
+    session_id: str,
+    user_id: str | None,
+    brand: str,
+    look_id: str | None,
+    occasion: str | None,
+    look_gender: str | None,
+    anchor_item_id: str | None,
+    look_total_inr: int | None,
+    snapshot: dict,
+) -> str:
+    """Persist a saved look in in-process memory (dev fallback when DATABASE_URL is unset).
+
+    Generates a fresh UUID, stores all fields in _MEMORY_STORE, and returns the
+    UUID string as the share slug — same contract as save_look().
+
+    Args:
+        session_id:     Anonymous demo session identifier.
+        user_id:        Authenticated user UUID string, or None for anonymous.
+        brand:          Brand slug (e.g. "unified", "snitch").
+        look_id:        Ephemeral outfit-engine look id, or None.
+        occasion:       Occasion label, or None.
+        look_gender:    Gender label, or None.
+        anchor_item_id: Anchor catalogue item id, or None.
+        look_total_inr: Basket total in INR, or None.
+        snapshot:       Self-contained board payload.
+
+    Returns:
+        UUID string of the newly stored record (also the share slug).
+    """
+    new_id = str(_uuid_module.uuid4())
+    _MEMORY_STORE[new_id] = {
+        "id": new_id,
+        "session_id": session_id,
+        "user_id": user_id,
+        "brand": brand,
+        "look_id": look_id,
+        "occasion": occasion,
+        "look_gender": look_gender,
+        "anchor_item_id": anchor_item_id,
+        "look_total_inr": look_total_inr,
+        "snapshot": snapshot,
+        "created_at": _datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    return new_id
+
+
+def get_look_memory(look_id: str) -> dict | None:
+    """Retrieve a memory-persisted saved look by UUID (dev fallback).
+
+    Args:
+        look_id: UUID string — the share slug returned by save_look_memory().
+
+    Returns:
+        Stored record dict, or None when the id is missing or not a valid UUID.
+    """
+    try:
+        _uuid_module.UUID(look_id)
+    except (ValueError, AttributeError):
+        return None
+    return _MEMORY_STORE.get(look_id)
