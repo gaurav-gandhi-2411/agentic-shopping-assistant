@@ -527,9 +527,10 @@ def _check_g1b_image_session_persistence() -> None:
         "variant_label": "Base",
     }
 
+    # Patch where each name is USED (image_style module namespace), not where defined.
     with (
         mock.patch(
-            "src.agents.outfit.image_anchor.find_anchor_from_image",
+            "api.routes.image_style.find_anchor_from_image",
             return_value=["FAKE001"],
         ),
         mock.patch(
@@ -537,11 +538,11 @@ def _check_g1b_image_session_persistence() -> None:
             return_value=True,
         ),
         mock.patch(
-            "src.agents.outfit.composer.compose_outfit_variants",
+            "api.routes.image_style.compose_outfit_variants",
             return_value=[fake_look],
         ),
         mock.patch(
-            "src.agents.outfit.rationale.generate_rationales",
+            "api.routes.image_style.generate_rationales",
             return_value=["Test rationale"],
         ),
         mock.patch("api.deps.get_catalogue_df", return_value=None),
@@ -607,14 +608,17 @@ def _check_g1b_image_session_persistence() -> None:
         )
         return
 
-    # InMemorySessionStore ignores user_id — pass empty string to match any user.
-    stored = session_store.get(returned_cid, "")
+    # Anonymous demo requests store session in _DEMO_SESSIONS (api.routes.chat),
+    # not in the InMemorySessionStore, so check the right store.
+    from api.routes.chat import _DEMO_SESSIONS
+
+    stored = _DEMO_SESSIONS.get(returned_cid) or session_store.get(returned_cid, "")
     if stored and stored.get("retrieved_items"):
         _record(
             "G1b",
             "image → follow-up retains context",
             "PASS",
-            f"conv_id={returned_cid[:8]}… session has {len(stored['retrieved_items'])} items",
+            f"conv_id={returned_cid[:8]}… session has {len(stored['retrieved_items'])} item(s)",
         )
     else:
         _record(
@@ -627,13 +631,194 @@ def _check_g1b_image_session_persistence() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Index-required checks (G2b, G4, G9b) — SKIP when index absent
+# Shared retriever loader (G2b, G4, G9b) — loads unified index once on demand
 # ---------------------------------------------------------------------------
 
-def _check_index_required(
-    defect: str, name: str, detail: str = "requires pre-built retrieval index"
-) -> None:
-    _record(defect, name, "SKIP", detail)
+def _load_unified_retriever():
+    """Load DenseRetriever + SparseRetriever + HybridRetriever from the unified index.
+
+    Returns (retriever, catalogue_df) or raises on any failure.
+    """
+    import pandas as pd
+
+    from src.retrieval.dense_search import DenseRetriever
+    from src.retrieval.hybrid_search import HybridRetriever
+    from src.retrieval.sparse_search import SparseRetriever
+
+    unified_dir = _REPO_ROOT / "data" / "processed" / "unified"
+
+    config: dict = {
+        "retrieval": {
+            "dense_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "dense_dim": 384,
+            "rrf_k": 60,
+            "top_k": 50,
+            "final_k": 10,
+            "store_diversity": 0.2,
+        }
+    }
+
+    dense = DenseRetriever.load(config, unified_dir)
+    sparse = SparseRetriever.load(config, unified_dir)
+    catalogue_df = pd.read_parquet(unified_dir / "catalogue.parquet")
+    retriever = HybridRetriever(dense, sparse, catalogue_df, config)
+    return retriever, catalogue_df
+
+
+# ---------------------------------------------------------------------------
+# G2b — text search returns items with image_url
+# ---------------------------------------------------------------------------
+
+def _check_g2b_text_search_images() -> None:
+    """G2b: text search must return only items with non-null image_url."""
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("G2b", "text search returns images", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    try:
+        retriever, _df = _load_unified_retriever()
+    except Exception as exc:
+        _record("G2b", "text search returns images", "FAIL",
+                f"failed to load unified retriever: {type(exc).__name__}: {exc}")
+        return
+
+    try:
+        results = retriever.search("black dress for women", top_k=10)
+    except Exception as exc:
+        _record("G2b", "text search returns images", "FAIL",
+                f"retriever.search raised {type(exc).__name__}: {exc}")
+        return
+
+    if not results:
+        _record("G2b", "text search returns images", "FAIL", "search returned 0 results")
+        return
+
+    missing_image = [r["article_id"] for r in results if not r.get("image_url")]
+    if missing_image:
+        _record("G2b", "text search returns images", "FAIL",
+                f"{len(missing_image)}/{len(results)} results have null image_url: "
+                f"{missing_image}")
+    else:
+        _record("G2b", "text search returns images", "PASS",
+                f"all {len(results)} results have non-null image_url")
+
+
+# ---------------------------------------------------------------------------
+# G4 — compose_outfit with Flipkart seed spans ≥2 stores
+# ---------------------------------------------------------------------------
+
+def _check_g4_multi_store_outfit() -> None:
+    """G4: outfit composed around a Flipkart seed must span ≥2 distinct stores."""
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("G4", "image search spans >1 store", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    try:
+        retriever, catalogue_df = _load_unified_retriever()
+    except Exception as exc:
+        _record("G4", "image search spans >1 store", "FAIL",
+                f"failed to load unified retriever: {type(exc).__name__}: {exc}")
+        return
+
+    from src.agents.outfit.composer import compose_outfit
+
+    fk_men = catalogue_df[
+        (catalogue_df["store"].str.lower() == "flipkart")
+        & (catalogue_df["gender"].str.lower() == "men")
+    ]
+    seed_row = fk_men.iloc[0] if not fk_men.empty else catalogue_df[
+        catalogue_df["store"].str.lower() == "flipkart"
+    ].iloc[0]
+    seed_id = str(seed_row["article_id"])
+
+    try:
+        outfit = compose_outfit(
+            catalogue_df, retriever,
+            seed_article_id=seed_id, occasion_slug="casual", gender="men",
+        )
+    except Exception as exc:
+        _record("G4", "image search spans >1 store", "FAIL",
+                f"compose_outfit raised {type(exc).__name__}: {exc}")
+        return
+
+    seed_item = outfit.get("seed_item")
+    all_items = ([seed_item] if seed_item else []) + (outfit.get("complements") or [])
+    stores = {str(it.get("store") or "").lower() for it in all_items if it and it.get("store")}
+
+    if len(stores) >= 2:
+        _record("G4", "image search spans >1 store", "PASS",
+                f"outfit spans {len(stores)} stores: {sorted(stores)}")
+    else:
+        _record("G4", "image search spans >1 store", "FAIL",
+                f"outfit spans only {len(stores)} store(s): {sorted(stores)} "
+                f"(seed={seed_id}, complements={len(outfit.get('complements', []))})")
+
+
+# ---------------------------------------------------------------------------
+# G9b — men's t-shirt seed produces no skirt complements
+# ---------------------------------------------------------------------------
+
+def _check_g9b_no_skirts_for_men_tshirt() -> None:
+    """G9b: compose_outfit with a Flipkart men's t-shirt seed must return no skirt complements."""
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("G9b", "t-shirt anchor -> no skirts", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    try:
+        retriever, catalogue_df = _load_unified_retriever()
+    except Exception as exc:
+        _record("G9b", "t-shirt anchor -> no skirts", "FAIL",
+                f"failed to load unified retriever: {type(exc).__name__}: {exc}")
+        return
+
+    from src.agents.outfit.composer import compose_outfit
+
+    fk_tshirt = catalogue_df[
+        (catalogue_df["store"].str.lower() == "flipkart")
+        & (catalogue_df["gender"].str.lower() == "men")
+        & catalogue_df["product_type_name"].str.contains("T-shirt|Shirt", case=False, na=False)
+    ]
+    if fk_tshirt.empty:
+        fk_men = catalogue_df[
+            (catalogue_df["store"].str.lower() == "flipkart")
+            & (catalogue_df["gender"].str.lower() == "men")
+        ]
+        if fk_men.empty:
+            _record("G9b", "t-shirt anchor -> no skirts", "SKIP",
+                    "no Flipkart men's rows in catalogue")
+            return
+        seed_row = fk_men.iloc[0]
+    else:
+        seed_row = fk_tshirt.iloc[0]
+
+    seed_id = str(seed_row["article_id"])
+
+    try:
+        outfit = compose_outfit(
+            catalogue_df, retriever,
+            seed_article_id=seed_id, occasion_slug="casual", gender="men",
+        )
+    except Exception as exc:
+        _record("G9b", "t-shirt anchor -> no skirts", "FAIL",
+                f"compose_outfit raised {type(exc).__name__}: {exc}")
+        return
+
+    complements = outfit.get("complements") or []
+    skirt_items = [c for c in complements if "skirt" in str(c.get("product_type") or "").lower()]
+
+    if skirt_items:
+        _record("G9b", "t-shirt anchor -> no skirts", "FAIL",
+                f"men's t-shirt outfit contains skirt complement(s): "
+                f"{[c['article_id'] for c in skirt_items]}")
+    else:
+        _record("G9b", "t-shirt anchor -> no skirts", "PASS",
+                f"0 skirts in {len(complements)} complement(s) for seed={seed_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -659,13 +844,10 @@ def _run_all_checks() -> None:
     # ── G1b: image session persistence (mocked, no CLIP index needed) ────────
     _check_g1b_image_session_persistence()
 
-    # ── Index-required checks ────────────────────────────────────────────────
-    _check_index_required("G2b", "text search returns images",
-                          "requires pre-built retrieval index")
-    _check_index_required("G4", "image search spans >1 store",
-                          "requires pre-built CLIP index")
-    _check_index_required("G9b", "t-shirt search → no skirts",
-                          "requires pre-built retrieval index")
+    # ── Integration checks (loads unified FAISS+BM25 index) ─────────────────
+    _check_g2b_text_search_images()
+    _check_g4_multi_store_outfit()
+    _check_g9b_no_skirts_for_men_tshirt()
 
 
 def _print_table(results: list[CheckResult]) -> int:

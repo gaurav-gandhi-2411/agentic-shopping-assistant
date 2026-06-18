@@ -93,7 +93,7 @@ _SEARCH_RESULT: dict[str, Any] = {
             "colour": "Blue",
             "product_type": "Jacket",
             "department": "Ladieswear",
-            "image_url": None,
+            "image_url": "https://example.com/img/999888777.jpg",
             "detail_desc": "A nice jacket.",
             "score": 0.85,
         }

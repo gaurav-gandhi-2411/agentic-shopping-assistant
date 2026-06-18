@@ -201,7 +201,7 @@ def test_items_returned_when_new_items_this_turn(
                 "colour": "Black",
                 "product_type": "Trousers",
                 "department": "Ladieswear",
-                "image_url": None,
+                "image_url": "https://example.com/img/111222333.jpg",
                 "detail_desc": "Slim fit trousers in black.",
                 "score": 0.92,
             }
