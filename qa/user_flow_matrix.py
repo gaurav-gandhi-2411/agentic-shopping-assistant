@@ -946,6 +946,137 @@ def _check_agent_path_chips() -> None:
 
 
 # ---------------------------------------------------------------------------
+# WS-product — WS /chat/stream: product query must send items frame
+# ---------------------------------------------------------------------------
+
+def _check_ws_stream_product_query() -> None:
+    """WS-product: WS /chat/stream 'black dress for women' must deliver an items frame.
+
+    Existing G2b/G-refine/G-chips tests call POST /chat — a DIFFERENT handler.
+    This is the first test that hits the REAL browser path (WebSocket).
+
+    Uses a mock LLM that always returns {"action":"respond"} for the router
+    call, simulating Groq misbehaving.  WITHOUT the route_decision guard this
+    produces prose-only (no WSItemsMessage).  WITH the guard, items are always
+    returned.
+    """
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("WS-product", "WS /chat/stream: black dress → items frame", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    os.environ["JWT_VERIFICATION_DISABLED"] = "true"
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+
+    class _RespondFirstLLM:
+        """Simulates the Groq router returning 'respond' before any search runs."""
+
+        def _decide(self, prompt: str) -> str:
+            if "STRICT RULES" in prompt:
+                # Adversarial: always tell router to respond immediately
+                return '{"action": "respond"}'
+            elif prompt.strip().startswith('Query: "'):
+                return '{"selected": [1, 2, 3, 4, 5]}'
+            else:
+                return "Here are some great dress options for you!"
+
+        def generate(self, prompt: str, system: object = None, **kwargs: object) -> str:
+            return self._decide(prompt)
+
+        def generate_stream(self, prompt: str, **kwargs: object):  # type: ignore[return]
+            yield self._decide(prompt)
+
+        def chat(self, messages: list, **kwargs: object) -> str:
+            return self._decide(" ".join(m.get("content", "") for m in messages))
+
+        def chat_stream(self, messages: list, **kwargs: object):  # type: ignore[return]
+            yield self._decide(" ".join(m.get("content", "") for m in messages))
+
+    try:
+        with _agent_path_client(adversarial_llm=_RespondFirstLLM()) as client:
+            with client.websocket_connect("/chat/stream") as ws:
+                ws.send_json({"type": "user_message", "message": "black dress for women"})
+
+                items_frame: dict | None = None
+                for _ in range(60):
+                    try:
+                        frame = ws.receive_json()
+                    except Exception:
+                        break
+                    if frame.get("type") == "items":
+                        items_frame = frame
+                    elif frame.get("type") in ("done", "cancelled"):
+                        break
+                    elif frame.get("type") == "error":
+                        _record(
+                            "WS-product",
+                            "WS /chat/stream: black dress → items frame",
+                            "FAIL",
+                            f"WS error frame: {frame.get('message', '')[:120]}",
+                        )
+                        return
+    except Exception as exc:
+        _record(
+            "WS-product",
+            "WS /chat/stream: black dress → items frame",
+            "FAIL",
+            f"connection/setup error: {type(exc).__name__}: {exc}",
+        )
+        return
+
+    if items_frame is None:
+        _record(
+            "WS-product",
+            "WS /chat/stream: black dress → items frame",
+            "FAIL",
+            "no WSItemsMessage received — prose-only response; "
+            "route_decision guard is missing or not firing",
+        )
+        return
+
+    items = items_frame.get("items", [])
+    if not items:
+        _record(
+            "WS-product",
+            "WS /chat/stream: black dress → items frame",
+            "FAIL",
+            "WSItemsMessage received but items list is empty",
+        )
+        return
+
+    non_dress = [
+        it.get("product_type")
+        for it in items
+        if it.get("product_type", "").lower() not in ("dress", "")
+    ]
+    no_image = [it.get("article_id") for it in items if not it.get("image_url")]
+
+    if non_dress:
+        _record(
+            "WS-product",
+            "WS /chat/stream: black dress → items frame",
+            "FAIL",
+            f"wrong product types via WS: {non_dress[:4]}",
+        )
+    elif no_image:
+        _record(
+            "WS-product",
+            "WS /chat/stream: black dress → items frame",
+            "FAIL",
+            f"{len(no_image)} items missing image_url via WS",
+        )
+    else:
+        stores = sorted({it.get("store", "") for it in items})
+        _record(
+            "WS-product",
+            "WS /chat/stream: black dress → items frame",
+            "PASS",
+            f"{len(items)} Dress items, all have images; stores={stores}",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Shared retriever loader (G2b, G4, G9b) — loads unified index once on demand
 # ---------------------------------------------------------------------------
 
@@ -1209,6 +1340,7 @@ def _run_all_checks() -> None:
     _check_agent_path_dress()
     _check_agent_path_refinement()
     _check_agent_path_chips()
+    _check_ws_stream_product_query()
 
 
 def _print_table(results: list[CheckResult]) -> int:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 import requests
 
-BASE = "https://asa-stylist-api-rm7rz66wza-el.a.run.app"
+BASE = "https://asa-stylist-api-657468372797.asia-south1.run.app"
 FAIL = False
 
 

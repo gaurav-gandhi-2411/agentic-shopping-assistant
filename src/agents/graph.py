@@ -1175,6 +1175,28 @@ def build_graph(
         except (json.JSONDecodeError, TypeError):
             action = "search"
         valid = {"search", "compare", "filter", "clarify", "respond", "outfit"}
+
+        # Guard: never let the LLM router return "respond" on the first call
+        # of a new turn when the raw query contains a product-type signal.
+        # The real Groq LLM (llama-3-8b) fires Rule-3 ("items_retrieved > 0
+        # → respond") when session has prior items, bypassing search entirely
+        # and returning stale/hallucinated product descriptions.
+        if action == "respond" and last_tool == "none":
+            _raw_q = state.get("user_query", "")
+            _has_product = any(
+                re.search(patt, _raw_q, re.IGNORECASE)
+                for patt, _ in _PRODUCT_TYPE_KEYWORDS
+            )
+            if _has_product or not state.get("retrieved_items"):
+                logger.info(
+                    "[route_decision] guard: overriding LLM 'respond' → 'search' "
+                    "(product_signal=%s, items=%d, query=%r)",
+                    _has_product,
+                    len(state.get("retrieved_items", [])),
+                    _raw_q[:60],
+                )
+                action = "search"
+
         return action if action in valid else "search"
 
     # ------------------------------------------------------------------
