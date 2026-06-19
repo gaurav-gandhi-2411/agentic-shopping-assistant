@@ -569,7 +569,7 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
         "party_evening": ("shirt formal party" if is_men else "dress evening party top formal"),
         "office": ("shirt formal office" if is_men else "top blouse formal shirt"),
         "smart_casual": ("shirt casual" if is_men else "top casual blouse"),
-        "casual": ("shirt casual tshirt" if is_men else "top casual tshirt"),
+        "casual": ("shirt casual tshirt" if is_men else "blouse top casual women"),
     }
     return queries.get(occasion_slug, "top casual")
 
