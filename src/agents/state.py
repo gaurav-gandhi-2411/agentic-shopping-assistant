@@ -43,3 +43,8 @@ class AgentState(TypedDict):
     # Colour refinement chips — set by search_node; cleared each turn and repopulated
     # with distinct colours from the current result set for front-end chip rendering.
     suggestion_chips: list[str] | None
+
+    # Anchor item for buy-similar searches — stored after image upload by image_style.py.
+    # The anchor is the CLIP-nearest catalogue item to the uploaded image.
+    # search_node uses this for dense similarity retrieval when "similar/like this" is detected.
+    anchor_article_id: str | None

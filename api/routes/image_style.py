@@ -354,6 +354,7 @@ async def post_style_from_image(
                 "outfit_rationale": base.get("outfit_rationale"),
                 "filters": {"gender": gender},
                 "new_items_this_turn": True,
+                "anchor_article_id": anchor_id,
             }
         )
         # Ensure ConversationMemory exists so _build_invoke_state in chat.py

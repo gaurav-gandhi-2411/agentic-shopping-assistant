@@ -95,6 +95,7 @@ def _build_invoke_state(session: dict, user_message: str) -> dict:
         "new_items_this_turn": False,
         "out_of_catalogue": False,
         "excluded_colours": session.get("excluded_colours"),
+        "anchor_article_id": session.get("anchor_article_id"),
         # Outfit fields — reset each turn; populated by outfit_node only
         "outfit_rationale": None,
         "outfit_variants": None,
@@ -671,6 +672,7 @@ async def ws_chat(websocket: WebSocket) -> None:
                         [lk.model_dump() for lk in _ws_base_item_links]
                         if _ws_base_item_links else None
                     ),
+                    "suggestion_chips": result.get("suggestion_chips") or None,
                 },
                 message_id=last_message_id,
             ).model_dump_json()

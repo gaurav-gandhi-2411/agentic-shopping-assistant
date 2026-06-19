@@ -538,16 +538,29 @@ def build_graph(
         if merged_intent.store_filter:
             _plan_filters["store"] = merged_intent.store_filter[0]
 
+        # Buy-similar path: "similar / like this / same style" after an image upload
+        # uses the anchor item's dense embedding instead of text search.
+        # anchor_article_id is stored in session by image_style.py after CLIP lookup.
+        _BUY_SIMILAR_RE = re.compile(
+            r"\b(similar|like\s+this|like\s+these|same\s+style|buy\s+like)\b", re.IGNORECASE
+        )
+        _anchor_id: str | None = state.get("anchor_article_id")
+        _is_similar_query = bool(_BUY_SIMILAR_RE.search(raw_q))
+
         plan = {
             "action": "search",
             "query": merged_intent.raw_query,
             "filters": _plan_filters,
         }
+        if _is_similar_query and _anchor_id and not merged_intent.garment_type:
+            plan["anchor_article_id"] = _anchor_id
+
         logger.info(
-            "[router/intent] product → search | garment=%s gender=%s colour=%s | query=%r",
+            "[router/intent] product → search | garment=%s gender=%s colour=%s anchor=%s | query=%r",
             merged_intent.garment_type,
             merged_intent.gender,
             merged_intent.colour,
+            plan.get("anchor_article_id"),
             raw_q[:60],
         )
         return {
@@ -799,7 +812,83 @@ def build_graph(
         # Fetch extra candidates when colour exclusion is active so the filtered
         # pool still has enough items for the reranker (excluded colour may dominate).
         fetch_k = 40 if excluded_colours else 20
-        result = search_catalogue(query, merged or None, retriever, fetch_k)
+
+        # Buy-similar: anchor-based dense retrieval when anchor_article_id is in plan.
+        # Uses the anchor item's FAISS embedding to find visually/contextually similar
+        # items, then applies the same catalogue filters as normal search.
+        _anchor_article_id: str | None = plan.get("anchor_article_id")
+        if _anchor_article_id and hasattr(retriever, "dense"):
+            _dense_hits = retriever.dense.search_by_id(_anchor_article_id, top_k=fetch_k * 3)
+            if _dense_hits:
+                import pandas as _pd
+                _anchor_candidates: list[dict] = []
+                for _aid, _score in _dense_hits:
+                    if _aid not in retriever.catalogue_df.index:
+                        continue
+                    _row = retriever.catalogue_df.loc[_aid]
+                    _facets = _row["facets"] if isinstance(_row["facets"], dict) else {}
+                    # Apply active filters (type, gender, colour)
+                    if merged:
+                        _fail = False
+                        for _fk, _fv in merged.items():
+                            if _fk in ("price_min", "price_max", "store"):
+                                continue  # skip range / store filters for now
+                            if str(_facets.get(_fk, "")).lower() != str(_fv).lower():
+                                _fail = True
+                                break
+                        if _fail:
+                            continue
+                    _anchor_candidates.append({
+                        "article_id": _aid,
+                        "prod_name": _row.get("prod_name", ""),
+                        "display_name": _row["display_name"],
+                        "colour": _facets.get("colour_group_name", ""),
+                        "product_type": _facets.get("product_type_name", ""),
+                        "department": _facets.get("department_name", ""),
+                        "detail_desc": _row["detail_desc"],
+                        "image_url": (
+                            str(_row["image_url"])
+                            if _row.get("image_url") and isinstance(_row.get("image_url"), str)
+                            else None
+                        ),
+                        "score": _score,
+                        "store": (
+                            str(_row["store"])
+                            if "store" in _row.index and _row["store"] is not None
+                            else None
+                        ),
+                        "price_inr": (
+                            float(_row["price_inr"])
+                            if "price_inr" in _row.index
+                            and _row["price_inr"] is not None
+                            and not _pd.isna(_row["price_inr"])
+                            else None
+                        ),
+                        "pdp_handle": (
+                            str(_row["pdp_handle"])
+                            if "pdp_handle" in _row.index and _row["pdp_handle"] is not None
+                            else None
+                        ),
+                        "gender": (
+                            str(_row["gender"]).lower()
+                            if "gender" in _row.index and _row["gender"] is not None
+                            else "unknown"
+                        ),
+                    })
+                if len(_anchor_candidates) >= 2:
+                    result = {"items": _anchor_candidates}
+                    logger.info(
+                        "[search] anchor-based retrieval: anchor=%s found=%d",
+                        _anchor_article_id, len(_anchor_candidates),
+                    )
+                    # Skip normal search path
+                    fetch_k = len(_anchor_candidates)
+                else:
+                    result = search_catalogue(query, merged or None, retriever, fetch_k)
+            else:
+                result = search_catalogue(query, merged or None, retriever, fetch_k)
+        else:
+            result = search_catalogue(query, merged or None, retriever, fetch_k)
 
         # Strip bolt-good / material-only SKUs — these are fabric pieces, not garments.
         # Myntra classifies fabric bolts under product_type="Dress" so we must also
