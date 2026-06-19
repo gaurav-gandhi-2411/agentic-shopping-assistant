@@ -54,19 +54,31 @@ _check("results are dresses (not kurtis)", len(non_dress) == 0, f"non-dress type
 stores = {i.get("store") for i in items}
 print(f"   stores={stores}  types={list({i.get('product_type') for i in items})}")
 
-# ── 3. Follow-up turn — context retention ───────────────────────────────────
+# ── 3. Suggestion chips from initial search ──────────────────────────────────
+chips = d.get("suggestion_chips")
+_check("suggestion_chips returned", chips is not None and len(chips) > 0,
+       f"chips={chips}")
+
+# ── 4. Follow-up turn — colour refinement returns CARDS not prose ────────────
 r2 = requests.post(
     f"{BASE}/chat",
-    json={"message": "different colour please", "conversation_id": cid},
+    json={"message": "in blue please", "conversation_id": cid},
     headers=headers, timeout=90
 )
-d2 = _h(r2, "follow-up")
+d2 = _h(r2, "follow-up blue")
 items2 = d2.get("items", [])
 resp2 = d2.get("response", "").lower()
 context_lost = "start from scratch" in resp2 or ("which product" in resp2 and not items2)
-_check("follow-up retains context (no start-from-scratch)", not context_lost, f"items={len(items2)}")
+_check("follow-up retains context (no start-from-scratch)", not context_lost,
+       f"items={len(items2)}")
+_check("refinement returns cards (not prose-only)", len(items2) > 0,
+       f"items_on_refinement={len(items2)}, response_snippet={resp2[:80]!r}")
+non_dress_r2 = [it.get("product_type") for it in items2
+                if it.get("product_type", "").lower() not in ("dress", "")]
+_check("refinement keeps garment type (dress)", len(non_dress_r2) == 0,
+       f"non-dress on refinement: {non_dress_r2}")
 
-# ── 4. Save look → retrieve ──────────────────────────────────────────────────
+# ── 5. Save look → retrieve ──────────────────────────────────────────────────
 snap = {
     "items": [{"article_id": i.get("article_id", "x"), "prod_name": i.get("prod_name", "x"),
                "image_url": i.get("image_url"), "price_inr": i.get("price_inr"),

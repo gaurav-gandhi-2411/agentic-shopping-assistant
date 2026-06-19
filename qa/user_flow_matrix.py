@@ -631,6 +631,321 @@ def _check_g1b_image_session_persistence() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Agent-path integration helpers
+# ---------------------------------------------------------------------------
+
+class _AdversarialRouterLLM:
+    """Adversarial mock LLM: routes to 'search' but deliberately drops product_type from filters.
+
+    Simulates the real Groq/LLaMA-3 router's worst-case behavior: it picks the
+    right action but omits garment-type filter and reformulates the query away
+    from the product type ("women clothing" instead of "black dress").
+
+    The graph architecture (raw_query retrieval + _PRODUCT_TYPE_KEYWORDS) must
+    survive this and still return the correct garment type.
+
+    The fast-path (AGENT_LOOP_FAST_PATH=true, default) handles search→respond
+    routing without LLM, so this mock only handles:
+      - Router call: "STRICT RULES" in prompt → return adversarial search JSON
+      - Reranker call: starts with 'Query: "' → return valid index selection
+      - Respond call: everything else → return canned text
+    """
+
+    def _decide(self, content: str) -> str:
+        if "STRICT RULES" in content:
+            c = content.lower()
+            if "dress" in c:
+                # Adversarial: drop product_type AND reformulate away from "dress"
+                return '{"action": "search", "query": "women clothing", "filters": {"index_group_name": "ladieswear"}}'
+            elif ("blue" in c or "colour" in c or "color" in c) and (
+                "different" in c or "in blue" in c
+            ):
+                return '{"action": "search", "query": "blue", "filters": {"colour_group_name": "Blue"}}'
+            else:
+                return '{"action": "search", "query": "fashion items", "filters": {}}'
+        elif content.strip().startswith('Query: "'):
+            # Reranker: return first 5 items in retrieval order
+            return '{"selected": [1, 2, 3, 4, 5]}'
+        else:
+            return "Here are some great options for you!"
+
+    def generate(self, prompt: str, system: str | None = None, **kwargs: object) -> str:
+        return self._decide(prompt)
+
+    def chat(self, messages: list[dict], **kwargs: object) -> str:
+        content = " ".join(m.get("content", "") for m in messages)
+        return self._decide(content)
+
+    def chat_stream(self, messages: list[dict], **kwargs: object):  # type: ignore[return]
+        content = " ".join(m.get("content", "") for m in messages)
+        yield self._decide(content)
+
+    def generate_stream(self, prompt: str, **kwargs: object):  # type: ignore[return]
+        yield self._decide(prompt)
+
+
+def _agent_path_client(adversarial_llm=None):
+    """Context manager: real FAISS index + adversarial mock LLM → TestClient.
+
+    Calls deps._init() to compile the REAL LangGraph with the injected LLM so
+    POST /chat drives the actual search_node, _PRODUCT_TYPE_KEYWORDS, etc.
+
+    Critically: some earlier QA checks replace deps.get_agent_factory with a
+    mock and never restore it.  After _init() compiles fresh graphs, we install
+    a real factory closure that serves those graphs.  The prior value (mock or
+    real) is restored on context exit.
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def _ctx():
+        from fastapi.testclient import TestClient
+        import api.deps as deps
+        from api.main import app
+        from api.session import InMemorySessionStore
+
+        llm = adversarial_llm or _AdversarialRouterLLM()
+        retriever, catalogue_df = _load_unified_retriever()
+
+        saved = {
+            k: getattr(deps, k, None)
+            for k in ("_retriever", "_catalogue_df", "_llm", "_config",
+                       "_session_store", "_agent_sync", "_agent_streaming",
+                       "get_agent_factory")
+        }
+        try:
+            cfg = {
+                **_MINIMAL_CONFIG,
+                "retrieval": {
+                    "dense_model": "sentence-transformers/all-MiniLM-L6-v2",
+                    "dense_dim": 384,
+                    "rrf_k": 60,
+                    "top_k": 20,
+                    "final_k": 5,
+                    "store_diversity": 0.2,
+                },
+            }
+            deps._init(
+                retriever=retriever,
+                catalogue_df=catalogue_df,
+                llm=llm,
+                config=cfg,
+                session_store=InMemorySessionStore(),
+            )
+            # _init() compiled real graphs into deps._agent_sync / _agent_streaming.
+            # Replace whatever factory is currently installed (may be a mock from G2
+            # or other earlier checks) with a factory that serves the compiled graphs.
+            def _real_factory():
+                def factory(memory: object, streaming: bool = False) -> object:
+                    return deps._agent_streaming if streaming else deps._agent_sync
+                return factory
+            deps.get_agent_factory = _real_factory  # type: ignore[assignment]
+
+            yield TestClient(app, raise_server_exceptions=False)
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    setattr(deps, k, v)
+
+    return _ctx()
+
+
+_AGENT_HEADERS = {"Authorization": "Bearer qa-test"}
+
+
+# ---------------------------------------------------------------------------
+# G2b-agent — 'black dress for women' through real LangGraph → dresses only
+# ---------------------------------------------------------------------------
+
+def _check_agent_path_dress() -> None:
+    """G2b-agent: POST /chat 'black dress for women' through real LangGraph.
+
+    RED without architecture fix:
+        Adversarial LLM drops product_type → embedding search on "women clothing"
+        → kurtis dominate (4,443 vs 1,544 dresses) → wrong garment type returned.
+    GREEN after fix (query=raw_query + _PRODUCT_TYPE_KEYWORDS):
+        raw_query "black dress for women" preserves "dress" for retrieval;
+        keyword filter forces product_type_name=Dress → only dresses returned.
+    """
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("G2b-agent", "agent path: black dress → dresses only", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    os.environ["JWT_VERIFICATION_DISABLED"] = "true"
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+
+    try:
+        with _agent_path_client() as client:
+            resp = client.post("/chat", json={"message": "black dress for women"},
+                               headers=_AGENT_HEADERS, timeout=120)
+    except Exception as exc:
+        _record("G2b-agent", "agent path: black dress → dresses only", "FAIL",
+                f"client/setup error: {type(exc).__name__}: {exc}")
+        return
+
+    if resp.status_code != 200:
+        _record("G2b-agent", "agent path: black dress → dresses only", "FAIL",
+                f"POST /chat returned {resp.status_code}: {resp.text[:120]}")
+        return
+
+    data = resp.json()
+    items = data.get("items", [])
+
+    if not items:
+        resp_text = data.get("response", "")[:100]
+        _record("G2b-agent", "agent path: black dress → dresses only", "FAIL",
+                f"0 items returned — response: {resp_text!r}")
+        return
+
+    non_dress = [it.get("product_type", "") for it in items
+                 if it.get("product_type", "").lower() not in ("dress", "")]
+    no_image = [it.get("article_id") for it in items if not it.get("image_url")]
+
+    if non_dress:
+        _record("G2b-agent", "agent path: black dress → dresses only", "FAIL",
+                f"{len(non_dress)}/{len(items)} non-dress types: {non_dress[:3]}")
+    elif no_image:
+        _record("G2b-agent", "agent path: black dress → dresses only", "FAIL",
+                f"{len(no_image)} items missing image_url")
+    else:
+        stores = list({it.get("store") for it in items})
+        _record("G2b-agent", "agent path: black dress → dresses only", "PASS",
+                f"all {len(items)} items are Dress, all have images; stores={stores}")
+
+
+# ---------------------------------------------------------------------------
+# G-refine — colour refinement retains garment type AND returns cards
+# ---------------------------------------------------------------------------
+
+def _check_agent_path_refinement() -> None:
+    """G-refine: 'in blue' after dress search → still Dress cards, never prose-only.
+
+    Tests two failure modes:
+    1. Refinement forgets garment type (wrong product type returned)
+    2. Refinement returns text response with no items (prose instead of cards)
+    """
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    os.environ["JWT_VERIFICATION_DISABLED"] = "true"
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+
+    try:
+        with _agent_path_client() as client:
+            # Turn 1: initial dress query
+            r1 = client.post("/chat", json={"message": "black dress for women"},
+                             headers=_AGENT_HEADERS, timeout=120)
+            if r1.status_code != 200:
+                _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "SKIP",
+                        f"turn1 returned {r1.status_code} (check G2b-agent for root cause)")
+                return
+
+            d1 = r1.json()
+            cid = d1.get("conversation_id", "")
+            items1 = d1.get("items", [])
+
+            if not items1:
+                _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "SKIP",
+                        "turn1 returned no items (check G2b-agent for root cause)")
+                return
+
+            # Turn 2: colour refinement
+            r2 = client.post(
+                "/chat",
+                json={"message": "in blue", "conversation_id": cid},
+                headers=_AGENT_HEADERS,
+                timeout=120,
+            )
+    except Exception as exc:
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "FAIL",
+                f"client/setup error: {type(exc).__name__}: {exc}")
+        return
+
+    if r2.status_code != 200:
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "FAIL",
+                f"turn2 returned {r2.status_code}: {r2.text[:120]}")
+        return
+
+    d2 = r2.json()
+    items2 = d2.get("items", [])
+
+    if not items2:
+        prose = d2.get("response", "")[:120]
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "FAIL",
+                f"refinement returned 0 items (prose-only); response: {prose!r}")
+        return
+
+    non_dress = [it.get("product_type", "") for it in items2
+                 if it.get("product_type", "").lower() not in ("dress", "")]
+    no_image = [it.get("article_id") for it in items2 if not it.get("image_url")]
+
+    if non_dress:
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "FAIL",
+                f"refinement lost garment type: {non_dress[:3]}")
+    elif no_image:
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "FAIL",
+                f"{len(no_image)} items missing image_url on refinement turn")
+    else:
+        colours = list({it.get("colour") for it in items2})
+        _record("G-refine", "refinement: 'in blue' → dress cards (not prose)", "PASS",
+                f"turn2 items={len(items2)}, all Dress, all have images; colours={colours}")
+
+
+# ---------------------------------------------------------------------------
+# G-chips — suggestion_chips present in search response
+# ---------------------------------------------------------------------------
+
+def _check_agent_path_chips() -> None:
+    """G-chips: POST /chat search must return suggestion_chips for colour refinement."""
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("G-chips", "suggestion_chips returned with items", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    os.environ["JWT_VERIFICATION_DISABLED"] = "true"
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+
+    try:
+        with _agent_path_client() as client:
+            resp = client.post("/chat", json={"message": "black dress for women"},
+                               headers=_AGENT_HEADERS, timeout=120)
+    except Exception as exc:
+        _record("G-chips", "suggestion_chips returned with items", "FAIL",
+                f"client/setup error: {type(exc).__name__}: {exc}")
+        return
+
+    if resp.status_code != 200:
+        _record("G-chips", "suggestion_chips returned with items", "FAIL",
+                f"POST /chat returned {resp.status_code}")
+        return
+
+    data = resp.json()
+    items = data.get("items", [])
+    chips = data.get("suggestion_chips")
+
+    if not items:
+        _record("G-chips", "suggestion_chips returned with items", "SKIP",
+                "no items returned — chips check not meaningful")
+        return
+
+    if chips is None:
+        _record("G-chips", "suggestion_chips returned with items", "FAIL",
+                "suggestion_chips key absent from response")
+    elif len(chips) == 0:
+        _record("G-chips", "suggestion_chips returned with items", "FAIL",
+                "suggestion_chips is an empty list (all items same colour?)")
+    else:
+        _record("G-chips", "suggestion_chips returned with items", "PASS",
+                f"{len(chips)} chips: {chips[:5]}")
+
+
+# ---------------------------------------------------------------------------
 # Shared retriever loader (G2b, G4, G9b) — loads unified index once on demand
 # ---------------------------------------------------------------------------
 
@@ -886,6 +1201,14 @@ def _run_all_checks() -> None:
     _check_g2b_text_search_images()
     _check_g4_multi_store_outfit()
     _check_g9b_no_skirts_for_men_tshirt()
+
+    # ── Agent-path checks (real LangGraph + adversarial mock LLM) ───────────
+    # These drive POST /chat through the SAME code path the browser uses.
+    # The adversarial LLM drops product_type from filters to prove the
+    # raw_query + _PRODUCT_TYPE_KEYWORDS fix is working end-to-end.
+    _check_agent_path_dress()
+    _check_agent_path_refinement()
+    _check_agent_path_chips()
 
 
 def _print_table(results: list[CheckResult]) -> int:

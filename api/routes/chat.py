@@ -315,6 +315,8 @@ def post_chat(
             },
         )
 
+        _chips = result.get("suggestion_chips") or None
+
         return ChatResponse(
             conversation_id=conversation_id,
             response=response_text,
@@ -332,6 +334,7 @@ def post_chat(
             outfit_variants=_outfit_variants,
             cart_url=_base_cart_url,
             item_links=_base_item_links,
+            suggestion_chips=_chips,
         )
 
     finally:

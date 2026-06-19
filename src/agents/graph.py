@@ -475,6 +475,13 @@ def build_graph(
         (r"\btrouser(?:s)?\b", "Trousers"),
     ]
 
+    # Bolt-good / fabric SKU types — not finished wearable garments.
+    # Prevents "Unstitched Dress Material" from surfacing in dress or outfit searches.
+    _MATERIAL_ONLY_RE = re.compile(
+        r"\bunstitched\b|dress material|fabric piece|blouse piece",
+        re.IGNORECASE,
+    )
+
     # Build a set of valid values per facet once at graph-construction time.
     _valid_facet_values: dict[str, set[str]] = {
         col: set(catalogue_df[col].dropna().str.lower().unique())
@@ -537,7 +544,10 @@ def build_graph(
     def search_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
         raw_query = state["user_query"]
-        query = plan.get("query", raw_query)
+        # Always retrieve against the original user message so garment-type terms
+        # like "dress" can never be dropped by LLM query reformulation.
+        # plan.get("query") is preserved only for structured-param extraction below.
+        query = raw_query
 
         # Out-of-catalogue detection: keyword check on original user query.
         # Uses structured keyword list rather than score threshold — MiniLM similarity
@@ -624,10 +634,31 @@ def build_graph(
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
 
+        # For refinement turns (e.g. "in blue"): augment the raw query with the
+        # dominant product type from prior results so embeddings score "in blue dress"
+        # rather than "in blue" alone.  Without this, FAISS returns a mix of
+        # blue tops/shirts/bottoms and the product_type filter yields 0 matches,
+        # triggering the fallback and losing the garment type constraint.
+        if refinement and prior_items:
+            from collections import Counter as _Counter
+            _prior_types = [
+                it.get("product_type", "") for it in prior_items if it.get("product_type")
+            ]
+            if _prior_types:
+                _dom = _Counter(_prior_types).most_common(1)[0][0].lower()
+                if _dom and _dom not in query.lower():
+                    query = f"{query} {_dom}"
+
         # Fetch extra candidates when colour exclusion is active so the filtered
         # pool still has enough items for the reranker (excluded colour may dominate).
         fetch_k = 40 if excluded_colours else 20
         result = search_catalogue(query, merged or None, retriever, fetch_k)
+
+        # Strip bolt-good / material-only SKUs — these are fabric pieces, not garments.
+        result["items"] = [
+            it for it in result["items"]
+            if not _MATERIAL_ONLY_RE.search(it.get("product_type", ""))
+        ]
 
         # Gender filter is applied when it was extracted from this query (not inherited).
         # Keep it explicit so we can handle zero-stock gracefully below.
@@ -652,9 +683,28 @@ def build_graph(
                 # If still 0 items (no menswear footwear at all) keep effective_filters=merged
                 # → respond_node will emit an explicit "no stock" message.
             else:
-                # No gender filter — drop invalid facet filters (LLM invented bad values)
-                result = search_catalogue(query, None, retriever, 20)
-                effective_filters = {}
+                # Progressive fallback — drop filters from most restrictive (colour) to
+                # all non-type filters, preserving product_type_name as long as possible.
+                # Prevents wrong garment types from surfacing just because a colour filter
+                # returns 0 matches (e.g. no blue dresses in FAISS window → try dresses
+                # without colour constraint before falling back to no-filter search).
+                _tried: list = [merged]
+                for _fb_filters in [
+                    {k: v for k, v in merged.items() if k != "colour_group_name"},
+                    {k: v for k, v in merged.items()
+                     if k in ("product_type_name", "index_group_name")},
+                    {},
+                ]:
+                    if _fb_filters in _tried:
+                        continue
+                    _tried.append(_fb_filters)
+                    _fb_result = search_catalogue(
+                        query, _fb_filters or None, retriever, 20
+                    )
+                    if _fb_result["items"]:
+                        result = _fb_result
+                        effective_filters = _fb_filters
+                        break
 
         # Sparse/zero stock warning: fires when gender filter is applied and fewer
         # than 5 items matched (including 0).
@@ -726,6 +776,20 @@ def build_graph(
                         seen_diverse.add(item["article_id"])
             items_out = diverse[:top_k]
 
+        # Colour refinement chips: distinct colours in the result set.
+        # Excludes the active colour filter so chips offer genuine alternatives.
+        # Falls back to all available colours if nothing else is available (e.g.
+        # a monochrome "black dress" query where every result is black).
+        _active_colour = merged.get("colour_group_name", "").lower()
+        _all_distinct_colours = sorted({
+            it.get("colour", "")
+            for it in items_out
+            if it.get("colour") and it.get("colour").lower() not in ("", "nan")
+        })[:8]
+        _chip_colours = [c for c in _all_distinct_colours if c.lower() != _active_colour]
+        if not _chip_colours:
+            _chip_colours = _all_distinct_colours
+
         search_meta: dict = {"query": query, "filters": merged}
         if few_gender_results:
             search_meta["few_gender_results"] = True
@@ -737,6 +801,7 @@ def build_graph(
             "tool_calls": state.get("tool_calls", []) + [{"search": search_meta}],
         }
         update["filters"] = effective_filters
+        update["suggestion_chips"] = _chip_colours
         if excluded_colours:
             update["excluded_colours"] = excluded_colours
         return update

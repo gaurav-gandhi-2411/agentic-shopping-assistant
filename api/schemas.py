@@ -149,6 +149,10 @@ class ChatResponse(BaseModel):
     # Cart action fields — populated for outfit responses; None otherwise.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
+    # Colour refinement chips — available colours from the current result set.
+    # Front-end renders these as tappable chip buttons that retrigger search with
+    # the chosen colour filter applied to the current context.
+    suggestion_chips: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------

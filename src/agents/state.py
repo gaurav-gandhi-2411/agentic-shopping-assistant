@@ -39,3 +39,7 @@ class AgentState(TypedDict):
     # propagated through the graph so _persist_result can sync to the session dict.
     _summary: str | None
     _summary_message_count: int
+
+    # Colour refinement chips — set by search_node; cleared each turn and repopulated
+    # with distinct colours from the current result set for front-end chip rendering.
+    suggestion_chips: list[str] | None
