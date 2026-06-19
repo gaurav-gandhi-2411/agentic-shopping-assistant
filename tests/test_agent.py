@@ -178,12 +178,11 @@ def _make_counting_memory(llm, config):
 
 @pytest.mark.requires_index
 def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
-    """After search returns items, the ALR LLM call is skipped (fast-path fires)."""
+    """IntentParser routes product queries deterministically; only respond LLM call fires."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
-    # Responses: (1) router decides search, (2) respond node answer.
-    # If ALR were called it would consume response[1] and push respond to response[2].
+    # F3 IntentParser: product queries are routed without calling the LLM router.
+    # Only 1 LLM call: respond node (router is now deterministic for product queries).
     llm = _CallCountingLLM([
-        json.dumps({"action": "search", "query": "blue dress"}),
         "Here are some blue dresses for you.",
     ])
     memory = _make_counting_memory(llm, config)
@@ -192,24 +191,22 @@ def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
     result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
 
     assert result["final_answer"] is not None
-    # Only 2 LLM calls: initial router + respond node. ALR must NOT have fired.
-    assert llm.call_count == 2, (
-        f"Expected 2 LLM calls (router + respond) but got {llm.call_count}; "
-        "ALR fast-path may not have fired"
+    # Only 1 LLM call: respond node. Router is deterministic (IntentParser), no LLM.
+    assert llm.call_count == 1, (
+        f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
+        "IntentParser should route product queries without calling the LLM"
     )
 
 
 @pytest.mark.requires_index
 def test_fast_path_compare_skips_alr(config, retriever, catalogue_df):
-    """After compare node runs, the ALR LLM call is skipped (fast-path fires)."""
+    """Compare path: route_decision forces compare; ALR fast-path skips LLM after compare."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
-    # Responses: (1) initial router → search, (2) ALR after search (skipped by fast-path),
-    # (3) router → compare, (4) ALR after compare (skipped), (5) respond.
-    # With fast-path: (1) router→search, (2) respond after search, then the compare branch
-    # never fires because respond ends the turn.
-    # Use a query that has items then ask to compare via a second invoke.
+    # F3: IntentParser routes "compare these two" as non-product → respond, but
+    # route_decision's compare guard overrides to compare when retrieved_items exist.
+    # After compare runs, the ALR fast-path (last_tool==compare → respond) skips the LLM router.
+    # Total LLM calls: 1 (respond node only — router_node fast-path covers post-compare).
     llm = _CallCountingLLM([
-        json.dumps({"action": "compare", "article_ids": []}),
         "Here is the comparison result.",
     ])
     # Seed items in state so compare_node has something to work with
@@ -229,22 +226,22 @@ def test_fast_path_compare_skips_alr(config, retriever, catalogue_df):
     ))
 
     assert result["final_answer"] is not None
-    # Only 2 LLM calls: initial router + respond node. ALR after compare must be skipped.
-    assert llm.call_count == 2, (
-        f"Expected 2 LLM calls (router + respond) but got {llm.call_count}; "
-        "ALR fast-path may not have fired after compare"
+    # Only 1 LLM call: respond node. Router is deterministic; fast-path covers post-compare.
+    assert llm.call_count == 1, (
+        f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
+        "ALR fast-path should have skipped the LLM router after compare"
     )
 
 
 @pytest.mark.requires_index
 def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
-    """With AGENT_LOOP_FAST_PATH=false the ALR LLM call is NOT skipped."""
+    """With AGENT_LOOP_FAST_PATH=false, IntentParser still routes deterministically."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "false"
     try:
-        # Responses: (1) router→search, (2) ALR→respond (the extra call), (3) respond answer.
+        # F3 IntentParser runs after both fast-path checks, so product queries are still
+        # handled without calling the LLM router even when AGENT_LOOP_FAST_PATH=false.
+        # Only 1 LLM call: respond node.
         llm = _CallCountingLLM([
-            json.dumps({"action": "search", "query": "blue dress"}),
-            json.dumps({"action": "respond"}),
             "Here are some blue dresses for you.",
         ])
         memory = _make_counting_memory(llm, config)
@@ -253,23 +250,23 @@ def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
         result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
 
         assert result["final_answer"] is not None
-        # 3 LLM calls: router + ALR + respond when fast-path is disabled.
-        assert llm.call_count == 3, (
-            f"Expected 3 LLM calls (router + ALR + respond) but got {llm.call_count}"
+        # 1 LLM call: respond node only. IntentParser is deterministic regardless of fast-path flag.
+        assert llm.call_count == 1, (
+            f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
+            "IntentParser should route product queries without LLM even with fast-path disabled"
         )
     finally:
         os.environ["AGENT_LOOP_FAST_PATH"] = "true"
 
 
 @pytest.mark.requires_index
-def test_filter_then_search_hits_llm_router(config, retriever, catalogue_df):
-    """filter→search is non-trivial: the ALR must call the LLM to generate the search query."""
+def test_intent_parser_bypasses_filter_node(config, retriever, catalogue_df):
+    """IntentParser routes 'dresses in blue' directly to search, bypassing filter node."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
-    # Responses: (1) router→filter, (2) ALR after filter must hit LLM to get search query,
-    # (3) ALR after search (fast-path skips), (4) respond answer.
+    # F3: IntentParser detects garment_type=dress + colour=Blue → routes straight to search.
+    # The filter→search dance no longer fires for queries with both type and colour signals.
+    # Only 1 LLM call: respond node.
     llm = _CallCountingLLM([
-        json.dumps({"action": "filter", "key": "colour_group_name", "value": "Blue"}),
-        json.dumps({"action": "search", "query": "blue dress"}),
         "Here are some blue dresses for you.",
     ])
     memory = _make_counting_memory(llm, config)
@@ -278,11 +275,18 @@ def test_filter_then_search_hits_llm_router(config, retriever, catalogue_df):
     result = agent.invoke(_blank_state("show me dresses in blue", _memory=memory))
 
     assert result["final_answer"] is not None
-    # 3 LLM calls: router → filter, ALR → search query gen, respond node.
-    # Fast-path skips the ALR after search; filter ALR must NOT be skipped.
-    assert llm.call_count == 3, (
-        f"Expected 3 LLM calls (router→filter, ALR→search, respond) but got {llm.call_count}; "
-        "fast-path may have incorrectly skipped the filter→search ALR"
+    # 1 LLM call: respond node only. IntentParser routes directly to search.
+    assert llm.call_count == 1, (
+        f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
+        "IntentParser should bypass filter node for queries with type+colour signals"
+    )
+    # Blue colour filter should be present in the search filters
+    tool_calls = result.get("tool_calls", [])
+    router_decisions = [tc["router_decision"] for tc in tool_calls if "router_decision" in tc]
+    assert router_decisions, "Expected at least one router_decision tool call"
+    first_plan = router_decisions[0]
+    assert first_plan.get("action") == "search", (
+        f"Expected action=search but got {first_plan.get('action')}"
     )
 
 

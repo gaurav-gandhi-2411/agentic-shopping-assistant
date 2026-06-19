@@ -29,6 +29,17 @@ _COMPARE_INTENT = re.compile(
     r"\bcompare\b|\bdifference\s+between\b|\bvs\b|\bversus\b", re.IGNORECASE
 )
 
+_OUTFIT_INTENT_RE = re.compile(
+    r"\b(outfit|style\s+(?:this|me|it)|complete\s+(?:the\s+)?look|"
+    r"what\s+goes\s+with|build\s+(?:me\s+)?a|create\s+(?:a|an)|"
+    r"put\s+together|compose\s+(?:a|an))\b",
+    re.IGNORECASE,
+)
+_OUTFIT_OCCASION_RE = re.compile(
+    r"\b(sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic)\b",
+    re.IGNORECASE,
+)
+
 _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
@@ -293,6 +304,20 @@ Available item attributes:
 Write your response now."""
 
 
+ONE_SENTENCE_PROMPT = """\
+You are a concise fashion shopping assistant.
+
+Write exactly ONE sentence (under 20 words) introducing the items below to the shopper.
+Use only product names and colours actually listed — do not invent attributes.
+Do not mention price, size, stock, or fabric. Use "you" and be warm.
+
+User asked: "{user_query}"
+Items returned:
+{items}
+
+Write your single sentence now."""
+
+
 def _format_items_brief(items: list[dict]) -> str:
     """Compact summary for the router prompt — includes IDs so the LLM can cite them."""
     if not items:
@@ -430,7 +455,105 @@ def build_graph(
                 logger.info("[router] fast-path: compare → respond (LLM skipped)")
                 return {"current_plan": json.dumps({"action": "respond"})}
 
-        return router_backend.decide(state)
+        # ── F3: Deterministic routing via IntentParser ──────────────────────
+        # The LLM router is only called for outfit intent (complex multi-param
+        # action); everything else is handled deterministically.
+        from src.agents.intent_parser import merge_with_context, parse_intent
+
+        raw_q = state["user_query"]
+        intent = parse_intent(raw_q)
+
+        # Outfit intent: keep LLM router for this action (complex multi-param).
+        # Detect via explicit outfit-building verbs + occasion context.
+        _prior_items_exist = bool(state.get("retrieved_items"))
+        if (
+            _OUTFIT_OCCASION_RE.search(raw_q)
+            and _OUTFIT_INTENT_RE.search(raw_q)
+        ) or (
+            _prior_items_exist
+            and _OUTFIT_INTENT_RE.search(raw_q)
+            and not intent.garment_type  # "style this" with no new garment → outfit
+        ):
+            return router_backend.decide(state)
+
+        # Build session context from accumulated state for carry-forward.
+        # garment_type: dominant type from prior items, or from accumulated filters
+        _prior_items_for_ctx = state.get("retrieved_items", [])
+        _ctx_garment: str | None = None
+        if _prior_items_for_ctx:
+            from collections import Counter as _Counter
+            _types = [
+                it.get("product_type", "") for it in _prior_items_for_ctx
+                if it.get("product_type")
+            ]
+            if _types:
+                _ctx_garment = _Counter(_types).most_common(1)[0][0].lower()
+
+        # Map index_group_name back to gender string for context
+        _ctx_gender_raw = (state.get("filters") or {}).get("index_group_name", "")
+        _ctx_gender: str | None = None
+        if _ctx_gender_raw:
+            if "ladieswear" in _ctx_gender_raw.lower():
+                _ctx_gender = "women"
+            elif "menswear" in _ctx_gender_raw.lower():
+                _ctx_gender = "men"
+
+        session_context = {
+            "garment_type": _ctx_garment,
+            "gender": _ctx_gender,
+            "colour": (state.get("filters") or {}).get("colour_group_name"),
+            "occasion": state.get("occasion"),
+        }
+
+        # Merge new intent with session context (carries forward unspecified fields)
+        merged_intent = merge_with_context(intent, session_context)
+
+        # Non-product conversational query → respond (LLM writes prose, no cards)
+        if not merged_intent.is_product_query:
+            logger.info(
+                "[router/intent] conversational → respond | query=%r",
+                raw_q[:60],
+            )
+            plan: dict = {"action": "respond"}
+            return {
+                "current_plan": json.dumps(plan),
+                "tool_calls": state.get("tool_calls", []) + [{"router_decision": plan}],
+            }
+
+        # Product query → deterministic search.
+        # Build filter dict from IntentV1: garment_type + gender + colour + budget + store.
+        # garment_type is now passed as product_type_name — safe after F1 index rebuild
+        # since IntentParser and the normalizer share the same canonical vocabulary.
+        _plan_filters: dict = {}
+        if merged_intent.garment_type:
+            _plan_filters["product_type_name"] = merged_intent.garment_type
+        if merged_intent.gender == "women":
+            _plan_filters["index_group_name"] = "Ladieswear"
+        elif merged_intent.gender == "men":
+            _plan_filters["index_group_name"] = "Menswear"
+        if merged_intent.colour:
+            _plan_filters["colour_group_name"] = merged_intent.colour
+        if merged_intent.budget_max_inr:
+            _plan_filters["price_max"] = merged_intent.budget_max_inr
+        if merged_intent.store_filter:
+            _plan_filters["store"] = merged_intent.store_filter[0]
+
+        plan = {
+            "action": "search",
+            "query": merged_intent.raw_query,
+            "filters": _plan_filters,
+        }
+        logger.info(
+            "[router/intent] product → search | garment=%s gender=%s colour=%s | query=%r",
+            merged_intent.garment_type,
+            merged_intent.gender,
+            merged_intent.colour,
+            raw_q[:60],
+        )
+        return {
+            "current_plan": json.dumps(plan),
+            "tool_calls": state.get("tool_calls", []) + [{"router_decision": plan}],
+        }
 
     _SLEEP_KEYWORDS: frozenset[str] = frozenset({
         "sleep", "nightwear", "pyjama", "pajama", "pyjamas", "pajamas",
@@ -462,17 +585,41 @@ def build_graph(
     # Deterministic garment-type keyword rules applied against the RAW user message.
     # Unlike auto-facet extraction (which uses the LLM-simplified query and can lose
     # the garment type), these match on raw_query so "dress" is never silently dropped.
-    # "dress → Dress" is the critical case: without it, embedding similarity pulls kurtis
-    # (4,443 items) over dresses (1,544 items) in the unified catalogue after H&M removal.
+    # Values use F1 canonical vocabulary (src/catalogue/normalizer.py) — must match
+    # the product_type_name values written by patch_catalogue_f1.py into the index.
     _PRODUCT_TYPE_KEYWORDS: list[tuple[str, str]] = [
-        (r"\bdress(?:es)?\b", "Dress"),
-        (r"\bkurti\b", "Kurti"),
-        (r"\bkurta\b", "Kurta"),
-        (r"\bskirt(?:s)?\b", "Skirt"),
-        (r"\bblaz(?:er|ers)\b", "Blazer"),
-        (r"\bjean(?:s)?\b", "Jeans"),
-        (r"\bsaree\b|\bsari\b|\bsarees\b", "Saree"),
-        (r"\btrouser(?:s)?\b", "Trousers"),
+        (r"\bdress(?:es)?\b", "dress"),
+        (r"\bkurti\b", "kurti"),
+        (r"\bkurta\b", "kurta"),
+        (r"\bskirt(?:s)?\b", "skirt"),
+        (r"\bblaz(?:er|ers)\b", "blazer"),
+        (r"\bjean(?:s)?\b", "jeans"),
+        (r"\bsaree\b|\bsari\b|\bsarees\b", "saree"),
+        (r"\btrouser(?:s)?\b|\bpant(?:s)?\b|\bchino(?:s)?\b", "trousers"),
+        (r"\bshorts?\b", "shorts"),
+        # F1 canonical: jackets/coats/bombers all → "outerwear"
+        (
+            r"\bjacket\b|\bcoat\b|\bbomber\b|\bpuffer\b|\bwindcheater\b|\bparka\b|\banorak\b",
+            "outerwear",
+        ),
+        # F1 canonical: sweaters/hoodies/cardigans → "knitwear"
+        (r"\bsweater\b|\bsweatshirt\b|\bhoodie\b|\bcardigan\b|\bknitwear\b", "knitwear"),
+        # F1 canonical: t-shirts/tees → "top" (same bucket as plain tops)
+        (r"\bt-shirt\b|\btshirt\b|\btee\b|\btop\b", "top"),
+        (r"\bblouse\b", "blouse"),
+        (r"\btunic\b", "tunic"),
+        (r"\bshirt\b", "shirt"),
+        (r"\blehenga\b", "lehenga"),
+        (r"\banarkali\b", "anarkali"),
+        (r"\bsharara\b", "sharara"),
+        (r"\bpalazzo\b", "palazzo"),
+        (r"\bkaftan\b", "kaftan"),
+        (r"\bjumpsuit\b|\bplaysuit\b|\bdungaree(?:s)?\b", "jumpsuit"),
+        (r"\bswimwear\b|\bswimsuit\b|\bbikini\b|\bmonokini\b", "swimwear"),
+        (r"\bdupatta\b", "dupatta"),
+        (r"\bsalwar\b", "salwar"),
+        (r"\bco-?ord\b|\bcoord\b", "coord"),
+        (r"\bvest\b|\btank\b", "vest"),
     ]
 
     # Bolt-good / fabric SKU types — not finished wearable garments.
@@ -858,34 +1005,69 @@ def build_graph(
         ("department_name", "menswear"):    ("index_group_name", "Menswear"),
         ("department_name", "baby/children"): ("index_group_name", "Baby/Children"),
         ("department_name", "sport"):       ("index_group_name", "Sport"),
-        # Plural → canonical product_type_name (LLM uses plural forms, catalogue uses singular)
-        ("product_type_name", "dresses"):       ("product_type_name", "Dress"),
-        ("product_type_name", "blazers"):       ("product_type_name", "Blazer"),
-        ("product_type_name", "shirts"):        ("product_type_name", "Shirt"),
-        ("product_type_name", "skirts"):        ("product_type_name", "Skirt"),
-        ("product_type_name", "tops"):          ("product_type_name", "Top"),
-        ("product_type_name", "bags"):          ("product_type_name", "Bag"),
-        ("product_type_name", "sweaters"):      ("product_type_name", "Sweater"),
-        ("product_type_name", "jackets"):       ("product_type_name", "Jacket"),
-        ("product_type_name", "coats"):         ("product_type_name", "Coat"),
-        ("product_type_name", "blouses"):       ("product_type_name", "Blouse"),
-        ("product_type_name", "cardigans"):     ("product_type_name", "Cardigan"),
-        ("product_type_name", "hoodies"):       ("product_type_name", "Hoodie"),
-        ("product_type_name", "swimsuits"):     ("product_type_name", "Swimsuit"),
-        ("product_type_name", "scarves"):       ("product_type_name", "Scarf"),
-        # Simplified form → canonical (LLM omits the "/playsuit" or "/tights" part)
-        ("product_type_name", "jumpsuit"):      ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "jumpsuits"):     ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "playsuit"):      ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "playsuits"):     ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "leggings"):      ("product_type_name", "Leggings/Tights"),
-        ("product_type_name", "tights"):        ("product_type_name", "Leggings/Tights"),
-        # T-shirt variants
-        ("product_type_name", "t-shirts"):      ("product_type_name", "T-shirt"),
-        ("product_type_name", "tshirt"):        ("product_type_name", "T-shirt"),
-        ("product_type_name", "tshirts"):       ("product_type_name", "T-shirt"),
-        # Polo shirt
-        ("product_type_name", "polo shirts"):   ("product_type_name", "Polo Shirt"),
+        # Plural / alias → F1 canonical product_type_name (lowercase, no spaces).
+        # F1 canonical vocabulary is defined by src/catalogue/normalizer.py.
+        ("product_type_name", "dresses"):       ("product_type_name", "dress"),
+        ("product_type_name", "dress"):         ("product_type_name", "dress"),
+        ("product_type_name", "blazers"):       ("product_type_name", "blazer"),
+        ("product_type_name", "blazer"):        ("product_type_name", "blazer"),
+        ("product_type_name", "shirts"):        ("product_type_name", "shirt"),
+        ("product_type_name", "shirt"):         ("product_type_name", "shirt"),
+        ("product_type_name", "skirts"):        ("product_type_name", "skirt"),
+        ("product_type_name", "skirt"):         ("product_type_name", "skirt"),
+        ("product_type_name", "tops"):          ("product_type_name", "top"),
+        ("product_type_name", "top"):           ("product_type_name", "top"),
+        ("product_type_name", "bags"):          ("product_type_name", "bag"),
+        ("product_type_name", "bag"):           ("product_type_name", "bag"),
+        # F1 canonical: all outerwear variants → "outerwear"
+        ("product_type_name", "sweaters"):      ("product_type_name", "knitwear"),
+        ("product_type_name", "sweater"):       ("product_type_name", "knitwear"),
+        ("product_type_name", "jackets"):       ("product_type_name", "outerwear"),
+        ("product_type_name", "jacket"):        ("product_type_name", "outerwear"),
+        ("product_type_name", "coats"):         ("product_type_name", "outerwear"),
+        ("product_type_name", "coat"):          ("product_type_name", "outerwear"),
+        ("product_type_name", "blouses"):       ("product_type_name", "blouse"),
+        ("product_type_name", "blouse"):        ("product_type_name", "blouse"),
+        ("product_type_name", "cardigans"):     ("product_type_name", "knitwear"),
+        ("product_type_name", "cardigan"):      ("product_type_name", "knitwear"),
+        ("product_type_name", "hoodies"):       ("product_type_name", "knitwear"),
+        ("product_type_name", "hoodie"):        ("product_type_name", "knitwear"),
+        ("product_type_name", "swimsuits"):     ("product_type_name", "swimwear"),
+        ("product_type_name", "swimsuit"):      ("product_type_name", "swimwear"),
+        ("product_type_name", "scarves"):       ("product_type_name", "dupatta"),
+        # Jumpsuits / playsuits → F1 canonical "jumpsuit"
+        ("product_type_name", "jumpsuit"):      ("product_type_name", "jumpsuit"),
+        ("product_type_name", "jumpsuits"):     ("product_type_name", "jumpsuit"),
+        ("product_type_name", "playsuit"):      ("product_type_name", "jumpsuit"),
+        ("product_type_name", "playsuits"):     ("product_type_name", "jumpsuit"),
+        # Leggings — not in F1 normalizer; treat as trousers
+        ("product_type_name", "leggings"):      ("product_type_name", "trousers"),
+        ("product_type_name", "tights"):        ("product_type_name", "trousers"),
+        # T-shirt variants → F1 canonical "top"
+        ("product_type_name", "t-shirts"):      ("product_type_name", "top"),
+        ("product_type_name", "t-shirt"):       ("product_type_name", "top"),
+        ("product_type_name", "tshirt"):        ("product_type_name", "top"),
+        ("product_type_name", "tshirts"):       ("product_type_name", "top"),
+        ("product_type_name", "polo shirts"):   ("product_type_name", "shirt"),
+        ("product_type_name", "polo shirt"):    ("product_type_name", "shirt"),
+        # Trousers / pants → "trousers"
+        ("product_type_name", "trousers"):      ("product_type_name", "trousers"),
+        ("product_type_name", "trouser"):       ("product_type_name", "trousers"),
+        ("product_type_name", "pants"):         ("product_type_name", "trousers"),
+        ("product_type_name", "jeans"):         ("product_type_name", "jeans"),
+        ("product_type_name", "shorts"):        ("product_type_name", "shorts"),
+        # Co-ords
+        ("product_type_name", "co-ords"):       ("product_type_name", "coord"),
+        ("product_type_name", "co-ord"):        ("product_type_name", "coord"),
+        ("product_type_name", "coord set"):     ("product_type_name", "coord"),
+        # Kurtis and kurtas
+        ("product_type_name", "kurtis"):        ("product_type_name", "kurti"),
+        ("product_type_name", "kurti"):         ("product_type_name", "kurti"),
+        ("product_type_name", "kurtas"):        ("product_type_name", "kurta"),
+        ("product_type_name", "kurta"):         ("product_type_name", "kurta"),
+        # Sarees
+        ("product_type_name", "sarees"):        ("product_type_name", "saree"),
+        ("product_type_name", "saree"):         ("product_type_name", "saree"),
     }
 
     def filter_node(state: AgentState) -> dict:
@@ -1111,15 +1293,30 @@ def build_graph(
                 "messages": [{"role": "assistant", "content": answer}],
             }
 
-        prompt = RESPOND_PROMPT.format(
-            user_query=state["user_query"],
-            items=_format_items_for_response(items),
-        )
-        if few_gender and gender_group:
-            prompt += (
-                f"\n\nNote: this catalogue has limited {gender_group} stock. "
-                f"Mention this briefly at the end of your response."
+        # Use the tight 1-sentence prompt for product-search turns (items were found).
+        # Keep the full RESPOND_PROMPT only for conversational turns (no items) or
+        # when a grounding note about missing data is needed.
+        _has_items = bool(items)
+        if _has_items:
+            prompt = ONE_SENTENCE_PROMPT.format(
+                user_query=state["user_query"],
+                items=_format_items_for_response(items),
             )
+            if few_gender and gender_group:
+                prompt += (
+                    f"\n\nNote: this catalogue has limited {gender_group} stock. "
+                    f"Append a brief note at the end of your sentence."
+                )
+        else:
+            prompt = RESPOND_PROMPT.format(
+                user_query=state["user_query"],
+                items=_format_items_for_response(items),
+            )
+            if few_gender and gender_group:
+                prompt += (
+                    f"\n\nNote: this catalogue has limited {gender_group} stock. "
+                    f"Mention this briefly at the end of your response."
+                )
         if streaming_mode:
             # In streaming mode the app streams the LLM call; store the prompt for pickup.
             return {

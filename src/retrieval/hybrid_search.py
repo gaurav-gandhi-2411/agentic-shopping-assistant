@@ -49,6 +49,12 @@ _CATEGORY_SUFFIXES = frozenset(
 # beat an irrelevant item from a different store.
 _STORE_PENALTY: float = 0.5
 
+# F2 relevance floor — items below this RRF score are excluded as noise.
+# Locked at 0.0060 post-F1 rebuild (≈ p5-p10 across 5 calibration queries on the
+# clean index). The primary relevance gate is the product_type_name filter; this floor
+# is the backstop for queries with genuinely no catalogue matches.
+_RELEVANCE_FLOOR: float = 0.0060
+
 
 def normalize_prod_name(name: str) -> str:
     """Normalize a product name for dedup.
@@ -210,6 +216,8 @@ class HybridRetriever:
         # We do NOT truncate here — diversity re-rank needs the full candidate pool.
         candidates: list[dict] = []
         for article_id, score in ranked:
+            if score < _RELEVANCE_FLOOR:
+                continue  # skip noise; ranked is not guaranteed sorted so use continue not break
             if article_id not in self.catalogue_df.index:
                 continue
             row = self.catalogue_df.loc[article_id]
