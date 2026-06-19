@@ -168,11 +168,14 @@ STRICT RULES — follow in order:
    (b) User explicitly references a specific shown item ("style this", "what goes with the
        Riviera", "complete this look").
    (c) Query carries CLEAR occasion + outfit-building intent even at items_retrieved=0.
-       Signals: explicit occasion name (sangeet, festive, wedding, haldi, puja, traditional,
-       ethnic, party) PLUS an action verb (build, create, put together, make, style, compose,
-       suggest, give me, show me a complete/full look). Use {{"article_id": null}} — the
-       composer will find an anchor from the catalogue automatically.
+       Signals: explicit occasion name (casual, brunch, dinner, date night, office, work,
+       cocktail, beach, resort, vacation, sangeet, festive, wedding, haldi, puja,
+       traditional, ethnic, party) PLUS an action verb (outfit, build, create, put together,
+       make, style, compose, suggest, give me, show me a complete/full look).
+       Use {{"article_id": null}} — the composer will find an anchor automatically.
        Examples:
+       - "outfit for a casual brunch" → {{"action": "outfit", "article_id": null, "occasion": "casual", "gender": "women", "budget_inr": null}}
+       - "build me a dinner date outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "casual", "gender": "men", "budget_inr": null}}
        - "Build me a sangeet look under ₹5000" → {{"action": "outfit", "article_id": null, "occasion": "sangeet", "gender": "women", "budget_inr": 5000}}
        - "Create a festive kurta outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "festive_puja", "gender": "men", "budget_inr": null}}
        - "Put together a wedding guest look" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "women", "budget_inr": null}}
