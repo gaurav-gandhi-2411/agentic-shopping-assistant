@@ -655,10 +655,16 @@ def build_graph(
         result = search_catalogue(query, merged or None, retriever, fetch_k)
 
         # Strip bolt-good / material-only SKUs — these are fabric pieces, not garments.
-        result["items"] = [
-            it for it in result["items"]
-            if not _MATERIAL_ONLY_RE.search(it.get("product_type", ""))
-        ]
+        # Myntra classifies fabric bolts under product_type="Dress" so we must also
+        # check prod_name and detail_desc, not just product_type.
+        def _is_material(it: dict) -> bool:
+            return (
+                _MATERIAL_ONLY_RE.search(it.get("product_type", ""))
+                or _MATERIAL_ONLY_RE.search(it.get("prod_name", ""))
+                or _MATERIAL_ONLY_RE.search(it.get("display_name", ""))
+            )
+
+        result["items"] = [it for it in result["items"] if not _is_material(it)]
 
         # Gender filter is applied when it was extracted from this query (not inherited).
         # Keep it explicit so we can handle zero-stock gracefully below.
