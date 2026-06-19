@@ -1139,28 +1139,88 @@ def _check_ws_chips() -> None:
 
 
 # ---------------------------------------------------------------------------
-# WS-look-id — WS /chat/stream: outfit response includes look_id in done message
+# Outfit-capable mock LLM — shared by F5 and F6 checks
+# ---------------------------------------------------------------------------
+
+class _OutfitLLM:
+    """Mock LLM that routes outfit queries deterministically and handles all call types.
+
+    Distinguishes call sites by prompt/system content:
+      - Router call: prompt contains "STRICT RULES" (no system)
+        → returns outfit action JSON
+      - Reranker call: system contains "fashion product reranker"
+        → returns {"selected": [1,2,3,4,5]}
+      - Rationale call: system contains "fashion stylist"
+        → returns valid JSON array (template fallback also acceptable)
+      - Respond/stream call (not used for outfit pending_answer path)
+        → returns canned text
+    """
+
+    def _respond(self, prompt: str, system: str = "") -> str:
+        if "STRICT RULES" in prompt:
+            # Router: route to outfit with men's gender.
+            # Casual women's anchor query ("top casual tshirt") returns only men's items
+            # from the current unified index, causing the probe to fail.
+            # men's casual anchor ("shirt casual tshirt") is reliable across index rebuilds.
+            return (
+                '{"action": "outfit", "occasion": "casual", '
+                '"gender": "men", "article_id": null, "budget_inr": null}'
+            )
+        if "fashion product reranker" in system:
+            # Reranker: select first 5
+            return '{"selected": [1, 2, 3, 4, 5], "reasoning": "top matches"}'
+        if "fashion stylist" in system:
+            # Rationale: valid single-element array (grounding may still apply)
+            return '["A polished casual brunch look with complementary pieces."]'
+        return "Here is a great casual brunch outfit for you!"
+
+    def generate(self, prompt: str, system: object = None, **kwargs: object) -> str:
+        return self._respond(prompt, str(system or ""))
+
+    def generate_stream(self, prompt: str, system: object = None, **kwargs: object):  # type: ignore[return]
+        yield self._respond(prompt, str(system or ""))
+
+    def chat(self, messages: list, system: str = "", **kwargs: object) -> str:
+        combined = " ".join(m.get("content", "") for m in messages)
+        return self._respond(combined, system)
+
+    def chat_stream(self, messages: list, system: str = "", **kwargs: object):  # type: ignore[return]
+        combined = " ".join(m.get("content", "") for m in messages)
+        yield self._respond(combined, system)
+
+
+def _outfit_client():
+    """Context manager: real FAISS index + outfit-routing mock LLM → TestClient."""
+    return _agent_path_client(adversarial_llm=_OutfitLLM())
+
+
+# ---------------------------------------------------------------------------
+# F5 — WS look_id: outfit → look_id in done + save round-trip
 # ---------------------------------------------------------------------------
 
 def _check_ws_look_id() -> None:
-    """F5/WS-look-id: outfit search via WS must include look_id in done.final_state."""
+    """F5: outfit query via WS must produce look_id in done, then save round-trips via POST /looks."""
     unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
     if not unified_faiss.exists():
-        _record("F5", "WS look_id in done message", "SKIP",
+        _record("F5", "WS outfit → look_id + save round-trip", "SKIP",
                 f"unified index not present: {unified_faiss}")
         return
 
     os.environ["JWT_VERIFICATION_DISABLED"] = "true"
     os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
 
+    from src.storage.saved_looks import _MEMORY_STORE
+    _MEMORY_STORE.clear()
+
     try:
-        with _agent_path_client() as client:
+        with _outfit_client() as client:
+            # Step 1: WS outfit turn → get look_id from done frame
             with client.websocket_connect("/chat/stream") as ws:
                 ws.send_json({"type": "user_message",
                               "message": "outfit for a casual brunch"})
 
                 done_frame: dict | None = None
-                for _ in range(80):
+                for _ in range(100):
                     try:
                         frame = ws.receive_json()
                     except Exception:
@@ -1169,43 +1229,104 @@ def _check_ws_look_id() -> None:
                         done_frame = frame
                         break
                     elif frame.get("type") in ("cancelled", "error"):
-                        break
+                        _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                                f"WS {frame.get('type')}: {frame.get('message','')[:80]}")
+                        return
+
+            if done_frame is None:
+                _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                        "no done frame received from WS")
+                return
+
+            final_state = done_frame.get("final_state", {})
+            look_id = final_state.get("look_id")
+            budget = final_state.get("budget_total_inr")
+            outfit_variants = final_state.get("outfit_variants") or []
+
+            if not look_id:
+                # Outfit node probe check: might still return a look despite no seed
+                _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                        f"look_id absent in done.final_state; outfit_variants={bool(outfit_variants)}")
+                return
+
+            # Step 2: POST /looks with the look_id from WS
+            items_snapshot = []
+            if outfit_variants:
+                items_snapshot = [
+                    {
+                        "article_id": it["article_id"],
+                        "name": it.get("display_name", ""),
+                        "colour": it.get("colour", ""),
+                        "type": it.get("product_type", ""),
+                        "price_inr": it.get("price_inr"),
+                        "image_url": it.get("image_url"),
+                    }
+                    for it in outfit_variants[0].get("items", [])
+                ]
+
+            payload = {
+                "session_id": "qa-f5-ws",
+                "brand": "unified",
+                "look_id": look_id,
+                "occasion": final_state.get("occasion"),
+                "look_gender": final_state.get("look_gender"),
+                "anchor_item_id": None,
+                "look_total_inr": int(budget) if budget else None,
+                "snapshot": {
+                    "items": items_snapshot,
+                    "rationale": final_state.get("outfit_rationale") or "",
+                    "cart_url": None,
+                    "item_links": [],
+                    "variant_label": "Base",
+                },
+                "user_id": None,
+            }
+            os.environ.pop("DATABASE_URL", None)
+            res_post = client.post("/looks", json=payload)
+            if res_post.status_code != 201:
+                _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                        f"POST /looks got {res_post.status_code} (look_id={look_id[:8]}...): "
+                        f"{res_post.text[:80]}")
+                return
+
+            saved_id = res_post.json().get("id")
+            if not saved_id:
+                _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                        "POST /looks 201 but no id in body")
+                return
+
+            # Step 3: GET /looks/{id} round-trip
+            res_get = client.get(f"/looks/{saved_id}")
+            if res_get.status_code != 200 or res_get.json().get("id") != saved_id:
+                _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                        f"GET /looks/{saved_id[:8]}... → {res_get.status_code}")
+                return
+
+            _record("F5", "WS outfit → look_id + save round-trip", "PASS",
+                    f"look_id={look_id[:8]}... budget={budget} → "
+                    f"saved id={saved_id[:8]}... → GET 200 ok")
+
     except Exception as exc:
-        _record("F5", "WS look_id in done message", "FAIL",
-                f"connection/setup error: {type(exc).__name__}: {exc}")
-        return
-
-    if done_frame is None:
-        _record("F5", "WS look_id in done message", "FAIL", "no done frame received")
-        return
-
-    final_state = done_frame.get("final_state", {})
-    look_id = final_state.get("look_id")
-    budget = final_state.get("budget_total_inr")
-
-    if look_id:
-        _record("F5", "WS look_id in done message", "PASS",
-                f"look_id={look_id[:12]}... budget_inr={budget}")
-    else:
-        # Outfit routing may not fire without LLM; record as SKIP (outfit is LLM-routed)
-        _record("F5", "WS look_id in done message", "SKIP",
-                "look_id absent — outfit routing requires LLM; use live WS test to verify")
+        _record("F5", "WS outfit → look_id + save round-trip", "FAIL",
+                f"error: {type(exc).__name__}: {exc}")
 
 
 # ---------------------------------------------------------------------------
-# WS-budget — WS done message budget_total_inr matches sum of shown item prices
+# F6 — WS budget strict: budget_total_inr == exact sum of shown item prices
 # ---------------------------------------------------------------------------
 
 def _check_ws_budget_consistent() -> None:
-    """F6/WS-budget: budget_total_inr in done.final_state must equal sum of item prices.
+    """F6: budget_total_inr in WS done must EXACTLY equal sum of shown item price_inr.
 
-    The outfit composer sums seed + complement prices into budget_total_inr.
-    This test verifies via a proxy: budget_total_inr must be > 0 when items exist
-    and must not exceed 10x the most expensive single item shown (no fabricated prices).
+    This catches the ₹2,692-vs-₹212 bug: total includes items not shown, or prices
+    are fabricated rather than taken from catalogue.
+
+    Strict assertion: abs(budget - sum_prices) < 0.01 INR.
+    Also asserts: no item with null price contributes a non-zero amount to the total.
     """
     unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
     if not unified_faiss.exists():
-        _record("F6", "WS budget_total consistent", "SKIP",
+        _record("F6", "WS budget == sum(item prices)", "SKIP",
                 f"unified index not present: {unified_faiss}")
         return
 
@@ -1213,58 +1334,84 @@ def _check_ws_budget_consistent() -> None:
     os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
 
     try:
-        with _agent_path_client() as client:
+        with _outfit_client() as client:
             with client.websocket_connect("/chat/stream") as ws:
                 ws.send_json({"type": "user_message",
                               "message": "outfit for a casual brunch"})
 
                 done_frame: dict | None = None
-                items_frame: dict | None = None
-                for _ in range(80):
+                for _ in range(100):
                     try:
                         frame = ws.receive_json()
                     except Exception:
                         break
-                    if frame.get("type") == "items":
-                        items_frame = frame
-                    elif frame.get("type") == "done":
+                    if frame.get("type") == "done":
                         done_frame = frame
                         break
                     elif frame.get("type") in ("cancelled", "error"):
-                        break
+                        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                                f"WS {frame.get('type')}: {frame.get('message','')[:80]}")
+                        return
     except Exception as exc:
-        _record("F6", "WS budget_total consistent", "FAIL",
-                f"connection/setup error: {type(exc).__name__}: {exc}")
+        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                f"error: {type(exc).__name__}: {exc}")
         return
 
     if done_frame is None:
-        _record("F6", "WS budget_total consistent", "FAIL", "no done frame received")
+        _record("F6", "WS budget == sum(item prices)", "FAIL", "no done frame received")
         return
 
     final_state = done_frame.get("final_state", {})
     budget = final_state.get("budget_total_inr")
     outfit_variants = final_state.get("outfit_variants") or []
 
-    if not outfit_variants and not items_frame:
-        _record("F6", "WS budget_total consistent", "SKIP",
-                "no outfit_variants in done — outfit routing requires LLM; verify on live WS")
+    if not outfit_variants:
+        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                "no outfit_variants in done — outfit node did not fire; "
+                "check _OutfitLLM routing or composer probe guard")
         return
 
     if budget is None:
-        _record("F6", "WS budget_total consistent", "SKIP",
-                "budget_total_inr is None — outfit may not have fired; verify on live WS")
+        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                "budget_total_inr is None — all item prices are null in catalogue")
         return
 
-    # Sanity: budget must be > 0 and plausible (INR garment prices < 50k per item, <10 items)
-    if budget <= 0:
-        _record("F6", "WS budget_total consistent", "FAIL",
-                f"budget_total_inr={budget} is not positive")
-    elif budget > 500_000:
-        _record("F6", "WS budget_total consistent", "FAIL",
-                f"budget_total_inr={budget} exceeds plausible cap (>5L INR for one look)")
+    # F6 strict: budget must equal sum of shown item prices in the BASE variant
+    base_variant = outfit_variants[0]
+    shown_items = base_variant.get("items", [])
+    base_variant_budget = base_variant.get("budget_total_inr", budget)
+
+    if not shown_items:
+        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                "outfit_variants[0].items is empty — nothing shown to user")
+        return
+
+    # Null-price guard: items with null price must NOT contribute to total
+    null_price_items = [it for it in shown_items if it.get("price_inr") is None]
+    priced_items = [it for it in shown_items if it.get("price_inr") is not None]
+
+    sum_prices = sum(it["price_inr"] for it in priced_items)
+
+    if base_variant_budget is None:
+        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                f"outfit_variants[0].budget_total_inr is None; "
+                f"shown={len(shown_items)} items, sum_prices={sum_prices:.0f}")
+        return
+
+    delta = abs(base_variant_budget - sum_prices)
+    if delta > 0.01:
+        _record("F6", "WS budget == sum(item prices)", "FAIL",
+                f"budget={base_variant_budget:.2f} != sum_prices={sum_prices:.2f} "
+                f"(delta={delta:.2f}); {len(shown_items)} shown items "
+                f"({len(null_price_items)} null-price excluded)")
     else:
-        _record("F6", "WS budget_total consistent", "PASS",
-                f"budget_total_inr={budget:.0f} INR plausible")
+        item_summary = ", ".join(
+            f"{it.get('product_type','?')}=₹{it['price_inr']:.0f}"
+            for it in priced_items
+        )
+        _record("F6", "WS budget == sum(item prices)", "PASS",
+                f"budget=₹{base_variant_budget:.0f} == sum(prices) "
+                f"[{item_summary}]")
 
 
 # ---------------------------------------------------------------------------

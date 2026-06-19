@@ -28,6 +28,7 @@ class AgentState(TypedDict):
     look_id: str | None         # UUID of the current composed look
     outfit_rationale: str | None    # grounded rationale for the base variant
     outfit_variants: list | None    # list of variant look dicts (1-3)
+    budget_total_inr: float | None  # sum of shown item prices for the base variant
 
     # Conversation memory — the ConversationMemory instance for this conversation.
     # Injected into the initial state so the compiled graph singleton can access it

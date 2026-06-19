@@ -36,7 +36,8 @@ _OUTFIT_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 _OUTFIT_OCCASION_RE = re.compile(
-    r"\b(sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic)\b",
+    r"\b(sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
     re.IGNORECASE,
 )
 
@@ -1312,6 +1313,7 @@ def build_graph(
             "look_gender": result.get("gender"),
             "outfit_rationale": base_rationale,
             "outfit_variants": look_variants,
+            "budget_total_inr": result.get("budget_total_inr"),
         }
         if streaming_mode:
             update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
