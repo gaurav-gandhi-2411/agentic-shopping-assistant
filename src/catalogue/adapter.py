@@ -39,6 +39,7 @@ INTERNAL_COLUMNS: list[str] = [
     "image_url",       # str | None — first product image URL
     "pdp_live",        # bool | None — True=live, False=dead, None=not checked
     "gender",           # str: "men" | "women" | "unknown"
+    "type_confidence",  # str: "high" | "medium" | "low" | "unknown"
 ]
 
 # Columns that existed before B2; used for back-compat fill logic
@@ -54,6 +55,7 @@ _COLUMN_DEFAULTS: dict[str, str] = {
     "index_group_name": "N/A",
     "garment_group_name": "N/A",
     "gender": "unknown",
+    "type_confidence": "unknown",
 }
 
 # ── Gender keyword sets ────────────────────────────────────────────────────────
@@ -191,6 +193,25 @@ def _adapt_hm(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
         return "unknown"
 
     out["gender"] = out["index_group_name"].apply(_ig_to_gender)
+
+    # Normalise garment_type: run deterministic normalizer and, when confidence
+    # is high or medium, overwrite product_type_name with the canonical garment type.
+    from src.catalogue.normalizer import normalize_garment_type as _normalize  # noqa: PLC0415
+
+    _norm_results = [
+        _normalize(str(n), str(pt))
+        for n, pt in zip(
+            out.get("prod_name", pd.Series(dtype=str)).fillna(""),
+            out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
+        )
+    ]
+    _confident_mask = [r.type_confidence in ("high", "medium") for r in _norm_results]
+    out["product_type_name"] = [
+        r.garment_type if confident else orig
+        for r, confident, orig in zip(_norm_results, _confident_mask, out["product_type_name"])
+    ]
+    out["type_confidence"] = [r.type_confidence for r in _norm_results]
+
     return out
 
 
@@ -238,6 +259,24 @@ def _adapt_generic(
             out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
         )
     ]
+
+    # Normalise garment_type: run deterministic normalizer and, when confidence
+    # is high or medium, overwrite product_type_name with the canonical garment type.
+    from src.catalogue.normalizer import normalize_garment_type as _normalize  # noqa: PLC0415
+
+    _norm_results = [
+        _normalize(str(n), str(pt))
+        for n, pt in zip(
+            out.get("prod_name", pd.Series(dtype=str)).fillna(""),
+            out.get("product_type_name", pd.Series(dtype=str)).fillna(""),
+        )
+    ]
+    _confident_mask = [r.type_confidence in ("high", "medium") for r in _norm_results]
+    out["product_type_name"] = [
+        r.garment_type if confident else orig
+        for r, confident, orig in zip(_norm_results, _confident_mask, out["product_type_name"])
+    ]
+    out["type_confidence"] = [r.type_confidence for r in _norm_results]
 
     return out
 
@@ -356,6 +395,28 @@ def _adapt_myntra(df: pd.DataFrame, size_system: str | None) -> pd.DataFrame:
         _myntra_pdp_path(b, n, pid, pt)
         for b, n, pid, pt in zip(brand_src, name_src2, pid_src, pt_src)
     ]
+
+    # Normalise garment_type: run deterministic normalizer and, when confidence
+    # is high or medium, overwrite product_type_name with the canonical garment type.
+    # Adds type_confidence column for filtering/reporting.
+    from src.catalogue.normalizer import normalize_garment_type as _normalize  # noqa: PLC0415
+
+    _brand_col = df.get("brand", pd.Series("", index=df.index)).fillna("").astype(str)
+    _norm_results = [
+        _normalize(str(n), str(pt), str(b))
+        for n, pt, b in zip(
+            out["prod_name"].fillna(""),
+            out["product_type_name"].fillna(""),
+            _brand_col,
+        )
+    ]
+    _confident_mask = [r.type_confidence in ("high", "medium") for r in _norm_results]
+    # Overwrite product_type_name only for high/medium confidence items
+    out["product_type_name"] = [
+        r.garment_type if confident else orig
+        for r, confident, orig in zip(_norm_results, _confident_mask, out["product_type_name"])
+    ]
+    out["type_confidence"] = [r.type_confidence for r in _norm_results]
 
     # Legacy string columns — fill with defaults
     out["size_system"] = size_system
