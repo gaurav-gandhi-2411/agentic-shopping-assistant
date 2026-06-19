@@ -1,4 +1,5 @@
 """Pydantic request/response models for the Shopping Assistant API."""
+# v: abeadb3
 from __future__ import annotations
 
 import math as _math
