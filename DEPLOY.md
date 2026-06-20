@@ -146,7 +146,48 @@ CORS_ORIGINS=${CORS_ORIGINS},INDEX_STORE_URI=gs://${GCS_BUCKET}/flipkart/"
 
 ## Upload indices to GCS
 
-Run once per brand after building indices locally (`make build-index BRAND=<brand>`):
+**CRITICAL: always upload after rebuilding the index.** The Docker image does NOT bundle index
+files — Cloud Run downloads them from GCS at container startup. If you test locally with a
+rebuilt index and skip the GCS upload, production continues to serve the old (stale) index
+and local results prove nothing about what the live service returns.
+
+**Never use `--no-clobber`** on an index upload. Stale files already exist in GCS; `--no-clobber`
+silently skips them and leaves the old index live.
+
+### Unified index (current deployment — `asa-stylist-api`)
+
+Run after every `scripts/build_unified_index.py` run, or use `scripts/deploy_unified.sh`
+which includes this step automatically:
+
+```bash
+# Main index files
+gcloud storage cp \
+  data/processed/unified/catalogue.parquet \
+  data/processed/unified/dense.faiss \
+  data/processed/unified/dense_article_ids.npy \
+  data/processed/unified/bm25.pkl \
+  data/processed/unified/bm25_article_ids.npy \
+  gs://asa-demo-indices/unified/unified/
+
+# CLIP vectors (image search)
+gcloud storage cp \
+  data/processed/clip/unified/clip.faiss \
+  data/processed/clip/unified/clip_article_ids.npy \
+  gs://asa-demo-indices/unified/clip/unified/
+
+# Verify timestamps show today
+gcloud storage ls --long gs://asa-demo-indices/unified/unified/
+```
+
+Then force a new Cloud Run revision so it cold-starts and re-downloads the fresh index:
+
+```bash
+gcloud run deploy asa-stylist-api \
+  --region=asia-south1 \
+  --image=$(gcloud run services describe asa-stylist-api --region=asia-south1 --format="value(spec.template.spec.containers[0].image)")
+```
+
+### Per-brand indices (legacy — `asa-snitch`, `asa-myntra`, `asa-flipkart`)
 
 ```bash
 GCS_BUCKET="your-gcs-bucket-name"
@@ -156,9 +197,26 @@ gcloud storage cp -r data/processed/myntra    gs://${GCS_BUCKET}/myntra/
 gcloud storage cp -r data/processed/flipkart  gs://${GCS_BUCKET}/flipkart/
 ```
 
-The container loads the index from `INDEX_STORE_URI` at startup. Re-upload and restart
-the service (`gcloud run services update --region=asia-south1 asa-<brand>`) to refresh
-indices without a Docker rebuild.
+### QA rule — proof must come from the live Cloud Run URL
+
+After any GCS upload + service restart, verify by hitting the **deployed Cloud Run URL**, not
+`localhost` and not a local server. A local index can diverge from GCS; local results prove
+nothing about what production returns.
+
+```bash
+# Get a demo session and send a test query to the live service
+TOKEN=$(curl -s -X POST https://asa-stylist-api-<hash>.a.run.app/demo/session \
+  -H "Content-Length: 0" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_token'])")
+
+curl -s -X POST https://asa-stylist-api-<hash>.a.run.app/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -d '{"message":"black dress for women","conversation_id":null}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); [print(i['prod_name'],'-',i['product_type']) for i in d['items']]"
+```
+
+Expected: items whose `product_type` is `"dress"` and whose names contain "Dress"/"Gown"/etc.
+If shorts, sweatshirts, or jackets appear, the index is stale — re-upload and restart.
 
 ---
 
