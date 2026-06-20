@@ -493,13 +493,15 @@ def build_graph(
             if _types:
                 _ctx_garment = _Counter(_types).most_common(1)[0][0].lower()
 
-        # Map index_group_name back to gender string for context
-        _ctx_gender_raw = (state.get("filters") or {}).get("index_group_name", "")
-        _ctx_gender: str | None = None
-        if _ctx_gender_raw:
-            if "ladieswear" in _ctx_gender_raw.lower():
+        # Reconstruct gender context from prior-turn filters.
+        # Prefer explicit gender key; fall back to index_group_name for backwards compat.
+        _prior_filters = state.get("filters") or {}
+        _ctx_gender: str | None = _prior_filters.get("gender") or None
+        if _ctx_gender is None:
+            _ign = _prior_filters.get("index_group_name", "").lower()
+            if "ladieswear" in _ign:
                 _ctx_gender = "women"
-            elif "menswear" in _ctx_gender_raw.lower():
+            elif "menswear" in _ign:
                 _ctx_gender = "men"
 
         session_context = {

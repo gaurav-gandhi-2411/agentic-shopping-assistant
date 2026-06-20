@@ -267,8 +267,20 @@ class HybridRetriever:
         if filters:
             store_filter = filters.get("store") or None
             gender_filter = filters.get("gender") or None
+
+            # Translate index_group_name (H&M/Myntra-only vocabulary) to the gender column
+            # so the gender filter works across all stores (Shopify stores have
+            # index_group_name="N/A" but carry an accurate gender column).
+            ign = (filters.get("index_group_name") or "").lower()
+            if ign == "ladieswear":
+                gender_filter = gender_filter or "women"
+            elif ign == "menswear":
+                gender_filter = gender_filter or "men"
+
             remaining_filters = {
-                k: v for k, v in filters.items() if k not in ("store", "gender")
+                k: v
+                for k, v in filters.items()
+                if k not in ("store", "gender", "index_group_name")
             } or None
 
         # Collect ALL filter-passing candidates from the full RRF window.
