@@ -74,7 +74,10 @@ _CLIP_UNIFIED_DIR = _CLIP_DIR / "unified"
 EXCLUDED_STORES: frozenset[str] = frozenset({"hm"})
 
 # Canonical set of live stores included in the unified index (all have working deep-links + images).
-UNIFIED_STORES: tuple[str, ...] = ("myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio")
+UNIFIED_STORES: tuple[str, ...] = (
+    "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
+    "berrylush", "globalrepublic", "libas",
+)
 
 # Directory layout: all brands live in data/processed/<brand>/
 _BRAND_DIRS: dict[str, Path] = {brand: _DATA_DIR / brand for brand in UNIFIED_STORES}
@@ -432,12 +435,18 @@ def _report_sizes(output_dirs: list[Path]) -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Merge 6 live per-brand indices into a single unified cross-store index.",
+        description="Merge live per-brand indices into a single unified cross-store index.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print per-brand counts only; do not write any files.",
+    )
+    parser.add_argument(
+        "--skip-clip",
+        action="store_true",
+        help="Skip CLIP index concatenation and alignment check (use when new stores "
+             "have no CLIP index yet).",
     )
     return parser.parse_args()
 
@@ -493,9 +502,13 @@ def main() -> None:
     print("\n[3/5] Concatenating dense FAISS indices...")
     dense_total = build_dense_unified(brands, clean_catalogues)
 
-    # Step 4 — CLIP FAISS
+    # Step 4 — CLIP FAISS (skippable when new stores have no CLIP index)
     print("\n[4/5] Concatenating CLIP FAISS indices...")
-    clip_total = build_clip_unified(brands, clean_catalogues)
+    if args.skip_clip:
+        clip_total = -1
+        print("  --skip-clip: CLIP concatenation skipped.")
+    else:
+        clip_total = build_clip_unified(brands, clean_catalogues)
 
     # Step 5 — BM25 (rebuild from merged corpus)
     print("\n[5/5] Rebuilding BM25 over merged corpus...")
@@ -505,13 +518,14 @@ def main() -> None:
     print("\n=== Verifying alignment ===")
     _verify_alignment("dense", dense_total, _UNIFIED_DIR / "dense_article_ids.npy")
     _verify_alignment("BM25", cat_total, _UNIFIED_DIR / "bm25_article_ids.npy")
-    _verify_alignment("CLIP", clip_total, _CLIP_UNIFIED_DIR / "clip_article_ids.npy")
     assert dense_total == cat_total, (
         f"Dense total {dense_total} != catalogue total {cat_total}"
     )
-    assert clip_total == cat_total, (
-        f"CLIP total {clip_total} != catalogue total {cat_total}"
-    )
+    if not args.skip_clip:
+        _verify_alignment("CLIP", clip_total, _CLIP_UNIFIED_DIR / "clip_article_ids.npy")
+        assert clip_total == cat_total, (
+            f"CLIP total {clip_total} != catalogue total {cat_total}"
+        )
     print("  All alignment checks passed.")
 
     # Summary
@@ -519,7 +533,10 @@ def main() -> None:
     print(f"\n=== Unified index build complete ({elapsed:.1f}s) ===")
     print(f"  Total items across all stores: {cat_total:,}")
     print(f"  Dense vectors: {dense_total:,}  (dim={_DENSE_DIM})")
-    print(f"  CLIP  vectors: {clip_total:,}  (dim={_CLIP_DIM})")
+    if clip_total >= 0:
+        print(f"  CLIP  vectors: {clip_total:,}  (dim={_CLIP_DIM})")
+    else:
+        print("  CLIP  vectors: skipped (--skip-clip)")
     print(f"  BM25  docs:    {cat_total:,}")
 
     # Per-store summary from merged catalogue
