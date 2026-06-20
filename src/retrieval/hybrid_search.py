@@ -55,6 +55,15 @@ _STORE_PENALTY: float = 0.5
 # is the backstop for queries with genuinely no catalogue matches.
 _RELEVANCE_FLOOR: float = 0.0060
 
+# Items matching this pattern are fabric bolts / unstitched material — not wearable
+# garments.  Myntra lists them under product_type="dress", so they dominate BM25 scores
+# for dress queries.  Mirrored from graph.py's _MATERIAL_ONLY_RE; applied in the BM25
+# pre-filter so the retrieval window is filled by real garments, not fabric bolts.
+_MATERIAL_ONLY_RE = re.compile(
+    r"\bunstitched\b|dress material|fabric piece|blouse piece",
+    re.IGNORECASE,
+)
+
 
 def normalize_prod_name(name: str) -> str:
     """Normalize a product name for dedup.
@@ -198,14 +207,25 @@ class HybridRetriever:
         # BM25 already scores all 44k items before argsort; masking here costs nothing
         # extra and guarantees the sparse retrieval window is filled by the right type
         # rather than by unrelated items that happen to mention the type word in text.
+        # Also exclude fabric-bolt items (unstitched dress material etc.) from the BM25
+        # window: they match the type filter correctly but score very high for garment
+        # queries (e.g. "black dress" → 49/52 catalogue entries are fabric bolts that
+        # dominate BM25 and crowd out the 3 real dresses).  The same exclusion fires
+        # post-retrieval in graph.py; applying it here ensures real garments fill the
+        # BM25 window before the graph-level filter runs.
         # Dense (FAISS) uses the wider fetch_k window to compensate for no pre-filter.
         sparse_allowed_ids: np.ndarray | None = None
         type_filter_val = (filters or {}).get("product_type_name")
         if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
             pt_col = self.catalogue_df["product_type_name"].str.lower()
+            type_mask = pt_col == type_filter_val.lower()
+            if "prod_name" in self.catalogue_df.columns:
+                not_material = ~self.catalogue_df["prod_name"].fillna("").str.contains(
+                    _MATERIAL_ONLY_RE
+                )
+                type_mask = type_mask & not_material
             sparse_allowed_ids = (
-                self.catalogue_df.index[pt_col == type_filter_val.lower()]
-                .values.astype(str)
+                self.catalogue_df.index[type_mask].values.astype(str)
             )
 
         dense_hits = self.dense.search(query, top_k=fetch_k * 2)
