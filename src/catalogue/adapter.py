@@ -58,6 +58,88 @@ _COLUMN_DEFAULTS: dict[str, str] = {
     "type_confidence": "unknown",
 }
 
+# ── Colour extraction from product titles ─────────────────────────────────────
+# Deterministic scan: check each phrase (longest first) against the title.
+# Maps to canonical H&M colour_group_name vocabulary so facet filters work.
+# Phrases are sorted longest-first so "dark blue" matches before "blue".
+_COLOUR_PHRASES: list[tuple[str, str]] = sorted(
+    [
+        ("off white", "Off White"),
+        ("off-white", "Off White"),
+        ("dark blue", "Dark Blue"),
+        ("navy blue", "Dark Blue"),
+        ("dark red", "Dark Red"),
+        ("dark green", "Dark Green"),
+        ("dark grey", "Dark Grey"),
+        ("dark gray", "Dark Grey"),
+        ("light blue", "Light Blue"),
+        ("sky blue", "Light Blue"),
+        ("light pink", "Light Pink"),
+        ("baby pink", "Light Pink"),
+        ("powder pink", "Light Pink"),
+        ("light beige", "Light Beige"),
+        ("light grey", "Light Grey"),
+        ("light gray", "Light Grey"),
+        ("silver grey", "Light Grey"),
+        ("navy", "Dark Blue"),
+        ("maroon", "Dark Red"),
+        ("wine", "Dark Red"),
+        ("burgundy", "Dark Red"),
+        ("magenta", "Pink"),
+        ("coral", "Pink"),
+        ("rose", "Pink"),
+        ("peach", "Light Pink"),
+        ("cream", "Off White"),
+        ("ivory", "Off White"),
+        ("beige", "Beige"),
+        ("khaki", "Khaki"),
+        ("olive", "Khaki"),
+        ("mustard", "Yellow"),
+        ("lemon", "Yellow"),
+        ("yellow", "Yellow"),
+        ("orange", "Orange"),
+        ("turquoise", "Turquoise"),
+        ("teal", "Turquoise"),
+        ("mint", "Green"),
+        ("green", "Green"),
+        ("purple", "Purple"),
+        ("lavender", "Purple"),
+        ("violet", "Purple"),
+        ("lilac", "Purple"),
+        ("brown", "Brown"),
+        ("tan", "Brown"),
+        ("camel", "Brown"),
+        ("chocolate", "Brown"),
+        ("black", "Black"),
+        ("white", "White"),
+        ("grey", "Grey"),
+        ("gray", "Grey"),
+        ("silver", "Grey"),
+        ("blue", "Blue"),
+        ("red", "Red"),
+        ("pink", "Pink"),
+        ("multi", None),   # multicoloured → skip (no canonical match)
+        ("print", None),   # "floral print" → skip
+    ],
+    key=lambda t: -len(t[0]),   # longest phrase first
+)
+
+
+def extract_colour_from_title(title: str) -> str | None:
+    """Scan a product title for the first colour keyword; return canonical colour or None.
+
+    Uses a longest-match priority list to avoid 'blue' matching before 'dark blue'.
+    Returns None for multicoloured / printed / unrecognised items.
+    """
+    if not title:
+        return None
+    lower = title.lower()
+    for phrase, canonical in _COLOUR_PHRASES:
+        if phrase in lower:
+            return canonical   # None for "multi"/"print" → caller treats as unknown
+    return None
+
+
 # ── Gender keyword sets ────────────────────────────────────────────────────────
 # Women checked BEFORE men so "women's kurta" doesn't false-match "men" substring
 _GENDER_WOMEN_KEYWORDS: frozenset[str] = frozenset({
@@ -243,6 +325,11 @@ def _adapt_generic(
     # Coerce price_inr to float (errors → NaN)
     if out["price_inr"].notna().any():
         out["price_inr"] = pd.to_numeric(out["price_inr"], errors="coerce")
+
+    # Extract colour from product title when the feed has no colour column.
+    # Shopify stores embed colour in the product name ("Black Solid Halter Neck...").
+    if out["colour_group_name"].isna().all():
+        out["colour_group_name"] = out["prod_name"].fillna("").apply(extract_colour_from_title)
 
     # Size system — broadcast scalar
     out["size_system"] = size_system
