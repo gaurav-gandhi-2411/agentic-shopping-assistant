@@ -228,3 +228,63 @@ def test_standalone_kaftan_is_kaftan() -> None:
     result = normalize_garment_type("Beautiful Kaftan")
     assert result.garment_type == "kaftan"
     assert result.type_confidence == "high"
+
+
+# ---------------------------------------------------------------------------
+# fabric_material — fabric bolts must NOT classify as a wearable garment type
+# ---------------------------------------------------------------------------
+
+FABRIC_MATERIAL_CASES: list[tuple[str, str | None]] = [
+    # (prod_name, brand)  — all must yield garment_type="fabric_material", category="raw_material"
+    ("Unstitched Dress Material Floral Print Cotton Blend", None),
+    ("Blue Printed Blouse Piece Silk", None),
+    ("Cotton Unstitched Salwar Suit Material", None),
+    ("Dress Material Set Green Geometric", None),
+]
+
+
+@pytest.mark.parametrize("prod_name,brand", FABRIC_MATERIAL_CASES)
+def test_fabric_material_cases(prod_name: str, brand: str | None) -> None:
+    """Fabric bolts and unstitched materials must classify as fabric_material, not dress/salwar."""
+    result = normalize_garment_type(prod_name, brand=brand)
+    assert result.garment_type == "fabric_material", (
+        f"'{prod_name}': expected garment_type='fabric_material', got {result.garment_type!r}"
+    )
+    assert result.category == "raw_material", (
+        f"'{prod_name}': expected category='raw_material', got {result.category!r}"
+    )
+    assert result.type_confidence == "high"
+
+
+# ---------------------------------------------------------------------------
+# Brand false-positive regression — DressBerry/20Dresses must not mis-classify
+# ---------------------------------------------------------------------------
+
+BRAND_FP_CASES: list[tuple[str, str | None, str, str]] = [
+    # (prod_name, brand, expected_gt, expected_conf)
+    # Brand stripped → real "Dress" in title wins correctly
+    ("DressBerry Women Blue Shift Dress", "DressBerry", "dress", "high"),
+    # No brand arg → rightmost-noun rule: "shorts" at far right wins over "dressBerry" prefix
+    # (\bdress\b does NOT match inside "DressBerry" — no word boundary after 'dress' before 'B')
+    ("DressBerry Women Casual Shorts", None, "shorts", "high"),
+    # No brand arg → "skirt" (rightmost) wins over "Dresses" embedded in brand token
+    ("20Dresses Women Floral Midi Skirt", None, "skirt", "high"),
+    # Brand stripped → "pants" is rightmost/head noun → trousers (palazzo is the style modifier)
+    ("20Dresses Women Palazzo Pants", "20Dresses", "trousers", "high"),
+]
+
+
+@pytest.mark.parametrize("prod_name,brand,expected_gt,expected_conf", BRAND_FP_CASES)
+def test_brand_false_positive_cases(
+    prod_name: str,
+    brand: str | None,
+    expected_gt: str,
+    expected_conf: str,
+) -> None:
+    """Brand names containing 'dress'/'dresses' must not pollute garment classification."""
+    result = normalize_garment_type(prod_name, brand=brand)
+    assert result.garment_type == expected_gt, (
+        f"'{prod_name}' (brand={brand!r}): "
+        f"expected {expected_gt!r}, got {result.garment_type!r}"
+    )
+    assert result.type_confidence == expected_conf

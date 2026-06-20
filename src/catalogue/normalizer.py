@@ -43,13 +43,16 @@ class NormalizationResult:
 
 _COMPOUND_TERMS: dict[str, str] = {
     "dungaree dress": "dress",
+    "dress material": "fabric_material",  # unstitched fabric bolts, not wearable garments
     "shirt dress": "dress",
+    "blouse piece": "fabric_material",    # raw fabric sold with sarees
     "skirt suit": "coord",
     "co-ord set": "coord",
     "co ord set": "coord",
     "coord set": "coord",
     "dress shirt": "shirt",
     "co-ord": "coord",
+    "unstitched": "fabric_material",      # any "unstitched X" title = raw material
 }
 
 # Pre-sorted longest → shortest so the first match wins when phrases overlap
@@ -244,6 +247,8 @@ def _category_for(garment_type: str) -> str:
         return "accessories"
     if garment_type in {"blazer", "outerwear"}:
         return "outerwear"
+    if garment_type in {"fabric_material"}:
+        return "raw_material"
     return "apparel"
 
 
