@@ -194,8 +194,22 @@ class HybridRetriever:
         fetch_k = self.config["retrieval"]["top_k"]
         rrf_k = self.config["retrieval"]["rrf_k"]
 
+        # Pre-filter BM25 by product_type_name when that facet filter is present.
+        # BM25 already scores all 44k items before argsort; masking here costs nothing
+        # extra and guarantees the sparse retrieval window is filled by the right type
+        # rather than by unrelated items that happen to mention the type word in text.
+        # Dense (FAISS) uses the wider fetch_k window to compensate for no pre-filter.
+        sparse_allowed_ids: np.ndarray | None = None
+        type_filter_val = (filters or {}).get("product_type_name")
+        if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
+            pt_col = self.catalogue_df["product_type_name"].str.lower()
+            sparse_allowed_ids = (
+                self.catalogue_df.index[pt_col == type_filter_val.lower()]
+                .values.astype(str)
+            )
+
         dense_hits = self.dense.search(query, top_k=fetch_k * 2)
-        sparse_hits = self.sparse.search(query, top_k=fetch_k * 2)
+        sparse_hits = self.sparse.search(query, top_k=fetch_k * 2, allowed_ids=sparse_allowed_ids)
 
         rrf_scores: dict[str, float] = {}
         for rank, (article_id, _) in enumerate(dense_hits, start=1):

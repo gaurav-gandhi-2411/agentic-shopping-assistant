@@ -42,9 +42,20 @@ class SparseRetriever:
         )
         return instance
 
-    def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 20,
+        allowed_ids: np.ndarray | None = None,
+    ) -> list[tuple[str, float]]:
         tokens = self._tokenize(query)
         scores = self.bm25.get_scores(tokens)
+        if allowed_ids is not None:
+            # Zero out scores for items not in the allowed set so only pre-filtered
+            # items compete for the top-k slots.  np.isin is O(n) and at 44k items
+            # adds < 1 ms — cheaper than widening k to surface filtered items naturally.
+            mask = np.isin(self.article_ids, allowed_ids)
+            scores = scores * mask
         top_indices = np.argsort(scores)[::-1][:top_k]
         return [
             (str(self.article_ids[i]), float(scores[i]))

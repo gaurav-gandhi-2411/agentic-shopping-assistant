@@ -10,7 +10,7 @@ retrieval:
   dense_dim: 384
   bm25_tokenizer: "lower_alpha"
   rrf_k: 60
-  top_k: 20
+  top_k: 50
   final_k: 5
   # Store-diversity re-rank knob (MMR nudge).
   # 0.0 = pure relevance / current behaviour (safe default; exact same output as before).
