@@ -214,6 +214,15 @@ class HybridRetriever:
         # post-retrieval in graph.py; applying it here ensures real garments fill the
         # BM25 window before the graph-level filter runs.
         # Dense (FAISS) uses the wider fetch_k window to compensate for no pre-filter.
+        # fabric_material items (unstitched bolts, blouse pieces) must never appear in
+        # garment search results.  Exclude them permanently from the BM25 window so they
+        # cannot crowd out real garments regardless of whether a type filter is set.
+        _not_fabric_mask: np.ndarray | None = None
+        if "product_type_name" in self.catalogue_df.columns:
+            _not_fabric_mask = (
+                self.catalogue_df["product_type_name"].str.lower() != "fabric_material"
+            ).values  # boolean array aligned with catalogue_df
+
         sparse_allowed_ids: np.ndarray | None = None
         type_filter_val = (filters or {}).get("product_type_name")
         if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
@@ -224,8 +233,15 @@ class HybridRetriever:
                     _MATERIAL_ONLY_RE
                 )
                 type_mask = type_mask & not_material
+            if _not_fabric_mask is not None:
+                type_mask = type_mask & _not_fabric_mask
             sparse_allowed_ids = (
                 self.catalogue_df.index[type_mask].values.astype(str)
+            )
+        elif _not_fabric_mask is not None:
+            # No explicit type filter — still exclude fabric_material from BM25 window.
+            sparse_allowed_ids = (
+                self.catalogue_df.index[_not_fabric_mask].values.astype(str)
             )
 
         dense_hits = self.dense.search(query, top_k=fetch_k * 2)
@@ -239,12 +255,21 @@ class HybridRetriever:
 
         ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
-        # Extract optional store filter before iterating (not a facet — lives in `store` column)
+        # Extract optional store + gender filters before iterating.
+        # Both live in direct catalogue columns, not in the `facets` dict, so they're
+        # handled separately from the generic facet-filter loop below.
+        # gender filter replaces index_group_name: Shopify stores (virgio, fashor, etc.)
+        # have index_group_name="N/A" but carry an accurate gender="women"/"men" column
+        # derived from brand_config.gender_default at ingest time.
         store_filter: str | None = None
+        gender_filter: str | None = None
         remaining_filters: dict | None = None
         if filters:
             store_filter = filters.get("store") or None
-            remaining_filters = {k: v for k, v in filters.items() if k != "store"} or None
+            gender_filter = filters.get("gender") or None
+            remaining_filters = {
+                k: v for k, v in filters.items() if k not in ("store", "gender")
+            } or None
 
         # Collect ALL filter-passing candidates from the full RRF window.
         # We do NOT truncate here — diversity re-rank needs the full candidate pool.
@@ -265,6 +290,16 @@ class HybridRetriever:
                     else ""
                 )
                 if item_store != store_filter.lower():
+                    continue
+
+            # --- Gender filter (column-level; covers Shopify stores with index_group_name="N/A") ---
+            if gender_filter is not None:
+                item_gender = (
+                    str(row["gender"]).lower()
+                    if "gender" in row.index and row["gender"] is not None
+                    else "unknown"
+                )
+                if item_gender not in (gender_filter.lower(), "unknown"):
                     continue
 
             if remaining_filters:

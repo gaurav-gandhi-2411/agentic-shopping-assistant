@@ -531,10 +531,8 @@ def build_graph(
         _plan_filters: dict = {}
         if merged_intent.garment_type:
             _plan_filters["product_type_name"] = merged_intent.garment_type
-        if merged_intent.gender == "women":
-            _plan_filters["index_group_name"] = "Ladieswear"
-        elif merged_intent.gender == "men":
-            _plan_filters["index_group_name"] = "Menswear"
+        if merged_intent.gender in ("women", "men"):
+            _plan_filters["gender"] = merged_intent.gender
         if merged_intent.colour:
             _plan_filters["colour_group_name"] = merged_intent.colour
         if merged_intent.budget_max_inr:
