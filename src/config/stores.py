@@ -24,7 +24,10 @@ catalogue as of the Wave-5 build (2026-06-14):
   | snitch    | slug, e.g. "my-product-name-4xyz123"               |
   | fashor    | slug                                               |
   | powerlook | slug                                               |
-  | virgio    | slug                                               |
+  | virgio       | slug                                               |
+  | berrylush    | slug (Shopify)                                     |
+  | globalrepublic | slug (Shopify)                                   |
+  | libas        | slug (Shopify)                                     |
   +-----------+---------------------------------------------------+
 
 Phase F — affiliate tag config (ENV-VAR-driven)
@@ -111,6 +114,20 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
     "virgio": {
         "display_name": "Virgio",
         "pdp_url_template": "https://virgio.com/products/{handle}",
+    },
+    # Shopify stores added in the Wave-5 data-depth build (2026-06-22).
+    # pdp_url_template mirrors each brand's brands/<slug>.yaml file.
+    "berrylush": {
+        "display_name": "Berrylush",
+        "pdp_url_template": "https://www.berrylush.com/products/{handle}",
+    },
+    "globalrepublic": {
+        "display_name": "Global Republic",
+        "pdp_url_template": "https://globalrepublic.in/products/{handle}",
+    },
+    "libas": {
+        "display_name": "Libas",
+        "pdp_url_template": "https://libas.in/products/{handle}",
     },
 }
 

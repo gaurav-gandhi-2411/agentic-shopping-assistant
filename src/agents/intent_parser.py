@@ -218,7 +218,8 @@ _OCCASION_SORTED: list[tuple[str, str]] = sorted(
 # ---------------------------------------------------------------------------
 
 _STORES: frozenset[str] = frozenset(
-    {"myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio"}
+    {"myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
+     "berrylush", "globalrepublic", "libas"}
 )
 
 # ---------------------------------------------------------------------------

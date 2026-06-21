@@ -19,8 +19,9 @@ interface Props {
   onCancel: () => void
   isSending: boolean
   disabled?: boolean
-  /** Called when the user picks and confirms an image for /style/from-image. */
-  onSendImage?: (file: File) => void
+  /** Called when the user picks and confirms an image for /style/from-image.
+   *  text is the textarea content at submission time (may be empty). */
+  onSendImage?: (file: File, text?: string) => void
 }
 
 /** Small thumbnail preview chip shown after the user picks an image. */
@@ -65,11 +66,13 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // If there is a pending image, send it via the image path.
+    // If there is a pending image, send it via the image path (include any typed text).
     if (pendingImage && onSendImage) {
-      onSendImage(pendingImage)
+      onSendImage(pendingImage, text.trim() || undefined)
       setPendingImage(null)
+      setText("")
       setImageError(null)
+      if (textareaRef.current) textareaRef.current.style.height = "auto"
       return
     }
     const trimmed = text.trim()

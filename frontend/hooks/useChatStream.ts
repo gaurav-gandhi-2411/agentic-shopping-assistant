@@ -322,12 +322,12 @@ export function useChatStream({
    * the returned outfit look as an assistant message.  The user-side bubble
    * is added optimistically; the assistant message is appended on success.
    */
-  const sendImage = useCallback(async (file: File): Promise<void> => {
+  const sendImage = useCallback(async (file: File, userText?: string): Promise<void> => {
     if (isSending) return
 
     const imagePreviewUrl = URL.createObjectURL(file)
 
-    // Optimistic user bubble — includes local preview thumbnail.
+    // Optimistic user bubble — shows both the user's typed text (if any) and the image.
     const userMsgId = crypto.randomUUID()
     setMessages((prev) => [
       ...prev,
@@ -335,7 +335,7 @@ export function useChatStream({
         id: userMsgId,
         dbId: null,
         role: "user",
-        content: "Styling around your uploaded photo",
+        content: userText?.trim() || "Find similar items",
         items: [],
         isStreaming: false,
         imageUrl: imagePreviewUrl,
