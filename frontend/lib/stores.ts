@@ -16,6 +16,9 @@ export const STORE_DISPLAY_NAMES = {
   fashor: "Fashor",
   powerlook: "Powerlook",
   virgio: "Virgio",
+  berrylush: "Berrylush",
+  globalrepublic: "Global Republic",
+  libas: "Libas",
 } as const
 
 export type StoreSlug = keyof typeof STORE_DISPLAY_NAMES

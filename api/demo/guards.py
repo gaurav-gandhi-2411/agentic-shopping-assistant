@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -14,7 +15,12 @@ logger = logging.getLogger(__name__)
 # Rate-limit / cap constants
 # ---------------------------------------------------------------------------
 
-_PER_IP_LIMIT: int = 10  # messages per rolling UTC hour, per IP per brand
+# DEMO_PER_IP_HOUR_LIMIT env var overrides the default (10) without a code
+# change or Docker rebuild — set it on the Cloud Run service to raise the limit
+# for testing, then remove/reset it before opening to the public.
+def _get_per_ip_limit() -> int:
+    return max(1, int(os.environ.get("DEMO_PER_IP_HOUR_LIMIT", "10")))
+
 _DAILY_REQUEST_CAP: int = 200  # requests per brand per UTC day
 _DAILY_COST_CAP_USD: float = 0.50  # USD per brand per UTC day
 
@@ -110,7 +116,7 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
             ).fetchone()
             current_count = int(row[0]) if row else 0
 
-            if current_count >= _PER_IP_LIMIT:
+            if current_count >= _get_per_ip_limit():
                 # Seconds until the current UTC hour rolls over.
                 retry_after = 3600 - int(time.time()) % 3600
                 return (False, retry_after)

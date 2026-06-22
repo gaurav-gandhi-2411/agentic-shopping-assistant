@@ -29,6 +29,18 @@ _COMPARE_INTENT = re.compile(
     r"\bcompare\b|\bdifference\s+between\b|\bvs\b|\bversus\b", re.IGNORECASE
 )
 
+_OUTFIT_INTENT_RE = re.compile(
+    r"\b(outfit|style\s+(?:this|me|it)|complete\s+(?:the\s+)?look|"
+    r"what\s+goes\s+with|build\s+(?:me\s+)?a|create\s+(?:a|an)|"
+    r"put\s+together|compose\s+(?:a|an))\b",
+    re.IGNORECASE,
+)
+_OUTFIT_OCCASION_RE = re.compile(
+    r"\b(sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
+    re.IGNORECASE,
+)
+
 _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
@@ -156,11 +168,14 @@ STRICT RULES — follow in order:
    (b) User explicitly references a specific shown item ("style this", "what goes with the
        Riviera", "complete this look").
    (c) Query carries CLEAR occasion + outfit-building intent even at items_retrieved=0.
-       Signals: explicit occasion name (sangeet, festive, wedding, haldi, puja, traditional,
-       ethnic, party) PLUS an action verb (build, create, put together, make, style, compose,
-       suggest, give me, show me a complete/full look). Use {{"article_id": null}} — the
-       composer will find an anchor from the catalogue automatically.
+       Signals: explicit occasion name (casual, brunch, dinner, date night, office, work,
+       cocktail, beach, resort, vacation, sangeet, festive, wedding, haldi, puja,
+       traditional, ethnic, party) PLUS an action verb (outfit, build, create, put together,
+       make, style, compose, suggest, give me, show me a complete/full look).
+       Use {{"article_id": null}} — the composer will find an anchor automatically.
        Examples:
+       - "outfit for a casual brunch" → {{"action": "outfit", "article_id": null, "occasion": "casual", "gender": "women", "budget_inr": null}}
+       - "build me a dinner date outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "casual", "gender": "men", "budget_inr": null}}
        - "Build me a sangeet look under ₹5000" → {{"action": "outfit", "article_id": null, "occasion": "sangeet", "gender": "women", "budget_inr": 5000}}
        - "Create a festive kurta outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "festive_puja", "gender": "men", "budget_inr": null}}
        - "Put together a wedding guest look" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "women", "budget_inr": null}}
@@ -291,6 +306,20 @@ Available item attributes:
 {items}
 
 Write your response now."""
+
+
+ONE_SENTENCE_PROMPT = """\
+You are a concise fashion shopping assistant.
+
+Write exactly ONE sentence (under 20 words) introducing the items below to the shopper.
+Use only product names and colours actually listed — do not invent attributes.
+Do not mention price, size, stock, or fabric. Use "you" and be warm.
+
+User asked: "{user_query}"
+Items returned:
+{items}
+
+Write your single sentence now."""
 
 
 def _format_items_brief(items: list[dict]) -> str:
@@ -430,7 +459,118 @@ def build_graph(
                 logger.info("[router] fast-path: compare → respond (LLM skipped)")
                 return {"current_plan": json.dumps({"action": "respond"})}
 
-        return router_backend.decide(state)
+        # ── F3: Deterministic routing via IntentParser ──────────────────────
+        # The LLM router is only called for outfit intent (complex multi-param
+        # action); everything else is handled deterministically.
+        from src.agents.intent_parser import merge_with_context, parse_intent
+
+        raw_q = state["user_query"]
+        intent = parse_intent(raw_q)
+
+        # Outfit intent: keep LLM router for this action (complex multi-param).
+        # Detect via explicit outfit-building verbs + occasion context.
+        _prior_items_exist = bool(state.get("retrieved_items"))
+        if (
+            _OUTFIT_OCCASION_RE.search(raw_q)
+            and _OUTFIT_INTENT_RE.search(raw_q)
+        ) or (
+            _prior_items_exist
+            and _OUTFIT_INTENT_RE.search(raw_q)
+            and not intent.garment_type  # "style this" with no new garment → outfit
+        ):
+            return router_backend.decide(state)
+
+        # Build session context from accumulated state for carry-forward.
+        # garment_type: dominant type from prior items, or from accumulated filters
+        _prior_items_for_ctx = state.get("retrieved_items", [])
+        _ctx_garment: str | None = None
+        if _prior_items_for_ctx:
+            from collections import Counter as _Counter
+            _types = [
+                it.get("product_type", "") for it in _prior_items_for_ctx
+                if it.get("product_type")
+            ]
+            if _types:
+                _ctx_garment = _Counter(_types).most_common(1)[0][0].lower()
+
+        # Reconstruct gender context from prior-turn filters.
+        # Prefer explicit gender key; fall back to index_group_name for backwards compat.
+        _prior_filters = state.get("filters") or {}
+        _ctx_gender: str | None = _prior_filters.get("gender") or None
+        if _ctx_gender is None:
+            _ign = _prior_filters.get("index_group_name", "").lower()
+            if "ladieswear" in _ign:
+                _ctx_gender = "women"
+            elif "menswear" in _ign:
+                _ctx_gender = "men"
+
+        session_context = {
+            "garment_type": _ctx_garment,
+            "gender": _ctx_gender,
+            "colour": (state.get("filters") or {}).get("colour_group_name"),
+            "occasion": state.get("occasion"),
+        }
+
+        # Merge new intent with session context (carries forward unspecified fields)
+        merged_intent = merge_with_context(intent, session_context)
+
+        # Non-product conversational query → respond (LLM writes prose, no cards)
+        if not merged_intent.is_product_query:
+            logger.info(
+                "[router/intent] conversational → respond | query=%r",
+                raw_q[:60],
+            )
+            plan: dict = {"action": "respond"}
+            return {
+                "current_plan": json.dumps(plan),
+                "tool_calls": state.get("tool_calls", []) + [{"router_decision": plan}],
+            }
+
+        # Product query → deterministic search.
+        # Build filter dict from IntentV1: garment_type + gender + colour + budget + store.
+        # garment_type is now passed as product_type_name — safe after F1 index rebuild
+        # since IntentParser and the normalizer share the same canonical vocabulary.
+        _plan_filters: dict = {}
+        if merged_intent.garment_type:
+            _plan_filters["product_type_name"] = merged_intent.garment_type
+        if merged_intent.gender in ("women", "men"):
+            _plan_filters["gender"] = merged_intent.gender
+        if merged_intent.colour:
+            _plan_filters["colour_group_name"] = merged_intent.colour
+        if merged_intent.budget_max_inr:
+            _plan_filters["price_max"] = merged_intent.budget_max_inr
+        if merged_intent.store_filter:
+            _plan_filters["store"] = merged_intent.store_filter[0]
+
+        # Buy-similar path: "similar / like this / same style" after an image upload
+        # uses the anchor item's dense embedding instead of text search.
+        # anchor_article_id is stored in session by image_style.py after CLIP lookup.
+        _BUY_SIMILAR_RE = re.compile(
+            r"\b(similar|like\s+this|like\s+these|same\s+style|buy\s+like)\b", re.IGNORECASE
+        )
+        _anchor_id: str | None = state.get("anchor_article_id")
+        _is_similar_query = bool(_BUY_SIMILAR_RE.search(raw_q))
+
+        plan = {
+            "action": "search",
+            "query": merged_intent.raw_query,
+            "filters": _plan_filters,
+        }
+        if _is_similar_query and _anchor_id and not merged_intent.garment_type:
+            plan["anchor_article_id"] = _anchor_id
+
+        logger.info(
+            "[router/intent] product → search | garment=%s gender=%s colour=%s anchor=%s | query=%r",
+            merged_intent.garment_type,
+            merged_intent.gender,
+            merged_intent.colour,
+            plan.get("anchor_article_id"),
+            raw_q[:60],
+        )
+        return {
+            "current_plan": json.dumps(plan),
+            "tool_calls": state.get("tool_calls", []) + [{"router_decision": plan}],
+        }
 
     _SLEEP_KEYWORDS: frozenset[str] = frozenset({
         "sleep", "nightwear", "pyjama", "pajama", "pyjamas", "pajamas",
@@ -449,11 +589,62 @@ def build_graph(
         r"\bwomen\b": "Ladieswear", r"\bwomens\b": "Ladieswear",
         r"\bwoman\b": "Ladieswear", r"\bfemale\b": "Ladieswear",
         r"\bladies\b": "Ladieswear", r"\bladieswear\b": "Ladieswear",
+        r"\bwife\b": "Ladieswear", r"\bwives\b": "Ladieswear",
+        r"\bgirlfriend\b": "Ladieswear", r"\bher\b": "Ladieswear",
+        r"\bhusband\b": "Menswear", r"\bboyfriend\b": "Menswear",
+        r"\bhim\b": "Menswear",
         r"\bkid\b": "Baby/Children", r"\bkids\b": "Baby/Children",
         r"\bchild\b": "Baby/Children", r"\bchildren\b": "Baby/Children",
         r"\bbaby\b": "Baby/Children",
         r"\bteen\b": "Divided", r"\bteens\b": "Divided",
     }
+
+    # Deterministic garment-type keyword rules applied against the RAW user message.
+    # Unlike auto-facet extraction (which uses the LLM-simplified query and can lose
+    # the garment type), these match on raw_query so "dress" is never silently dropped.
+    # Values use F1 canonical vocabulary (src/catalogue/normalizer.py) — must match
+    # the product_type_name values written by patch_catalogue_f1.py into the index.
+    _PRODUCT_TYPE_KEYWORDS: list[tuple[str, str]] = [
+        (r"\bdress(?:es)?\b", "dress"),
+        (r"\bkurti\b", "kurti"),
+        (r"\bkurta\b", "kurta"),
+        (r"\bskirt(?:s)?\b", "skirt"),
+        (r"\bblaz(?:er|ers)\b", "blazer"),
+        (r"\bjean(?:s)?\b", "jeans"),
+        (r"\bsaree\b|\bsari\b|\bsarees\b", "saree"),
+        (r"\btrouser(?:s)?\b|\bpant(?:s)?\b|\bchino(?:s)?\b", "trousers"),
+        (r"\bshorts?\b", "shorts"),
+        # F1 canonical: jackets/coats/bombers all → "outerwear"
+        (
+            r"\bjacket\b|\bcoat\b|\bbomber\b|\bpuffer\b|\bwindcheater\b|\bparka\b|\banorak\b",
+            "outerwear",
+        ),
+        # F1 canonical: sweaters/hoodies/cardigans → "knitwear"
+        (r"\bsweater\b|\bsweatshirt\b|\bhoodie\b|\bcardigan\b|\bknitwear\b", "knitwear"),
+        # F1 canonical: t-shirts/tees → "top" (same bucket as plain tops)
+        (r"\bt-shirt\b|\btshirt\b|\btee\b|\btop\b", "top"),
+        (r"\bblouse\b", "blouse"),
+        (r"\btunic\b", "tunic"),
+        (r"\bshirt\b", "shirt"),
+        (r"\blehenga\b", "lehenga"),
+        (r"\banarkali\b", "anarkali"),
+        (r"\bsharara\b", "sharara"),
+        (r"\bpalazzo\b", "palazzo"),
+        (r"\bkaftan\b", "kaftan"),
+        (r"\bjumpsuit\b|\bplaysuit\b|\bdungaree(?:s)?\b", "jumpsuit"),
+        (r"\bswimwear\b|\bswimsuit\b|\bbikini\b|\bmonokini\b", "swimwear"),
+        (r"\bdupatta\b", "dupatta"),
+        (r"\bsalwar\b", "salwar"),
+        (r"\bco-?ord\b|\bcoord\b", "coord"),
+        (r"\bvest\b|\btank\b", "vest"),
+    ]
+
+    # Bolt-good / fabric SKU types — not finished wearable garments.
+    # Prevents "Unstitched Dress Material" from surfacing in dress or outfit searches.
+    _MATERIAL_ONLY_RE = re.compile(
+        r"\bunstitched\b|dress material|fabric piece|blouse piece",
+        re.IGNORECASE,
+    )
 
     # Build a set of valid values per facet once at graph-construction time.
     _valid_facet_values: dict[str, set[str]] = {
@@ -517,7 +708,10 @@ def build_graph(
     def search_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
         raw_query = state["user_query"]
-        query = plan.get("query", raw_query)
+        # Always retrieve against the original user message so garment-type terms
+        # like "dress" can never be dropped by LLM query reformulation.
+        # plan.get("query") is preserved only for structured-param extraction below.
+        query = raw_query
 
         # Out-of-catalogue detection: keyword check on original user query.
         # Uses structured keyword list rather than score threshold — MiniLM similarity
@@ -554,6 +748,16 @@ def build_graph(
             has_child = any(kw in raw_lower for kw in _CHILD_KEYWORDS)
             if has_sleep and not has_child:
                 merged = {**merged, "index_group_name": "ladieswear"}
+
+        # Garment-type keyword enforcement — uses raw_query so "black dress for women"
+        # always pins product_type_name=Dress even when the LLM simplifies the query
+        # to just "black women" and the auto-facet below misses the type.
+        if "product_type_name" not in merged:
+            raw_lower = raw_query.lower()
+            for pattern, ptype in _PRODUCT_TYPE_KEYWORDS:
+                if re.search(pattern, raw_lower, re.IGNORECASE):
+                    merged = {**merged, "product_type_name": ptype}
+                    break
 
         # Auto-extract facet filters from the query when the LLM omitted them.
         # LLM-emitted filters take precedence (facets already in merged are skipped).
@@ -594,10 +798,113 @@ def build_graph(
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
 
+        # For refinement turns (e.g. "in blue"): augment the raw query with the
+        # dominant product type from prior results so embeddings score "in blue dress"
+        # rather than "in blue" alone.  Without this, FAISS returns a mix of
+        # blue tops/shirts/bottoms and the product_type filter yields 0 matches,
+        # triggering the fallback and losing the garment type constraint.
+        if refinement and prior_items:
+            from collections import Counter as _Counter
+            _prior_types = [
+                it.get("product_type", "") for it in prior_items if it.get("product_type")
+            ]
+            if _prior_types:
+                _dom = _Counter(_prior_types).most_common(1)[0][0].lower()
+                if _dom and _dom not in query.lower():
+                    query = f"{query} {_dom}"
+
         # Fetch extra candidates when colour exclusion is active so the filtered
         # pool still has enough items for the reranker (excluded colour may dominate).
         fetch_k = 40 if excluded_colours else 20
-        result = search_catalogue(query, merged or None, retriever, fetch_k)
+
+        # Buy-similar: anchor-based dense retrieval when anchor_article_id is in plan.
+        # Uses the anchor item's FAISS embedding to find visually/contextually similar
+        # items, then applies the same catalogue filters as normal search.
+        _anchor_article_id: str | None = plan.get("anchor_article_id")
+        if _anchor_article_id and hasattr(retriever, "dense"):
+            _dense_hits = retriever.dense.search_by_id(_anchor_article_id, top_k=fetch_k * 3)
+            if _dense_hits:
+                import pandas as _pd
+                _anchor_candidates: list[dict] = []
+                for _aid, _score in _dense_hits:
+                    if _aid not in retriever.catalogue_df.index:
+                        continue
+                    _row = retriever.catalogue_df.loc[_aid]
+                    _facets = _row["facets"] if isinstance(_row["facets"], dict) else {}
+                    # Apply active filters (type, gender, colour)
+                    if merged:
+                        _fail = False
+                        for _fk, _fv in merged.items():
+                            if _fk in ("price_min", "price_max", "store"):
+                                continue  # skip range / store filters for now
+                            if str(_facets.get(_fk, "")).lower() != str(_fv).lower():
+                                _fail = True
+                                break
+                        if _fail:
+                            continue
+                    _anchor_candidates.append({
+                        "article_id": _aid,
+                        "prod_name": _row.get("prod_name", ""),
+                        "display_name": _row["display_name"],
+                        "colour": _facets.get("colour_group_name", ""),
+                        "product_type": _facets.get("product_type_name", ""),
+                        "department": _facets.get("department_name", ""),
+                        "detail_desc": _row["detail_desc"],
+                        "image_url": (
+                            str(_row["image_url"])
+                            if _row.get("image_url") and isinstance(_row.get("image_url"), str)
+                            else None
+                        ),
+                        "score": _score,
+                        "store": (
+                            str(_row["store"])
+                            if "store" in _row.index and _row["store"] is not None
+                            else None
+                        ),
+                        "price_inr": (
+                            float(_row["price_inr"])
+                            if "price_inr" in _row.index
+                            and _row["price_inr"] is not None
+                            and not _pd.isna(_row["price_inr"])
+                            else None
+                        ),
+                        "pdp_handle": (
+                            str(_row["pdp_handle"])
+                            if "pdp_handle" in _row.index and _row["pdp_handle"] is not None
+                            else None
+                        ),
+                        "gender": (
+                            str(_row["gender"]).lower()
+                            if "gender" in _row.index and _row["gender"] is not None
+                            else "unknown"
+                        ),
+                    })
+                if len(_anchor_candidates) >= 2:
+                    result = {"items": _anchor_candidates}
+                    logger.info(
+                        "[search] anchor-based retrieval: anchor=%s found=%d",
+                        _anchor_article_id, len(_anchor_candidates),
+                    )
+                    # Skip normal search path
+                    fetch_k = len(_anchor_candidates)
+                else:
+                    result = search_catalogue(query, merged or None, retriever, fetch_k)
+            else:
+                result = search_catalogue(query, merged or None, retriever, fetch_k)
+        else:
+            result = search_catalogue(query, merged or None, retriever, fetch_k)
+
+        # Strip bolt-good / material-only SKUs — these are fabric pieces, not garments.
+        # Myntra classifies fabric bolts under product_type="Dress" so we must also
+        # check prod_name and detail_desc, not just product_type.
+        def _is_material(it: dict) -> bool:
+            return (
+                _MATERIAL_ONLY_RE.search(it.get("product_type", ""))
+                or _MATERIAL_ONLY_RE.search(it.get("prod_name", ""))
+                or _MATERIAL_ONLY_RE.search(it.get("display_name", ""))
+            )
+
+        result["items"] = [it for it in result["items"] if not _is_material(it)]
 
         # Gender filter is applied when it was extracted from this query (not inherited).
         # Keep it explicit so we can handle zero-stock gracefully below.
@@ -622,9 +929,28 @@ def build_graph(
                 # If still 0 items (no menswear footwear at all) keep effective_filters=merged
                 # → respond_node will emit an explicit "no stock" message.
             else:
-                # No gender filter — drop invalid facet filters (LLM invented bad values)
-                result = search_catalogue(query, None, retriever, 20)
-                effective_filters = {}
+                # Progressive fallback — drop filters from most restrictive (colour) to
+                # all non-type filters, preserving product_type_name as long as possible.
+                # Prevents wrong garment types from surfacing just because a colour filter
+                # returns 0 matches (e.g. no blue dresses in FAISS window → try dresses
+                # without colour constraint before falling back to no-filter search).
+                _tried: list = [merged]
+                for _fb_filters in [
+                    {k: v for k, v in merged.items() if k != "colour_group_name"},
+                    {k: v for k, v in merged.items()
+                     if k in ("product_type_name", "index_group_name")},
+                    {},
+                ]:
+                    if _fb_filters in _tried:
+                        continue
+                    _tried.append(_fb_filters)
+                    _fb_result = search_catalogue(
+                        query, _fb_filters or None, retriever, 20
+                    )
+                    if _fb_result["items"]:
+                        result = _fb_result
+                        effective_filters = _fb_filters
+                        break
 
         # Sparse/zero stock warning: fires when gender filter is applied and fewer
         # than 5 items matched (including 0).
@@ -696,6 +1022,20 @@ def build_graph(
                         seen_diverse.add(item["article_id"])
             items_out = diverse[:top_k]
 
+        # Colour refinement chips: distinct colours in the result set.
+        # Excludes the active colour filter so chips offer genuine alternatives.
+        # Falls back to all available colours if nothing else is available (e.g.
+        # a monochrome "black dress" query where every result is black).
+        _active_colour = merged.get("colour_group_name", "").lower()
+        _all_distinct_colours = sorted({
+            it.get("colour", "")
+            for it in items_out
+            if it.get("colour") and it.get("colour").lower() not in ("", "nan")
+        })[:8]
+        _chip_colours = [c for c in _all_distinct_colours if c.lower() != _active_colour]
+        if not _chip_colours:
+            _chip_colours = _all_distinct_colours
+
         search_meta: dict = {"query": query, "filters": merged}
         if few_gender_results:
             search_meta["few_gender_results"] = True
@@ -707,6 +1047,7 @@ def build_graph(
             "tool_calls": state.get("tool_calls", []) + [{"search": search_meta}],
         }
         update["filters"] = effective_filters
+        update["suggestion_chips"] = _chip_colours
         if excluded_colours:
             update["excluded_colours"] = excluded_colours
         return update
@@ -757,34 +1098,69 @@ def build_graph(
         ("department_name", "menswear"):    ("index_group_name", "Menswear"),
         ("department_name", "baby/children"): ("index_group_name", "Baby/Children"),
         ("department_name", "sport"):       ("index_group_name", "Sport"),
-        # Plural → canonical product_type_name (LLM uses plural forms, catalogue uses singular)
-        ("product_type_name", "dresses"):       ("product_type_name", "Dress"),
-        ("product_type_name", "blazers"):       ("product_type_name", "Blazer"),
-        ("product_type_name", "shirts"):        ("product_type_name", "Shirt"),
-        ("product_type_name", "skirts"):        ("product_type_name", "Skirt"),
-        ("product_type_name", "tops"):          ("product_type_name", "Top"),
-        ("product_type_name", "bags"):          ("product_type_name", "Bag"),
-        ("product_type_name", "sweaters"):      ("product_type_name", "Sweater"),
-        ("product_type_name", "jackets"):       ("product_type_name", "Jacket"),
-        ("product_type_name", "coats"):         ("product_type_name", "Coat"),
-        ("product_type_name", "blouses"):       ("product_type_name", "Blouse"),
-        ("product_type_name", "cardigans"):     ("product_type_name", "Cardigan"),
-        ("product_type_name", "hoodies"):       ("product_type_name", "Hoodie"),
-        ("product_type_name", "swimsuits"):     ("product_type_name", "Swimsuit"),
-        ("product_type_name", "scarves"):       ("product_type_name", "Scarf"),
-        # Simplified form → canonical (LLM omits the "/playsuit" or "/tights" part)
-        ("product_type_name", "jumpsuit"):      ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "jumpsuits"):     ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "playsuit"):      ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "playsuits"):     ("product_type_name", "Jumpsuit/Playsuit"),
-        ("product_type_name", "leggings"):      ("product_type_name", "Leggings/Tights"),
-        ("product_type_name", "tights"):        ("product_type_name", "Leggings/Tights"),
-        # T-shirt variants
-        ("product_type_name", "t-shirts"):      ("product_type_name", "T-shirt"),
-        ("product_type_name", "tshirt"):        ("product_type_name", "T-shirt"),
-        ("product_type_name", "tshirts"):       ("product_type_name", "T-shirt"),
-        # Polo shirt
-        ("product_type_name", "polo shirts"):   ("product_type_name", "Polo Shirt"),
+        # Plural / alias → F1 canonical product_type_name (lowercase, no spaces).
+        # F1 canonical vocabulary is defined by src/catalogue/normalizer.py.
+        ("product_type_name", "dresses"):       ("product_type_name", "dress"),
+        ("product_type_name", "dress"):         ("product_type_name", "dress"),
+        ("product_type_name", "blazers"):       ("product_type_name", "blazer"),
+        ("product_type_name", "blazer"):        ("product_type_name", "blazer"),
+        ("product_type_name", "shirts"):        ("product_type_name", "shirt"),
+        ("product_type_name", "shirt"):         ("product_type_name", "shirt"),
+        ("product_type_name", "skirts"):        ("product_type_name", "skirt"),
+        ("product_type_name", "skirt"):         ("product_type_name", "skirt"),
+        ("product_type_name", "tops"):          ("product_type_name", "top"),
+        ("product_type_name", "top"):           ("product_type_name", "top"),
+        ("product_type_name", "bags"):          ("product_type_name", "bag"),
+        ("product_type_name", "bag"):           ("product_type_name", "bag"),
+        # F1 canonical: all outerwear variants → "outerwear"
+        ("product_type_name", "sweaters"):      ("product_type_name", "knitwear"),
+        ("product_type_name", "sweater"):       ("product_type_name", "knitwear"),
+        ("product_type_name", "jackets"):       ("product_type_name", "outerwear"),
+        ("product_type_name", "jacket"):        ("product_type_name", "outerwear"),
+        ("product_type_name", "coats"):         ("product_type_name", "outerwear"),
+        ("product_type_name", "coat"):          ("product_type_name", "outerwear"),
+        ("product_type_name", "blouses"):       ("product_type_name", "blouse"),
+        ("product_type_name", "blouse"):        ("product_type_name", "blouse"),
+        ("product_type_name", "cardigans"):     ("product_type_name", "knitwear"),
+        ("product_type_name", "cardigan"):      ("product_type_name", "knitwear"),
+        ("product_type_name", "hoodies"):       ("product_type_name", "knitwear"),
+        ("product_type_name", "hoodie"):        ("product_type_name", "knitwear"),
+        ("product_type_name", "swimsuits"):     ("product_type_name", "swimwear"),
+        ("product_type_name", "swimsuit"):      ("product_type_name", "swimwear"),
+        ("product_type_name", "scarves"):       ("product_type_name", "dupatta"),
+        # Jumpsuits / playsuits → F1 canonical "jumpsuit"
+        ("product_type_name", "jumpsuit"):      ("product_type_name", "jumpsuit"),
+        ("product_type_name", "jumpsuits"):     ("product_type_name", "jumpsuit"),
+        ("product_type_name", "playsuit"):      ("product_type_name", "jumpsuit"),
+        ("product_type_name", "playsuits"):     ("product_type_name", "jumpsuit"),
+        # Leggings — not in F1 normalizer; treat as trousers
+        ("product_type_name", "leggings"):      ("product_type_name", "trousers"),
+        ("product_type_name", "tights"):        ("product_type_name", "trousers"),
+        # T-shirt variants → F1 canonical "top"
+        ("product_type_name", "t-shirts"):      ("product_type_name", "top"),
+        ("product_type_name", "t-shirt"):       ("product_type_name", "top"),
+        ("product_type_name", "tshirt"):        ("product_type_name", "top"),
+        ("product_type_name", "tshirts"):       ("product_type_name", "top"),
+        ("product_type_name", "polo shirts"):   ("product_type_name", "shirt"),
+        ("product_type_name", "polo shirt"):    ("product_type_name", "shirt"),
+        # Trousers / pants → "trousers"
+        ("product_type_name", "trousers"):      ("product_type_name", "trousers"),
+        ("product_type_name", "trouser"):       ("product_type_name", "trousers"),
+        ("product_type_name", "pants"):         ("product_type_name", "trousers"),
+        ("product_type_name", "jeans"):         ("product_type_name", "jeans"),
+        ("product_type_name", "shorts"):        ("product_type_name", "shorts"),
+        # Co-ords
+        ("product_type_name", "co-ords"):       ("product_type_name", "coord"),
+        ("product_type_name", "co-ord"):        ("product_type_name", "coord"),
+        ("product_type_name", "coord set"):     ("product_type_name", "coord"),
+        # Kurtis and kurtas
+        ("product_type_name", "kurtis"):        ("product_type_name", "kurti"),
+        ("product_type_name", "kurti"):         ("product_type_name", "kurti"),
+        ("product_type_name", "kurtas"):        ("product_type_name", "kurta"),
+        ("product_type_name", "kurta"):         ("product_type_name", "kurta"),
+        # Sarees
+        ("product_type_name", "sarees"):        ("product_type_name", "saree"),
+        ("product_type_name", "saree"):         ("product_type_name", "saree"),
     }
 
     def filter_node(state: AgentState) -> dict:
@@ -940,6 +1316,7 @@ def build_graph(
             "look_gender": result.get("gender"),
             "outfit_rationale": base_rationale,
             "outfit_variants": look_variants,
+            "budget_total_inr": result.get("budget_total_inr"),
         }
         if streaming_mode:
             update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
@@ -1010,15 +1387,30 @@ def build_graph(
                 "messages": [{"role": "assistant", "content": answer}],
             }
 
-        prompt = RESPOND_PROMPT.format(
-            user_query=state["user_query"],
-            items=_format_items_for_response(items),
-        )
-        if few_gender and gender_group:
-            prompt += (
-                f"\n\nNote: this catalogue has limited {gender_group} stock. "
-                f"Mention this briefly at the end of your response."
+        # Use the tight 1-sentence prompt for product-search turns (items were found).
+        # Keep the full RESPOND_PROMPT only for conversational turns (no items) or
+        # when a grounding note about missing data is needed.
+        _has_items = bool(items)
+        if _has_items:
+            prompt = ONE_SENTENCE_PROMPT.format(
+                user_query=state["user_query"],
+                items=_format_items_for_response(items),
             )
+            if few_gender and gender_group:
+                prompt += (
+                    f"\n\nNote: this catalogue has limited {gender_group} stock. "
+                    f"Append a brief note at the end of your sentence."
+                )
+        else:
+            prompt = RESPOND_PROMPT.format(
+                user_query=state["user_query"],
+                items=_format_items_for_response(items),
+            )
+            if few_gender and gender_group:
+                prompt += (
+                    f"\n\nNote: this catalogue has limited {gender_group} stock. "
+                    f"Mention this briefly at the end of your response."
+                )
         if streaming_mode:
             # In streaming mode the app streams the LLM call; store the prompt for pickup.
             return {
@@ -1080,6 +1472,28 @@ def build_graph(
         except (json.JSONDecodeError, TypeError):
             action = "search"
         valid = {"search", "compare", "filter", "clarify", "respond", "outfit"}
+
+        # Guard: never let the LLM router return "respond" on the first call
+        # of a new turn when the raw query contains a product-type signal.
+        # The real Groq LLM (llama-3-8b) fires Rule-3 ("items_retrieved > 0
+        # → respond") when session has prior items, bypassing search entirely
+        # and returning stale/hallucinated product descriptions.
+        if action == "respond" and last_tool == "none":
+            _raw_q = state.get("user_query", "")
+            _has_product = any(
+                re.search(patt, _raw_q, re.IGNORECASE)
+                for patt, _ in _PRODUCT_TYPE_KEYWORDS
+            )
+            if _has_product or not state.get("retrieved_items"):
+                logger.info(
+                    "[route_decision] guard: overriding LLM 'respond' → 'search' "
+                    "(product_signal=%s, items=%d, query=%r)",
+                    _has_product,
+                    len(state.get("retrieved_items", [])),
+                    _raw_q[:60],
+                )
+                action = "search"
+
         return action if action in valid else "search"
 
     # ------------------------------------------------------------------

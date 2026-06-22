@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import Link from "next/link"
 import { useChatStream } from "@/hooks/useChatStream"
 import { MessageList } from "@/components/chat/MessageList"
 import { ChatInput } from "@/components/chat/ChatInput"
@@ -47,16 +46,10 @@ export default function DemoChatPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <header className="border-b bg-background px-6 py-3 flex items-center justify-between shrink-0">
+      <header className="border-b bg-background px-6 py-3 flex items-center shrink-0">
         <span className="font-semibold text-sm tracking-tight">
           {brandName} Shopping Assistant
         </span>
-        <Link
-          href="/demo"
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          ← Change brand
-        </Link>
       </header>
 
       {/* Chat area */}

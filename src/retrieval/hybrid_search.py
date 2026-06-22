@@ -49,6 +49,21 @@ _CATEGORY_SUFFIXES = frozenset(
 # beat an irrelevant item from a different store.
 _STORE_PENALTY: float = 0.5
 
+# F2 relevance floor — items below this RRF score are excluded as noise.
+# Locked at 0.0060 post-F1 rebuild (≈ p5-p10 across 5 calibration queries on the
+# clean index). The primary relevance gate is the product_type_name filter; this floor
+# is the backstop for queries with genuinely no catalogue matches.
+_RELEVANCE_FLOOR: float = 0.0060
+
+# Items matching this pattern are fabric bolts / unstitched material — not wearable
+# garments.  Myntra lists them under product_type="dress", so they dominate BM25 scores
+# for dress queries.  Mirrored from graph.py's _MATERIAL_ONLY_RE; applied in the BM25
+# pre-filter so the retrieval window is filled by real garments, not fabric bolts.
+_MATERIAL_ONLY_RE = re.compile(
+    r"\bunstitched\b|dress material|fabric piece|blouse piece",
+    re.IGNORECASE,
+)
+
 
 def normalize_prod_name(name: str) -> str:
     """Normalize a product name for dedup.
@@ -188,8 +203,49 @@ class HybridRetriever:
         fetch_k = self.config["retrieval"]["top_k"]
         rrf_k = self.config["retrieval"]["rrf_k"]
 
+        # Pre-filter BM25 by product_type_name when that facet filter is present.
+        # BM25 already scores all 44k items before argsort; masking here costs nothing
+        # extra and guarantees the sparse retrieval window is filled by the right type
+        # rather than by unrelated items that happen to mention the type word in text.
+        # Also exclude fabric-bolt items (unstitched dress material etc.) from the BM25
+        # window: they match the type filter correctly but score very high for garment
+        # queries (e.g. "black dress" → 49/52 catalogue entries are fabric bolts that
+        # dominate BM25 and crowd out the 3 real dresses).  The same exclusion fires
+        # post-retrieval in graph.py; applying it here ensures real garments fill the
+        # BM25 window before the graph-level filter runs.
+        # Dense (FAISS) uses the wider fetch_k window to compensate for no pre-filter.
+        # fabric_material items (unstitched bolts, blouse pieces) must never appear in
+        # garment search results.  Exclude them permanently from the BM25 window so they
+        # cannot crowd out real garments regardless of whether a type filter is set.
+        _not_fabric_mask: np.ndarray | None = None
+        if "product_type_name" in self.catalogue_df.columns:
+            _not_fabric_mask = (
+                self.catalogue_df["product_type_name"].str.lower() != "fabric_material"
+            ).values  # boolean array aligned with catalogue_df
+
+        sparse_allowed_ids: np.ndarray | None = None
+        type_filter_val = (filters or {}).get("product_type_name")
+        if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
+            pt_col = self.catalogue_df["product_type_name"].str.lower()
+            type_mask = pt_col == type_filter_val.lower()
+            if "prod_name" in self.catalogue_df.columns:
+                not_material = ~self.catalogue_df["prod_name"].fillna("").str.contains(
+                    _MATERIAL_ONLY_RE
+                )
+                type_mask = type_mask & not_material
+            if _not_fabric_mask is not None:
+                type_mask = type_mask & _not_fabric_mask
+            sparse_allowed_ids = (
+                self.catalogue_df.index[type_mask].values.astype(str)
+            )
+        elif _not_fabric_mask is not None:
+            # No explicit type filter — still exclude fabric_material from BM25 window.
+            sparse_allowed_ids = (
+                self.catalogue_df.index[_not_fabric_mask].values.astype(str)
+            )
+
         dense_hits = self.dense.search(query, top_k=fetch_k * 2)
-        sparse_hits = self.sparse.search(query, top_k=fetch_k * 2)
+        sparse_hits = self.sparse.search(query, top_k=fetch_k * 2, allowed_ids=sparse_allowed_ids)
 
         rrf_scores: dict[str, float] = {}
         for rank, (article_id, _) in enumerate(dense_hits, start=1):
@@ -199,17 +255,40 @@ class HybridRetriever:
 
         ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
-        # Extract optional store filter before iterating (not a facet — lives in `store` column)
+        # Extract optional store + gender filters before iterating.
+        # Both live in direct catalogue columns, not in the `facets` dict, so they're
+        # handled separately from the generic facet-filter loop below.
+        # gender filter replaces index_group_name: Shopify stores (virgio, fashor, etc.)
+        # have index_group_name="N/A" but carry an accurate gender="women"/"men" column
+        # derived from brand_config.gender_default at ingest time.
         store_filter: str | None = None
+        gender_filter: str | None = None
         remaining_filters: dict | None = None
         if filters:
             store_filter = filters.get("store") or None
-            remaining_filters = {k: v for k, v in filters.items() if k != "store"} or None
+            gender_filter = filters.get("gender") or None
+
+            # Translate index_group_name (H&M/Myntra-only vocabulary) to the gender column
+            # so the gender filter works across all stores (Shopify stores have
+            # index_group_name="N/A" but carry an accurate gender column).
+            ign = (filters.get("index_group_name") or "").lower()
+            if ign == "ladieswear":
+                gender_filter = gender_filter or "women"
+            elif ign == "menswear":
+                gender_filter = gender_filter or "men"
+
+            remaining_filters = {
+                k: v
+                for k, v in filters.items()
+                if k not in ("store", "gender", "index_group_name")
+            } or None
 
         # Collect ALL filter-passing candidates from the full RRF window.
         # We do NOT truncate here — diversity re-rank needs the full candidate pool.
         candidates: list[dict] = []
         for article_id, score in ranked:
+            if score < _RELEVANCE_FLOOR:
+                continue  # skip noise; ranked is not guaranteed sorted so use continue not break
             if article_id not in self.catalogue_df.index:
                 continue
             row = self.catalogue_df.loc[article_id]
@@ -223,6 +302,16 @@ class HybridRetriever:
                     else ""
                 )
                 if item_store != store_filter.lower():
+                    continue
+
+            # --- Gender filter (column-level; covers Shopify stores with index_group_name="N/A") ---
+            if gender_filter is not None:
+                item_gender = (
+                    str(row["gender"]).lower()
+                    if "gender" in row.index and row["gender"] is not None
+                    else "unknown"
+                )
+                if item_gender not in (gender_filter.lower(), "unknown"):
                     continue
 
             if remaining_filters:

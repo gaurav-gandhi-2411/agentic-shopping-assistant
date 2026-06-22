@@ -307,12 +307,15 @@ class TestPostLook:
         assert data["id"] == _LOOK_ID_STR
         assert data["share_path"] == f"/look/{_LOOK_ID_STR}"
 
-    def test_503_when_no_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_201_memory_fallback_when_no_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # G6 fix: when DATABASE_URL is absent the endpoint uses an in-memory
+        # fallback instead of returning 503, so anonymous demo saves still work.
         monkeypatch.setattr(looks_module, "_get_engine", lambda req: None)
         tc = TestClient(_app, raise_server_exceptions=False)
         resp = tc.post("/looks", json=_POST_BODY)
-        assert resp.status_code == 503
-        assert "database" in resp.json()["detail"].lower()
+        assert resp.status_code == 201
+        assert "id" in resp.json()
+        assert "share_path" in resp.json()
 
     def test_500_on_db_error(self) -> None:
         bad_engine = MagicMock()
@@ -377,8 +380,11 @@ class TestGetLookEndpoint:
         resp = tc.get("/looks/not-a-uuid-at-all")
         assert resp.status_code == 404
 
-    def test_503_when_no_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_404_memory_fallback_when_no_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # G6 fix: when DATABASE_URL is absent the endpoint uses in-memory store.
+        # A look that was never saved returns 404 (not 503) because the fallback
+        # is functional but the requested ID simply isn't there.
         monkeypatch.setattr(looks_module, "_get_engine", lambda req: None)
         tc = TestClient(_app, raise_server_exceptions=False)
         resp = tc.get(f"/looks/{_LOOK_ID_STR}")
-        assert resp.status_code == 503
+        assert resp.status_code == 404

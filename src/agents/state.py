@@ -28,6 +28,7 @@ class AgentState(TypedDict):
     look_id: str | None         # UUID of the current composed look
     outfit_rationale: str | None    # grounded rationale for the base variant
     outfit_variants: list | None    # list of variant look dicts (1-3)
+    budget_total_inr: float | None  # sum of shown item prices for the base variant
 
     # Conversation memory — the ConversationMemory instance for this conversation.
     # Injected into the initial state so the compiled graph singleton can access it
@@ -39,3 +40,12 @@ class AgentState(TypedDict):
     # propagated through the graph so _persist_result can sync to the session dict.
     _summary: str | None
     _summary_message_count: int
+
+    # Colour refinement chips — set by search_node; cleared each turn and repopulated
+    # with distinct colours from the current result set for front-end chip rendering.
+    suggestion_chips: list[str] | None
+
+    # Anchor item for buy-similar searches — stored after image upload by image_style.py.
+    # The anchor is the CLIP-nearest catalogue item to the uploaded image.
+    # search_node uses this for dense similarity retrieval when "similar/like this" is detected.
+    anchor_article_id: str | None
