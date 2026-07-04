@@ -731,9 +731,32 @@ def build_graph(
         # Merge accumulated state filters with any new filters the router specified.
         merged = {**state.get("filters", {}), **plan.get("filters", {})}
 
+        # Keep index_group_name in lockstep with "gender" whenever "gender" is present.
+        # "gender" is the freshest signal — it comes from IntentParser's merge_with_context,
+        # which always resolves gender from the MOST RECENT turn that specified one
+        # (recency wins). Without this sync, index_group_name (set only once, by raw-query
+        # regex extraction below, and never re-derived on later turns because the
+        # "not in merged" guard skips it once any value is present) goes stale: e.g. turn 2
+        # sets index_group_name="ladieswear", turn 3 flips gender to "men" via the "gender"
+        # key alone, and the stale "ladieswear" survives untouched into turn 4+. That stale
+        # value is invisible while "gender" also stays in the filter dict (hybrid_search
+        # prefers the explicit "gender" key), but the two fallback branches below —
+        # gender_filter_applied's retry (uses index_group_name) and the progressive
+        # fallback's {product_type_name, index_group_name} candidate — reconstruct filter
+        # dicts from index_group_name alone, dropping "gender" entirely. Once a later turn's
+        # search returns zero results and falls back, the stale index_group_name silently
+        # re-applies the WRONG, long-expired gender. Re-deriving it from "gender" every turn
+        # closes that gap.
+        if merged.get("gender") in ("women", "men"):
+            merged = {
+                **merged,
+                "index_group_name": "ladieswear" if merged["gender"] == "women" else "menswear",
+            }
         # Gender keyword extraction — applied before general auto-facet so explicit
         # gender words ("men's shoes", "women's jacket") always set the right group.
-        if "index_group_name" not in merged:
+        # Only reached when no "gender" key is present at all (e.g. a query with no
+        # IntentParser-detected gender and nothing carried forward from prior turns).
+        elif "index_group_name" not in merged:
             raw_lower = raw_query.lower()
             for pattern, group_val in _GENDER_MAP.items():
                 if re.search(pattern, raw_lower, re.IGNORECASE):

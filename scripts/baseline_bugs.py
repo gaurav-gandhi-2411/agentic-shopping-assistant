@@ -232,10 +232,39 @@ STORE_EXPECTED_DOMAINS: dict[str, str] = {
 }
 
 
+async def _get_pdp_with_retry(
+    browser_http: httpx.AsyncClient, pdp_url: str
+) -> tuple[httpx.Response, str | None]:
+    """GET ``pdp_url``; on a 5xx, wait 10s and retry once.
+
+    globalrepublic and libas throttle repeated bot hits from the same IP and
+    have been observed returning transient 503s under this script's load.  A
+    single retry after a 10s cool-down distinguishes a real broken link from
+    throttling. Returns ``(response, throttle_detail)`` where ``throttle_detail``
+    is set only when the 5xx persisted after the retry, so callers can report
+    an honest FAIL detail instead of treating it as a broken link.
+    """
+    resp = await browser_http.get(pdp_url)
+    if resp.status_code >= 500:
+        await asyncio.sleep(10.0)
+        retry_resp = await browser_http.get(pdp_url)
+        if retry_resp.status_code >= 500:
+            return retry_resp, f"{resp.status_code} twice (store throttling suspected)"
+        return retry_resp, None
+    return resp, None
+
+
 async def test_bug1_buy_links(http: httpx.AsyncClient) -> Tally:
-    """Berrylush/globalrepublic/libas items must carry THEIR OWN live pdp_url."""
+    """Buy-link checks for berrylush (hidden) / globalrepublic / libas.
+
+    berrylush is intentionally hidden site-wide (STORE_CONFIG active=False --
+    the store put up a Shopify password wall), so a berrylush-flavoured query
+    must still return results overall but never surface any berrylush item.
+    globalrepublic and libas must each carry their own live pdp_url, as before.
+    """
     print("\n-- Bug 1: Wrong Buy Links (berrylush / globalrepublic / libas) --")
     tally = Tally()
+    all_turn_items: list[dict] = []
 
     async with httpx.AsyncClient(
         follow_redirects=True, timeout=30, headers={"User-Agent": BROWSER_UA}
@@ -253,7 +282,18 @@ async def test_bug1_buy_links(http: httpx.AsyncClient) -> Tally:
                 check(tally, f"{store_slug}: WS turn succeeded", False, f"error={result.error}")
                 continue
 
+            all_turn_items.extend(result.items)
+
             store_items = [it for it in result.items if it.get("store") == store_slug]
+
+            if store_slug == "berrylush":
+                check(
+                    tally,
+                    "berrylush: hidden from results (store inactive)",
+                    len(result.items) > 0 and len(store_items) == 0,
+                    f"total_items={len(result.items)} berrylush_items={len(store_items)}",
+                )
+                continue
 
             check(
                 tally,
@@ -289,20 +329,39 @@ async def test_bug1_buy_links(http: httpx.AsyncClient) -> Tally:
                 f"missing_on={no_display[:5]}" if no_display else "all ok",
             )
 
-            # (d) HTTP GET up to 3 pdp_urls -> final status 200, final netloc still on domain
+            # (d) HTTP GET up to 3 pdp_urls -> final status 200, final netloc still on domain.
+            # A 2.5s gap between GETs plus a 10s-then-retry on 5xx avoids tripping
+            # these stores' bot throttling, which has been observed to return 503s
+            # after several same-IP GETs in quick succession.
             sample_urls = [it.get("pdp_url") for it in store_items[:3] if it.get("pdp_url")]
             for pdp_url in sample_urls:
+                await asyncio.sleep(2.5)
                 try:
-                    resp = await browser_http.get(pdp_url)
+                    resp, throttle_detail = await _get_pdp_with_retry(browser_http, pdp_url)
                     final_netloc = urlparse(str(resp.url)).netloc.lower()
                     ok = resp.status_code == 200 and expected_domain in final_netloc
-                    detail = (
-                        f"url={pdp_url}  status={resp.status_code}  final_url={resp.url}"
-                    )
+                    if throttle_detail:
+                        detail = f"url={pdp_url}  status={resp.status_code}  {throttle_detail}"
+                    else:
+                        detail = (
+                            f"url={pdp_url}  status={resp.status_code}  final_url={resp.url}"
+                        )
                 except Exception as exc:
                     ok = False
                     detail = f"url={pdp_url}  request_error={exc}"
                 check(tally, f"{store_slug}: pdp_url resolves live (200, same domain)", ok, detail)
+
+        hidden_store_items = [
+            it for it in all_turn_items if it.get("store") in ("berrylush", "hm")
+        ]
+        check(
+            tally,
+            "bug1: no item across all turns has store berrylush or hm",
+            len(hidden_store_items) == 0,
+            f"offenders={json.dumps(hidden_store_items)[:400]}"
+            if hidden_store_items
+            else "all ok",
+        )
 
     return tally
 

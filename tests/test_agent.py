@@ -335,3 +335,155 @@ def test_agent_filter_query(config, retriever, catalogue_df):
     colours = [r["colour"].lower() for r in result["retrieved_items"]]
     blue_count = sum(1 for c in colours if "blue" in c)
     assert blue_count >= 1, f"Expected blue items, got colours: {colours}"
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn colour-only refinement must inherit from the MOST RECENT search
+# turn, not from any earlier turn in a longer, mixed-gender conversation.
+# Mirrors api/routes/chat.py's _build_invoke_state / _persist_result session
+# plumbing exactly so this reproduces the live single-instance bug in-process.
+#
+# Uses the unified cross-store index (data/processed/unified) rather than the
+# module-scoped `retriever`/`catalogue_df` fixtures above: those point at the
+# legacy H&M-only sample (data/processed/catalogue.parquet), which predates
+# the "gender" column entirely (see tests/test_hybrid_search_store_gender.py).
+# Without a real gender column every gender-filtered search on that fixture
+# returns 0 items (item_gender defaults to "unknown"), which cascades into the
+# unrelated full-filter-drop fallback and masks the bug under test.
+# ---------------------------------------------------------------------------
+
+UNIFIED_SAVE_DIR = Path("data/processed/unified")
+
+
+@pytest.fixture(scope="module")
+def unified_catalogue_df():
+    return pd.read_parquet(UNIFIED_SAVE_DIR / "catalogue.parquet")
+
+
+@pytest.fixture(scope="module")
+def unified_retriever(config, unified_catalogue_df):
+    dense = DenseRetriever.load(config, UNIFIED_SAVE_DIR)
+    sparse = SparseRetriever.load(config, UNIFIED_SAVE_DIR)
+    return HybridRetriever(dense, sparse, unified_catalogue_df, config)
+
+
+def _run_turn(agent, session: dict, query: str) -> dict:
+    """Invoke the graph for one turn and persist the result back into session.
+
+    Mirrors api.routes.chat._build_invoke_state / _persist_result so multi-turn
+    tests exercise the exact same session-state shape the live API uses.
+    """
+    invoke_state = {
+        "messages": session["messages"] + [{"role": "user", "content": query}],
+        "user_query": query,
+        "current_plan": None,
+        "tool_calls": [],
+        "retrieved_items": session["retrieved_items"],
+        "filters": session["filters"],
+        "final_answer": None,
+        "iteration": 0,
+        "new_items_this_turn": False,
+        "out_of_catalogue": False,
+        "excluded_colours": session.get("excluded_colours"),
+        "anchor_article_id": session.get("anchor_article_id"),
+        "outfit_rationale": None,
+        "outfit_variants": None,
+        "_memory": session["_memory"],
+    }
+    result = agent.invoke(invoke_state)
+    session["messages"] = result.get("messages", session["messages"])
+    session["retrieved_items"] = result.get("retrieved_items", session["retrieved_items"])
+    session["filters"] = result.get("filters", session["filters"])
+    if result.get("excluded_colours") is not None:
+        session["excluded_colours"] = result["excluded_colours"]
+    return result
+
+
+@pytest.mark.requires_index
+def test_colour_refinement_inherits_most_recent_turn_gender_and_garment(
+    config, unified_retriever, unified_catalogue_df, monkeypatch
+):
+    """4-turn mixed-gender conversation: colour-only refinement must inherit from
+    the MOST RECENT search turn (men/shirt), not from an earlier turn (women/dress).
+
+    Reproduces the live bug: turn 4 ("in blue now") fell back to a generic
+    women's search, losing both gender=men and garment_type=shirt carried from
+    turn 3, whenever the fully-filtered search came up empty and search_node's
+    progressive fallback had to drop the "gender" key.
+
+    With ample real inventory (data/processed/unified) the fully-filtered
+    combo (shirt + men + blue) never actually comes up empty, so the buggy
+    fallback branch is never exercised end-to-end in practice here — the
+    corrupted state is real (see turn-by-turn filters asserted below) but
+    silently harmless as long as the "gender" key survives untouched. To
+    reliably exercise the fallback branch itself (the mechanism through which
+    the corrupted state becomes visibly wrong on live, sparser queries), this
+    test forces every gender-filtered search to report zero results via
+    monkeypatch, so search_node must fall through to the
+    {product_type_name, index_group_name}-only candidate — the exact
+    candidate that silently re-derives gender from a stale index_group_name.
+    """
+    os.environ["AGENT_LOOP_FAST_PATH"] = "true"
+    import src.agents.graph as graph_module
+    from src.agents.tools import search_catalogue as real_search_catalogue
+
+    def _fake_search_catalogue(query, filters, retriever, top_k):
+        # Force a "zero results" outcome for any search where a gender constraint is
+        # explicitly present (via the "gender" key) so search_node must fall through
+        # its progressive-fallback ladder to the {product_type_name, index_group_name}
+        # candidate — the one path that reconstructs gender from index_group_name
+        # alone, with no "gender" key. That is the exact seam this test targets;
+        # forcing it here removes any dependence on which items happen to fall
+        # inside the real FAISS/BM25 top-k window for a given query.
+        if filters and filters.get("gender"):
+            return {"items": [], "query": query, "n_results": 0}
+        return real_search_catalogue(query, filters, retriever, top_k)
+
+    monkeypatch.setattr(graph_module, "search_catalogue", _fake_search_catalogue)
+
+    llm = MockLLM(["ok"] * 20)
+    session = {
+        "messages": [],
+        "retrieved_items": [],
+        "filters": {},
+        "excluded_colours": None,
+        "_memory": ConversationMemory(llm, config),
+    }
+    agent = build_graph(unified_retriever, unified_catalogue_df, llm, config)
+
+    def _genders(items: list[dict]) -> list[str]:
+        return [it.get("gender", "").lower() for it in items]
+
+    _run_turn(agent, session, "saree")
+    _run_turn(agent, session, "black dress for women")
+    turn3 = _run_turn(agent, session, "white shirt men")
+
+    # Sanity: turn 3 must actually land on men's shirts before we test the refinement.
+    turn3_types = [it.get("product_type", "").lower() for it in turn3["retrieved_items"]]
+    turn3_genders = _genders(turn3["retrieved_items"])
+    assert turn3_types and all("shirt" in t for t in turn3_types), (
+        f"Precondition failed: turn 3 should be all shirts, got {turn3_types}"
+    )
+    assert turn3_genders and all(g == "men" for g in turn3_genders), (
+        f"Precondition failed: turn 3 should be all men's, got {turn3_genders}"
+    )
+
+    turn4 = _run_turn(agent, session, "in blue now")
+
+    filters = turn4.get("filters", {})
+    assert filters.get("product_type_name", "").lower() == "shirt", (
+        f"Expected garment_type carried forward as 'shirt', got filters={filters}"
+    )
+    assert filters.get("index_group_name") == "menswear", (
+        f"Expected gender carried forward as 'men' (index_group_name=menswear), "
+        f"got filters={filters}"
+    )
+
+    turn4_types = [it.get("product_type", "").lower() for it in turn4["retrieved_items"]]
+    turn4_genders = _genders(turn4["retrieved_items"])
+    assert turn4_types and all("shirt" in t for t in turn4_types), (
+        f"Expected turn 4 items to stay shirts, got {turn4_types}"
+    )
+    assert turn4_genders and all(g == "men" for g in turn4_genders), (
+        f"Expected turn 4 items to stay men's, got {turn4_genders}"
+    )
