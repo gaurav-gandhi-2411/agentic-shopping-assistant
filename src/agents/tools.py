@@ -218,6 +218,7 @@ def compose_outfit_tool(
     catalogue_df: pd.DataFrame,
     retriever: HybridRetriever,
     budget_inr: float | None = None,
+    owned_anchor: bool = False,
 ) -> dict:
     """Occasion-aware outfit composition. Delegates to src.agents.outfit.composer."""
     return compose_outfit(
@@ -228,4 +229,5 @@ def compose_outfit_tool(
         gender=gender,
         budget_inr=budget_inr,
         pairing_stats=None,  # flywheel stats injected later when F phase is complete
+        owned_anchor=owned_anchor,
     )

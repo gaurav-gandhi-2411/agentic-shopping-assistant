@@ -49,3 +49,10 @@ class AgentState(TypedDict):
     # The anchor is the CLIP-nearest catalogue item to the uploaded image.
     # search_node uses this for dense similarity retrieval when "similar/like this" is detected.
     anchor_article_id: str | None
+
+    # "Owned anchor" feature — True when anchor_article_id refers to an item the USER
+    # OWNS (uploaded a photo of it) rather than a catalogue item for sale. Set by
+    # image_style.py alongside anchor_article_id; consulted by outfit_node so a
+    # follow-up "Style this <item>" / re-compose never silently re-tags the user's
+    # own garment as buyable. Defaults to False for text-only sessions.
+    anchor_is_owned: bool

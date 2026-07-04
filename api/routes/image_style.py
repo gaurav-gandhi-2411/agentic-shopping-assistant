@@ -353,6 +353,9 @@ async def post_style_from_image(
 
     gender = _resolve_gender(intent_gender, catalogue_df, anchor_id, brand_cfg)
 
+    # "Owned anchor" feature: the seed resolved from an uploaded photo is an item
+    # the user already OWNS, never a catalogue item for sale. owned_anchor=True
+    # stamps _owned on the seed in every variant; complements stay shoppable.
     variants = compose_outfit_variants(
         catalogue_df,
         retriever,
@@ -361,6 +364,7 @@ async def post_style_from_image(
         gender=gender,
         budget_inr=budget_max_inr,
         brand_gender_default=gender,
+        owned_anchor=True,
     )
 
     # ── Grounded rationale generation ─────────────────────────────────────────
@@ -411,6 +415,10 @@ async def post_style_from_image(
                 "filters": {"gender": gender},
                 "new_items_this_turn": True,
                 "anchor_article_id": anchor_id,
+                # "Owned anchor": image uploads are always owned by default — a
+                # follow-up "Style this" / re-compose must not re-tag this item
+                # as buyable. See graph.py outfit_node and src/agents/state.py.
+                "anchor_is_owned": True,
             }
         )
         if message:

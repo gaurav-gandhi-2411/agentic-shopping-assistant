@@ -64,6 +64,11 @@ class ItemSummary(BaseModel):
     pdp_handle: str | None = None
     outfit_slot: str | None = None    # e.g. "bottom", "accessory", "footwear"
     slot_role: str | None = None      # "seed" or "complement"
+    # "Owned anchor" feature: True when this item is the user's OWN garment (e.g.
+    # the seed resolved from an uploaded photo) rather than a catalogue item for
+    # sale. Owned items are still rendered ("Your item") but pdp_url is always
+    # None, and build_cart_action excludes them from cart/link/total machinery.
+    is_owned: bool = False
     # Cross-store fields (populated in unified mode; None for legacy per-brand responses)
     store: str | None = None          # store slug, e.g. "myntra", "snitch"
     store_display: str | None = None  # human-readable name, e.g. "Myntra", "Snitch"
@@ -78,6 +83,7 @@ class ItemSummary(BaseModel):
         from src.config.stores import build_pdp_url, get_store_display_name
 
         store = item.get("store") or None
+        is_owned = bool(item.get("_owned", False))
         return cls(
             article_id=item.get("article_id") or "",
             prod_name=_ns(item.get("prod_name")),
@@ -92,9 +98,11 @@ class ItemSummary(BaseModel):
             pdp_handle=item.get("pdp_handle") or None,
             outfit_slot=item.get("_slot") or None,
             slot_role=item.get("_role") or None,
+            is_owned=is_owned,
             store=store,
             store_display=get_store_display_name(store),
-            pdp_url=build_pdp_url(store, item),
+            # Owned items are never for sale — never emit a buy link for them.
+            pdp_url=None if is_owned else build_pdp_url(store, item),
         )
 
 
