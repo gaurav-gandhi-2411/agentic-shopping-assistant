@@ -678,6 +678,18 @@ async def ws_chat(websocket: WebSocket) -> None:
             ).model_dump_json()
         )
 
+        # Explicitly close the connection after the terminal frame so the
+        # client sees a clean handshake (code 1000) rather than relying on
+        # the ASGI server to close it implicitly when the handler returns.
+        # Without this, some clients intermittently observe an abnormal
+        # close ("no close frame received or sent") and silently retry,
+        # even though items/done were already sent successfully.
+        try:
+            await websocket.close(code=1000)
+        except Exception:
+            # Client may have already disconnected — nothing to do.
+            pass
+
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as exc:

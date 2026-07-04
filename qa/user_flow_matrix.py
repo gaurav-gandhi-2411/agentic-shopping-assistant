@@ -700,6 +700,7 @@ def _agent_path_client(adversarial_llm=None):
     @contextlib.contextmanager
     def _ctx():
         from fastapi.testclient import TestClient
+
         import api.deps as deps
         from api.main import app
         from api.session import InMemorySessionStore
@@ -1644,6 +1645,177 @@ def _check_g9b_no_skirts_for_men_tshirt() -> None:
 
 
 # ---------------------------------------------------------------------------
+# WS-close — WS /chat/stream: server initiates a clean close (code 1000)
+# ---------------------------------------------------------------------------
+
+def _check_ws_graceful_close() -> None:
+    """WS-close: after a completed turn, the server must initiate a clean close (1000).
+
+    Regression check for the intermittent "no close frame received or sent" bug:
+    without an explicit ``await websocket.close(code=1000)`` after WSDoneMessage,
+    some clients observe an abnormal close and silently retry, losing the tail
+    frames (items/done) even though the turn actually completed successfully.
+
+    Uses the same in-process ASGI/WS TestClient transport as the other WS checks
+    in this file, with a mocked agent (no index dependency) so this check is
+    fast and deterministic.
+    """
+    os.environ["JWT_VERIFICATION_DISABLED"] = "true"
+    os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+
+    import api.deps as deps
+
+    client = _fresh_client()
+    deps.get_agent_factory = _make_agent_factory(_DEFAULT_AGENT_RESULT)  # type: ignore[assignment]
+
+    try:
+        with client.websocket_connect("/chat/stream") as ws:
+            ws.send_json({"type": "user_message", "message": "hello"})
+
+            done_seen = False
+            for _ in range(30):
+                frame = ws.receive_json()
+                if frame.get("type") == "done":
+                    done_seen = True
+                    break
+                if frame.get("type") in ("cancelled", "error"):
+                    break
+
+            if not done_seen:
+                _record("WS-close", "server initiates clean close (code 1000)", "FAIL",
+                        "no done frame received before checking close code")
+                return
+
+            # The next raw ASGI message after done must be the server-initiated
+            # close frame — this is what proves the fix in api/routes/chat.py.
+            raw = ws.receive()
+    except Exception as exc:
+        _record("WS-close", "server initiates clean close (code 1000)", "FAIL",
+                f"error: {type(exc).__name__}: {exc}")
+        return
+
+    if raw.get("type") != "websocket.close":
+        _record("WS-close", "server initiates clean close (code 1000)", "FAIL",
+                f"expected a close frame after done, got type={raw.get('type')!r}")
+        return
+
+    code = raw.get("code")
+    if code == 1000:
+        _record("WS-close", "server initiates clean close (code 1000)", "PASS",
+                f"close code={code}")
+    else:
+        _record("WS-close", "server initiates clean close (code 1000)", "FAIL",
+                f"expected close code 1000, got {code}")
+
+
+# ---------------------------------------------------------------------------
+# PDP-domain — every returned item's pdp_url domain matches its store,
+# and no item comes from a store flagged inactive
+# ---------------------------------------------------------------------------
+
+def _check_pdp_domain_regression() -> None:
+    """PDP-domain: pdp_url domain must match the item's store; no inactive-store leaks.
+
+    Two sub-checks over a broad search against the unified catalogue fixture:
+      1. Every item's expanded pdp_url domain matches the domain implied by
+         its store's STORE_CONFIG pdp_url_template (skipped per-item for
+         stores with no template, e.g. Flipkart, where pdp_handle is already
+         a full URL with no fixed domain to check against).
+      2. No item's store is in get_inactive_stores() (src.config.stores).
+         That helper is being added in a parallel work stream — if the import
+         is not yet available, sub-check 2 is skipped with a clear log line
+         while sub-check 1 still runs.
+    """
+    unified_faiss = _REPO_ROOT / "data" / "processed" / "unified" / "dense.faiss"
+    if not unified_faiss.exists():
+        _record("PDP-domain", "pdp_url domain matches store; no inactive stores", "SKIP",
+                f"unified index not present: {unified_faiss}")
+        return
+
+    from urllib.parse import urlparse
+
+    from src.config.stores import STORE_CONFIG, build_pdp_url
+
+    try:
+        from src.config.stores import get_inactive_stores  # type: ignore[attr-defined]
+        inactive_stores = {s.lower() for s in get_inactive_stores()}
+        inactive_check_available = True
+    except ImportError:
+        inactive_stores = set()
+        inactive_check_available = False
+        print(
+            "[PDP-domain] src.config.stores.get_inactive_stores not available yet "
+            "(parallel work stream) — skipping inactive-store sub-check"
+        )
+
+    try:
+        retriever, _df = _load_unified_retriever()
+    except Exception as exc:
+        _record("PDP-domain", "pdp_url domain matches store; no inactive stores", "FAIL",
+                f"failed to load unified retriever: {type(exc).__name__}: {exc}")
+        return
+
+    try:
+        results = retriever.search("casual shirt", top_k=50)
+    except Exception as exc:
+        _record("PDP-domain", "pdp_url domain matches store; no inactive stores", "FAIL",
+                f"retriever.search raised {type(exc).__name__}: {exc}")
+        return
+
+    if not results:
+        _record("PDP-domain", "pdp_url domain matches store; no inactive stores", "FAIL",
+                "search returned 0 results")
+        return
+
+    def _expected_domain(store: str) -> str | None:
+        cfg = STORE_CONFIG.get(store.lower())
+        if not cfg or not cfg.get("pdp_url_template"):
+            return None
+        return urlparse(cfg["pdp_url_template"]).netloc
+
+    domain_mismatches: list[str] = []
+    inactive_hits: list[str] = []
+    checked = 0
+
+    for item in results:
+        store = item.get("store")
+        if not store:
+            continue
+
+        if inactive_check_available and store.lower() in inactive_stores:
+            inactive_hits.append(f"{item.get('article_id')}({store})")
+            continue
+
+        url = build_pdp_url(store, item)
+        if url is None:
+            continue  # no live PDP data for this store — nothing to verify
+
+        expected = _expected_domain(store)
+        if expected is None:
+            continue  # no fixed template (e.g. Flipkart) — nothing to compare against
+
+        actual = urlparse(url).netloc
+        checked += 1
+        if actual != expected:
+            domain_mismatches.append(
+                f"{item.get('article_id')}({store}): expected={expected} actual={actual}"
+            )
+
+    if domain_mismatches or inactive_hits:
+        detail_parts = []
+        if domain_mismatches:
+            detail_parts.append(f"{len(domain_mismatches)} domain mismatch(es): {domain_mismatches[:3]}")
+        if inactive_hits:
+            detail_parts.append(f"{len(inactive_hits)} item(s) from inactive store(s): {inactive_hits[:3]}")
+        _record("PDP-domain", "pdp_url domain matches store; no inactive stores", "FAIL",
+                "; ".join(detail_parts))
+    else:
+        suffix = "" if inactive_check_available else " (inactive-store check skipped)"
+        _record("PDP-domain", "pdp_url domain matches store; no inactive stores", "PASS",
+                f"{checked}/{len(results)} items domain-verified, 0 mismatches{suffix}")
+
+
+# ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
 
@@ -1682,6 +1854,8 @@ def _run_all_checks() -> None:
     _check_ws_chips()
     _check_ws_look_id()
     _check_ws_budget_consistent()
+    _check_ws_graceful_close()
+    _check_pdp_domain_regression()
 
 
 def _print_table(results: list[CheckResult]) -> int:

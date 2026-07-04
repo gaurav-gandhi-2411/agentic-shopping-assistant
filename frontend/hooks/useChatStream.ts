@@ -7,12 +7,21 @@ import type { ChatMessage, ItemSummary, OutfitVariant, ItemLink, WsFrame } from 
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
 
+// POST /style/from-image can be slow on a cold-started backend (CLIP model load).
+// Abort and show an honest message rather than hanging the "Finding your match…"
+// placeholder forever.
+const IMAGE_UPLOAD_TIMEOUT_MS = 75_000
+
 // ---------------------------------------------------------------------------
 // StyleFromImageResponse — mirrors POST /style/from-image backend response.
 // Same shape as an outfit chat turn's final_state fields.
 // ---------------------------------------------------------------------------
 interface StyleFromImageResponse {
   conversation_id?: string | null
+  // Echoed back by the backend when a `message` field was sent (parallel work
+  // stream). Optional — no UI change needed when absent; the user's typed
+  // text is already shown in the optimistic user bubble.
+  user_text?: string | null
   items: ItemSummary[]
   look_id?: string | null
   occasion?: string | null
@@ -100,6 +109,9 @@ export function useChatStream({
       let finished = false
       // Tracks whether the assistant placeholder was added (so retries don't duplicate it).
       let placeholderAdded = false
+      // Tracks whether any token text arrived before an abnormal close, so retry
+      // exhaustion can distinguish "partial content received" from "nothing received".
+      let receivedAnyToken = false
 
       let url: string
       try {
@@ -169,6 +181,7 @@ export function useChatStream({
             }
 
             case "token": {
+              receivedAnyToken = true
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -291,16 +304,23 @@ export function useChatStream({
             retryCount++
             setTimeout(openConnection, delay)
           } else {
-            // All retries exhausted.
+            // All retries exhausted. Keep whatever we already received (tokens
+            // and/or items) instead of dropping it — only surface connectionLost
+            // when NOTHING useful arrived from the server.
             finished = true
+            const hasPendingItems = pendingItems.length > 0
             setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId && m.isStreaming
-                  ? { ...m, isStreaming: false, content: m.content || "" }
-                  : m
-              )
+              prev.map((m) => {
+                if (m.id !== assistantId || !m.isStreaming) return m
+                if (hasPendingItems) {
+                  return { ...m, isStreaming: false, items: pendingItems }
+                }
+                return { ...m, isStreaming: false, content: m.content || "" }
+              })
             )
-            setConnectionLost(true)
+            if (!receivedAnyToken && !hasPendingItems) {
+              setConnectionLost(true)
+            }
             setIsSending(false)
           }
         }
@@ -370,15 +390,28 @@ export function useChatStream({
       const body = new FormData()
       body.append("file", file)
       body.append("conversation_id", cid)
+      const trimmedText = userText?.trim()
+      if (trimmedText) {
+        body.append("message", trimmedText)
+      }
 
       const headers: Record<string, string> = {}
       if (token) headers["Authorization"] = `Bearer ${token}`
 
-      const res = await fetch(`${backendBase}/style/from-image`, {
-        method: "POST",
-        headers,
-        body,
-      })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), IMAGE_UPLOAD_TIMEOUT_MS)
+
+      let res: Response
+      try {
+        res = await fetch(`${backendBase}/style/from-image`, {
+          method: "POST",
+          headers,
+          body,
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
 
       if (!res.ok) {
         const friendlyMsg = imageUploadErrorMessage(res.status)
@@ -423,14 +456,19 @@ export function useChatStream({
         )
       )
       onDone?.()
-    } catch {
+    } catch (err) {
+      const isTimeout = err instanceof DOMException && err.name === "AbortError"
+      const friendlyMsg = isTimeout
+        ? "This is taking longer than expected — the styling service may be waking up. " +
+          "Please try again in a minute."
+        : "Could not reach the styling service — please try again."
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
             ? {
                 ...m,
                 isStreaming: false,
-                content: "Could not reach the styling service — please try again.",
+                content: friendlyMsg,
               }
             : m
         )
