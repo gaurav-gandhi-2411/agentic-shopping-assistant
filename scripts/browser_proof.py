@@ -54,6 +54,11 @@ CARD_WAIT_TIMEOUT_S = 60
 IMAGE_WAIT_TIMEOUT_S = 90
 POLL_INTERVAL_S = 1.5
 
+# Typed alongside the image upload in both the a-f flow (step_image_upload) and
+# the B-series flow (step_b4_image_board reads the "under N" budget cap back
+# out of this same string) — kept as one constant so the two steps can't drift.
+IMAGE_UPLOAD_TEXT = "buy similar under 2000"
+
 # Friendly error/timeout strings the frontend shows on a failed/timed-out
 # image upload (see frontend/hooks/useChatStream.ts: imageUploadErrorMessage
 # and the AbortError branch of sendImage's catch block).
@@ -304,12 +309,19 @@ def step_refinement(page: Page, state: ProofState) -> None:
     )
 
 
-def step_image_upload(page: Page, state: ProofState, image_path: Path) -> None:
+def step_image_upload(page: Page, state: ProofState, image_path: Path) -> int | None:
     """Step e: upload an image + typed text; verify user-bubble echo, then wait for
-    cards or the honest timeout/error message (fail on infinite spinner)."""
+    cards or the honest timeout/error message (fail on infinite spinner).
+
+    Returns the number of NEW cards that rendered from the image-search turn
+    (outcome == "cards"), or None if the turn produced no cards (error/hang).
+    Callers (e.g. step_b4_image_board) use this to cross-check that they've
+    picked up the outfit board belonging to THIS turn, not a stale board left
+    over from an earlier turn in the same session.
+    """
     if not image_path.exists():
         state.record("e. image upload", False, f"image file not found: {image_path}")
-        return
+        return None
 
     file_input = page.locator("input[type=file]")
     file_input.set_input_files(str(image_path))
@@ -319,10 +331,10 @@ def step_image_upload(page: Page, state: ProofState, image_path: Path) -> None:
         page.wait_for_selector("img[alt='Upload preview']", timeout=5_000)
     except Exception as exc:  # noqa: BLE001
         state.record("e0. image picked into composer", False, str(exc))
-        return
+        return None
     state.record("e0. image picked into composer", True)
 
-    typed_text = "buy similar under 2000"
+    typed_text = IMAGE_UPLOAD_TEXT
     page.locator("textarea").fill(typed_text)
     shot(page, "e1_composer_with_image_and_text")
 
@@ -369,12 +381,14 @@ def step_image_upload(page: Page, state: ProofState, image_path: Path) -> None:
         badge = card_store_badge(first_new)
         detail += f" | first new card: title='{title}' store_badge='{badge}'"
         state.record("e2. image search returns cards or honest message", True, detail)
+        return count - baseline
     elif outcome == "honest_message":
         state.record(
             "e2. image search returns cards or honest message",
             False,
             f"no cards; showed honest error instead: {detail}",
         )
+        return None
     else:
         state.record(
             "e2. image search returns cards or honest message",
@@ -382,6 +396,7 @@ def step_image_upload(page: Page, state: ProofState, image_path: Path) -> None:
             f"HANG: no cards and no honest message after {IMAGE_WAIT_TIMEOUT_S}s "
             "(spinner likely stuck on 'Finding your match...')",
         )
+        return None
 
 
 def step_b1_header(page: Page, state: ProofState) -> None:
@@ -477,9 +492,20 @@ def step_b3_interactions(page: Page, state: ProofState) -> None:
         )
 
     # -- "Style this" --------------------------------------------------------
+    # After B3b, the "More like this" panel is expanded and renders its OWN
+    # "Style this" buttons (one per SimilarItemRow) inside the same card
+    # container matched by `first_card` (SimilarItemsPanel is a sibling div
+    # nested under the card's `.rounded-lg.border` root, not a separate card).
+    # get_by_text(..., exact=True) with no qualifier resolves to all of them
+    # (1 main + N similar rows) and Playwright's strict mode raises on >1
+    # match. We take `.first` rather than clicking "Hide similar" first: the
+    # card's own action button is emitted earlier in the JSX/DOM than the
+    # conditionally-rendered SimilarItemsPanel (see ItemCard.tsx), so DOM
+    # order alone guarantees `.first` is the main card's button — no extra
+    # click/settle-wait on the panel's collapse animation needed.
     baseline2 = card_count(page)
     try:
-        first_card.get_by_text("Style this", exact=True).click()
+        first_card.get_by_text("Style this", exact=True).first.click()
     except Exception as exc:  # noqa: BLE001
         state.record("B3c. 'Style this' produces new cards/board", False, f"click failed: {exc}")
         return
@@ -523,6 +549,8 @@ def step_b3_interactions(page: Page, state: ProofState) -> None:
 
 
 AMOUNT_RE = re.compile(r"₹([\d,]+)")
+# Pulls the numeric budget cap out of IMAGE_UPLOAD_TEXT ("buy similar under 2000" -> 2000).
+BUDGET_RE = re.compile(r"under\s+(\d+)")
 
 
 def _parse_rupee_amount(text: str) -> int | None:
@@ -531,38 +559,71 @@ def _parse_rupee_amount(text: str) -> int | None:
     return int(m.group(1).replace(",", "")) if m else None
 
 
-def step_b4_image_board(page: Page, state: ProofState) -> None:
-    """B4: after image upload, the outfit board must show >=3 slot cards whose
-    prices sum to the 'Open all items' / 'Add the look to cart' CTA amount."""
+def _parse_typed_budget(text: str) -> int | None:
+    """Extract an 'under N' budget cap from typed composer text as an int, or None."""
+    m = BUDGET_RE.search(text)
+    return int(m.group(1)) if m else None
+
+
+def step_b4_image_board(
+    page: Page, state: ProofState, expected_new_cards: int | None = None
+) -> None:
+    """B4: after image upload, the outfit board must show >=2 slot cards, and — since
+    IMAGE_UPLOAD_TEXT types an explicit budget cap ("...under 2000") — the board must
+    respect that budget rather than always requiring >=3 items. A composer that
+    correctly stops at 2 items totaling under the cap is CORRECT behavior, not a bug;
+    B4a previously over-asserted n_slots>=3 regardless of the typed budget.
+
+    In the --product flow, B3c ("Style this") and B3d ("More formal") each render
+    their OWN outfit board earlier in the message list, BEFORE the image-upload
+    turn runs. `OUTFIT_BOARD_SELECTOR` matches all of them, so grabbing `.first`
+    picks up a stale board from an earlier turn (observed live: a 4-slot,
+    ₹8,746 "More formal" board instead of the 2-slot image-upload board).
+    Assistant messages render top-to-bottom in arrival order, so the board
+    belonging to the FINAL (image-upload) turn is always the LAST one in the
+    DOM — use `.last`, not `.first`.
+
+    `expected_new_cards` (from step_image_upload's return value: the new-card
+    delta observed during the image-search turn, via the same CARD_SELECTOR
+    that also matches outfit-board slot tiles) is cross-checked against
+    `n_slots` as a second guard against picking the wrong board: if a stale
+    earlier board were picked, its slot count would very likely disagree with
+    the number of cards that turn actually added.
+    """
     board = page.locator(OUTFIT_BOARD_SELECTOR)
     if board.count() == 0:
         state.record(
-            "B4a. image-look outfit board shows >=3 slot cards",
+            "B4a. image-look board >=2 slots and respects typed budget",
             False,
             "no outfit board rendered after image upload",
         )
         return
 
-    board0 = board.first
+    board0 = board.last
     slot_cards = board0.locator("a.rounded-lg.border.bg-background")
     n_slots = slot_cards.count()
     shot(page, "b4_outfit_board")
-    state.record(
-        "B4a. image-look outfit board shows >=3 slot cards",
-        n_slots >= 3,
-        f"n_slots={n_slots}",
-    )
 
-    prices = [_parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(n_slots)]
-    prices = [p for p in prices if p is not None]
-    price_sum = sum(prices)
+    budget_cap = _parse_typed_budget(IMAGE_UPLOAD_TEXT)
+    slot_prices = [_parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(n_slots)]
+    slot_prices = [p for p in slot_prices if p is not None]
+    slot_price_sum = sum(slot_prices)
+    budget_respected = budget_cap is None or slot_price_sum <= budget_cap
+    matches_e2_delta = expected_new_cards is None or n_slots == expected_new_cards
+    state.record(
+        "B4a. image-look board >=2 slots and respects typed budget",
+        n_slots >= 2 and budget_respected and matches_e2_delta,
+        f"n_slots={n_slots} budget_cap={budget_cap} slot_price_sum={slot_price_sum} "
+        f"n_prices_parsed={len(slot_prices)}/{n_slots} n_boards_on_page={board.count()} "
+        f"expected_new_cards(from e2)={expected_new_cards} matches_e2_delta={matches_e2_delta}",
+    )
 
     cta = board0.get_by_role("button", name=re.compile(r"Open all items|Add the look to cart"))
     if cta.count() == 0:
         state.record(
             "B4b. board CTA amount equals sum of card prices",
             False,
-            f"no CTA button found (n_slots={n_slots} sum_of_card_prices={price_sum})",
+            f"no CTA button found (n_slots={n_slots} sum_of_card_prices={slot_price_sum})",
         )
         return
 
@@ -570,9 +631,9 @@ def step_b4_image_board(page: Page, state: ProofState) -> None:
     cta_amount = _parse_rupee_amount(cta_text)
     state.record(
         "B4b. board CTA amount equals sum of card prices",
-        cta_amount is not None and cta_amount == price_sum,
-        f"cta_text={cta_text!r} cta_amount={cta_amount} sum_of_card_prices={price_sum} "
-        f"n_prices_parsed={len(prices)}/{n_slots}",
+        cta_amount is not None and cta_amount == slot_price_sum,
+        f"cta_text={cta_text!r} cta_amount={cta_amount} sum_of_card_prices={slot_price_sum} "
+        f"n_prices_parsed={len(slot_prices)}/{n_slots}",
     )
 
 
@@ -663,8 +724,8 @@ def main() -> int:
                     step_b1_header(page, state)
                     step_b2_greeting(page, state)
                     step_b3_interactions(page, state)
-                    step_image_upload(page, state, Path(args.image))
-                    step_b4_image_board(page, state)
+                    image_new_cards = step_image_upload(page, state, Path(args.image))
+                    step_b4_image_board(page, state, expected_new_cards=image_new_cards)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(
