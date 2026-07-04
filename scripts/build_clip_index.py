@@ -57,6 +57,10 @@ _KNOWN_BRANDS: list[str] = [
     "virgio",
     "powerlook",
     "sample_in",
+    # Shopify stores added in the data-depth build (2026-06-22); see src/config/stores.py.
+    "berrylush",
+    "globalrepublic",
+    "libas",
 ]
 
 _DEFAULT_DATA_DIR = _REPO_ROOT / "data" / "processed"
