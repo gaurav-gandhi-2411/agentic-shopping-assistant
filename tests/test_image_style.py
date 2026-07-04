@@ -337,6 +337,45 @@ def test_happy_path_png_accepted(client: TestClient) -> None:
     assert resp.status_code == 200, resp.text
 
 
+def test_happy_path_with_message_echoes_user_text(client: TestClient) -> None:
+    """A multipart ``message`` field must be echoed back verbatim as user_text."""
+    jpeg_bytes = _make_valid_jpeg_bytes()
+
+    with (
+        _mock_brand_index_exists(True),
+        _mock_anchor_patch(["111"]),
+        _mock_compose_variants(),
+        _mock_rationale(),
+    ):
+        resp = client.post(
+            "/style/from-image",
+            files={"file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+            data={"message": "something for a party under 2000"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("user_text") == "something for a party under 2000"
+
+
+def test_happy_path_without_message_user_text_is_none(client: TestClient) -> None:
+    """When no ``message`` field is sent, user_text must be None."""
+    jpeg_bytes = _make_valid_jpeg_bytes()
+
+    with (
+        _mock_brand_index_exists(True),
+        _mock_anchor_patch(["111"]),
+        _mock_compose_variants(),
+        _mock_rationale(),
+    ):
+        resp = client.post(
+            "/style/from-image",
+            files={"file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("user_text") is None
+
+
 def test_happy_path_no_disk_writes(client: TestClient, tmp_path: Path) -> None:
     """The endpoint must not write any new files to the project data directory."""
     data_dir = Path("data/processed/clip")

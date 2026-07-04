@@ -32,12 +32,24 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Bake the CLIP model weights (~350 MB) into the image at build time so
+# Bake the CLIP model weights (~350 MB) AND the dense retrieval model
+# (~90 MB, sentence-transformers/all-MiniLM-L6-v2 — must match
+# config.yaml retrieval.dense_model) into the image at build time so
 # cold-start never triggers a runtime download.  The sentence-transformers
 # cache is written to SENTENCE_TRANSFORMERS_HOME (set above).
 # This layer is cached by Docker as long as requirements.txt and the torch
 # install layer are unchanged.
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('clip-ViT-B-32')"
+RUN python -c "from sentence_transformers import SentenceTransformer; \
+    SentenceTransformer('clip-ViT-B-32'); \
+    SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+# Force every runtime model load to hit the baked cache above — never the
+# network.  Must be set AFTER the bake RUN so the bake step itself can still
+# reach HuggingFace Hub to download weights the first time.  Without this,
+# the 495s cold-start incident (unauthenticated HF revision-check stalls)
+# can recur even with weights already on disk.
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
 
 # Application source and config
 COPY src/ ./src/

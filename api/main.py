@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -252,6 +253,32 @@ async def lifespan(app: FastAPI):
         type(session_store).__name__,
         not _is_verification_disabled(),
     )
+
+    # Warm-load the CLIP stack (FAISS index + encoder) in a background thread.
+    # This is best-effort and non-blocking: it must never delay the health
+    # check or crash startup.  Without this, the FIRST /style/from-image
+    # request pays the full CLIP index read + model instantiation cost on
+    # top of the (now-baked, offline) model load — this warms both away.
+    def _warm_clip_stack() -> None:
+        t0 = time.monotonic()
+        logger.info("CLIP warm-load starting (brand=%s)", _brand)
+        try:
+            from src.agents.outfit.image_anchor import warm as warm_clip
+
+            clip_model_id = str((config.get("clip") or {}).get("model", "clip-ViT-B-32"))
+            loaded = warm_clip(_brand, model_id=clip_model_id)
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            if loaded:
+                logger.info("CLIP warm-load finished in %dms (brand=%s)", elapsed_ms, _brand)
+            else:
+                logger.info(
+                    "CLIP warm-load skipped in %dms (no index for brand=%s)", elapsed_ms, _brand
+                )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.warning("CLIP warm-load failed after %dms: %s", elapsed_ms, exc)
+
+    threading.Thread(target=_warm_clip_stack, daemon=True, name="clip-warm-load").start()
 
     yield
 
