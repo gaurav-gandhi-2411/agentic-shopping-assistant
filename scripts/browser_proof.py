@@ -384,6 +384,198 @@ def step_image_upload(page: Page, state: ProofState, image_path: Path) -> None:
         )
 
 
+def step_b1_header(page: Page, state: ProofState) -> None:
+    """B1: the chat header must not literally read 'Shopping Assistant Shopping Assistant'.
+
+    frontend/app/demo/chat/page.tsx renders '{brandName} Shopping Assistant', and
+    frontend/app/demo/page.tsx sets brandName to the literal string "Shopping Assistant"
+    for the unified (no-brand-param) entry path — this check surfaces that duplication.
+    """
+    header_text = page.locator("header").first.inner_text().strip()
+    duplicated = "Shopping Assistant Shopping Assistant" in header_text
+    shot(page, "b1_header")
+    state.record(
+        "B1. header text does not duplicate 'Shopping Assistant'",
+        not duplicated,
+        f"header_text={header_text!r}",
+    )
+
+
+# Distinct from MessageList's empty-state class list (verified against source tree):
+# `className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-8 select-none"`.
+GREETING_SELECTOR = ".flex.flex-col.items-center.justify-center.flex-1.gap-3.text-center.px-8"
+
+
+def step_b2_greeting(page: Page, state: ProofState) -> None:
+    """B2: capture the pre-message greeting/placeholder text and check its currency symbol.
+
+    Must run BEFORE any query is sent (the placeholder only renders while
+    messages.length === 0).
+    """
+    locator = page.locator(GREETING_SELECTOR)
+    if locator.count() == 0:
+        state.record(
+            "B2. greeting/placeholder currency check", False, "greeting container not found"
+        )
+        return
+    text = locator.first.inner_text().strip()
+    has_dollar = "$" in text
+    has_rupee = "₹" in text
+    has_pound = "£" in text
+    mentions_currency = has_dollar or has_rupee or has_pound
+    ok = not has_dollar and (not mentions_currency or has_rupee)
+    shot(page, "b2_greeting")
+    state.record(
+        "B2. greeting has no '$' and uses ₹ if it mentions currency",
+        ok,
+        f"text={text!r} has_dollar={has_dollar} has_rupee={has_rupee} has_pound={has_pound}",
+    )
+
+
+# SimilarItemRow's product-name paragraph (ItemCard.tsx) — distinct from the main
+# card's `p.line-clamp-2` title, so counting these tells us the similar-panel rows.
+SIMILAR_ROW_SELECTOR = "p.text-xs.font-medium.truncate.leading-tight"
+# OutfitBoard's root container (`w-full rounded-xl ...`) — distinct from ItemCard's
+# `rounded-lg` root and from SlotCard's `rounded-lg` tiles nested inside it.
+OUTFIT_BOARD_SELECTOR = "div.rounded-xl.border.bg-card.p-4"
+
+
+def step_b3_interactions(page: Page, state: ProofState) -> None:
+    """B3: click-through 'More like this', 'Style this', and (if a look exists) 'More formal'."""
+    baseline = card_count(page)
+    send_text(page, "black dress for women")
+    after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    gained = after - baseline
+    shot(page, "b3a_black_dress")
+    precondition_ok = gained >= 1
+    state.record(
+        "B3a. 'black dress for women' renders cards (precondition)",
+        precondition_ok,
+        f"cards {baseline}->{after}",
+    )
+    if not precondition_ok:
+        return
+
+    first_card = page.locator(CARD_SELECTOR).nth(baseline)
+
+    # -- "More like this" --------------------------------------------------
+    try:
+        first_card.get_by_text("More like this", exact=True).click()
+    except Exception as exc:  # noqa: BLE001 - report as evidence, don't crash the run
+        state.record("B3b. 'More like this' populates similar panel", False, f"click failed: {exc}")
+    else:
+        page.wait_for_timeout(4_000)  # allow the /catalogue/.../similar query to settle
+        shot(page, "b3b_more_like_this")
+        n_rows = first_card.locator(SIMILAR_ROW_SELECTOR).count()
+        error_shown = first_card.get_by_text("Could not load similar items.").count() > 0
+        empty_shown = first_card.get_by_text("No similar items found.").count() > 0
+        state.record(
+            "B3b. 'More like this' populates similar panel with >=1 row",
+            n_rows >= 1 and not error_shown and not empty_shown,
+            f"rows={n_rows} error_shown={error_shown} empty_shown={empty_shown}",
+        )
+
+    # -- "Style this" --------------------------------------------------------
+    baseline2 = card_count(page)
+    try:
+        first_card.get_by_text("Style this", exact=True).click()
+    except Exception as exc:  # noqa: BLE001
+        state.record("B3c. 'Style this' produces new cards/board", False, f"click failed: {exc}")
+        return
+    after2 = wait_for_more_cards(page, baseline2, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > 0
+    gained2 = after2 - baseline2
+    shot(page, "b3c_style_this")
+    state.record(
+        "B3c. 'Style this' produces new cards/board",
+        gained2 >= 1 or outfit_board_present,
+        f"cards {baseline2}->{after2} outfit_board_present={outfit_board_present}",
+    )
+
+    # -- outfit-board chip: "More formal" ------------------------------------
+    if outfit_board_present:
+        baseline3 = card_count(page)
+        try:
+            page.get_by_role("button", name="More formal").click()
+            after3 = wait_for_more_cards(page, baseline3, CARD_WAIT_TIMEOUT_S)
+            wait_for_turn_idle(page)
+            gained3 = after3 - baseline3
+            shot(page, "b3d_more_formal")
+            state.record(
+                "B3d. 'More formal' chip produces a new assistant turn with cards",
+                gained3 >= 1,
+                f"cards {baseline3}->{after3}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            state.record(
+                "B3d. 'More formal' chip produces a new assistant turn with cards",
+                False,
+                f"click failed: {exc}",
+            )
+    else:
+        state.record(
+            "B3d. 'More formal' chip produces a new assistant turn with cards",
+            False,
+            "no outfit board rendered after 'Style this' — chip button not present",
+        )
+
+
+AMOUNT_RE = re.compile(r"₹([\d,]+)")
+
+
+def _parse_rupee_amount(text: str) -> int | None:
+    """Extract the first '₹N,NNN'-style amount from `text` as an int, or None."""
+    m = AMOUNT_RE.search(text)
+    return int(m.group(1).replace(",", "")) if m else None
+
+
+def step_b4_image_board(page: Page, state: ProofState) -> None:
+    """B4: after image upload, the outfit board must show >=3 slot cards whose
+    prices sum to the 'Open all items' / 'Add the look to cart' CTA amount."""
+    board = page.locator(OUTFIT_BOARD_SELECTOR)
+    if board.count() == 0:
+        state.record(
+            "B4a. image-look outfit board shows >=3 slot cards",
+            False,
+            "no outfit board rendered after image upload",
+        )
+        return
+
+    board0 = board.first
+    slot_cards = board0.locator("a.rounded-lg.border.bg-background")
+    n_slots = slot_cards.count()
+    shot(page, "b4_outfit_board")
+    state.record(
+        "B4a. image-look outfit board shows >=3 slot cards",
+        n_slots >= 3,
+        f"n_slots={n_slots}",
+    )
+
+    prices = [_parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(n_slots)]
+    prices = [p for p in prices if p is not None]
+    price_sum = sum(prices)
+
+    cta = board0.get_by_role("button", name=re.compile(r"Open all items|Add the look to cart"))
+    if cta.count() == 0:
+        state.record(
+            "B4b. board CTA amount equals sum of card prices",
+            False,
+            f"no CTA button found (n_slots={n_slots} sum_of_card_prices={price_sum})",
+        )
+        return
+
+    cta_text = cta.first.inner_text()
+    cta_amount = _parse_rupee_amount(cta_text)
+    state.record(
+        "B4b. board CTA amount equals sum of card prices",
+        cta_amount is not None and cta_amount == price_sum,
+        f"cta_text={cta_text!r} cta_amount={cta_amount} sum_of_card_prices={price_sum} "
+        f"n_prices_parsed={len(prices)}/{n_slots}",
+    )
+
+
 def step_console_errors(state: ProofState) -> None:
     """Step f: classify collected console/pageerror messages; fail only on severe ones."""
     severe = []
@@ -442,6 +634,11 @@ def main() -> int:
     parser.add_argument(
         "--headed", action="store_true", help="Run with a visible browser window (debugging)."
     )
+    parser.add_argument(
+        "--product",
+        action="store_true",
+        help="Run only the new product-bug-check steps (B1-B4) instead of the original a-f flow.",
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -462,16 +659,23 @@ def main() -> int:
 
         try:
             if step_load_chat(page, args.base_url, state):
-                step_query(page, state, "b. 'saree' query", "saree", "b_saree")
-                step_query(
-                    page,
-                    state,
-                    "c. 'black dress for women' query",
-                    "black dress for women",
-                    "c_black_dress",
-                )
-                step_refinement(page, state)
-                step_image_upload(page, state, Path(args.image))
+                if args.product:
+                    step_b1_header(page, state)
+                    step_b2_greeting(page, state)
+                    step_b3_interactions(page, state)
+                    step_image_upload(page, state, Path(args.image))
+                    step_b4_image_board(page, state)
+                else:
+                    step_query(page, state, "b. 'saree' query", "saree", "b_saree")
+                    step_query(
+                        page,
+                        state,
+                        "c. 'black dress for women' query",
+                        "black dress for women",
+                        "c_black_dress",
+                    )
+                    step_refinement(page, state)
+                    step_image_upload(page, state, Path(args.image))
         finally:
             step_console_errors(state)
             context.close()
