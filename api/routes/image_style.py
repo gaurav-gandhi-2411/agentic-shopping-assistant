@@ -35,8 +35,9 @@ import io
 import logging
 import os
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
+import pandas as pd
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -107,6 +108,40 @@ def _brand_index_exists(brand: str, config: dict) -> bool:
         clip_base = _P(__file__).parent.parent.parent / clip_base
     idx_dir = clip_base / brand
     return (idx_dir / "clip.faiss").exists() and (idx_dir / "clip_article_ids.npy").exists()
+
+
+def _resolve_gender(
+    intent_gender: str | None,
+    catalogue_df: pd.DataFrame,
+    anchor_id: str,
+    brand_cfg: Any,
+) -> str:
+    """Resolve which gender to steer outfit composition with.
+
+    Precedence:
+      1. Gender parsed from the user's free-text message (``intent.gender``),
+         when it is an unambiguous "men" or "women".
+      2. The anchor item's own catalogue ``gender`` column, when it is
+         "men" or "women".
+      3. The brand's configured default (``brand_cfg.gender_default``).
+
+    "unisex"/"mixed" values are never returned directly — composition needs a
+    concrete men/women slice, so "mixed" is coerced to "women" only as the
+    final fallback (steps 1 and 2 are skipped for those values, falling
+    through to the next precedence level).
+    """
+    if intent_gender in ("men", "women"):
+        return intent_gender
+
+    if "gender" in catalogue_df.columns and "article_id" in catalogue_df.columns:
+        match = catalogue_df.loc[catalogue_df["article_id"] == anchor_id, "gender"]
+        if not match.empty and match.iloc[0] is not None:
+            anchor_gender = str(match.iloc[0]).lower()
+            if anchor_gender in ("men", "women"):
+                return anchor_gender
+
+    brand_default = (brand_cfg.gender_default if brand_cfg else "women") or "women"
+    return "women" if brand_default == "mixed" else brand_default
 
 
 def _build_variant_response(variant: dict, brand: str) -> OutfitVariant:
@@ -303,20 +338,20 @@ async def post_style_from_image(
     except Exception:
         brand_cfg = None
 
-    gender = (brand_cfg.gender_default if brand_cfg else "women") or "women"
-    if gender == "mixed":
-        gender = "women"
-
-    # Parse optional free-text message for a budget cap and an occasion using
-    # the same deterministic intent parser as POST /chat — no duplicated
-    # regex/keyword logic here.
+    # Parse optional free-text message for a budget cap, an occasion, and a
+    # gender using the same deterministic intent parser as POST /chat — no
+    # duplicated regex/keyword logic here.
     occasion = _DEFAULT_OCCASION
     budget_max_inr: int | None = None
+    intent_gender: str | None = None
     if message:
         intent = parse_intent(message)
         if intent.occasion is not None:
             occasion = intent.occasion
         budget_max_inr = intent.budget_max_inr
+        intent_gender = intent.gender
+
+    gender = _resolve_gender(intent_gender, catalogue_df, anchor_id, brand_cfg)
 
     variants = compose_outfit_variants(
         catalogue_df,

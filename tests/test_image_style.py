@@ -164,7 +164,60 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
                         "index_group_name": "Ladieswear",
                         "garment_group_name": "Tops",
                     },
-                }
+                },
+                {
+                    # Anchor-gender fixture: article whose only gender signal
+                    # is the catalogue "gender" column (used by the anchor
+                    # fallback tier of gender resolution — see test_image_style
+                    # gender-resolution tests below).
+                    "article_id": "222",
+                    "prod_name": "Chino Trousers",
+                    "display_name": "Chino Trousers (Beige)",
+                    "colour": "Beige",
+                    "colour_group_name": "Beige",
+                    "product_type_name": "Trousers",
+                    "department_name": "Menswear",
+                    "index_group_name": "Menswear",
+                    "gender": "men",
+                    "price_inr": 1499.0,
+                    "search_text": "Chino Trousers Beige Menswear",
+                    "detail_desc": "Beige chino trousers.",
+                    "image_url": None,
+                    "pdp_handle": None,
+                    "facets": {
+                        "colour_group_name": "Beige",
+                        "product_type_name": "Trousers",
+                        "department_name": "Menswear",
+                        "index_group_name": "Menswear",
+                        "garment_group_name": "Trousers",
+                    },
+                },
+                {
+                    # No-signal fixture: gender is neither "men" nor "women"
+                    # (unisex catalogue value), so gender resolution must fall
+                    # through to the brand default.
+                    "article_id": "333",
+                    "prod_name": "Canvas Tote",
+                    "display_name": "Canvas Tote (Natural)",
+                    "colour": "Natural",
+                    "colour_group_name": "Natural",
+                    "product_type_name": "Bag",
+                    "department_name": "Accessories",
+                    "index_group_name": "Accessories",
+                    "gender": "unisex",
+                    "price_inr": 799.0,
+                    "search_text": "Canvas Tote Natural Accessories",
+                    "detail_desc": "A natural canvas tote.",
+                    "image_url": None,
+                    "pdp_handle": None,
+                    "facets": {
+                        "colour_group_name": "Natural",
+                        "product_type_name": "Bag",
+                        "department_name": "Accessories",
+                        "index_group_name": "Accessories",
+                        "garment_group_name": "Bags",
+                    },
+                },
             ]
         ),
     )
@@ -404,6 +457,81 @@ def test_happy_path_no_disk_writes(client: TestClient, tmp_path: Path) -> None:
 
     new_files = after_files - before_files
     assert not new_files, f"Endpoint wrote unexpected files: {new_files}"
+
+
+# ---------------------------------------------------------------------------
+# Tests — gender resolution (message > anchor catalogue gender > brand default)
+# ---------------------------------------------------------------------------
+
+
+def test_gender_resolved_from_message_when_present(client: TestClient) -> None:
+    """A message naming a gender must win even when the anchor item is the
+    opposite gender in the catalogue ("111" is tagged "women" in the fixture)."""
+    jpeg_bytes = _make_valid_jpeg_bytes()
+
+    with (
+        _mock_brand_index_exists(True),
+        _mock_anchor_patch(["111"]),
+        _mock_compose_variants() as mock_compose,
+        _mock_rationale(),
+    ):
+        resp = client.post(
+            "/style/from-image",
+            files={"file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+            data={"message": "style this for a man"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["gender"] == "men"
+    assert mock_compose.call_args.kwargs["gender"] == "men"
+
+
+def test_gender_resolved_from_anchor_catalogue_gender_when_no_message(
+    client: TestClient,
+) -> None:
+    """With no message, gender must fall back to the anchor item's catalogue
+    ``gender`` column (article "222" is tagged "men" in the fixture)."""
+    jpeg_bytes = _make_valid_jpeg_bytes()
+
+    with (
+        _mock_brand_index_exists(True),
+        _mock_anchor_patch(["222"]),
+        _mock_compose_variants() as mock_compose,
+        _mock_rationale(),
+    ):
+        resp = client.post(
+            "/style/from-image",
+            files={"file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["gender"] == "men"
+    assert mock_compose.call_args.kwargs["gender"] == "men"
+
+
+def test_gender_falls_back_to_brand_default_when_no_signal(client: TestClient) -> None:
+    """With no message and an anchor whose catalogue gender is "unisex" (not
+    men/women), resolution must fall through to the brand default."""
+    jpeg_bytes = _make_valid_jpeg_bytes()
+
+    class _FakeBrandConfig:
+        gender_default = "men"
+
+    with (
+        _mock_brand_index_exists(True),
+        _mock_anchor_patch(["333"]),
+        _mock_compose_variants() as mock_compose,
+        _mock_rationale(),
+        patch("src.config.brand.get_brand_config", return_value=_FakeBrandConfig()),
+    ):
+        resp = client.post(
+            "/style/from-image",
+            files={"file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["gender"] == "men"
+    assert mock_compose.call_args.kwargs["gender"] == "men"
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 
 import api.deps as deps
-from api.auth import get_current_user_id
+from api.auth import get_current_user_id_or_demo
 from api.schemas import ItemSummary, PriceMatch
 from src.catalogue.entity_resolution import (
     find_cross_store_matches,
@@ -111,7 +111,7 @@ def _row_to_item(
 @router.get("/{article_id}", response_model=ItemSummary)
 def get_item(
     article_id: str,
-    _user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id_or_demo),
 ) -> ItemSummary:
     """Return full metadata for a single catalogue item, including cross-store price matches."""
     df = deps.get_catalogue_df()
@@ -126,7 +126,7 @@ def get_item(
 def get_similar(
     article_id: str,
     k: int = 5,
-    _user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id_or_demo),
 ) -> list[ItemSummary]:
     """Return top-k visually-similar items for the given article, diversified across stores.
 
