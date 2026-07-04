@@ -113,6 +113,52 @@ class TestGetFillSlots:
         names = [s.slot_name for s in slots]
         assert "bottom" in names
 
+    def test_western_top_men_has_optional_footwear_and_accessory(self) -> None:
+        slots = get_fill_slots("western_top", "men", "casual")
+        by_name = {s.slot_name: s for s in slots}
+        assert "footwear" in by_name
+        assert "accessory" in by_name
+        assert by_name["footwear"].required is False
+        assert by_name["accessory"].required is False
+        assert "men" in by_name["footwear"].search_query
+        assert "men" in by_name["accessory"].search_query
+        # bottom (required) still precedes footwear/accessory in greedy fill order
+        names = [s.slot_name for s in slots]
+        assert names.index("bottom") < names.index("footwear") < names.index("accessory")
+        assert by_name["bottom"].required is True
+
+    def test_western_top_women_has_optional_footwear_and_accessory(self) -> None:
+        slots = get_fill_slots("western_top", "women", "casual")
+        by_name = {s.slot_name: s for s in slots}
+        assert "footwear" in by_name
+        assert "accessory" in by_name
+        assert by_name["footwear"].required is False
+        assert by_name["accessory"].required is False
+        assert "women" in by_name["footwear"].search_query
+        assert "women" in by_name["accessory"].search_query
+
+    def test_western_bottom_has_optional_footwear(self) -> None:
+        slots = get_fill_slots("western_bottom", "women", "casual")
+        by_name = {s.slot_name: s for s in slots}
+        assert "top" in by_name
+        assert by_name["top"].required is True
+        assert "footwear" in by_name
+        assert by_name["footwear"].required is False
+        # order: top -> outerwear -> footwear
+        names = [s.slot_name for s in slots]
+        assert names.index("outerwear") < names.index("footwear")
+
+    def test_western_bottom_men_footwear_query_is_gendered(self) -> None:
+        slots = get_fill_slots("western_bottom", "men", "casual")
+        by_name = {s.slot_name: s for s in slots}
+        assert "men" in by_name["footwear"].search_query
+
+    def test_unknown_anchor_matches_western_top_default(self) -> None:
+        unknown_slots = get_fill_slots("unknown", "women", "casual")
+        western_top_slots = get_fill_slots("western_top", "women", "casual")
+        assert [s.slot_name for s in unknown_slots] == [s.slot_name for s in western_top_slots]
+        assert [s.required for s in unknown_slots] == [s.required for s in western_top_slots]
+
 
 class TestFabricScoreDelta:
     def test_sangeet_embellished_positive(self) -> None:
