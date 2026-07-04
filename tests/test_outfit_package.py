@@ -4,7 +4,13 @@ from __future__ import annotations
 import pytest
 
 from src.agents.outfit.coherence import colour_score, is_coherent_candidate
-from src.agents.outfit.composer import FLYWHEEL_ALPHA, PairingStat, _flywheel_boost
+from src.agents.outfit.composer import (
+    FLYWHEEL_ALPHA,
+    STORE_DIVERSITY_PENALTY,
+    PairingStat,
+    _find_best_candidate,
+    _flywheel_boost,
+)
 from src.agents.outfit.occasions import OCCASIONS, get_occasion
 from src.agents.outfit.slots import (
     classify_anchor,
@@ -208,3 +214,113 @@ class TestFlywheelBoost:
         stats = {("ethnic_top", "footwear", "sangeet"): PairingStat(add_the_look=10, thumbs_up=5)}
         result = _flywheel_boost("ethnic_top", "bottom", "sangeet", stats)
         assert result == pytest.approx(0.0)
+
+
+# ── store diversity preference (cross-store styling, Phase F / G4 fix) ──────
+
+class _FakeRetriever:
+    """Minimal retriever stub returning a fixed candidate list, ignoring the query."""
+
+    def __init__(self, items: list[dict]) -> None:
+        self._items = items
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None
+    ) -> list[dict]:
+        return list(self._items)
+
+
+def _make_candidate(
+    article_id: str,
+    store: str,
+    score: float,
+    colour: str = "black",
+    price_inr: float = 500.0,
+) -> dict:
+    """Build a minimal candidate item dict matching the hybrid_search output shape."""
+    return {
+        "article_id": article_id,
+        "prod_name": "Black Trousers",
+        "display_name": "Black Trousers",
+        "store": store,
+        "colour": colour,
+        "product_type": "Trousers",
+        "detail_desc": "",
+        "score": score,
+        "price_inr": price_inr,
+        "gender": "women",
+    }
+
+
+class TestFindBestCandidateStoreDiversity:
+    """A soft store-diversity preference should break near-ties toward a new store,
+    but never override a candidate that is clearly better on merit (colour/base score).
+    """
+
+    _common_kwargs = {
+        "query": "trousers",
+        "slot_name": "bottom",
+        "occasion_slug": "casual",
+        "gender": "women",
+        "anchor_colour": "black",
+        "seen_ids": set(),
+        "seen_prod_colour": set(),
+        "budget_remaining": None,
+        "pairing_stats": None,
+        "anchor_class": "western_top",
+    }
+
+    def test_near_equal_scores_prefer_new_store(self) -> None:
+        """Seed is from store A; two near-equal complement candidates from A and B.
+        B (the unrepresented store) must win.
+        """
+        candidate_a = _make_candidate("A1", "storea", score=0.90)
+        candidate_b = _make_candidate("B1", "storeb", score=0.80)
+        retriever = _FakeRetriever([candidate_a, candidate_b])
+
+        winner = _find_best_candidate(
+            **self._common_kwargs,
+            retriever=retriever,
+            seen_stores={"storea"},
+        )
+
+        assert winner is not None
+        assert winner["article_id"] == "B1", "near-tied candidate from a new store should win"
+
+    def test_clearly_better_same_store_still_wins(self) -> None:
+        """When the same-store candidate is clearly better (not just a near-tie), it
+        must still win — the diversity preference is soft, not a hard filter.
+        """
+        candidate_a = _make_candidate("A1", "storea", score=0.99)
+        candidate_b = _make_candidate("B1", "storeb", score=0.30)
+        retriever = _FakeRetriever([candidate_a, candidate_b])
+
+        winner = _find_best_candidate(
+            **self._common_kwargs,
+            retriever=retriever,
+            seen_stores={"storea"},
+        )
+
+        assert winner is not None
+        assert winner["article_id"] == "A1", "clearly-better same-store candidate must still win"
+
+    def test_penalty_constant_is_soft_not_zero(self) -> None:
+        """Sanity-check the constant itself: it must discount, not exclude (0 < p < 1)."""
+        assert 0.0 < STORE_DIVERSITY_PENALTY < 1.0
+
+    def test_no_seen_stores_falls_back_to_plain_score_order(self) -> None:
+        """When seen_stores is empty/None, ranking is unaffected — the higher raw
+        score wins regardless of store.
+        """
+        candidate_a = _make_candidate("A1", "storea", score=0.90)
+        candidate_b = _make_candidate("B1", "storeb", score=0.80)
+        retriever = _FakeRetriever([candidate_a, candidate_b])
+
+        winner = _find_best_candidate(
+            **self._common_kwargs,
+            retriever=retriever,
+            seen_stores=set(),
+        )
+
+        assert winner is not None
+        assert winner["article_id"] == "A1"

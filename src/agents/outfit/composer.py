@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 FLYWHEEL_ALPHA: float = 0.25
 FLYWHEEL_MIN_SIGNALS: int = 10
 
+# Cross-store styling is a shipped product bar (Phase F).  The strict per-item gender gate
+# (see gender_allowed) narrowed the complement candidate pool and, as a side effect, removed
+# the accidental store diversity that used to come from unknown-gender rows in other stores.
+# This is a SOFT preference — a multiplicative penalty, not a filter — so the best same-store
+# candidate still wins when no other-store candidate is within striking distance.  0.85 means
+# a same-store candidate needs to score >~18% higher than the best other-store candidate to
+# still be picked; near-tied candidates from a new store win instead.
+STORE_DIVERSITY_PENALTY: float = 0.85
+
 
 @dataclass
 class PairingStat:
@@ -128,6 +137,13 @@ def compose_outfit(
     seen_prod_colour: set[tuple[str, str]] = set()
     seen_prod_colour.add((normalize_prod_name(anchor_name), anchor_colour))
 
+    # Stores already represented in this look (seed + chosen complements so far).  Fed to
+    # _find_best_candidate so it can apply the soft STORE_DIVERSITY_PENALTY.
+    seen_stores: set[str] = set()
+    seed_store = seed_item.get("store")
+    if seed_store:
+        seen_stores.add(str(seed_store).lower())
+
     running_total = seed_item.get("price_inr") or 0.0
 
     for slot_spec in fill_slots:
@@ -143,6 +159,7 @@ def compose_outfit(
             budget_remaining=budget_inr - running_total if budget_inr is not None else None,
             pairing_stats=pairing_stats,
             anchor_class=anchor_class,
+            seen_stores=seen_stores,
         )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
@@ -157,6 +174,9 @@ def compose_outfit(
                 )
             )
             running_total += candidate.get("price_inr") or 0.0
+            candidate_store = candidate.get("store")
+            if candidate_store:
+                seen_stores.add(str(candidate_store).lower())
         elif slot_spec.required:
             empty_slots.append(slot_spec.slot_name)
 
@@ -476,6 +496,7 @@ def _find_best_candidate(
     budget_remaining: float | None,
     pairing_stats: dict | None,
     anchor_class: str,
+    seen_stores: set[str] | None = None,
 ) -> dict | None:
     candidates = retriever.search(query, top_k=20)
 
@@ -505,6 +526,13 @@ def _find_best_candidate(
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
         final_score = (base_score * 0.5 + c_score * 0.3 + 0.2) * (1.0 + fw_boost) + fab_delta
+
+        # Soft store-diversity preference: penalise (not exclude) candidates whose store is
+        # already represented in the current look, so a near-tied item from a new store wins.
+        item_store = str(item.get("store") or "").lower()
+        if seen_stores and item_store and item_store in seen_stores:
+            final_score *= STORE_DIVERSITY_PENALTY
+
         scored.append((final_score, item))
 
     if not scored:
