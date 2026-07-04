@@ -51,6 +51,14 @@ RUN python -c "from sentence_transformers import SentenceTransformer; \
 ENV HF_HUB_OFFLINE=1
 ENV TRANSFORMERS_OFFLINE=1
 
+# Disables tqdm's TMonitor background thread globally.  Without this, every
+# SentenceTransformer.encode() call bootstraps/tears down a monitor thread
+# whose lock waits dominated latency on constrained (1 vCPU) Cloud Run
+# instances — see src/retrieval/dense_search.py and clip_encoder.py for the
+# code-level fix (tqdm.tqdm.monitor_interval = 0) that also covers non-Docker
+# runtimes; this env var is belt-and-suspenders for the container.
+ENV TQDM_DISABLE=1
+
 # Application source and config
 COPY src/ ./src/
 COPY api/ ./api/
