@@ -41,12 +41,30 @@ def _make_gcs_mock(
     clip_faiss_missing: bool = False,
     clip_ids_missing: bool = False,
     variants_missing: bool = False,
+    unified_variant_blob_names: list[str] | None = None,
+    unified_list_blobs_raises: bool = False,
+    unified_download_fails_for: set[str] | None = None,
 ) -> MagicMock:
     """Return a mock ``google.cloud.storage.Client`` instance.
 
     Blobs listed in the *_missing flags raise ``Exception`` on
     ``download_to_filename`` — the production code catches broad ``Exception``
     and logs a warning so the exact exception type is irrelevant here.
+
+    Args:
+        clip_faiss_missing:          Fail ``download_to_filename`` for ``clip.faiss``.
+        clip_ids_missing:            Fail ``download_to_filename`` for ``clip_article_ids.npy``.
+        variants_missing:            Fail ``download_to_filename`` for the per-brand
+                                      ``<brand>.json`` variant map.
+        unified_variant_blob_names:  Full GCS blob names returned by ``bucket.list_blobs``
+                                      when the unified brand's ``shopify_variants/`` prefix
+                                      is listed. ``None`` means the bucket's ``list_blobs``
+                                      is not configured for this scenario (per-brand tests).
+        unified_list_blobs_raises:   If ``True``, ``bucket.list_blobs`` raises ``Exception``
+                                      instead of returning blobs (simulates a listing failure).
+        unified_download_fails_for:  Filenames (basename only) within
+                                      ``unified_variant_blob_names`` whose
+                                      ``download_to_filename`` call should raise.
     """
     missing_filenames: set[str] = set()
     if clip_faiss_missing:
@@ -56,6 +74,8 @@ def _make_gcs_mock(
     if variants_missing:
         # brand.json suffix — we check the filename portion only
         missing_filenames.add(".json")
+
+    unified_download_fails_for = unified_download_fails_for or set()
 
     def _make_blob(name: str) -> MagicMock:
         blob = MagicMock()
@@ -73,6 +93,28 @@ def _make_gcs_mock(
 
     bucket = MagicMock()
     bucket.blob.side_effect = _make_blob
+
+    bucket.created_variant_blobs = []  # exposed for test assertions on download calls
+
+    if unified_list_blobs_raises:
+        bucket.list_blobs.side_effect = Exception("listing failed")
+    elif unified_variant_blob_names is not None:
+        for name in unified_variant_blob_names:
+            blob = MagicMock()
+            blob.name = name
+            filename = name.split("/")[-1]
+            if filename in unified_download_fails_for:
+                blob.download_to_filename.side_effect = Exception(f"404 {name} not found")
+            else:
+                blob.download_to_filename.return_value = None
+            bucket.created_variant_blobs.append(blob)
+
+        def _list_blobs(prefix: str) -> list[MagicMock]:
+            return bucket.created_variant_blobs
+
+        bucket.list_blobs.side_effect = _list_blobs
+    else:
+        bucket.list_blobs.return_value = []
 
     client = MagicMock()
     client.bucket.return_value = bucket
@@ -265,3 +307,134 @@ class TestDownloadSupplementaryAssets:
             )
 
         mock_client.bucket.assert_called_with("my-custom-bucket")
+
+
+class TestDownloadSupplementaryAssetsUnifiedBrand:
+    """Unified brand (BRAND=unified) downloads every per-store variant map, since a
+    single ``unified.json`` variant file has never existed — cart-link resolution
+    loads variant maps per underlying store slug.
+    """
+
+    def test_unified_downloads_all_listed_variant_jsons(self, tmp_path: Path) -> None:
+        """Every *.json blob under shopify_variants/ lands at its own local path,
+        keyed by its original filename (store slug), not by brand.
+        """
+        mock_client = _make_gcs_mock(
+            unified_variant_blob_names=[
+                "shopify_variants/snitch.json",
+                "shopify_variants/fashor.json",
+                "shopify_variants/powerlook.json",
+                "shopify_variants/virgio.json",
+            ],
+        )
+
+        with _GCSPatch(mock_client):
+            download_supplementary_assets(
+                uri="gs://asa-demo-indices/",
+                brand="unified",
+                repo_root=tmp_path,
+            )
+
+        bucket = mock_client.bucket.return_value
+        bucket.list_blobs.assert_called_with(prefix="shopify_variants/")
+
+        variants_dir = tmp_path / "data" / "processed" / "shopify_variants"
+        assert variants_dir.is_dir()
+
+        # Each of the 4 store variant blobs must have triggered exactly one
+        # download_to_filename() call, and each downloaded to its own filename
+        # (store slug), not a single unified.json.
+        for blob in bucket.created_variant_blobs:
+            blob.download_to_filename.assert_called_once()
+        downloaded_dests = [
+            call.args[0] for blob in bucket.created_variant_blobs for call in
+            blob.download_to_filename.call_args_list
+        ]
+        for slug in ("snitch", "fashor", "powerlook", "virgio"):
+            expected = str(variants_dir / f"{slug}.json")
+            assert expected in downloaded_dests, f"expected {expected} in {downloaded_dests}"
+
+    def test_unified_zero_variant_blobs_does_not_raise(self, tmp_path: Path) -> None:
+        """An empty shopify_variants/ prefix (or the prefix not existing) must not raise —
+        the cart-link feature simply degrades, same as a single missing per-brand file.
+        """
+        mock_client = _make_gcs_mock(unified_variant_blob_names=[])
+
+        with _GCSPatch(mock_client):
+            # Must not raise
+            download_supplementary_assets(
+                uri="gs://asa-demo-indices/",
+                brand="unified",
+                repo_root=tmp_path,
+            )
+
+        bucket = mock_client.bucket.return_value
+        bucket.list_blobs.assert_called_with(prefix="shopify_variants/")
+
+    def test_unified_list_blobs_failure_does_not_raise(self, tmp_path: Path) -> None:
+        """A listing failure (e.g. permission denied, network error) must degrade
+        gracefully rather than crash startup.
+        """
+        mock_client = _make_gcs_mock(unified_list_blobs_raises=True)
+
+        with _GCSPatch(mock_client):
+            download_supplementary_assets(
+                uri="gs://asa-demo-indices/",
+                brand="unified",
+                repo_root=tmp_path,
+            )
+
+    def test_unified_partial_download_failure_does_not_raise(self, tmp_path: Path) -> None:
+        """If one store's variant map fails to download, the others must still succeed
+        and the overall call must not raise.
+        """
+        mock_client = _make_gcs_mock(
+            unified_variant_blob_names=[
+                "shopify_variants/snitch.json",
+                "shopify_variants/fashor.json",
+            ],
+            unified_download_fails_for={"fashor.json"},
+        )
+
+        with _GCSPatch(mock_client):
+            download_supplementary_assets(
+                uri="gs://asa-demo-indices/",
+                brand="unified",
+                repo_root=tmp_path,
+            )
+
+    def test_unified_respects_path_prefix(self, tmp_path: Path) -> None:
+        """When INDEX_STORE_URI includes a path prefix, list_blobs must be called
+        with that prefix prepended to shopify_variants/.
+        """
+        mock_client = _make_gcs_mock(
+            unified_variant_blob_names=["prod/shopify_variants/snitch.json"],
+        )
+
+        with _GCSPatch(mock_client):
+            download_supplementary_assets(
+                uri="gs://asa-demo-indices/prod/",
+                brand="unified",
+                repo_root=tmp_path,
+            )
+
+        bucket = mock_client.bucket.return_value
+        bucket.list_blobs.assert_called_with(prefix="prod/shopify_variants/")
+
+    def test_non_unified_brand_still_uses_single_file_path(self, tmp_path: Path) -> None:
+        """Regression guard: non-unified brands must keep requesting a single
+        <brand>.json blob via bucket.blob(), not list_blobs().
+        """
+        mock_client = _make_gcs_mock()
+
+        with _GCSPatch(mock_client):
+            download_supplementary_assets(
+                uri="gs://asa-demo-indices/",
+                brand="snitch",
+                repo_root=tmp_path,
+            )
+
+        bucket = mock_client.bucket.return_value
+        bucket.list_blobs.assert_not_called()
+        called_blob_names = [call.args[0] for call in bucket.blob.call_args_list]
+        assert any("shopify_variants/snitch.json" in n for n in called_blob_names)

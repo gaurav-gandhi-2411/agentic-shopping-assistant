@@ -103,6 +103,11 @@ def download_supplementary_assets(uri: str, brand: str, repo_root: Path) -> None
     - ``gs://<bucket>/<prefix>/shopify_variants/<brand>.json``     →
       ``<repo_root>/data/processed/shopify_variants/<brand>.json``
 
+    For ``brand == UNIFIED_BRAND`` there is no single per-brand variant file —
+    cart-link resolution loads variant maps per underlying store slug — so instead
+    every ``*.json`` blob found under ``shopify_variants/`` (e.g. ``snitch.json``,
+    ``fashor.json``, ``powerlook.json``) is downloaded into the same local directory.
+
     Args:
         uri:       The ``INDEX_STORE_URI`` value (e.g. ``gs://asa-demo-indices/``).
         brand:     Active brand slug (from the ``BRAND`` env var).
@@ -155,29 +160,106 @@ def download_supplementary_assets(uri: str, brand: str, repo_root: Path) -> None
     variants_local_dir = repo_root / "data" / "processed" / "shopify_variants"
     variants_local_dir.mkdir(parents=True, exist_ok=True)
 
-    variants_blob_name = (
-        f"{path_prefix}/shopify_variants/{brand}.json"
-        if path_prefix
-        else f"shopify_variants/{brand}.json"
-    )
-    variants_dest = variants_local_dir / f"{brand}.json"
+    if brand == UNIFIED_BRAND:
+        _download_all_variant_maps(bucket, bucket_name, path_prefix, variants_local_dir)
+    else:
+        variants_blob_name = (
+            f"{path_prefix}/shopify_variants/{brand}.json"
+            if path_prefix
+            else f"shopify_variants/{brand}.json"
+        )
+        variants_dest = variants_local_dir / f"{brand}.json"
 
-    logger.info(
-        "Downloading Shopify variant map from gs://%s/%s → %s",
-        bucket_name,
-        variants_blob_name,
-        variants_dest,
-    )
-    blob = bucket.blob(variants_blob_name)
-    try:
-        blob.download_to_filename(str(variants_dest))
-        logger.info("  gs://%s/%s → %s", bucket_name, variants_blob_name, variants_dest)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "Shopify variant map not found or download failed — cart-link feature will be "
-            "unavailable for brand=%s. blob=gs://%s/%s error=%s",
-            brand,
+        logger.info(
+            "Downloading Shopify variant map from gs://%s/%s → %s",
             bucket_name,
             variants_blob_name,
+            variants_dest,
+        )
+        blob = bucket.blob(variants_blob_name)
+        try:
+            blob.download_to_filename(str(variants_dest))
+            logger.info("  gs://%s/%s → %s", bucket_name, variants_blob_name, variants_dest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Shopify variant map not found or download failed — cart-link feature will be "
+                "unavailable for brand=%s. blob=gs://%s/%s error=%s",
+                brand,
+                bucket_name,
+                variants_blob_name,
+                exc,
+            )
+
+
+def _download_all_variant_maps(
+    bucket: object,
+    bucket_name: str,
+    path_prefix: str,
+    variants_local_dir: Path,
+) -> None:
+    """Download every ``*.json`` Shopify variant map blob for the unified brand.
+
+    Unlike per-brand mode (a single known blob name), unified mode has no fixed
+    filename to request — the underlying store slugs (snitch, fashor, powerlook,
+    virgio, ...) are only discoverable by listing the ``shopify_variants/`` prefix.
+    Missing prefix, zero blobs, listing failures, and per-file download failures are
+    all non-fatal: they are logged as warnings and the cart-link feature degrades
+    for the affected store(s) rather than failing service startup.
+
+    Args:
+        bucket:              A ``google.cloud.storage.Bucket``-like object.
+        bucket_name:         Bucket name, used only for log messages.
+        path_prefix:         Optional path prefix parsed from ``INDEX_STORE_URI``.
+        variants_local_dir:  Local directory to download each variant map into.
+    """
+    variants_gcs_prefix = (
+        f"{path_prefix}/shopify_variants/" if path_prefix else "shopify_variants/"
+    )
+    logger.info("Listing Shopify variant maps at gs://%s/%s", bucket_name, variants_gcs_prefix)
+
+    try:
+        variant_blobs = [
+            b
+            for b in bucket.list_blobs(prefix=variants_gcs_prefix)  # type: ignore[attr-defined]
+            if b.name.endswith(".json")
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to list Shopify variant maps — cart-link feature will be unavailable "
+            "for brand=%s. prefix=gs://%s/%s error=%s",
+            UNIFIED_BRAND,
+            bucket_name,
+            variants_gcs_prefix,
             exc,
         )
+        return
+
+    if not variant_blobs:
+        logger.warning(
+            "No Shopify variant maps found at gs://%s/%s — cart-link feature will be "
+            "unavailable for brand=%s.",
+            bucket_name,
+            variants_gcs_prefix,
+            UNIFIED_BRAND,
+        )
+        return
+
+    for blob in variant_blobs:
+        filename = blob.name[len(variants_gcs_prefix) :]
+        if not filename or "/" in filename:
+            continue  # skip directory markers and nested paths
+        dest = variants_local_dir / filename
+        try:
+            blob.download_to_filename(str(dest))
+            logger.info("  gs://%s/%s → %s", bucket_name, blob.name, dest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Shopify variant map download failed for %s — cart-link feature may be "
+                "degraded for that store. blob=gs://%s/%s error=%s",
+                filename,
+                bucket_name,
+                blob.name,
+                exc,
+            )
+
+    logger.info("Shopify variant maps download complete: %d files", len(variant_blobs))
