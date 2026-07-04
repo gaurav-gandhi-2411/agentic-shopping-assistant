@@ -178,10 +178,16 @@ def _make_counting_memory(llm, config):
 
 @pytest.mark.requires_index
 def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
-    """IntentParser routes product queries deterministically; only respond LLM call fires."""
+    """IntentParser routes product queries deterministically; the LLM router is skipped."""
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
     # F3 IntentParser: product queries are routed without calling the LLM router.
-    # Only 1 LLM call: respond node (router is now deterministic for product queries).
+    # 2 LLM calls remain: (1) search_node's reranker (src/agents/reranker.rerank, in
+    # place since "Phase 7e: LLM reranker") fires whenever the fetched candidate pool
+    # exceeds top_k, which is the normal case for a broad "blue dresses" query against
+    # the ~20k-row catalogue; (2) the respond node. Neither call goes through the LLM
+    # *router* — that is still fully bypassed by IntentParser, which is what this test
+    # actually verifies via the total staying flat instead of growing with an extra
+    # router call.
     llm = _CallCountingLLM([
         "Here are some blue dresses for you.",
     ])
@@ -191,10 +197,10 @@ def test_fast_path_search_skips_alr(config, retriever, catalogue_df):
     result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
 
     assert result["final_answer"] is not None
-    # Only 1 LLM call: respond node. Router is deterministic (IntentParser), no LLM.
-    assert llm.call_count == 1, (
-        f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
-        "IntentParser should route product queries without calling the LLM"
+    # 2 LLM calls: reranker + respond. Router is deterministic (IntentParser), no LLM.
+    assert llm.call_count == 2, (
+        f"Expected 2 LLM calls (reranker + respond) but got {llm.call_count}; "
+        "IntentParser should route product queries without calling the LLM router"
     )
 
 
@@ -240,7 +246,8 @@ def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
     try:
         # F3 IntentParser runs after both fast-path checks, so product queries are still
         # handled without calling the LLM router even when AGENT_LOOP_FAST_PATH=false.
-        # Only 1 LLM call: respond node.
+        # 2 LLM calls remain: search_node's reranker (fires whenever the fetched
+        # candidate pool exceeds top_k — see test_fast_path_search_skips_alr) + respond.
         llm = _CallCountingLLM([
             "Here are some blue dresses for you.",
         ])
@@ -250,10 +257,12 @@ def test_fast_path_disabled_restores_alr(config, retriever, catalogue_df):
         result = agent.invoke(_blank_state("show me blue dresses", _memory=memory))
 
         assert result["final_answer"] is not None
-        # 1 LLM call: respond node only. IntentParser is deterministic regardless of fast-path flag.
-        assert llm.call_count == 1, (
-            f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
-            "IntentParser should route product queries without LLM even with fast-path disabled"
+        # 2 LLM calls: reranker + respond. IntentParser is deterministic regardless of
+        # the fast-path flag, so no router call is added here either.
+        assert llm.call_count == 2, (
+            f"Expected 2 LLM calls (reranker + respond) but got {llm.call_count}; "
+            "IntentParser should route product queries without an LLM router call "
+            "even with fast-path disabled"
         )
     finally:
         os.environ["AGENT_LOOP_FAST_PATH"] = "true"
@@ -265,7 +274,9 @@ def test_intent_parser_bypasses_filter_node(config, retriever, catalogue_df):
     os.environ["AGENT_LOOP_FAST_PATH"] = "true"
     # F3: IntentParser detects garment_type=dress + colour=Blue → routes straight to search.
     # The filter→search dance no longer fires for queries with both type and colour signals.
-    # Only 1 LLM call: respond node.
+    # 2 LLM calls remain: search_node's reranker (fires whenever the fetched candidate
+    # pool exceeds top_k — see test_fast_path_search_skips_alr) + respond. No filter-node
+    # or router-node LLM call is made either way.
     llm = _CallCountingLLM([
         "Here are some blue dresses for you.",
     ])
@@ -275,10 +286,12 @@ def test_intent_parser_bypasses_filter_node(config, retriever, catalogue_df):
     result = agent.invoke(_blank_state("show me dresses in blue", _memory=memory))
 
     assert result["final_answer"] is not None
-    # 1 LLM call: respond node only. IntentParser routes directly to search.
-    assert llm.call_count == 1, (
-        f"Expected 1 LLM call (respond only) but got {llm.call_count}; "
-        "IntentParser should bypass filter node for queries with type+colour signals"
+    # 2 LLM calls: reranker + respond. IntentParser routes directly to search, no
+    # filter-node or router-node LLM call.
+    assert llm.call_count == 2, (
+        f"Expected 2 LLM calls (reranker + respond) but got {llm.call_count}; "
+        "IntentParser should bypass the filter node and LLM router for queries with "
+        "type+colour signals"
     )
     # Blue colour filter should be present in the search filters
     tool_calls = result.get("tool_calls", [])
