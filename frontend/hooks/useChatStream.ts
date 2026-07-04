@@ -205,6 +205,7 @@ export function useChatStream({
               const outfitVariants = frame.final_state.outfit_variants ?? null
               const cartUrl = frame.final_state.cart_url ?? null
               const itemLinks = frame.final_state.item_links ?? null
+              const suggestionChips = frame.final_state.suggestion_chips ?? null
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -221,6 +222,7 @@ export function useChatStream({
                         outfitVariants,
                         cartUrl,
                         itemLinks,
+                        suggestionChips,
                       }
                     : m
                 )
@@ -451,6 +453,11 @@ export function useChatStream({
                 outfitVariants: data.outfit_variants ?? null,
                 cartUrl: data.cart_url ?? null,
                 itemLinks: data.item_links ?? null,
+                // Thread the user's own uploaded photo onto the assistant message so
+                // the owned-seed card in OutfitBoard can render it instead of (or as a
+                // fallback for) the catalogue image. Never revoked while this message
+                // lives — the object URL is only released when the whole page unloads.
+                anchorImageUrl: imagePreviewUrl,
               }
             : m
         )

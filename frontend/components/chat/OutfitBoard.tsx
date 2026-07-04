@@ -5,7 +5,14 @@ import Image from "next/image"
 import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } from "lucide-react"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
+import { cn } from "@/lib/utils"
 import type { ItemLink, ItemSummary, LookSnapshot, OutfitVariant, SaveLookResponse } from "@/lib/api/types"
+
+// Marigold/amber brand accent for the "your item" owned-seed card — distinct from
+// the primary theme so the user's own garment always reads as visually different
+// from a catalogue product (no buy link, no price, no store badge). Used as a
+// literal Tailwind arbitrary-value class (e.g. `border-[#E8A33D]`) below, not as
+// a JS variable, so Tailwind's static class scanner picks it up at build time.
 
 // ---------------------------------------------------------------------------
 // Shopify store slugs — these stores support Shopify cart permalinks.
@@ -53,6 +60,12 @@ interface OutfitBoardProps {
   cartUrl?: string | null
   /** Top-level per-item links for non-variant flow (non-Shopify). */
   itemLinks?: ItemLink[] | null
+  /**
+   * Local object URL for the user's own uploaded photo (set by sendImage() on the
+   * assistant message). Rendered on the owned-seed card in place of the catalogue
+   * image; falls back to the item's image_url when absent (e.g. restored sessions).
+   */
+  anchorImageUrl?: string | null
   sessionId: string
   anchorItemId: string
   anchorCategory: string
@@ -124,6 +137,7 @@ export function OutfitBoard({
   outfitVariants,
   cartUrl: topLevelCartUrl,
   itemLinks: topLevelItemLinks,
+  anchorImageUrl,
   sessionId,
   anchorItemId,
   anchorCategory,
@@ -190,8 +204,13 @@ export function OutfitBoard({
     (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
   )
 
-  /** Resolve a single item's buy URL: item_links → server pdp_url → legacy pdp_handle + template. */
+  /**
+   * Resolve a single item's buy URL: item_links → server pdp_url → legacy pdp_handle + template.
+   * Owned items (the user's own uploaded garment) never have a buy link, regardless of
+   * what the backend sends — this is a hard UI guarantee, not just a backend contract.
+   */
   function resolveItemUrl(item: ItemSummary): string | null {
+    if (item.is_owned) return null
     return (
       itemLinkMap.get(item.article_id) ??
       item.pdp_url ??
@@ -201,13 +220,18 @@ export function OutfitBoard({
     )
   }
 
-  // The displayed total MUST match the rendered cards. Sum the rendered
-  // items' price_inr and prefer it; only fall back to the server-supplied
+  // Owned items (the user's own garment) are never purchasable — exclude them from
+  // the price total, "open all items" fan-out, and the flywheel item counts below.
+  const priceableItems = allOutfitItems.filter((it) => !it.is_owned)
+
+  // The displayed total MUST match the rendered (purchasable) cards. Sum the
+  // rendered items' price_inr and prefer it; only fall back to the server-supplied
   // budget when a rendered item is missing a price (no authoritative sum
   // can be computed) — see spec.md B4b.
-  const renderedPriceSum = allOutfitItems.every((it) => it.price_inr != null)
-    ? allOutfitItems.reduce((sum, it) => sum + (it.price_inr as number), 0)
-    : null
+  const renderedPriceSum =
+    priceableItems.length > 0 && priceableItems.every((it) => it.price_inr != null)
+      ? priceableItems.reduce((sum, it) => sum + (it.price_inr as number), 0)
+      : null
   const displayTotal = renderedPriceSum ?? displayBudget
 
   // Log look_shown once on mount — uses the base items/budget from props
@@ -289,13 +313,14 @@ export function OutfitBoard({
   }
 
   /**
-   * Non-Shopify / cross-store path: open every RENDERED card's deep-link in a
-   * new tab. Iterates `allOutfitItems` (not the raw server item_links) so the
-   * links opened always match exactly what the user sees on the board.
+   * Non-Shopify / cross-store path: open every RENDERED, purchasable card's
+   * deep-link in a new tab. Iterates `priceableItems` (not the raw server
+   * item_links, and never the owned seed) so the links opened always match
+   * exactly what the user sees on the board and can actually buy.
    */
   function handleOpenAllItems() {
     fireAddTheLookEvent()
-    allOutfitItems.forEach((item) => {
+    priceableItems.forEach((item) => {
       const url = resolveItemUrl(item)
       if (url) {
         window.open(url, "_blank", "noopener,noreferrer")
@@ -448,6 +473,8 @@ export function OutfitBoard({
             pdpUrlTemplate={brandConfig?.pdp_url_template}
             isSeed={item.article_id === seed?.article_id}
             overrideBuyUrl={resolveItemUrl(item)}
+            anchorImageUrl={item.article_id === seed?.article_id ? anchorImageUrl : undefined}
+            onSend={onSend}
           />
         ))}
       </div>
@@ -567,38 +594,50 @@ function SlotCard({
   pdpUrlTemplate,
   isSeed,
   overrideBuyUrl,
+  anchorImageUrl,
+  onSend,
 }: {
   item: ItemSummary
   pdpUrlTemplate: string | undefined
   isSeed: boolean
   overrideBuyUrl: string | null
+  /** The user's own uploaded photo — only meaningful when this card is the owned seed. */
+  anchorImageUrl?: string | null
+  /** Wired through so the owned card can offer "Where can I buy one like this?". */
+  onSend?: (text: string) => void
 }) {
+  // The owned seed (user's own uploaded garment) is never purchasable: no buy link,
+  // no price, no store badge — regardless of what the backend happens to send.
+  const isOwned = isSeed && item.is_owned === true
+
   // Priority: override (from item_links) → server-built pdp_url → legacy pdp_handle template.
-  const buyUrl =
-    overrideBuyUrl ??
-    item.pdp_url ??
-    (item.pdp_handle && pdpUrlTemplate
-      ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
-      : null)
+  const buyUrl = isOwned
+    ? null
+    : (overrideBuyUrl ??
+      item.pdp_url ??
+      (item.pdp_handle && pdpUrlTemplate
+        ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
+        : null))
 
-  const slotLabel = isSeed
-    ? "Hero"
-    : item.outfit_slot
-      ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
-      : "Item"
+  const slotLabel = isOwned
+    ? "Your item"
+    : isSeed
+      ? "Hero"
+      : item.outfit_slot
+        ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
+        : "Item"
 
-  return (
-    <a
-      href={buyUrl ?? undefined}
-      target={buyUrl ? "_blank" : undefined}
-      rel="noopener noreferrer"
-      className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
-    >
+  // Prefer the user's actual uploaded photo; fall back to the catalogue image_url
+  // (e.g. a restored session where the object URL no longer exists in memory).
+  const imageSrc = isOwned ? (anchorImageUrl ?? item.image_url) : item.image_url
+
+  const cardBody = (
+    <>
       <div className="relative aspect-[4/5] bg-muted max-h-52 overflow-hidden">
-        {item.image_url ? (
+        {imageSrc ? (
           <Image
-            src={item.image_url}
-            alt={item.prod_name}
+            src={imageSrc}
+            alt={isOwned ? "Your uploaded photo" : item.prod_name}
             fill
             sizes="(max-width: 640px) 50vw, 33vw"
             unoptimized
@@ -609,25 +648,60 @@ function SlotCard({
             👗
           </div>
         )}
-        <span className="absolute top-1.5 left-1.5 rounded-sm bg-background/90 text-foreground text-[10px] font-semibold px-1.5 py-0.5">
+        <span
+          className={cn(
+            "absolute top-1.5 left-1.5 rounded-sm text-[10px] font-semibold px-1.5 py-0.5",
+            isOwned ? "bg-[#E8A33D] text-white" : "bg-background/90 text-foreground",
+          )}
+        >
           {slotLabel}
         </span>
       </div>
       <div className="p-1.5">
         <p className="text-xs font-medium leading-tight line-clamp-2">{item.prod_name}</p>
-        {item.price_inr != null && (
+        {!isOwned && item.price_inr != null && (
           <p className="text-xs text-muted-foreground mt-0.5">
             ₹{item.price_inr.toLocaleString("en-IN")}
           </p>
         )}
-        {/* Store badge — shown on each card so mixed-store outfits are clear */}
-        {(item.store_display ?? item.store) && (
+        {/* Store badge — shown on each (non-owned) card so mixed-store outfits are clear */}
+        {!isOwned && (item.store_display ?? item.store) && (
           <p className="inline-flex items-center gap-0.5 mt-0.5 text-[9px] font-medium text-primary/80 bg-primary/10 rounded-sm px-1 py-0.5 leading-none">
             <Store className="h-2 w-2" aria-hidden />
             {item.store_display ?? getStoreDisplayName(item.store) ?? item.store}
           </p>
         )}
       </div>
+    </>
+  )
+
+  if (isOwned) {
+    return (
+      <div className="rounded-lg border-2 border-[#E8A33D] bg-background overflow-hidden">
+        {cardBody}
+        {onSend && (
+          <div className="px-1.5 pb-1.5">
+            <button
+              type="button"
+              onClick={() => onSend("Where can I buy one like this?")}
+              className="w-full rounded-full border border-[#E8A33D] text-[#E8A33D] text-[10px] font-medium px-2 py-1 hover:bg-[#E8A33D]/10 transition-colors"
+            >
+              Where can I buy one like this?
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <a
+      href={buyUrl ?? undefined}
+      target={buyUrl ? "_blank" : undefined}
+      rel="noopener noreferrer"
+      className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
+    >
+      {cardBody}
     </a>
   )
 }

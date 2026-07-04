@@ -41,10 +41,27 @@ export function MessageList({ messages, isSending, onSend, brand }: Props) {
     )
   }
 
+  // Only the LATEST assistant message should render its suggestion chips — otherwise
+  // stale chips from earlier turns would still be clickable and could resend outdated
+  // refinements against the current (already-refined) look.
+  let lastAssistantIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistantIndex = i
+      break
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-      {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} onSend={onSend} brand={brand} />
+      {messages.map((message, index) => (
+        <MessageBubble
+          key={message.id}
+          message={message}
+          onSend={onSend}
+          brand={brand}
+          isLatestAssistant={index === lastAssistantIndex}
+        />
       ))}
       {/* Typing indicator while the agent is running but no token yet */}
       {isSending && !messages.some((m) => m.isStreaming) && (

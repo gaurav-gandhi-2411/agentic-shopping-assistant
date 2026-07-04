@@ -15,6 +15,12 @@ interface Props {
   onSend?: (text: string) => void
   /** Brand id from the demo session (e.g. "snitch", "myntra"). Passed to OutfitBoard. */
   brand?: string
+  /**
+   * True only for the most recent assistant message. Suggestion chips are only
+   * rendered here — clicking a chip from an older turn would resend a stale
+   * refinement against a look that has since moved on.
+   */
+  isLatestAssistant?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +84,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
 // MessageBubble
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, onSend, brand }: Props) {
+export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Props) {
   const isUser = message.role === "user"
 
   return (
@@ -164,6 +170,7 @@ export function MessageBubble({ message, onSend, brand }: Props) {
                 outfitVariants={message.outfitVariants}
                 cartUrl={message.cartUrl}
                 itemLinks={message.itemLinks}
+                anchorImageUrl={message.anchorImageUrl}
                 sessionId={message.id}
                 anchorItemId={seed?.article_id ?? ""}
                 anchorCategory={seed?.product_type ?? ""}
@@ -181,6 +188,27 @@ export function MessageBubble({ message, onSend, brand }: Props) {
           </div>
         )
       })()}
+
+      {/* Backend-suggested follow-up chips — latest assistant message only, so a
+          click always applies to the current (not a stale) look/turn. */}
+      {!isUser &&
+        isLatestAssistant &&
+        !message.isStreaming &&
+        onSend &&
+        message.suggestionChips != null &&
+        message.suggestionChips.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 max-w-[85%]">
+            {message.suggestionChips.map((chip, i) => (
+              <button
+                key={`${chip}-${i}`}
+                onClick={() => onSend(chip)}
+                className="rounded-full border text-xs px-3 py-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
 
       {/* Feedback buttons (assistant messages with a persisted DB id only) */}
       {!isUser && !message.isStreaming && message.dbId !== null && (
