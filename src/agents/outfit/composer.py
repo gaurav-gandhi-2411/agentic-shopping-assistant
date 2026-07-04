@@ -163,6 +163,10 @@ def compose_outfit(
         )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
+            # RED 1a/1e/B4a/B4b: without this, ItemSummary.slot_role is None for every
+            # complement (api/schemas.py reads item["_role"]) and the frontend OutfitBoard
+            # filters complements out of the rendered look, showing only the seed card.
+            candidate["_role"] = "complement"
             complements.append(candidate)
             seen_ids.add(candidate["article_id"])
             seen_prod_colour.add(

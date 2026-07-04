@@ -45,6 +45,101 @@ _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
 
+# RED 2b/3/B3c fix: explicit anchor-reference phrasing ("Style this <item>",
+# "What goes with the/this <item>") must resolve to an outfit compose around the
+# NAMED session item, regardless of whether that name contains a garment noun
+# (it always does — "...Shirt", "...Dress" — which is exactly what defeated the old
+# `not intent.garment_type` veto). Checked BEFORE the general outfit-intent gate.
+_STYLE_ANCHOR_RE = re.compile(
+    r"^\s*(?:style\s+this\b|what\s+goes\s+with\s+(?:the|this)\b)",
+    re.IGNORECASE,
+)
+
+# Deterministic look-refinement phrasing (RED 2c follow-up turn): re-compose the
+# CURRENT session look rather than starting a fresh outfit or plain search.
+_LOOK_REFINEMENT_RE = re.compile(
+    r"\b(?:make\s+this\s+look\s+more\s+(?P<formality_word>\w+)"
+    r"|show\s+me\s+a?\s*different\s+colou?r\s+palette"
+    r"|swap\s+the\s+(?P<swap_slot>\w+)\s+in\s+this\s+look)\b",
+    re.IGNORECASE,
+)
+
+# Deterministic budget-refinement phrasing (RED 5c): "cheaper options" etc. must
+# re-run the prior search with a price cap, never a plain unconstrained re-search.
+_CHEAPER_REFINEMENT_RE = re.compile(
+    r"\b(cheaper|less\s+expensive|lower\s+price|budget\s+options?|more\s+affordable)\b",
+    re.IGNORECASE,
+)
+
+# Fraction of the previous turn's max item price used as the new price cap for
+# "cheaper options" refinements. 0.7 chosen so the cap meaningfully narrows the
+# result set (not just shaving off the single most expensive item) while still
+# leaving enough inventory to return >=2 items in most categories.
+_CHEAPER_REFINEMENT_FACTOR: float = 0.7
+
+
+def _normalize_for_anchor_match(s: str) -> str:
+    """Lowercase + collapse whitespace so item-name substring matching is robust to
+    minor spacing differences (e.g. "Semi- Formal" vs "Semi -Formal").
+    """
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def _resolve_anchor_from_session(raw_query: str, items: list[dict]) -> dict | None:
+    """Return the session item whose prod_name/display_name is a substring of
+    raw_query, or None if no item matches.
+
+    The frontend sends "Style this {prod_name}" verbatim, so a normalized
+    (case/whitespace-insensitive) substring match is reliable. When multiple
+    items match, the item with the LONGEST matching name wins — the more
+    specific match is preferred over a shorter partial overlap.
+    """
+    q_norm = _normalize_for_anchor_match(raw_query)
+    best: dict | None = None
+    best_len = 0
+    for item in items:
+        for key in ("prod_name", "display_name"):
+            name_norm = _normalize_for_anchor_match(item.get(key) or "")
+            if name_norm and name_norm in q_norm and len(name_norm) > best_len:
+                best = item
+                best_len = len(name_norm)
+    return best
+
+
+def _reconstruct_occasion_from_history(messages: list[dict]) -> str | None:
+    """Recover occasion context from conversation history for follow-up turns.
+
+    The session dict (api/routes/chat.py::_persist_result) does not persist the
+    AgentState "occasion" field across turns — only `retrieved_items`/`filters`/
+    `messages` survive. Scans user messages most-recent-first with the same
+    deterministic occasion extractor used for first-turn routing (IntentParser),
+    so "make this look more formal" after "a casual look" still resolves to
+    occasion="casual" rather than silently defaulting.
+    """
+    from src.agents.intent_parser import parse_intent
+
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        occ = parse_intent(m.get("content", "")).occasion
+        if occ:
+            return occ
+    return None
+
+
+def _resolve_session_gender(state: AgentState) -> str | None:
+    """Reconstruct "men"/"women" gender context from accumulated session filters."""
+    filters = state.get("filters") or {}
+    gender = filters.get("gender")
+    if gender in ("men", "women"):
+        return gender
+    ign = (filters.get("index_group_name") or "").lower()
+    if "menswear" in ign:
+        return "men"
+    if "ladieswear" in ign:
+        return "women"
+    return None
+
 # Structured OOC category map: category label → list of trigger words.
 # Checked in search_node BEFORE any retrieval; fires a canned "not in catalogue" response.
 # Structured OOC category map: checked in insertion order.
@@ -467,13 +562,117 @@ def build_graph(
         raw_q = state["user_query"]
         intent = parse_intent(raw_q)
 
-        # Outfit intent: keep LLM router for this action (complex multi-param).
-        # Detect via explicit outfit-building verbs + occasion context.
+        # RED 2b/3/B3c: explicit anchor reference ("Style this <item>",
+        # "What goes with the/this <item>") — resolve deterministically against
+        # session retrieved_items BEFORE any garment_type veto or LLM call.
+        if _STYLE_ANCHOR_RE.search(raw_q):
+            _session_items = state.get("retrieved_items", [])
+            _anchor = _resolve_anchor_from_session(raw_q, _session_items)
+            if _anchor:
+                _anchor_gender = (_anchor.get("gender") or "").lower()
+                if _anchor_gender not in ("men", "women"):
+                    _anchor_gender = (
+                        _resolve_session_gender(state) or _brand_cfg.gender_default
+                    )
+                _anchor_plan = {
+                    "action": "outfit",
+                    "article_id": _anchor["article_id"],
+                    "occasion": state.get("occasion") or "casual",
+                    "gender": _anchor_gender,
+                    "budget_inr": None,
+                }
+                logger.info(
+                    "[router/style-anchor] resolved anchor=%s gender=%s | query=%r",
+                    _anchor["article_id"], _anchor_gender, raw_q[:60],
+                )
+                return {
+                    "current_plan": json.dumps(_anchor_plan),
+                    "tool_calls": state.get("tool_calls", []) + [
+                        {"router_decision": _anchor_plan}
+                    ],
+                }
+            # No session item matched this reference — fall through to the
+            # existing outfit-intent / deterministic-search behaviour below.
+
+        # RED 2c follow-up turn: deterministic look-refinement re-compose.
+        # Session persistence (api/routes/chat.py::_persist_result) only carries
+        # `retrieved_items` and `filters` across turns — occasion/look_gender/look_id
+        # are NOT persisted at the session level. Reconstruct the anchor from the
+        # seed item still present in retrieved_items (outfit_node's own prior output,
+        # tagged _role="seed") and the occasion from the most recent occasion-bearing
+        # user message in conversation history.
         _prior_items_exist = bool(state.get("retrieved_items"))
+        _refinement_match = _LOOK_REFINEMENT_RE.search(raw_q)
+        if _refinement_match:
+            _session_items = state.get("retrieved_items", [])
+            _seed_item = next(
+                (it for it in _session_items if it.get("_role") == "seed"), None
+            )
+            if _seed_item:
+                _occ_slug = (
+                    _reconstruct_occasion_from_history(state.get("messages", []))
+                    or "casual"
+                )
+                _refine_gender = (_seed_item.get("gender") or "").lower()
+                if _refine_gender not in ("men", "women"):
+                    _refine_gender = (
+                        _resolve_session_gender(state) or _brand_cfg.gender_default
+                    )
+                _wants_colour = bool(
+                    re.search(r"colou?r", raw_q, re.IGNORECASE)
+                )
+                _bias_mode = "alternate_colour" if _wants_colour else "formality_shift"
+                _refine_plan = {
+                    "action": "outfit",
+                    "article_id": _seed_item["article_id"],
+                    "occasion": _occ_slug,
+                    "gender": _refine_gender,
+                    "budget_inr": None,
+                    "variant_preference": _bias_mode,
+                }
+                logger.info(
+                    "[router/look-refinement] anchor=%s occasion=%s bias=%s | query=%r",
+                    _seed_item["article_id"], _occ_slug, _bias_mode, raw_q[:60],
+                )
+                return {
+                    "current_plan": json.dumps(_refine_plan),
+                    "tool_calls": state.get("tool_calls", []) + [
+                        {"router_decision": _refine_plan}
+                    ],
+                }
+            # No seed item found in session — fall through to existing behaviour.
+
+        # RED 2c first turn: deterministic occasion-driven outfit compose.
+        # IntentParser's occasion/gender extraction is already canonical (the same
+        # _OCCASION_MAP/_GENDER_MAP used for product search), so it is more reliable
+        # than depending on the LLM router to free-parse the occasion + gender out of
+        # the raw sentence — a malformed/off-schema LLM JSON response here used to
+        # silently fall back to a plain search, dropping look_id entirely.
+        if _OUTFIT_OCCASION_RE.search(raw_q) and _OUTFIT_INTENT_RE.search(raw_q):
+            _occ_slug = intent.occasion or state.get("occasion") or "casual"
+            _occ_gender = (
+                intent.gender or _resolve_session_gender(state) or _brand_cfg.gender_default
+            )
+            _occ_plan = {
+                "action": "outfit",
+                "article_id": None,
+                "occasion": _occ_slug,
+                "gender": _occ_gender,
+                "budget_inr": intent.budget_max_inr,
+            }
+            logger.info(
+                "[router/occasion-outfit] occasion=%s gender=%s budget=%s | query=%r",
+                _occ_slug, _occ_gender, intent.budget_max_inr, raw_q[:60],
+            )
+            return {
+                "current_plan": json.dumps(_occ_plan),
+                "tool_calls": state.get("tool_calls", []) + [{"router_decision": _occ_plan}],
+            }
+
+        # Remaining ambiguous outfit intent (prior items + outfit verb + no explicit
+        # new garment, but no named anchor and no occasion signal) — keep the LLM
+        # router for this complex multi-param case.
         if (
-            _OUTFIT_OCCASION_RE.search(raw_q)
-            and _OUTFIT_INTENT_RE.search(raw_q)
-        ) or (
             _prior_items_exist
             and _OUTFIT_INTENT_RE.search(raw_q)
             and not intent.garment_type  # "style this" with no new garment → outfit
@@ -541,6 +740,28 @@ def build_graph(
             _plan_filters["price_max"] = merged_intent.budget_max_inr
         if merged_intent.store_filter:
             _plan_filters["store"] = merged_intent.store_filter[0]
+
+        # RED 5c: "cheaper options" / "less expensive" / "lower price" / "budget
+        # options" must actually cap price below the previous turn's results —
+        # re-running the search unconstrained can drift to PRICIER items (embeddings
+        # have no price awareness), which is the exact live regression this closes.
+        # Skipped when the user already gave an explicit numeric budget above (that
+        # always wins). Cap = 70% of the previous turn's max shown price — narrows
+        # the result set meaningfully while still leaving inventory to return >=2
+        # items in most categories; documented alongside the constant definition.
+        if _CHEAPER_REFINEMENT_RE.search(raw_q) and not merged_intent.budget_max_inr:
+            _prior_prices = [
+                it.get("price_inr")
+                for it in state.get("retrieved_items", [])
+                if it.get("price_inr")
+            ]
+            if _prior_prices:
+                _cheaper_cap = max(_prior_prices) * _CHEAPER_REFINEMENT_FACTOR
+                _plan_filters["price_max"] = _cheaper_cap
+                logger.info(
+                    "[router/cheaper] prior_max=%.0f cap=%.0f | query=%r",
+                    max(_prior_prices), _cheaper_cap, raw_q[:60],
+                )
 
         # Buy-similar path: "similar / like this / same style" after an image upload
         # uses the anchor item's dense embedding instead of text search.
@@ -637,6 +858,19 @@ def build_graph(
         (r"\bsalwar\b", "salwar"),
         (r"\bco-?ord\b|\bcoord\b", "coord"),
         (r"\bvest\b|\btank\b", "vest"),
+    ]
+
+    # RED 5b/D: occasion keyword → extra garment-category search terms, appended to
+    # the raw query (never replacing it) so occasion-only requests ("something for a
+    # wedding") retrieve ethnic/occasion-appropriate garments. Order matters — more
+    # specific occasions (sangeet, haldi/mehendi) are checked before the broader
+    # "wedding"/"traditional" fallbacks would otherwise also match on shared words.
+    _OCCASION_QUERY_TERMS: list[tuple[str, str]] = [
+        (r"\bsangeet\b", "lehenga sherwani kurta embellished festive"),
+        (r"\b(?:haldi|mehendi)\b", "kurta kurti lehenga cotton floral yellow festive"),
+        (r"\b(?:puja|festive)\b", "kurta kurti anarkali festive ethnic"),
+        (r"\bwedding\b", "lehenga saree anarkali kurta sherwani ethnic wedding wear"),
+        (r"\btraditional\b|\bethnic\b", "saree lehenga kurta traditional ethnic"),
     ]
 
     # Bolt-good / fabric SKU types — not finished wearable garments.
@@ -780,6 +1014,20 @@ def build_graph(
             for pattern, ptype in _PRODUCT_TYPE_KEYWORDS:
                 if re.search(pattern, raw_lower, re.IGNORECASE):
                     merged = {**merged, "product_type_name": ptype}
+                    break
+
+        # RED 5b/D: occasion-only queries with NO garment-type signal ("something
+        # for a wedding") must retrieve occasion-appropriate garments instead of
+        # leaking accessories/footwear whose description merely mentions the
+        # occasion word. This deterministic path (router_node's IntentParser route)
+        # never reaches the LLM router, so the LLM's own SEASONAL/OCCASION QUERY
+        # REWRITING prompt guidance never applied here — this closes that gap without
+        # depending on the LLM at all.
+        if "product_type_name" not in merged:
+            raw_lower = raw_query.lower()
+            for pattern, occasion_terms in _OCCASION_QUERY_TERMS:
+                if re.search(pattern, raw_lower, re.IGNORECASE):
+                    query = f"{query} {occasion_terms}"
                     break
 
         # Auto-extract facet filters from the query when the LLM omitted them.
@@ -1305,8 +1553,23 @@ def build_graph(
         for look, rat in zip(look_variants, rationales):
             look["rationale"] = rat
 
-        # Base variant drives the primary items/look_id/rationale response fields
+        # Base variant drives the primary items/look_id/rationale response fields —
+        # UNLESS the router requested a specific bias variant (RED 2c look-refinement
+        # follow-up: "make this look more formal" / "different colour palette" must
+        # surface the corresponding compose_outfit_variants() output, not the base).
         result = look_variants[0]
+        _variant_preference = plan.get("variant_preference")
+        if _variant_preference:
+            _preferred_labels = {
+                "formality_shift": {"Dressier", "Lighter"},
+                "alternate_colour": {"Colour story"},
+            }.get(_variant_preference, set())
+            _preferred = next(
+                (v for v in look_variants if v.get("variant_label") in _preferred_labels),
+                None,
+            )
+            if _preferred is not None:
+                result = _preferred
         seed = result.get("seed_item")
         complements = result.get("complements", [])
         base_rationale = result.get("rationale") or result.get("outfit_rationale", "")

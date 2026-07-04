@@ -1,6 +1,7 @@
 """Unit tests for the src.agents.outfit package — no LLM, no index required."""
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from src.agents.outfit.coherence import colour_score, is_coherent_candidate
@@ -10,6 +11,7 @@ from src.agents.outfit.composer import (
     PairingStat,
     _find_best_candidate,
     _flywheel_boost,
+    compose_outfit,
 )
 from src.agents.outfit.occasions import OCCASIONS, get_occasion
 from src.agents.outfit.slots import (
@@ -324,3 +326,130 @@ class TestFindBestCandidateStoreDiversity:
 
         assert winner is not None
         assert winner["article_id"] == "A1"
+
+
+# ── complement _role stamping (RED 1a/1e/B4a/B4b) ────────────────────────────
+
+class _FillSlotFakeRetriever:
+    """Returns different candidates depending on the slot query so both the
+    required "bottom" slot and the optional "outerwear" slot for a western_top
+    anchor get filled.
+    """
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None
+    ) -> list[dict]:
+        if "trousers" in query:
+            return [
+                {
+                    "article_id": "C1",
+                    "prod_name": "Black Trousers",
+                    "display_name": "Black Trousers",
+                    "store": "myntra",
+                    "colour": "black",
+                    "product_type": "Trousers",
+                    "detail_desc": "",
+                    "score": 0.9,
+                    "price_inr": 999.0,
+                    "gender": "women",
+                }
+            ]
+        if "jacket" in query:
+            return [
+                {
+                    "article_id": "C2",
+                    "prod_name": "Denim Jacket",
+                    "display_name": "Denim Jacket",
+                    "store": "myntra",
+                    "colour": "blue",
+                    "product_type": "Jacket",
+                    "detail_desc": "",
+                    "score": 0.85,
+                    "price_inr": 1499.0,
+                    "gender": "women",
+                }
+            ]
+        return []
+
+
+def _make_seed_catalogue_row(article_id: str) -> pd.DataFrame:
+    """Single-row catalogue DataFrame for a western-top seed item."""
+    return pd.DataFrame(
+        [
+            {
+                "article_id": article_id,
+                "prod_name": "White Shirt",
+                "display_name": "White Shirt",
+                "colour_group_name": "white",
+                "product_type_name": "Shirt",
+                "department_name": "Women",
+                "index_group_name": "Ladieswear",
+                "detail_desc": "",
+                "image_url": None,
+                "price_inr": 799.0,
+                "pdp_handle": "white-shirt",
+                "store": "myntra",
+                "gender": "women",
+                "facets": {
+                    "colour_group_name": "white",
+                    "product_type_name": "Shirt",
+                    "department_name": "Women",
+                },
+            }
+        ]
+    )
+
+
+class TestComposeOutfitComplementRoleStamping:
+    """Every complement in a composed look must carry _role='complement' so
+    ItemSummary.from_agent_item (api/schemas.py) can populate slot_role and the
+    frontend OutfitBoard renders every card, not just the seed.
+    """
+
+    def test_all_complements_get_role_complement(self) -> None:
+        catalogue_df = _make_seed_catalogue_row("SEED1")
+        retriever = _FillSlotFakeRetriever()
+        look = compose_outfit(
+            catalogue_df,
+            retriever,
+            seed_article_id="SEED1",
+            occasion_slug="casual",
+            gender="women",
+        )
+        assert look["complements"], "expected at least one complement to be filled"
+        for complement in look["complements"]:
+            assert complement.get("_role") == "complement", (
+                f"complement {complement.get('article_id')} missing _role='complement'"
+            )
+
+    def test_seed_item_role_is_seed(self) -> None:
+        catalogue_df = _make_seed_catalogue_row("SEED2")
+        retriever = _FillSlotFakeRetriever()
+        look = compose_outfit(
+            catalogue_df,
+            retriever,
+            seed_article_id="SEED2",
+            occasion_slug="casual",
+            gender="women",
+        )
+        assert look["seed_item"]["_role"] == "seed"
+
+    def test_item_summary_round_trip_sets_slot_role(self) -> None:
+        """End-to-end: compose_outfit complement -> ItemSummary.from_agent_item
+        must yield a non-null slot_role of 'complement'.
+        """
+        from api.schemas import ItemSummary
+
+        catalogue_df = _make_seed_catalogue_row("SEED3")
+        retriever = _FillSlotFakeRetriever()
+        look = compose_outfit(
+            catalogue_df,
+            retriever,
+            seed_article_id="SEED3",
+            occasion_slug="casual",
+            gender="women",
+        )
+        assert look["complements"]
+        for complement in look["complements"]:
+            summary = ItemSummary.from_agent_item(complement)
+            assert summary.slot_role == "complement"
