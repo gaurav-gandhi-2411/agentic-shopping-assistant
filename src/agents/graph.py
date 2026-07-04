@@ -7,7 +7,11 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.grounding import validate_response
-from src.agents.outfit.composer import compose_outfit_variants
+from src.agents.outfit.composer import (
+    compose_biased_look,
+    compose_outfit_variants,
+    swap_slot_in_look,
+)
 from src.agents.outfit.rationale import generate_rationales
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
@@ -63,6 +67,35 @@ _LOOK_REFINEMENT_RE = re.compile(
     r"|swap\s+the\s+(?P<swap_slot>\w+)\s+in\s+this\s+look)\b",
     re.IGNORECASE,
 )
+
+# "make this look more ethnic/traditional/desi" → bias re-compose toward ethnic
+# garment types rather than the formality_shift default. "formal"/"dressier"/etc.
+# keep the existing formality_shift behaviour.
+_ETHNIC_REFINEMENT_WORDS: frozenset[str] = frozenset({"ethnic", "traditional", "desi"})
+
+# Maps the free-text slot word captured by _LOOK_REFINEMENT_RE's swap_slot group to
+# the canonical slot names used by slots.get_fill_slots / compose_outfit's "_slot" tag.
+_SWAP_SLOT_WORD_MAP: dict[str, str] = {
+    "bottom": "bottom",
+    "bottoms": "bottom",
+    "trousers": "bottom",
+    "pants": "bottom",
+    "skirt": "bottom",
+    "top": "top",
+    "tops": "top",
+    "shoes": "footwear",
+    "shoe": "footwear",
+    "footwear": "footwear",
+    "sneakers": "footwear",
+    "jacket": "outerwear",
+    "layer": "outerwear",
+    "outerwear": "outerwear",
+    "coat": "outerwear",
+    "dupatta": "accessory",
+    "accessory": "accessory",
+    "accessories": "accessory",
+    "bag": "accessory",
+}
 
 # Deterministic budget-refinement phrasing (RED 5c): "cheaper options" etc. must
 # re-run the prior search with a price cap, never a plain unconstrained re-search.
@@ -357,6 +390,9 @@ WHAT TO SAY:
 - Write flowing prose. NO bullet points, NO "Item 1: …, Item 2: …" structure.
 - Skip weave types, sleeve measurements, and technical specs unless they directly answer \
 the user's question.
+- Use the recent conversation below for context — reference an earlier turn naturally \
+when the user's query implies it (e.g. "the blue one from before"). Never invent facts \
+that aren't in the recent conversation or the item attributes.
 
 WHAT NOT TO SAY:
 - Do NOT mention price, cost, discount, sale, affordable, or budget. No price data exists. \
@@ -395,26 +431,15 @@ beach holiday, brunch, work event, party) — rather than a simple product searc
 brief closing line: "Pick one and I can put together a complete look around it." \
 Skip this line for generic product searches like "show me black dresses" or "I want a blazer".
 
+Recent conversation:
+{conversation}
+
 User question: "{user_query}"
 
 Available item attributes:
 {items}
 
 Write your response now."""
-
-
-ONE_SENTENCE_PROMPT = """\
-You are a concise fashion shopping assistant.
-
-Write exactly ONE sentence (under 20 words) introducing the items below to the shopper.
-Use only product names and colours actually listed — do not invent attributes.
-Do not mention price, size, stock, or fabric. Use "you" and be warm.
-
-User asked: "{user_query}"
-Items returned:
-{items}
-
-Write your single sentence now."""
 
 
 def _format_items_brief(items: list[dict]) -> str:
@@ -618,10 +643,50 @@ def build_graph(
                     _refine_gender = (
                         _resolve_session_gender(state) or _brand_cfg.gender_default
                     )
+
+                # "swap the {slot} in this look" — replace ONLY that slot, not a
+                # full recompose (see outfit_node's swap_slot branch).
+                _swap_slot_word = _refinement_match.group("swap_slot")
+                if _swap_slot_word:
+                    _slot_name = _SWAP_SLOT_WORD_MAP.get(
+                        _swap_slot_word.lower(), _swap_slot_word.lower()
+                    )
+                    _current_slot_item = next(
+                        (it for it in _session_items if it.get("_slot") == _slot_name),
+                        None,
+                    )
+                    _swap_plan = {
+                        "action": "outfit",
+                        "article_id": _seed_item["article_id"],
+                        "occasion": _occ_slug,
+                        "gender": _refine_gender,
+                        "budget_inr": None,
+                        "swap_slot": _slot_name,
+                        "swap_exclude_id": (
+                            _current_slot_item["article_id"] if _current_slot_item else None
+                        ),
+                    }
+                    logger.info(
+                        "[router/swap-slot] anchor=%s slot=%s | query=%r",
+                        _seed_item["article_id"], _slot_name, raw_q[:60],
+                    )
+                    return {
+                        "current_plan": json.dumps(_swap_plan),
+                        "tool_calls": state.get("tool_calls", []) + [
+                            {"router_decision": _swap_plan}
+                        ],
+                    }
+
                 _wants_colour = bool(
                     re.search(r"colou?r", raw_q, re.IGNORECASE)
                 )
-                _bias_mode = "alternate_colour" if _wants_colour else "formality_shift"
+                _formality_word = (_refinement_match.group("formality_word") or "").lower()
+                if _formality_word in _ETHNIC_REFINEMENT_WORDS:
+                    _bias_mode = "ethnic_shift"
+                elif _wants_colour:
+                    _bias_mode = "alternate_colour"
+                else:
+                    _bias_mode = "formality_shift"
                 _refine_plan = {
                     "action": "outfit",
                     "article_id": _seed_item["article_id"],
@@ -1496,6 +1561,113 @@ def build_graph(
         gender = plan.get("gender") or _brand_cfg.gender_default
         budget_inr = plan.get("budget_inr")
 
+        # "Owned anchor" feature: if the resolved seed IS the session's image-upload
+        # anchor AND that anchor is owned by the user (not for sale), re-compose
+        # must preserve ownership — otherwise a follow-up "Style this <item>" /
+        # look-refinement turn would silently re-tag the user's own garment as
+        # buyable (a fresh CLIP-nearest catalogue neighbour is never substituted
+        # here; article_id already resolved to the exact session item above).
+        owned_anchor = bool(
+            article_id
+            and state.get("anchor_is_owned")
+            and article_id == state.get("anchor_article_id")
+        )
+
+        # "swap the {slot} in this look" — replace ONLY the named slot, keeping the
+        # seed and every other complement fixed (router_node's swap-slot branch sets
+        # plan["swap_slot"]). Never falls through to the full compose/variant path.
+        _swap_slot = plan.get("swap_slot")
+        if _swap_slot:
+            _session_items = state.get("retrieved_items", [])
+            _seed_item = next(
+                (it for it in _session_items if it.get("_role") == "seed"), None
+            )
+            _complements = [it for it in _session_items if it.get("_role") == "complement"]
+
+            if _seed_item is None:
+                answer = "I don't have a current look to modify — build a look first."
+                if streaming_mode:
+                    return {
+                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                        "final_answer": None,
+                        "messages": [],
+                    }
+                return {
+                    "final_answer": answer,
+                    "messages": [{"role": "assistant", "content": answer}],
+                }
+
+            _exclude_ids: set[str] = set()
+            _swap_exclude_id = plan.get("swap_exclude_id")
+            if _swap_exclude_id:
+                _exclude_ids.add(_swap_exclude_id)
+
+            _new_look = swap_slot_in_look(
+                retriever,
+                seed_item=_seed_item,
+                complements=_complements,
+                slot_name=_swap_slot,
+                occasion_slug=occasion_slug,
+                gender=gender,
+                exclude_article_ids=_exclude_ids,
+                budget_inr=budget_inr,
+            )
+
+            if _new_look is None:
+                answer = f"I couldn't find another {_swap_slot} that works for this look."
+                if streaming_mode:
+                    return {
+                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                        "final_answer": None,
+                        "messages": [],
+                    }
+                return {
+                    "final_answer": answer,
+                    "messages": [{"role": "assistant", "content": answer}],
+                }
+
+            _swap_seed = _new_look["seed_item"]
+            _swap_complements = _new_look["complements"]
+            _swap_items_out = ([_swap_seed] if _swap_seed else []) + _swap_complements
+            _new_slot_item = next(
+                (c for c in _swap_complements if c.get("_slot") == _swap_slot), None
+            )
+            _swapped_name = (
+                (_new_slot_item.get("display_name") or _new_slot_item.get("prod_name"))
+                if _new_slot_item
+                else _swap_slot
+            )
+            answer = (
+                f"Swapped in **{_swapped_name}** for the {_swap_slot} — "
+                f"the rest of the look stays the same."
+            )
+            update: dict = {
+                "retrieved_items": _swap_items_out,
+                "new_items_this_turn": True,
+                "tool_calls": state.get("tool_calls", []) + [
+                    {"outfit": {
+                        "article_id": article_id,
+                        "occasion": occasion_slug,
+                        "gender": gender,
+                        "swap_slot": _swap_slot,
+                    }}
+                ],
+                "look_id": _new_look.get("look_id"),
+                "occasion": occasion_slug,
+                "look_gender": gender,
+                "outfit_rationale": _new_look.get("outfit_rationale"),
+                "outfit_variants": None,
+                "budget_total_inr": _new_look.get("budget_total_inr"),
+            }
+            if streaming_mode:
+                update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
+                update["final_answer"] = None
+                update["messages"] = []
+            else:
+                update["final_answer"] = answer
+                update["messages"] = [{"role": "assistant", "content": answer}]
+            return update
+
         # Guard: if still no seed (e.g. occasion request misrouted here with no prior items),
         # use occasion-driven entry (seed_article_id=None) rather than failing hard.
         # First check viability with a single compose call before variant expansion.
@@ -1506,6 +1678,7 @@ def build_graph(
             catalogue_df=catalogue_df,
             retriever=retriever,
             budget_inr=budget_inr,
+            owned_anchor=owned_anchor,
         )
         if probe.get("seed_item") is None:
             answer = (
@@ -1534,6 +1707,7 @@ def build_graph(
                 budget_inr=budget_inr,
                 pairing_stats=None,  # flywheel stats injected when F phase completes
                 brand_gender_default=_brand_cfg.gender_default,
+                owned_anchor=owned_anchor,
             )
         except Exception as _ve:
             logger.warning("[outfit] compose_outfit_variants failed (%s) — using probe", _ve)
@@ -1559,7 +1733,41 @@ def build_graph(
         # surface the corresponding compose_outfit_variants() output, not the base).
         result = look_variants[0]
         _variant_preference = plan.get("variant_preference")
-        if _variant_preference:
+        if _variant_preference == "ethnic_shift":
+            # "More ethnic" refinement — not one of the two fixed variants
+            # compose_outfit_variants always produces, so compose it directly via
+            # the same biased-retriever mechanism used for the fixed variants.
+            try:
+                _ethnic_look = compose_biased_look(
+                    catalogue_df=catalogue_df,
+                    retriever=retriever,
+                    base_look=look_variants[0],
+                    seed_article_id=article_id or None,
+                    occasion_slug=occasion_slug,
+                    gender=gender,
+                    budget_inr=budget_inr,
+                    pairing_stats=None,
+                    brand_gender_default=_brand_cfg.gender_default,
+                    bias_mode="ethnic_shift",
+                    owned_anchor=owned_anchor,
+                )
+            except Exception as _ee:
+                logger.warning("[outfit] compose_biased_look ethnic_shift failed (%s)", _ee)
+                _ethnic_look = None
+            if _ethnic_look is not None and _ethnic_look.get("seed_item") is not None:
+                _ethnic_look["variant_label"] = "Ethnic"
+                try:
+                    _ethnic_look["rationale"] = generate_rationales(
+                        [_ethnic_look], llm, occasion=occasion_slug, gender=gender
+                    )[0]
+                except Exception as _re2:
+                    logger.warning(
+                        "[outfit] generate_rationales failed for ethnic_shift (%s)", _re2
+                    )
+                    from src.agents.outfit.rationale import template_rationale
+                    _ethnic_look["rationale"] = template_rationale(_ethnic_look)
+                result = _ethnic_look
+        elif _variant_preference:
             _preferred_labels = {
                 "formality_shift": {"Dressier", "Lighter"},
                 "alternate_colour": {"Colour story"},
@@ -1673,30 +1881,23 @@ def build_graph(
                 "messages": [{"role": "assistant", "content": answer}],
             }
 
-        # Use the tight 1-sentence prompt for product-search turns (items were found).
-        # Keep the full RESPOND_PROMPT only for conversational turns (no items) or
-        # when a grounding note about missing data is needed.
-        _has_items = bool(items)
-        if _has_items:
-            prompt = ONE_SENTENCE_PROMPT.format(
-                user_query=state["user_query"],
-                items=_format_items_for_response(items),
+        # Stylist-quality reply (2-3 sentences) for BOTH product-search and
+        # conversational turns — the one-sentence cap previously used for successful
+        # searches produced canned, context-blind lines. Recent conversation history
+        # (via _format_messages) is fed in so follow-ups can reference earlier turns
+        # ("the blue one from before"); the current turn's own user message is
+        # excluded from that slice since it's already passed separately as user_query.
+        _history = _format_messages(state.get("messages", [])[:-1])
+        prompt = RESPOND_PROMPT.format(
+            user_query=state["user_query"],
+            items=_format_items_for_response(items),
+            conversation=_history,
+        )
+        if few_gender and gender_group:
+            prompt += (
+                f"\n\nNote: this catalogue has limited {gender_group} stock. "
+                f"Mention this briefly at the end of your response."
             )
-            if few_gender and gender_group:
-                prompt += (
-                    f"\n\nNote: this catalogue has limited {gender_group} stock. "
-                    f"Append a brief note at the end of your sentence."
-                )
-        else:
-            prompt = RESPOND_PROMPT.format(
-                user_query=state["user_query"],
-                items=_format_items_for_response(items),
-            )
-            if few_gender and gender_group:
-                prompt += (
-                    f"\n\nNote: this catalogue has limited {gender_group} stock. "
-                    f"Mention this briefly at the end of your response."
-                )
         if streaming_mode:
             # In streaming mode the app streams the LLM call; store the prompt for pickup.
             return {

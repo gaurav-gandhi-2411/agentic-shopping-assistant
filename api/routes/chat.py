@@ -96,6 +96,9 @@ def _build_invoke_state(session: dict, user_message: str) -> dict:
         "out_of_catalogue": False,
         "excluded_colours": session.get("excluded_colours"),
         "anchor_article_id": session.get("anchor_article_id"),
+        # "Owned anchor" feature: carries forward whether anchor_article_id refers
+        # to a user-owned item (set by image_style.py). Consulted by outfit_node.
+        "anchor_is_owned": session.get("anchor_is_owned", False),
         # Outfit fields — reset each turn; populated by outfit_node only
         "outfit_rationale": None,
         "outfit_variants": None,
@@ -586,6 +589,17 @@ async def ws_chat(websocket: WebSocket) -> None:
 
         full_response = ""
 
+        # Bug fix (WS session-history overwrite): the streaming-mode graph nodes
+        # (respond_node/outfit_node/clarify_node) return "messages": [] when they
+        # hand off a pending_respond/pending_answer plan — the assistant reply text
+        # isn't known until it's streamed here. `result["messages"]` at this point is
+        # therefore still the FULL accumulated history (prior session messages + this
+        # turn's user message), NOT a fresh single-element list. Capture it before the
+        # branches below and APPEND the assistant reply to it — previously this was
+        # overwritten with a single-element list, truncating multi-turn history on
+        # every streamed turn (the primary frontend path).
+        _accumulated_messages: list[dict] = result.get("messages", session["messages"])
+
         if plan.get("action") == "pending_respond":
             chunks: list[str] = []
             async for tok in _iter_tokens(llm, plan["prompt"]):
@@ -603,7 +617,7 @@ async def ws_chat(websocket: WebSocket) -> None:
             result = {
                 **result,
                 "final_answer": full_response,
-                "messages": [{"role": "assistant", "content": full_response}],
+                "messages": _accumulated_messages + [{"role": "assistant", "content": full_response}],
             }
 
         elif plan.get("action") == "pending_answer":
@@ -612,7 +626,7 @@ async def ws_chat(websocket: WebSocket) -> None:
             result = {
                 **result,
                 "final_answer": full_response,
-                "messages": [{"role": "assistant", "content": full_response}],
+                "messages": _accumulated_messages + [{"role": "assistant", "content": full_response}],
             }
 
         else:
