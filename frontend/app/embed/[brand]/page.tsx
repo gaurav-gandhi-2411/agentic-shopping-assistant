@@ -153,7 +153,10 @@ export default function EmbedPage() {
   }, [brand, brandId, backendAvailable])
 
   function handleSend(text: string) {
-    sendMessage(text, null)
+    // No cidOverride: let useChatStream fall back to conversationIdRef.current
+    // so follow-up turns stay in the same conversation instead of forcing a
+    // new one every message (same fix as /demo/chat).
+    sendMessage(text)
   }
 
   // ---------------------------------------------------------------------------

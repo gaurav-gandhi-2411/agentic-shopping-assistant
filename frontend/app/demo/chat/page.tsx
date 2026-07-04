@@ -32,7 +32,10 @@ export default function DemoChatPage() {
   const showWarmup = isSending && !hasAssistantReply
 
   function handleSend(text: string) {
-    sendMessage(text, null)
+    // No cidOverride: let useChatStream fall back to conversationIdRef.current
+    // so follow-up turns (refinements like "in blue now") stay in the same
+    // conversation instead of forcing a new one every message.
+    sendMessage(text)
   }
 
   if (!mounted || brandName === null) {
