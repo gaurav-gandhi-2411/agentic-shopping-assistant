@@ -10,7 +10,7 @@
  *   data-brand="snitch"          — brand id (snitch | myntra | flipkart)
  *   data-origin="https://asa-stylist.vercel.app"  — override embed origin (default: script host)
  *   data-label="Complete the Look"               — button label
- *   data-accent="#1a1a2e"        — button accent colour (hex)
+ *   data-accent="#E8A33D"        — button accent colour (hex)
  *
  * The script is idempotent: safe to include twice on the same page.
  * No dependencies. No build step. Vanilla JS (ES2017+).
@@ -40,7 +40,7 @@
     : window.location.origin;
   var embedOrigin = scriptEl.getAttribute("data-origin") || scriptOrigin;
   var buttonLabel = scriptEl.getAttribute("data-label") || "Complete the Look";
-  var accentColour = scriptEl.getAttribute("data-accent") || "#1a1a2e";
+  var accentColour = scriptEl.getAttribute("data-accent") || "#E8A33D";
 
   var EMBED_URL = embedOrigin + "/embed/" + encodeURIComponent(brand);
 
@@ -96,13 +96,14 @@
   triggerBtn.setAttribute("aria-label", buttonLabel);
   triggerBtn.style.backgroundColor = accentColour;
   triggerBtn.style.color = "#ffffff";
-  // Sparkle icon + label
+  // Smiling-hanger icon + label
   triggerBtn.innerHTML =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" ' +
-    'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" ' +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 32 32" ' +
+    'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" ' +
     'stroke-linejoin="round" aria-hidden="true">' +
-    '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 ' +
-    '7 14.14 2 9.27 8.91 8.26 12 2"/></svg>' +
+    '<path d="M5.5 18.2L16 9.4l10.5 8.8"/>' +
+    '<path d="M5.5 18.2c3.2 4.6 17.8 4.6 21 0"/>' +
+    '<path d="M16 9.4V8.1c0-1.15.9-2.05 2.05-2.05"/></svg>' +
     '<span>' + buttonLabel + '</span>';
 
   triggerContainer.appendChild(triggerBtn);

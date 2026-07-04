@@ -14,12 +14,12 @@ interface LogoProps {
 }
 
 /**
- * StyleMitra brand mark — a continuous thread forming a stylised "S" (style,
- * stitching) with a small sparkle accent (the "AI stylist" cue, echoing the
- * Sparkles icon used elsewhere for stylist notes). Rendered with
- * `currentColor` so it inherits whatever text color utility is applied
- * (defaults to `text-primary`, which adapts automatically between light and
- * dark themes via the shadcn/ui CSS variables).
+ * StyleMitra brand mark — the "Smiling Hanger": a clothes hanger whose bar
+ * reads as a smile, evoking a friendly style companion (StyleMitra = Style +
+ * Mitra/friend). Rendered with `currentColor` so it inherits whatever text
+ * color utility is applied (defaults to `text-primary`, which adapts
+ * automatically between light and dark themes via the shadcn/ui CSS
+ * variables).
  */
 export function LogoMark({ className }: LogoMarkProps) {
   return (
@@ -31,31 +31,42 @@ export function LogoMark({ className }: LogoMarkProps) {
       role="img"
       aria-label="StyleMitra"
     >
-      {/* Thread/ribbon forming a stylised "S" */}
+      {/* Shoulders */}
       <path
-        d="M22 9c0-3-4-4-8-3s-6 3-6 5.5S12 15 16 16s8 3.5 8 6-4 4.5-8 3.5-6-3-6-5.5"
+        d="M5.5 18.2L16 9.4l10.5 8.8"
         stroke="currentColor"
-        strokeWidth="3.2"
+        strokeWidth="2.4"
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      {/* Sparkle accent — the "AI stylist" cue */}
+      {/* Smile bar */}
       <path
-        d="M25.5 5.5l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z"
-        fill="currentColor"
-        opacity="0.6"
+        d="M5.5 18.2c3.2 4.6 17.8 4.6 21 0"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Hook */}
+      <path
+        d="M16 9.4V8.1c0-1.15.9-2.05 2.05-2.05"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   )
 }
 
-/** Full lockup: icon + "StyleMitra" wordmark. */
+/** Full lockup: icon + "StyleMitra" wordmark (marigold accent on "Mitra"). */
 export function Logo({ className, iconClassName, wordmarkClassName, showWordmark = true }: LogoProps) {
   return (
     <span className={`inline-flex items-center gap-1.5 ${className ?? ""}`}>
       <LogoMark className={iconClassName ?? "h-5 w-5 text-primary shrink-0"} />
       {showWordmark && (
         <span className={`font-semibold tracking-tight text-sm leading-none ${wordmarkClassName ?? ""}`}>
-          StyleMitra
+          Style<span className="text-[#E8A33D]">Mitra</span>
         </span>
       )}
     </span>
