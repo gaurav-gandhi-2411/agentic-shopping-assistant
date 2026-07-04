@@ -1,0 +1,88 @@
+# asa-stylist-api — Cloud Run service spec for EMERGENCY RECOVERY only.
+#
+# This file is NOT used by the normal deploy workflow.  Normal deploys use:
+#   bash scripts/deploy_unified.sh
+#
+# Use this file only when gcloud CLI flags misbehave (e.g. cached secrets leak
+# into a new revision).  Update IMAGE_TAG and run:
+#   gcloud run services replace deploy/service.yaml --region asia-south1
+#
+# After replace: verify traffic with
+#   gcloud run services describe asa-stylist-api --region asia-south1 \
+#     --format "json(spec.traffic,status.traffic)"
+#
+# Secret names (Secret Manager, project iconic-reactor-496423-m4):
+#   asa-groq-api-key     → GROQ_API_KEY
+#   asa-demo-jwt-secret  → DEMO_JWT_SECRET
+#   asa-database-url     → DATABASE_URL
+#   asa-supabase-url     → SUPABASE_URL
+# ---------------------------------------------------------------------------
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/maxScale: "1"
+  name: asa-stylist-api
+  namespace: "657468372797"
+spec:
+  template:
+    metadata:
+      annotations:
+        # maxScale=1: api/rate_limit.py's in-memory IP rate limiter and chat.py's
+        # in-memory _DEMO_SESSIONS both assume a single running instance.
+        autoscaling.knative.dev/maxScale: "1"
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      containerConcurrency: 4
+      containers:
+      - image: asia-south1-docker.pkg.dev/iconic-reactor-496423-m4/shopping-assistant/asa-api:REPLACE_WITH_TAG
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: "1"
+            memory: 4Gi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+        env:
+        - name: DEMO_MODE
+          value: "true"
+        - name: LLM_PROVIDER
+          value: groq
+        - name: CORS_ORIGINS
+          value: https://asa-stylist.vercel.app
+        - name: INDEX_STORE_URI
+          value: gs://asa-demo-indices/unified/
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: asa-groq-api-key
+              key: "2"
+        - name: DEMO_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: asa-demo-jwt-secret
+              key: "2"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: asa-database-url
+              key: "2"
+        - name: SUPABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: asa-supabase-url
+              key: "2"
+      serviceAccountName: 657468372797-compute@developer.gserviceaccount.com
+      timeoutSeconds: 300
+  # IMPORTANT: traffic must always pin to an explicit revisionName, never latestRevision: true.
+  # Replace REPLACE_WITH_REVISION after the new revision is Ready.
+  traffic:
+  - percent: 100
+    revisionName: REPLACE_WITH_REVISION
