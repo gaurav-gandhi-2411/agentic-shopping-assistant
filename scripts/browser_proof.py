@@ -7,6 +7,9 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
   4. Image upload shows an image thumbnail + typed text in the user bubble, then
      either renders cards or surfaces the honest timeout/error message (not an
      infinite "Finding your match..." spinner).
+  5. (--product flow, B4c) The cross-store "Open all items" CTA opens an inline
+     panel of per-item links instead of looping window.open() (which real
+     browsers popup-block after the first call per user gesture).
 
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
@@ -637,6 +640,82 @@ def step_b4_image_board(
     )
 
 
+def step_b4c_open_all_panel(page: Page, state: ProofState) -> None:
+    """B4c: click 'Open all items' (cross-store, no-cartUrl path) and assert the inline
+    panel appears with exactly the buyable complement links -- proving the popup-
+    blocking fix instead of the old window.open()-per-item forEach loop.
+
+    Real browsers (Chrome/Edge/Safari) allow only ONE window.open() per user
+    gesture; a forEach of window.open() calls silently drops every tab after the
+    first (Playwright's automation flags mask this, which is why the bug wasn't
+    caught in earlier browser-level proofs). The fix replaces the fan-out with a
+    toggled inline panel of plain `<a target="_blank">` links, each clicked
+    individually by the user.
+
+    Anchor hrefs are cross-checked against the SAME slot cards already rendered on
+    the board (`a.rounded-lg.border.bg-background` -- SlotCard renders the owned
+    seed as a non-anchor `<div>`, so this selector already excludes it), since both
+    the panel and the slot cards resolve through the identical
+    priceableItems/resolveItemUrl logic in OutfitBoard.tsx.
+
+    If the board used the single-store Shopify cart-URL path instead (no
+    `[data-testid=open-all-items-button]` present), this check records a pass with
+    an explanatory detail -- that path is unchanged/out of scope for this fix.
+    """
+    board = page.locator(OUTFIT_BOARD_SELECTOR)
+    if board.count() == 0:
+        state.record(
+            "B4c. 'Open all items' shows inline panel (no popup fan-out)",
+            False,
+            "no outfit board present",
+        )
+        return
+    board0 = board.last
+    cta = board0.locator("[data-testid='open-all-items-button']")
+    if cta.count() == 0:
+        state.record(
+            "B4c. 'Open all items' shows inline panel (no popup fan-out)",
+            True,
+            "N/A - board used single-store 'Add the look to cart' path (unchanged, out of scope)",
+        )
+        return
+
+    slot_hrefs = set()
+    slot_cards = board0.locator("a.rounded-lg.border.bg-background")
+    for i in range(slot_cards.count()):
+        href = slot_cards.nth(i).get_attribute("href")
+        if href:
+            slot_hrefs.add(href)
+
+    cta.first.click()
+    try:
+        page.wait_for_selector("[data-testid='open-all-panel']", timeout=5_000)
+    except Exception as exc:  # noqa: BLE001
+        shot(page, "b4c_open_all_panel_FAIL")
+        state.record(
+            "B4c. 'Open all items' shows inline panel (no popup fan-out)",
+            False,
+            f"panel did not appear after click: {exc}",
+        )
+        return
+
+    panel = board0.locator("[data-testid='open-all-panel']")
+    panel_items = panel.locator("[data-testid='open-all-panel-item']")
+    panel_hrefs = set()
+    for i in range(panel_items.count()):
+        href = panel_items.nth(i).get_attribute("href")
+        if href:
+            panel_hrefs.add(href)
+    shot(page, "b4c_open_all_panel")
+
+    matches = panel_hrefs == slot_hrefs and len(panel_hrefs) > 0
+    state.record(
+        "B4c. 'Open all items' shows inline panel (no popup fan-out)",
+        matches,
+        f"panel_hrefs={sorted(panel_hrefs)} slot_hrefs={sorted(slot_hrefs)}",
+    )
+
+
 def step_console_errors(state: ProofState) -> None:
     """Step f: classify collected console/pageerror messages; fail only on severe ones."""
     severe = []
@@ -726,6 +805,7 @@ def main() -> int:
                     step_b3_interactions(page, state)
                     image_new_cards = step_image_upload(page, state, Path(args.image))
                     step_b4_image_board(page, state, expected_new_cards=image_new_cards)
+                    step_b4c_open_all_panel(page, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(

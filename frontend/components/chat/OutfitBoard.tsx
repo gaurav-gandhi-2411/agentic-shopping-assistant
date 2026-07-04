@@ -160,6 +160,14 @@ export function OutfitBoard({
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Cross-store "open all items" inline panel — most browsers block every
+  // window.open() after the first one within a single click handler, so a
+  // forEach loop of window.open() silently drops all but one tab in real
+  // browsers (Playwright's automation flags mask this). Instead we toggle an
+  // inline panel of plain <a target="_blank"> links, each clicked individually
+  // by the user — a real click per link is never popup-blocked.
+  const [showOpenAllPanel, setShowOpenAllPanel] = useState(false)
+
   // Derive the displayed items, rationale, budget, and buy links from the active variant (if any).
   const activeVariant =
     hasMultipleVariants && activeVariantId != null
@@ -313,19 +321,18 @@ export function OutfitBoard({
   }
 
   /**
-   * Non-Shopify / cross-store path: open every RENDERED, purchasable card's
-   * deep-link in a new tab. Iterates `priceableItems` (not the raw server
-   * item_links, and never the owned seed) so the links opened always match
-   * exactly what the user sees on the board and can actually buy.
+   * Non-Shopify / cross-store path: toggle the inline "open all items" panel
+   * listing every RENDERED, purchasable card's deep-link as a plain anchor.
+   * We deliberately do NOT call window.open() in a loop here — browsers only
+   * allow one popup per user gesture, so a forEach of window.open() drops all
+   * but the first tab in real Chrome/Edge/Safari. The panel reuses
+   * `priceableItems` / `resolveItemUrl` (not the raw server item_links, and
+   * never the owned seed) so the links always match exactly what the user
+   * sees on the board and can actually buy.
    */
   function handleOpenAllItems() {
     fireAddTheLookEvent()
-    priceableItems.forEach((item) => {
-      const url = resolveItemUrl(item)
-      if (url) {
-        window.open(url, "_blank", "noopener,noreferrer")
-      }
-    })
+    setShowOpenAllPanel((prev) => !prev)
   }
 
   /** Build a self-contained snapshot of the currently active variant/look. */
@@ -504,13 +511,52 @@ export function OutfitBoard({
               Add the look to cart — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
             </button>
           ) : (
-            <button
-              onClick={handleOpenAllItems}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open all items — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
-            </button>
+            <>
+              <button
+                onClick={handleOpenAllItems}
+                data-testid="open-all-items-button"
+                aria-expanded={showOpenAllPanel}
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open all items — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
+              </button>
+              {showOpenAllPanel && (
+                <div
+                  data-testid="open-all-panel"
+                  className="rounded-lg border bg-muted/40 p-2 space-y-1.5"
+                >
+                  <p className="text-[10px] text-muted-foreground px-1">
+                    Opens each store in a new tab
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {priceableItems.map((item) => {
+                      const url = resolveItemUrl(item)
+                      if (!url) return null
+                      const label =
+                        item.store_display ??
+                        getStoreDisplayName(item.store) ??
+                        item.store ??
+                        item.prod_name
+                      return (
+                        <a
+                          key={item.article_id}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid="open-all-panel-item"
+                          className="inline-flex items-center gap-1 rounded-full border bg-background text-xs px-3 py-1 text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                        >
+                          {label}
+                          {item.price_inr != null &&
+                            ` — ₹${item.price_inr.toLocaleString("en-IN")}`}
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
