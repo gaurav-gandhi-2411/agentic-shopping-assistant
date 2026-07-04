@@ -398,6 +398,7 @@ def compose_biased_look(
             for c in (base_look.get("complements") or [])
         },
         occasion_slug=occasion_slug,
+        gender=gender,
         # Deterministic seed for reproducibility
         _seed=42,
     )
@@ -421,12 +422,90 @@ def compose_biased_look(
         return None
 
 
+# Western hint words that identify which slot a get_fill_slots() search_query
+# targets (see slots.py's default/western_bottom/outerwear/western_one_piece
+# branches) so ethnic_shift can append the matching ethnic vocabulary. These are
+# intentionally kept in sync with the literal query strings in slots.py.
+_BOTTOM_HINT_WORDS: frozenset[str] = frozenset({"trousers", "jeans", "skirt", "jeggings"})
+_OUTERWEAR_HINT_WORDS: frozenset[str] = frozenset({"jacket", "blazer", "coat", "cardigan"})
+_FOOTWEAR_HINT_WORDS: frozenset[str] = frozenset(
+    {"sneakers", "flats", "heels", "loafers", "shoes", "wedges", "pumps"}
+)
+_ACCESSORY_HINT_WORDS: frozenset[str] = frozenset(
+    {"bag", "handbag", "sling", "earrings", "belt", "watch", "cap"}
+)
+_TOP_HINT_WORDS: frozenset[str] = frozenset({"shirt", "blouse"})
+
+
+def _ethnic_shift_query(query: str, gender: str) -> str:
+    """Augment a western-leaning slot search_query with ethnic-leaning terms.
+
+    get_fill_slots() (src/agents/outfit/slots.py) derives each slot's search_query
+    purely from the seed item's anchor_class, never from occasion or bias mode —
+    so a western-anchored look (e.g. a blouse) always retrieves a western-only
+    candidate pool. _BiasedRetriever's ethnic_shift re-scoring can only promote
+    candidates that already exist in that pool, so without this augmentation the
+    pool never contains an ethnic item to promote and "make this look more
+    ethnic" silently yields an all-western result.
+
+    Detects which slot the query targets via its known western hint words and
+    appends the matching ethnic vocabulary, gendered the same way the ethnic
+    branches of slots.py already gender their own queries. Queries that don't
+    match any known western hint (already-ethnic queries, e.g. slots.py's own
+    "kurta ethnic top") are returned unchanged.
+    """
+    words = set(query.lower().split())
+    is_men = gender.lower() == "men"
+    extra_terms: list[str] = []
+    if words & _BOTTOM_HINT_WORDS:
+        extra_terms.append(
+            "churidar pyjama ethnic bottom"
+            if is_men
+            else "palazzo churidar salwar sharara ethnic bottom"
+        )
+    if words & _OUTERWEAR_HINT_WORDS:
+        extra_terms.append(
+            "nehru jacket waistcoat ethnic waistcoat"
+            if is_men
+            else "nehru jacket ethnic jacket shrug"
+        )
+    if words & _FOOTWEAR_HINT_WORDS:
+        extra_terms.append(
+            "mojaris juttis kolhapuris ethnic footwear"
+            if is_men
+            else "juttis kolhapuris ethnic sandals"
+        )
+    if words & _ACCESSORY_HINT_WORDS:
+        extra_terms.append(
+            "pocket square safa ethnic accessory"
+            if is_men
+            else "dupatta jhumka ethnic jewellery"
+        )
+    if words & _TOP_HINT_WORDS:
+        extra_terms.append("kurta ethnic top" if is_men else "kurta kurti ethnic top")
+
+    if not extra_terms:
+        return query
+    return query + " " + " ".join(extra_terms)
+
+
 class _BiasedRetriever:
     """Thin wrapper around HybridRetriever that re-scores candidates.
 
     Does NOT bypass any coherence/gender/occasion gate — those still run in
     compose_outfit's _find_best_candidate.  Only adjusts the retrieval score
     so a different set of items floats to the top.
+
+    Live-proven bug: for bias_mode="ethnic_shift" this re-scoring alone was not
+    enough. get_fill_slots() (src/agents/outfit/slots.py) derives each slot's
+    search_query purely from the seed item's anchor_class, never from occasion
+    or bias mode — so a western-anchored look (e.g. a blouse) always retrieves
+    a western-only candidate POOL (trousers/jeans, blazers, sneakers, handbags),
+    even when "make this look more ethnic" is asking for an ethnic re-score.
+    Re-scoring can only promote what already exists in the pool; an all-western
+    pool always yields an all-western result regardless of bias. `search()`
+    below augments the query text itself for ethnic_shift so ethnic candidates
+    (kurta/palazzo/dupatta/jutti/...) actually exist in-pool to be promoted.
     """
 
     # Colours preferred for "alternate colour story" variant
@@ -454,12 +533,14 @@ class _BiasedRetriever:
         bias_mode: str,
         base_complement_colours: set[str],
         occasion_slug: str,
+        gender: str = "women",
         _seed: int = 42,
     ) -> None:
         self._retriever = retriever
         self._bias_mode = bias_mode
         self._base_colours = base_complement_colours
         self._occasion_slug = occasion_slug
+        self._gender = gender
         self._seed = _seed
 
     def search(
@@ -469,7 +550,10 @@ class _BiasedRetriever:
         filters: dict | None = None,
     ) -> list[dict]:
         """Retrieve candidates and apply bias scoring."""
-        candidates = self._retriever.search(query, top_k=top_k * 2, filters=filters)
+        effective_query = query
+        if self._bias_mode == "ethnic_shift":
+            effective_query = _ethnic_shift_query(query, self._gender)
+        candidates = self._retriever.search(effective_query, top_k=top_k * 2, filters=filters)
         rescored: list[tuple[float, dict]] = []
         for item in candidates:
             base_score = item.get("score") or 0.5

@@ -353,6 +353,246 @@ class TestBiasedRetrieverEthnicShiftScoring:
         assert self._retriever()._bias_score(item) == pytest.approx(0.0)
 
 
+class _QueryRecordingFakeRetriever:
+    """Records every query string handed to `.search()`; returns no candidates.
+
+    Used to assert what text _BiasedRetriever actually sends downstream, without
+    needing any candidate-selection logic.
+    """
+
+    def __init__(self) -> None:
+        self.queries_seen: list[str] = []
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None  # noqa: ARG002
+    ) -> list[dict]:
+        self.queries_seen.append(query)
+        return []
+
+
+class TestBiasedRetrieverEthnicShiftQueryAugmentation:
+    """Live-proven bug: get_fill_slots() (slots.py) derives search_query purely from
+    the seed's anchor_class, never from bias mode — so a western-anchored look's
+    slot pools were western-only regardless of "make this look more ethnic". The
+    fix augments the query text itself for bias_mode="ethnic_shift" so ethnic
+    candidates (kurta/palazzo/dupatta/jutti/...) actually exist in-pool.
+    """
+
+    def test_ethnic_shift_augments_bottom_query_with_ethnic_terms(self) -> None:
+        fake = _QueryRecordingFakeRetriever()
+        retriever = _BiasedRetriever(
+            retriever=fake,
+            bias_mode="ethnic_shift",
+            base_complement_colours=set(),
+            occasion_slug="casual",
+            gender="women",
+        )
+        retriever.search("trousers jeans skirt", top_k=20)
+        assert fake.queries_seen, "underlying retriever must have been called"
+        sent = fake.queries_seen[0]
+        assert "palazzo" in sent and "churidar" in sent and "salwar" in sent
+
+    def test_ethnic_shift_augments_outerwear_query_with_ethnic_terms(self) -> None:
+        fake = _QueryRecordingFakeRetriever()
+        retriever = _BiasedRetriever(
+            retriever=fake,
+            bias_mode="ethnic_shift",
+            base_complement_colours=set(),
+            occasion_slug="casual",
+            gender="women",
+        )
+        retriever.search("jacket blazer coat cardigan", top_k=20)
+        assert "nehru jacket" in fake.queries_seen[0]
+
+    def test_ethnic_shift_augments_accessory_query_with_ethnic_terms(self) -> None:
+        fake = _QueryRecordingFakeRetriever()
+        retriever = _BiasedRetriever(
+            retriever=fake,
+            bias_mode="ethnic_shift",
+            base_complement_colours=set(),
+            occasion_slug="casual",
+            gender="women",
+        )
+        retriever.search("handbag sling bag earrings women accessory", top_k=20)
+        assert "dupatta" in fake.queries_seen[0]
+
+    def test_ethnic_shift_augments_footwear_query_with_ethnic_terms(self) -> None:
+        fake = _QueryRecordingFakeRetriever()
+        retriever = _BiasedRetriever(
+            retriever=fake,
+            bias_mode="ethnic_shift",
+            base_complement_colours=set(),
+            occasion_slug="casual",
+            gender="women",
+        )
+        retriever.search("sneakers flats heels casual shoes women", top_k=20)
+        assert "juttis" in fake.queries_seen[0]
+
+    def test_ethnic_shift_query_augmentation_is_gendered_for_men(self) -> None:
+        fake = _QueryRecordingFakeRetriever()
+        retriever = _BiasedRetriever(
+            retriever=fake,
+            bias_mode="ethnic_shift",
+            base_complement_colours=set(),
+            occasion_slug="casual",
+            gender="men",
+        )
+        retriever.search("jacket blazer coat cardigan", top_k=20)
+        sent = fake.queries_seen[0]
+        assert "waistcoat" in sent
+        assert "shrug" not in sent, "shrug is the women's-branch term, must not leak into men's"
+
+    def test_non_ethnic_shift_bias_modes_do_not_augment_the_query(self) -> None:
+        for bias_mode in ("formality_shift", "alternate_colour"):
+            fake = _QueryRecordingFakeRetriever()
+            retriever = _BiasedRetriever(
+                retriever=fake,
+                bias_mode=bias_mode,
+                base_complement_colours=set(),
+                occasion_slug="casual",
+                gender="women",
+            )
+            retriever.search("trousers jeans skirt", top_k=20)
+            assert fake.queries_seen[0] == "trousers jeans skirt", (
+                f"bias_mode={bias_mode} must not touch the query text"
+            )
+
+    def test_already_ethnic_query_is_returned_unchanged(self) -> None:
+        """A query that already carries no western hint words (e.g. slots.py's own
+        ethnic branch query "kurta ethnic top") must pass through unmodified."""
+        fake = _QueryRecordingFakeRetriever()
+        retriever = _BiasedRetriever(
+            retriever=fake,
+            bias_mode="ethnic_shift",
+            base_complement_colours=set(),
+            occasion_slug="casual",
+            gender="women",
+        )
+        retriever.search("kurta ethnic top", top_k=20)
+        assert fake.queries_seen[0] == "kurta ethnic top"
+
+
+class _EthnicVsWesternPoolFakeRetriever:
+    """Models a real hybrid retriever's text-similarity behaviour: candidates for a
+    given slot are only returned when the QUERY TEXT actually contains matching
+    vocabulary. A purely western query ("trousers jeans skirt") never surfaces the
+    ethnic candidate — proving the live-proven bug (western-only slot queries mean
+    no ethnic candidate is ever in-pool for the bias to promote). Once the query is
+    augmented with ethnic terms, the ethnic candidate is returned and — modelling a
+    strong text match — scores higher than the western competitor.
+    """
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None  # noqa: ARG002
+    ) -> list[dict]:
+        q = query.lower()
+        results: list[dict] = []
+        if any(w in q for w in ("trousers", "jeans", "skirt")):
+            results.append(
+                {
+                    "article_id": "WEST_BOTTOM",
+                    "prod_name": "Blue Jeans",
+                    "display_name": "Blue Jeans",
+                    "colour": "blue",
+                    "product_type": "Jeans",
+                    "gender": "women",
+                    "score": 0.5,
+                    "price_inr": 999.0,
+                    "store": "myntra",
+                    "detail_desc": "",
+                }
+            )
+        if "palazzo" in q:
+            results.append(
+                {
+                    "article_id": "ETH_BOTTOM",
+                    "prod_name": "Cotton Palazzo",
+                    "display_name": "Cotton Palazzo",
+                    "colour": "blue",
+                    "product_type": "Palazzo",
+                    "gender": "women",
+                    "score": 0.9,
+                    "price_inr": 899.0,
+                    "store": "myntra",
+                    "detail_desc": "",
+                }
+            )
+        if any(w in q for w in ("bag", "handbag", "sling", "earrings")):
+            results.append(
+                {
+                    "article_id": "WEST_ACCESSORY",
+                    "prod_name": "Sling Bag",
+                    "display_name": "Sling Bag",
+                    "colour": "black",
+                    "product_type": "Bag",
+                    "gender": "women",
+                    "score": 0.5,
+                    "price_inr": 599.0,
+                    "store": "myntra",
+                    "detail_desc": "",
+                }
+            )
+        if "dupatta" in q:
+            results.append(
+                {
+                    "article_id": "ETH_ACCESSORY",
+                    "prod_name": "Silk Dupatta",
+                    "display_name": "Silk Dupatta",
+                    "colour": "red",
+                    "product_type": "Dupatta",
+                    "gender": "women",
+                    "score": 0.9,
+                    "price_inr": 499.0,
+                    "store": "myntra",
+                    "detail_desc": "",
+                }
+            )
+        return results
+
+
+class TestEthnicShiftRecomposePullsEthnicCandidates:
+    """End-to-end: compose_biased_look(bias_mode="ethnic_shift") must actually
+    select ethnic-typed complements when the fake pool contains both western and
+    ethnic candidates, keyed by whether ethnic vocabulary appears in the query —
+    directly reproducing the live "make this look more ethnic" recompose."""
+
+    def test_ethnic_shift_recompose_pulls_ethnic_candidates(self) -> None:
+        catalogue_df = _make_seed_catalogue_row("SEED_ETHNIC_SHIFT")
+        retriever = _EthnicVsWesternPoolFakeRetriever()
+        base_look = compose_outfit(
+            catalogue_df,
+            retriever,
+            seed_article_id="SEED_ETHNIC_SHIFT",
+            occasion_slug="casual",
+            gender="women",
+        )
+        # Precondition: without the ethnic-shift bias, the base look is all-western
+        # (mirrors the live bug's blouse/blazer/bag result).
+        base_types = {c["product_type"] for c in base_look["complements"]}
+        assert "Palazzo" not in base_types and "Dupatta" not in base_types
+
+        ethnic_look = compose_biased_look(
+            catalogue_df=catalogue_df,
+            retriever=retriever,
+            base_look=base_look,
+            seed_article_id="SEED_ETHNIC_SHIFT",
+            occasion_slug="casual",
+            gender="women",
+            budget_inr=None,
+            pairing_stats=None,
+            brand_gender_default="women",
+            bias_mode="ethnic_shift",
+        )
+
+        assert ethnic_look is not None
+        ethnic_names = {
+            (c.get("prod_name") or "").lower() for c in ethnic_look["complements"]
+        }
+        assert any(
+            "palazzo" in n or "dupatta" in n or "kurta" in n for n in ethnic_names
+        ), f"expected an ethnic-typed complement, got: {ethnic_names}"
+
+
 class _LargeWesternPoolFakeRetriever:
     """25 western candidates (score 0.5) rank ahead of 1 ethnic candidate (score 0.5)
     purely by list order — models a real retriever whose text-similarity ranking for
