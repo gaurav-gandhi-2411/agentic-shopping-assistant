@@ -6,6 +6,7 @@ import { X } from "lucide-react"
 import { useChatStream } from "@/hooks/useChatStream"
 import { MessageList } from "@/components/chat/MessageList"
 import { ChatInput } from "@/components/chat/ChatInput"
+import { Logo } from "@/components/Logo"
 
 // ---------------------------------------------------------------------------
 // Known brand definitions — must match NEXT_PUBLIC_{BRAND}_BACKEND_URL vars.
@@ -208,15 +209,16 @@ export default function EmbedPage() {
         style={{ borderColor: "hsl(var(--border))" }}
       >
         <div className="flex items-center gap-2">
+          <Logo showWordmark={false} iconClassName="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-semibold leading-none">
+            StyleMitra <span className="text-muted-foreground font-normal">x</span> {brandName}
+          </span>
           {/* Brand accent dot */}
           <span
-            className="w-3 h-3 rounded-full shrink-0"
+            className="w-2 h-2 rounded-full shrink-0"
             style={{ backgroundColor: brand.accentHex }}
             aria-hidden
           />
-          <span className="text-sm font-semibold leading-none">
-            {brandName} Stylist
-          </span>
         </div>
         {/* Close button — posts asa:close to the parent window */}
         <button
@@ -268,7 +270,7 @@ export default function EmbedPage() {
             rel="noopener noreferrer"
             className="underline underline-offset-2"
           >
-            Agentic Shopping Assistant
+            StyleMitra
           </a>
         </span>
       </div>

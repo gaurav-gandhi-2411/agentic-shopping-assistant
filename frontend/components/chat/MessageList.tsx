@@ -35,7 +35,7 @@ export function MessageList({ messages, isSending, onSend, brand }: Props) {
         <p className="text-lg font-semibold">What can I help you find?</p>
         <p className="text-sm text-muted-foreground max-w-xs">
           Try &ldquo;show me red summer dresses&rdquo; or &ldquo;casual blue
-          jeans under £40&rdquo;
+          jeans under ₹2,000&rdquo;
         </p>
       </div>
     )

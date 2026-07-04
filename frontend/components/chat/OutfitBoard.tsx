@@ -168,9 +168,47 @@ export function OutfitBoard({
     activeCartUrl != null &&
     (brand != null ? SHOPIFY_STORE_SLUGS.has(brand) : false)
 
-  const seed = displayItems.find((it) => it.slot_role === "seed")
-  const complements = displayItems.filter((it) => it.slot_role === "complement")
+  // ---------------------------------------------------------------------------
+  // Slot derivation — self-consistent regardless of backend slot_role tagging.
+  // Prefer explicit slot_role tags. If NONE of the items carry a slot_role
+  // (a known backend gap — see spec.md B4b) fall back to treating the first
+  // item as the hero and the rest as complements, so every returned item
+  // still renders as a slot card instead of being silently dropped.
+  // ---------------------------------------------------------------------------
+  const hasAnySlotRole = displayItems.some((it) => it.slot_role != null)
+  const seed = hasAnySlotRole
+    ? displayItems.find((it) => it.slot_role === "seed")
+    : displayItems[0]
+  const complements = hasAnySlotRole
+    ? displayItems.filter((it) => it.slot_role === "complement")
+    : displayItems.slice(1)
   const allOutfitItems = seed ? [seed, ...complements] : complements
+
+  // Per-item link map — resolves each rendered card's buy URL. Built once so
+  // "Open all items" and the individual slot cards always agree.
+  const itemLinkMap = new Map<string, string>(
+    (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
+  )
+
+  /** Resolve a single item's buy URL: item_links → server pdp_url → legacy pdp_handle + template. */
+  function resolveItemUrl(item: ItemSummary): string | null {
+    return (
+      itemLinkMap.get(item.article_id) ??
+      item.pdp_url ??
+      (item.pdp_handle && brandConfig?.pdp_url_template
+        ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
+        : null)
+    )
+  }
+
+  // The displayed total MUST match the rendered cards. Sum the rendered
+  // items' price_inr and prefer it; only fall back to the server-supplied
+  // budget when a rendered item is missing a price (no authoritative sum
+  // can be computed) — see spec.md B4b.
+  const renderedPriceSum = allOutfitItems.every((it) => it.price_inr != null)
+    ? allOutfitItems.reduce((sum, it) => sum + (it.price_inr as number), 0)
+    : null
+  const displayTotal = renderedPriceSum ?? displayBudget
 
   // Log look_shown once on mount — uses the base items/budget from props
   // (not variant-derived), as the look exposure event is for the whole look.
@@ -231,7 +269,7 @@ export function OutfitBoard({
         anchor_category: anchorCategory,
         occasion: occasion ?? null,
         brand: brand ?? null,
-        look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+        look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         filled_slots: complements.map((c) => ({
           slot: c.outfit_slot,
           item_id: c.article_id,
@@ -250,45 +288,25 @@ export function OutfitBoard({
     }
   }
 
-  /** Non-Shopify / cross-store path: open each item's deep-link in a new tab. */
+  /**
+   * Non-Shopify / cross-store path: open every RENDERED card's deep-link in a
+   * new tab. Iterates `allOutfitItems` (not the raw server item_links) so the
+   * links opened always match exactly what the user sees on the board.
+   */
   function handleOpenAllItems() {
     fireAddTheLookEvent()
-    if (activeItemLinks && activeItemLinks.length > 0) {
-      // Prefer server-supplied item_links (cart_links helper output).
-      activeItemLinks.forEach((link) => {
-        window.open(link.buy_url, "_blank", "noopener,noreferrer")
-      })
-    } else {
-      // Cross-store fallback: use server-built pdp_url per item (unified mode),
-      // then pdp_handle + brandConfig template (legacy per-brand mode).
-      allOutfitItems.forEach((item) => {
-        const url =
-          item.pdp_url ??
-          (item.pdp_handle && brandConfig?.pdp_url_template
-            ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
-            : null)
-        if (url) {
-          window.open(url, "_blank", "noopener,noreferrer")
-        }
-      })
-    }
+    allOutfitItems.forEach((item) => {
+      const url = resolveItemUrl(item)
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer")
+      }
+    })
   }
 
   /** Build a self-contained snapshot of the currently active variant/look. */
   function buildSnapshot(): LookSnapshot {
-    // Build per-item buy_url: prefer item_links map, then server-built pdp_url,
-    // then legacy pdp_handle + template (for backward compat with per-brand mode).
-    const itemLinkMap = new Map<string, string>(
-      (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
-    )
-
     const snapshotItems = displayItems.map((item) => {
-      const buyUrl =
-        itemLinkMap.get(item.article_id) ??
-        item.pdp_url ??
-        (item.pdp_handle && brandConfig?.pdp_url_template
-          ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
-          : null)
+      const buyUrl = resolveItemUrl(item)
       return {
         article_id: item.article_id,
         display_name: item.display_name ?? item.prod_name,
@@ -312,7 +330,7 @@ export function OutfitBoard({
       variant_label: activeVariant?.label ?? null,
       occasion: occasion ?? null,
       look_gender: lookGender ?? null,
-      budget_total_inr: displayBudget ?? null,
+      budget_total_inr: displayTotal ?? null,
       brand: brand ?? null,
     }
   }
@@ -330,7 +348,7 @@ export function OutfitBoard({
         occasion: occasion ?? null,
         look_gender: lookGender ?? null,
         anchor_item_id: anchorItemId,
-        look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+        look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         snapshot,
       }
       const res = await fetch(`${backendUrl}/looks`, {
@@ -359,7 +377,7 @@ export function OutfitBoard({
           anchor_category: anchorCategory,
           occasion: occasion ?? null,
           brand: brand ?? null,
-          look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+          look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         })
       }
     } catch {
@@ -385,11 +403,6 @@ export function OutfitBoard({
   const filledSlotNames = complements
     .map((c) => c.outfit_slot)
     .filter(Boolean) as string[]
-
-  // Per-item link map for SlotCard buy overlays on non-Shopify brands.
-  const itemLinkMap = new Map<string, string>(
-    (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
-  )
 
   return (
     <div className="w-full rounded-xl border bg-card p-4 space-y-3">
@@ -433,8 +446,8 @@ export function OutfitBoard({
             key={item.article_id}
             item={item}
             pdpUrlTemplate={brandConfig?.pdp_url_template}
-            isSeed={item.slot_role === "seed"}
-            overrideBuyUrl={itemLinkMap.get(item.article_id) ?? null}
+            isSeed={item.article_id === seed?.article_id}
+            overrideBuyUrl={resolveItemUrl(item)}
           />
         ))}
       </div>
@@ -450,8 +463,10 @@ export function OutfitBoard({
         </div>
       )}
 
-      {/* Add the look — Shopify: single cart URL; non-Shopify: open-all */}
-      {displayBudget != null && (
+      {/* Add the look — Shopify: single cart URL; non-Shopify: open-all.
+          Amount is always displayTotal (sum of rendered cards) so the label
+          never desyncs from what "Open all items" actually opens. */}
+      {displayTotal != null && (
         <div className="space-y-2">
           {isShopify && activeCartUrl ? (
             <button
@@ -459,7 +474,7 @@ export function OutfitBoard({
               className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
             >
               <ShoppingBag className="h-4 w-4" />
-              Add the look to cart — ₹{Math.round(displayBudget).toLocaleString("en-IN")}
+              Add the look to cart — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
             </button>
           ) : (
             <button
@@ -467,7 +482,7 @@ export function OutfitBoard({
               className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
             >
               <ExternalLink className="h-4 w-4" />
-              Open all items — ₹{Math.round(displayBudget).toLocaleString("en-IN")}
+              Open all items — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
             </button>
           )}
         </div>

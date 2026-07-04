@@ -17,7 +17,7 @@ export function ChatPlaceholder({ userEmail, onSend }: Props) {
   const { data: brand } = useBrandConfig()
 
   const chips = brand?.suggestion_chips?.length ? brand.suggestion_chips : FALLBACK_CHIPS
-  const displayName = brand?.display_name ?? "Shopping Assistant"
+  const displayName = brand?.display_name ?? "StyleMitra"
 
   return (
     <div className="flex flex-col items-center justify-center flex-1 min-h-[60vh] gap-4 text-center px-4">
