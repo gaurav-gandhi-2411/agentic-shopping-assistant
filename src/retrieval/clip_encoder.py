@@ -26,7 +26,17 @@ import threading
 from typing import TYPE_CHECKING
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+import tqdm
+
+# tqdm's TMonitor background thread bootstraps/tears down a lock on every
+# progress-bar instantiation, and SentenceTransformer.encode() creates one
+# internally even when show_progress_bar=False.  Setting monitor_interval=0
+# disables the monitor thread entirely (documented tqdm switch) — this must
+# happen before sentence_transformers is imported/used so its internal tqdm
+# usage picks up the disabled monitor.
+tqdm.tqdm.monitor_interval = 0
+
+from sentence_transformers import SentenceTransformer  # noqa: E402
 
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
@@ -144,6 +154,7 @@ class CLIPEncoder:
             rgb,  # type: ignore[arg-type]
             convert_to_numpy=True,
             normalize_embeddings=True,
+            show_progress_bar=False,
         )
         arr = np.array(vec, dtype=np.float32)
         if arr.ndim == 2:

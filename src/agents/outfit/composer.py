@@ -15,6 +15,7 @@ from src.agents.outfit.slots import (
     gender_allowed,
     get_fill_slots,
     is_ethnic_item,
+    is_western_item,
 )
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
@@ -25,6 +26,15 @@ logger = logging.getLogger(__name__)
 # Max +25% boost from conversion signal; 0 at cold-start.
 FLYWHEEL_ALPHA: float = 0.25
 FLYWHEEL_MIN_SIGNALS: int = 10
+
+# Cross-store styling is a shipped product bar (Phase F).  The strict per-item gender gate
+# (see gender_allowed) narrowed the complement candidate pool and, as a side effect, removed
+# the accidental store diversity that used to come from unknown-gender rows in other stores.
+# This is a SOFT preference — a multiplicative penalty, not a filter — so the best same-store
+# candidate still wins when no other-store candidate is within striking distance.  0.85 means
+# a same-store candidate needs to score >~18% higher than the best other-store candidate to
+# still be picked; near-tied candidates from a new store win instead.
+STORE_DIVERSITY_PENALTY: float = 0.85
 
 
 @dataclass
@@ -65,11 +75,19 @@ def compose_outfit(
     budget_inr: float | None = None,
     pairing_stats: dict | None = None,  # {(anchor_cat, fill_cat, occasion): PairingStat}
     brand_gender_default: str = "women",
+    owned_anchor: bool = False,
 ) -> dict:
     """Compose an outfit for a given occasion, optionally anchored to a seed item.
 
     When seed_article_id is None, finds the best anchor from the catalogue for
     the occasion using a retrieval query, then fills slots around it.
+
+    Args:
+        owned_anchor: When True, the resolved seed item is stamped ``_owned=True``
+            (e.g. the seed came from a user-uploaded photo of an item they already
+            own). Owned seeds are never for sale — ``build_cart_action`` excludes
+            them from cart/link/total machinery, and ``ItemSummary.from_agent_item``
+            suppresses their ``pdp_url``. Complements are never owned.
 
     Returns a dict with: look_id, seed_item, complements, outfit_rationale,
     empty_slots, occasion, gender, budget_total_inr.
@@ -109,6 +127,9 @@ def compose_outfit(
         seed_item["_role"] = "seed"
         seed_article_id = seed_item["article_id"]
 
+    if owned_anchor:
+        seed_item["_owned"] = True
+
     # Resolve gender from seed item if not explicitly provided
     effective_gender = (
         gender if gender != "unisex" else _infer_gender(seed_item, brand_gender_default)
@@ -128,7 +149,18 @@ def compose_outfit(
     seen_prod_colour: set[tuple[str, str]] = set()
     seen_prod_colour.add((normalize_prod_name(anchor_name), anchor_colour))
 
-    running_total = seed_item.get("price_inr") or 0.0
+    # Stores already represented in this look (seed + chosen complements so far).  Fed to
+    # _find_best_candidate so it can apply the soft STORE_DIVERSITY_PENALTY.
+    seen_stores: set[str] = set()
+    seed_store = seed_item.get("store")
+    if seed_store:
+        seen_stores.add(str(seed_store).lower())
+
+    # "Owned anchor" budget fix: an owned seed (the user's own garment, uploaded via
+    # photo) is never for sale, so its price must NOT count against the user's stated
+    # budget — the budget buys complements only. A non-owned seed still counts from
+    # the start, as before.
+    running_total = 0.0 if owned_anchor else (seed_item.get("price_inr") or 0.0)
 
     for slot_spec in fill_slots:
         candidate = _find_best_candidate(
@@ -143,9 +175,14 @@ def compose_outfit(
             budget_remaining=budget_inr - running_total if budget_inr is not None else None,
             pairing_stats=pairing_stats,
             anchor_class=anchor_class,
+            seen_stores=seen_stores,
         )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
+            # RED 1a/1e/B4a/B4b: without this, ItemSummary.slot_role is None for every
+            # complement (api/schemas.py reads item["_role"]) and the frontend OutfitBoard
+            # filters complements out of the rendered look, showing only the seed card.
+            candidate["_role"] = "complement"
             complements.append(candidate)
             seen_ids.add(candidate["article_id"])
             seen_prod_colour.add(
@@ -157,6 +194,9 @@ def compose_outfit(
                 )
             )
             running_total += candidate.get("price_inr") or 0.0
+            candidate_store = candidate.get("store")
+            if candidate_store:
+                seen_stores.add(str(candidate_store).lower())
         elif slot_spec.required:
             empty_slots.append(slot_spec.slot_name)
 
@@ -206,6 +246,7 @@ def compose_outfit_variants(
     budget_inr: float | None = None,
     pairing_stats: dict | None = None,
     brand_gender_default: str = "women",
+    owned_anchor: bool = False,
 ) -> list[dict]:
     """Compose 2-3 look variants around the same seed and occasion.
 
@@ -237,6 +278,9 @@ def compose_outfit_variants(
         budget_inr:          Optional budget cap in INR.
         pairing_stats:       Flywheel pairing stats dict (may be None).
         brand_gender_default: Gender default for the brand catalogue.
+        owned_anchor:        When True, the seed item in EVERY variant is stamped
+            ``_owned=True`` (see ``compose_outfit`` docstring). Complements are
+            never owned.
 
     Returns:
         List of 1–3 look dicts.  Always non-empty (falls back to base-only).
@@ -251,6 +295,7 @@ def compose_outfit_variants(
         budget_inr=budget_inr,
         pairing_stats=pairing_stats,
         brand_gender_default=brand_gender_default,
+        owned_anchor=owned_anchor,
     )
     base["variant_label"] = "Base"
 
@@ -263,7 +308,7 @@ def compose_outfit_variants(
     # ── Variant 1: Alternate colour story ───────────────────────────────────
     # Build a biased candidate selector that prefers a different colour palette.
     # We wrap the retriever with a scoring override that flips colour preferences.
-    alt_colour_look = _compose_with_colour_bias(
+    alt_colour_look = compose_biased_look(
         catalogue_df=catalogue_df,
         retriever=retriever,
         base_look=base,
@@ -274,6 +319,7 @@ def compose_outfit_variants(
         pairing_stats=pairing_stats,
         brand_gender_default=brand_gender_default,
         bias_mode="alternate_colour",
+        owned_anchor=owned_anchor,
     )
     if alt_colour_look and _is_distinct_look(alt_colour_look, base):
         alt_colour_look["variant_label"] = "Colour story"
@@ -281,7 +327,7 @@ def compose_outfit_variants(
 
     # ── Variant 2: Dressier or Lighter lean ──────────────────────────────────
     # Shift formality within the same occasion family.
-    formality_look = _compose_with_colour_bias(
+    formality_look = compose_biased_look(
         catalogue_df=catalogue_df,
         retriever=retriever,
         base_look=base,
@@ -292,6 +338,7 @@ def compose_outfit_variants(
         pairing_stats=pairing_stats,
         brand_gender_default=brand_gender_default,
         bias_mode="formality_shift",
+        owned_anchor=owned_anchor,
     )
     if formality_look and _is_distinct_look(formality_look, base):
         # Label: ethnic/formal occasions get "Lighter"; western/casual get "Dressier"
@@ -314,7 +361,7 @@ def _is_distinct_look(look: dict, base: dict) -> bool:
     return bool(look_ids - base_ids)
 
 
-def _compose_with_colour_bias(
+def compose_biased_look(
     *,
     catalogue_df: pd.DataFrame,
     retriever: HybridRetriever,
@@ -326,6 +373,7 @@ def _compose_with_colour_bias(
     pairing_stats: dict | None,
     brand_gender_default: str,
     bias_mode: str,
+    owned_anchor: bool = False,
 ) -> dict | None:
     """Compose a variant look using a biased retriever wrapper.
 
@@ -334,6 +382,10 @@ def _compose_with_colour_bias(
       complements (shifts the colour story without abandoning coherence).
     - "formality_shift": nudges scoring toward embellished/formal items for
       casual occasions, or lightweight/casual items for formal ethnic occasions.
+    - "ethnic_shift": nudges scoring toward ethnic garment types/keywords (kurta,
+      lehenga, saree, dupatta, ...) and away from purely western items — used for
+      "make this look more ethnic" refinement turns. Gender/occasion/coherence
+      gates are unchanged; this only re-scores candidates within the same gates.
 
     Returns None if the variant cannot be composed coherently, or if it would
     be identical to the base.
@@ -346,6 +398,7 @@ def _compose_with_colour_bias(
             for c in (base_look.get("complements") or [])
         },
         occasion_slug=occasion_slug,
+        gender=gender,
         # Deterministic seed for reproducibility
         _seed=42,
     )
@@ -359,6 +412,7 @@ def _compose_with_colour_bias(
             budget_inr=budget_inr,
             pairing_stats=pairing_stats,
             brand_gender_default=brand_gender_default,
+            owned_anchor=owned_anchor,
         )
         if look.get("seed_item") is None:
             return None
@@ -368,12 +422,90 @@ def _compose_with_colour_bias(
         return None
 
 
+# Western hint words that identify which slot a get_fill_slots() search_query
+# targets (see slots.py's default/western_bottom/outerwear/western_one_piece
+# branches) so ethnic_shift can append the matching ethnic vocabulary. These are
+# intentionally kept in sync with the literal query strings in slots.py.
+_BOTTOM_HINT_WORDS: frozenset[str] = frozenset({"trousers", "jeans", "skirt", "jeggings"})
+_OUTERWEAR_HINT_WORDS: frozenset[str] = frozenset({"jacket", "blazer", "coat", "cardigan"})
+_FOOTWEAR_HINT_WORDS: frozenset[str] = frozenset(
+    {"sneakers", "flats", "heels", "loafers", "shoes", "wedges", "pumps"}
+)
+_ACCESSORY_HINT_WORDS: frozenset[str] = frozenset(
+    {"bag", "handbag", "sling", "earrings", "belt", "watch", "cap"}
+)
+_TOP_HINT_WORDS: frozenset[str] = frozenset({"shirt", "blouse"})
+
+
+def _ethnic_shift_query(query: str, gender: str) -> str:
+    """Augment a western-leaning slot search_query with ethnic-leaning terms.
+
+    get_fill_slots() (src/agents/outfit/slots.py) derives each slot's search_query
+    purely from the seed item's anchor_class, never from occasion or bias mode —
+    so a western-anchored look (e.g. a blouse) always retrieves a western-only
+    candidate pool. _BiasedRetriever's ethnic_shift re-scoring can only promote
+    candidates that already exist in that pool, so without this augmentation the
+    pool never contains an ethnic item to promote and "make this look more
+    ethnic" silently yields an all-western result.
+
+    Detects which slot the query targets via its known western hint words and
+    appends the matching ethnic vocabulary, gendered the same way the ethnic
+    branches of slots.py already gender their own queries. Queries that don't
+    match any known western hint (already-ethnic queries, e.g. slots.py's own
+    "kurta ethnic top") are returned unchanged.
+    """
+    words = set(query.lower().split())
+    is_men = gender.lower() == "men"
+    extra_terms: list[str] = []
+    if words & _BOTTOM_HINT_WORDS:
+        extra_terms.append(
+            "churidar pyjama ethnic bottom"
+            if is_men
+            else "palazzo churidar salwar sharara ethnic bottom"
+        )
+    if words & _OUTERWEAR_HINT_WORDS:
+        extra_terms.append(
+            "nehru jacket waistcoat ethnic waistcoat"
+            if is_men
+            else "nehru jacket ethnic jacket shrug"
+        )
+    if words & _FOOTWEAR_HINT_WORDS:
+        extra_terms.append(
+            "mojaris juttis kolhapuris ethnic footwear"
+            if is_men
+            else "juttis kolhapuris ethnic sandals"
+        )
+    if words & _ACCESSORY_HINT_WORDS:
+        extra_terms.append(
+            "pocket square safa ethnic accessory"
+            if is_men
+            else "dupatta jhumka ethnic jewellery"
+        )
+    if words & _TOP_HINT_WORDS:
+        extra_terms.append("kurta ethnic top" if is_men else "kurta kurti ethnic top")
+
+    if not extra_terms:
+        return query
+    return query + " " + " ".join(extra_terms)
+
+
 class _BiasedRetriever:
     """Thin wrapper around HybridRetriever that re-scores candidates.
 
     Does NOT bypass any coherence/gender/occasion gate — those still run in
     compose_outfit's _find_best_candidate.  Only adjusts the retrieval score
     so a different set of items floats to the top.
+
+    Live-proven bug: for bias_mode="ethnic_shift" this re-scoring alone was not
+    enough. get_fill_slots() (src/agents/outfit/slots.py) derives each slot's
+    search_query purely from the seed item's anchor_class, never from occasion
+    or bias mode — so a western-anchored look (e.g. a blouse) always retrieves
+    a western-only candidate POOL (trousers/jeans, blazers, sneakers, handbags),
+    even when "make this look more ethnic" is asking for an ethnic re-score.
+    Re-scoring can only promote what already exists in the pool; an all-western
+    pool always yields an all-western result regardless of bias. `search()`
+    below augments the query text itself for ethnic_shift so ethnic candidates
+    (kurta/palazzo/dupatta/jutti/...) actually exist in-pool to be promoted.
     """
 
     # Colours preferred for "alternate colour story" variant
@@ -401,12 +533,14 @@ class _BiasedRetriever:
         bias_mode: str,
         base_complement_colours: set[str],
         occasion_slug: str,
+        gender: str = "women",
         _seed: int = 42,
     ) -> None:
         self._retriever = retriever
         self._bias_mode = bias_mode
         self._base_colours = base_complement_colours
         self._occasion_slug = occasion_slug
+        self._gender = gender
         self._seed = _seed
 
     def search(
@@ -416,7 +550,10 @@ class _BiasedRetriever:
         filters: dict | None = None,
     ) -> list[dict]:
         """Retrieve candidates and apply bias scoring."""
-        candidates = self._retriever.search(query, top_k=top_k * 2, filters=filters)
+        effective_query = query
+        if self._bias_mode == "ethnic_shift":
+            effective_query = _ethnic_shift_query(query, self._gender)
+        candidates = self._retriever.search(effective_query, top_k=top_k * 2, filters=filters)
         rescored: list[tuple[float, dict]] = []
         for item in candidates:
             base_score = item.get("score") or 0.5
@@ -460,6 +597,18 @@ class _BiasedRetriever:
                     return -0.08
             return 0.0
 
+        if self._bias_mode == "ethnic_shift":
+            # Prefer ethnic garment types/keywords; deprioritise purely western
+            # items. Gender/occasion/coherence gates still run unchanged in
+            # _find_best_candidate — this only re-scores within those gates.
+            product_type = item.get("product_type") or ""
+            prod_name = item.get("prod_name") or ""
+            if is_ethnic_item(product_type, prod_name):
+                return 0.15
+            if is_western_item(product_type, prod_name):
+                return -0.1
+            return 0.0
+
         return 0.0
 
 
@@ -476,6 +625,7 @@ def _find_best_candidate(
     budget_remaining: float | None,
     pairing_stats: dict | None,
     anchor_class: str,
+    seen_stores: set[str] | None = None,
 ) -> dict | None:
     candidates = retriever.search(query, top_k=20)
 
@@ -505,12 +655,147 @@ def _find_best_candidate(
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
         final_score = (base_score * 0.5 + c_score * 0.3 + 0.2) * (1.0 + fw_boost) + fab_delta
+
+        # Soft store-diversity preference: penalise (not exclude) candidates whose store is
+        # already represented in the current look, so a near-tied item from a new store wins.
+        item_store = str(item.get("store") or "").lower()
+        if seen_stores and item_store and item_store in seen_stores:
+            final_score *= STORE_DIVERSITY_PENALTY
+
         scored.append((final_score, item))
 
     if not scored:
         return None
     scored.sort(key=lambda t: t[0], reverse=True)
     return scored[0][1]
+
+
+def swap_slot_in_look(
+    retriever: HybridRetriever,
+    *,
+    seed_item: dict,
+    complements: list[dict],
+    slot_name: str,
+    occasion_slug: str,
+    gender: str,
+    exclude_article_ids: set[str] | None = None,
+    budget_inr: float | None = None,
+    pairing_stats: dict | None = None,
+) -> dict | None:
+    """Replace ONLY the complement occupying ``slot_name``, keeping the seed and
+    every other complement in the current session look unchanged.
+
+    Used by the "swap the {slot}" refinement turn (graph.py outfit_node) so a
+    request like "swap the footwear in this look" never triggers a full
+    re-compose — only the named slot's item changes.
+
+    Args:
+        retriever: HybridRetriever used to find alternative candidates.
+        seed_item: the current look's seed item dict (kept as-is, including any
+            ``_owned`` flag — never re-picked or re-tagged).
+        complements: the current look's complement item dicts; each is expected
+            to carry a ``_slot`` key (as stamped by ``compose_outfit``).
+        slot_name: the slot to replace, e.g. "bottom", "top", "footwear",
+            "outerwear", "accessory".
+        exclude_article_ids: extra article_ids to never re-pick for the new slot
+            item (the currently-shown item in that slot is always excluded too).
+        budget_inr: optional total look budget; remaining budget for the new slot
+            item is computed from the seed + all OTHER (unchanged) complements.
+        pairing_stats: optional flywheel pairing stats (see ``compose_outfit``).
+
+    Returns:
+        A new look dict (same shape as ``compose_outfit``'s return) with only the
+        named slot's complement replaced, or ``None`` when ``slot_name`` is not
+        present in the current look, or no alternative candidate can be found —
+        callers should respond honestly in that case rather than recomposing the
+        whole look.
+    """
+    current = next((c for c in complements if c.get("_slot") == slot_name), None)
+    if current is None:
+        return None
+
+    anchor_product_type = seed_item.get("product_type") or ""
+    anchor_name = seed_item.get("prod_name") or seed_item.get("display_name") or ""
+    anchor_class = classify_anchor(anchor_product_type, anchor_name)
+    anchor_colour = (seed_item.get("colour") or "").lower()
+
+    fill_slots = get_fill_slots(anchor_class, gender, occasion_slug)
+    slot_spec = next((s for s in fill_slots if s.slot_name == slot_name), None)
+    if slot_spec is None:
+        return None
+
+    others = [c for c in complements if c is not current]
+
+    seen_ids: set[str] = {seed_item["article_id"], current["article_id"]}
+    seen_ids |= {c["article_id"] for c in others}
+    seen_ids |= exclude_article_ids or set()
+
+    seen_prod_colour: set[tuple[str, str]] = {(normalize_prod_name(anchor_name), anchor_colour)}
+    for c in others:
+        seen_prod_colour.add(
+            (
+                normalize_prod_name(c.get("prod_name") or c.get("display_name") or ""),
+                (c.get("colour") or "").lower(),
+            )
+        )
+
+    seen_stores: set[str] = set()
+    seed_store = seed_item.get("store")
+    if seed_store:
+        seen_stores.add(str(seed_store).lower())
+    for c in others:
+        store = c.get("store")
+        if store:
+            seen_stores.add(str(store).lower())
+
+    budget_remaining: float | None = None
+    if budget_inr is not None:
+        # Owned seeds never count toward the budget (mirrors compose_outfit).
+        seed_price = 0.0 if seed_item.get("_owned") else (seed_item.get("price_inr") or 0.0)
+        others_total = seed_price + sum(c.get("price_inr") or 0.0 for c in others)
+        budget_remaining = budget_inr - others_total
+
+    new_candidate = _find_best_candidate(
+        query=slot_spec.search_query,
+        slot_name=slot_spec.slot_name,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        anchor_colour=anchor_colour,
+        seen_ids=seen_ids,
+        seen_prod_colour=seen_prod_colour,
+        retriever=retriever,
+        budget_remaining=budget_remaining,
+        pairing_stats=pairing_stats,
+        anchor_class=anchor_class,
+        seen_stores=seen_stores,
+    )
+    if new_candidate is None:
+        return None
+
+    new_candidate["_slot"] = slot_name
+    new_candidate["_role"] = "complement"
+    new_complements = [new_candidate if c is current else c for c in complements]
+
+    running_total = 0.0 if seed_item.get("_owned") else (seed_item.get("price_inr") or 0.0)
+    running_total += sum(c.get("price_inr") or 0.0 for c in new_complements)
+
+    comp_names = [c.get("display_name") or c.get("prod_name") for c in new_complements]
+    seed_display = seed_item.get("display_name") or seed_item.get("prod_name") or "item"
+    rationale = (
+        f"**{occasion_slug.replace('_', ' ').title()} look** — "
+        f"Styled **{seed_display}** with {', '.join(comp_names)}."
+    )
+
+    return {
+        "look_id": str(uuid.uuid4()),
+        "seed_item": seed_item,
+        "complements": new_complements,
+        "outfit_rationale": rationale,
+        "empty_slots": [],
+        "occasion": occasion_slug,
+        "gender": gender,
+        "budget_total_inr": running_total if running_total > 0 else None,
+    }
 
 
 def _flywheel_boost(

@@ -154,6 +154,12 @@ export interface ItemSummary {
    * Prices are SNAPSHOT — never real-time. Display with snapshot disclaimer.
    */
   price_matches?: PriceMatch[] | null
+  /**
+   * True when this item is the user's own uploaded garment (the outfit seed from
+   * an image upload), not a catalogue product. When true, pdp_url is always null
+   * and the item must never render a buy link, price, or store badge.
+   */
+  is_owned?: boolean
 }
 
 export interface ConversationSummary {
@@ -190,6 +196,14 @@ export interface ChatMessage {
   itemLinks?: ItemLink[] | null
   /** Local object URL for an uploaded image; present on user messages from sendImage(). */
   imageUrl?: string | null
+  /**
+   * Local object URL for the image the user uploaded, threaded onto the ASSISTANT
+   * outfit message so the board can render the user's own photo on the owned-seed
+   * card. Falls back to the catalogue image_url when absent (e.g. restored sessions).
+   */
+  anchorImageUrl?: string | null
+  /** Backend-suggested follow-up prompts; render as clickable pills for the latest assistant message. */
+  suggestionChips?: string[] | null
 }
 
 // Discriminated union of every frame the WS server can send.
@@ -217,6 +231,8 @@ export type WsFrame =
         cart_url?: string | null
         /** Per-item buy links for non-Shopify brands. */
         item_links?: ItemLink[] | null
+        /** Backend-suggested follow-up prompts (e.g. contextual refinements). */
+        suggestion_chips?: string[] | null
       }
     }
   | { type: "cancelled" }

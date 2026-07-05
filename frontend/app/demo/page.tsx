@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { Logo } from "@/components/Logo"
 
 // ---------------------------------------------------------------------------
 // UNIFIED MODE (Phase B — cross-store default)
@@ -97,7 +98,7 @@ export default function DemoPickerPage() {
       sessionStorage.setItem("demo_backend_url", UNIFIED_BACKEND_URL)
       // Use a generic "unified" brand id so the chat page doesn't redirect back.
       sessionStorage.setItem("demo_brand_id", "unified")
-      sessionStorage.setItem("demo_brand_name", "Shopping Assistant")
+      sessionStorage.setItem("demo_brand_name", "StyleMitra")
       router.push("/demo/chat")
     } catch {
       setError("Could not reach the assistant — please try again in a moment.")
@@ -143,11 +144,13 @@ export default function DemoPickerPage() {
     return (
       <main className="flex-1 flex flex-col items-center justify-center p-8">
         <div className="max-w-xl w-full text-center">
-          <h1 className="text-3xl font-bold mb-2 tracking-tight">
-            Agentic Shopping Assistant
-          </h1>
+          <Logo
+            className="justify-center mb-3"
+            iconClassName="h-8 w-8 text-primary shrink-0"
+            wordmarkClassName="text-3xl font-bold tracking-tight"
+          />
           <p className="text-muted-foreground mb-8 text-sm">
-            AI-powered fashion discovery across Indian brands.
+            Your AI stylist for fashion discovery across Indian brands.
           </p>
           {loading === "unified" && !error && (
             <p className="text-sm text-muted-foreground">Connecting…</p>
@@ -175,11 +178,13 @@ export default function DemoPickerPage() {
   return (
     <main className="flex-1 flex flex-col items-center justify-center p-8">
       <div className="max-w-xl w-full text-center">
-        <h1 className="text-3xl font-bold mb-2 tracking-tight">
-          Agentic Shopping Assistant
-        </h1>
+        <Logo
+          className="justify-center mb-3"
+          iconClassName="h-8 w-8 text-primary shrink-0"
+          wordmarkClassName="text-3xl font-bold tracking-tight"
+        />
         <p className="text-muted-foreground mb-10 text-sm">
-          AI-powered fashion discovery for Indian brands.
+          Your AI stylist for Indian brands.
           Pick a brand to start exploring.
         </p>
 

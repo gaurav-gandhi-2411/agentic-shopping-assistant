@@ -108,6 +108,10 @@ docker push "${IMAGE}"
 #   --set-secrets wires Secret Manager refs; the format is ENV_VAR=SECRET_NAME:VERSION.
 # ---------------------------------------------------------------------------
 echo "=== Step 6: Create new revision (no traffic) ==="
+# max-instances=1: api/rate_limit.py's IP rate limiter and chat.py's _DEMO_SESSIONS
+# are both in-memory and assume a single running instance. >1 instance would let
+# traffic silently bypass the demo rate/cost caps and would fragment in-memory
+# session state across instances.
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
   --region="${GAR_REGION}" \
@@ -118,7 +122,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu=1 \
   --concurrency=4 \
   --timeout=300 \
-  --max-instances=3
+  --max-instances=1
 
 # ---------------------------------------------------------------------------
 # Step 7: Capture the new revision name and wait for Ready

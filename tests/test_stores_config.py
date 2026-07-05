@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from src.config.stores import STORE_CONFIG, build_pdp_url, get_store_display_name
+from src.config.stores import (
+    STORE_CONFIG,
+    build_pdp_url,
+    get_inactive_stores,
+    get_store_display_name,
+)
 
 # ---------------------------------------------------------------------------
 # get_store_display_name
@@ -126,3 +131,41 @@ def test_all_store_configs_have_display_name() -> None:
         assert "display_name" in cfg and cfg["display_name"], (
             f"Store '{slug}' is missing a display_name in STORE_CONFIG"
         )
+
+
+# ---------------------------------------------------------------------------
+# active flag + get_inactive_stores
+# ---------------------------------------------------------------------------
+
+
+def test_all_store_configs_have_active_flag() -> None:
+    """Every STORE_CONFIG entry must declare an explicit boolean 'active' flag."""
+    for slug, cfg in STORE_CONFIG.items():
+        assert "active" in cfg, f"Store '{slug}' is missing the 'active' flag in STORE_CONFIG"
+        assert isinstance(cfg["active"], bool), f"Store '{slug}' active flag must be a bool"
+
+
+def test_berrylush_and_hm_are_inactive() -> None:
+    """berrylush (password-walled since 2026-07) and hm (dormant) must be inactive."""
+    assert STORE_CONFIG["berrylush"]["active"] is False
+    assert STORE_CONFIG["hm"]["active"] is False
+
+
+def test_other_stores_are_active() -> None:
+    """All stores besides berrylush/hm must remain active."""
+    for slug, cfg in STORE_CONFIG.items():
+        if slug in ("berrylush", "hm"):
+            continue
+        assert cfg["active"] is True, f"Store '{slug}' unexpectedly inactive"
+
+
+def test_get_inactive_stores_returns_frozenset() -> None:
+    inactive = get_inactive_stores()
+    assert isinstance(inactive, frozenset)
+    assert inactive == frozenset({"berrylush", "hm"})
+
+
+def test_get_inactive_stores_matches_active_flags() -> None:
+    """get_inactive_stores must be derived purely from STORE_CONFIG['active'] — no drift."""
+    expected = {slug for slug, cfg in STORE_CONFIG.items() if cfg.get("active") is False}
+    assert get_inactive_stores() == frozenset(expected)

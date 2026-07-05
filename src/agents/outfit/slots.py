@@ -197,15 +197,31 @@ def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[S
         ]
 
     if anchor_class == "western_bottom":
+        footwear_query = (
+            "sneakers casual shoes loafers men"
+            if is_men
+            else "sneakers flats heels casual shoes women"
+        )
         return [
             SlotSpec("top", "top shirt blouse", required=True),
             SlotSpec("outerwear", "jacket blazer coat cardigan", required=False),
+            SlotSpec("footwear", footwear_query, required=False),
         ]
 
     # Default: western_top / unknown
+    footwear_query = (
+        "sneakers casual shoes loafers men"
+        if is_men
+        else "sneakers flats heels casual shoes women"
+    )
+    accessory_query = (
+        "belt watch cap men accessory" if is_men else "handbag sling bag earrings women accessory"
+    )
     return [
         SlotSpec("bottom", "trousers jeans skirt", required=True),
         SlotSpec("outerwear", "jacket blazer coat cardigan", required=False),
+        SlotSpec("footwear", footwear_query, required=False),
+        SlotSpec("accessory", accessory_query, required=False),
     ]
 
 

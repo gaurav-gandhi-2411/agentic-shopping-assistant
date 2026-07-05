@@ -85,12 +85,14 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
         # PDP/image; requeue for partner-API phase).  Entry kept as dead-code documentation
         # so build_pdp_url returns None for any stale hm rows rather than crashing.
         "pdp_url_template": None,
+        "active": False,
     },
     "myntra": {
         "display_name": "Myntra",
         # pdp_handle is a relative path like "tops/brand/…/17048614/buy"
         # Prefix with the Myntra base URL to form the full PDP link.
         "pdp_url_template": "https://www.myntra.com/{handle}",
+        "active": True,
     },
     "flipkart": {
         "display_name": "Flipkart",
@@ -98,36 +100,45 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
         # query params).  Setting template to None signals build_pdp_url to use the
         # handle verbatim rather than expanding it.
         "pdp_url_template": None,
+        "active": True,
     },
     "snitch": {
         "display_name": "Snitch",
         "pdp_url_template": "https://snitch.co.in/products/{handle}",
+        "active": True,
     },
     "fashor": {
         "display_name": "Fashor",
         "pdp_url_template": "https://fashor.com/products/{handle}",
+        "active": True,
     },
     "powerlook": {
         "display_name": "Powerlook",
         "pdp_url_template": "https://powerlook.in/products/{handle}",
+        "active": True,
     },
     "virgio": {
         "display_name": "Virgio",
         "pdp_url_template": "https://virgio.com/products/{handle}",
+        "active": True,
     },
     # Shopify stores added in the Wave-5 data-depth build (2026-06-22).
     # pdp_url_template mirrors each brand's brands/<slug>.yaml file.
     "berrylush": {
         "display_name": "Berrylush",
         "pdp_url_template": "https://www.berrylush.com/products/{handle}",
+        # password-walled since 2026-07; flip to True when the store reopens
+        "active": False,
     },
     "globalrepublic": {
         "display_name": "Global Republic",
         "pdp_url_template": "https://globalrepublic.in/products/{handle}",
+        "active": True,
     },
     "libas": {
         "display_name": "Libas",
         "pdp_url_template": "https://libas.in/products/{handle}",
+        "active": True,
     },
 }
 
@@ -208,6 +219,17 @@ def _apply_affiliate(plain_url: str, store_slug: str) -> str:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def get_inactive_stores() -> frozenset[str]:
+    """Return the set of store slugs currently flagged ``active: False``.
+
+    Single source of truth for retrieval-time exclusion: any store slug in this
+    set must never appear in search results, image-anchor candidates, or
+    composer complements, even though its rows remain in the index (data is
+    kept so re-enabling a store is a one-line flip of its ``active`` flag).
+    """
+    return frozenset(slug for slug, cfg in STORE_CONFIG.items() if not cfg.get("active", True))
 
 
 def get_store_display_name(store: str | None) -> str | None:

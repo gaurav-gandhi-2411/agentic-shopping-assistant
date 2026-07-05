@@ -74,9 +74,19 @@ def test_unified_catalogue_has_store_column(unified_df: pd.DataFrame) -> None:
     assert unified_df["store"].notna().all(), "Some rows have null store"
 
 
-def test_unified_catalogue_spans_all_6_stores(unified_df: pd.DataFrame) -> None:
-    """All 6 live stores must be present; H&M must be absent (excluded — archival data)."""
-    expected = {"myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio"}
+def test_unified_catalogue_spans_all_9_stores(unified_df: pd.DataFrame) -> None:
+    """All 9 stores must be present in the on-disk index; H&M must be absent (archival data).
+
+    berrylush is included here even though it is flagged ``active: False`` in
+    ``src/config/stores.py`` — the unified index deliberately retains inactive-store
+    rows on disk (so re-activation is a config flip, not a reindex); query-time
+    search is what excludes them (see ``get_inactive_stores`` in
+    ``src/retrieval/hybrid_search.py`` and ``_VALID_STORES`` below).
+    """
+    expected = {
+        "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
+        "berrylush", "globalrepublic", "libas",
+    }
     actual = set(unified_df["store"].unique())
     assert expected == actual, (
         f"Store set mismatch. Missing: {expected - actual}. Unexpected: {actual - expected}"
@@ -115,10 +125,28 @@ def test_unified_bm25_ids_aligned(unified_df: pd.DataFrame) -> None:
 
 
 def test_unified_clip_ids_aligned(unified_df: pd.DataFrame) -> None:
-    """clip_article_ids.npy length must equal catalogue row count."""
+    """clip_article_ids.npy must be aligned with the unified catalogue.
+
+    Alignment means: (1) the id counts match, and (2) every CLIP id exists in the
+    catalogue's article_id set. Deliberately NOT a hardcoded row count — the CLIP
+    index is rebuilt on a separate schedule from the text/BM25 index (a rebuild may
+    be in flight for the 9-store catalogue while this test runs), so a hardcoded
+    count would go stale independently of a real alignment bug. If this fails
+    because the CLIP artefact is mid-rebuild and still reflects an older store set,
+    that is an expected transient failure that clears once the rebuild completes —
+    it is not evidence of a code bug.
+    """
     ids = np.load(str(_CLIP_UNIFIED_DIR / "clip_article_ids.npy"), allow_pickle=True)
+    catalogue_ids = set(unified_df["article_id"])
+
     assert len(ids) == len(unified_df), (
-        f"CLIP ids {len(ids)} != catalogue rows {len(unified_df)}"
+        f"CLIP ids {len(ids)} != catalogue rows {len(unified_df)} "
+        "(CLIP index may be mid-rebuild for the current store set)"
+    )
+    missing = set(ids) - catalogue_ids
+    assert not missing, (
+        f"{len(missing)} CLIP ids are not present in the unified catalogue "
+        f"(sample: {sorted(missing)[:5]})"
     )
 
 
@@ -127,27 +155,36 @@ def test_unified_clip_ids_aligned(unified_df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 
-_VALID_STORES = frozenset({"myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio"})
+# Active stores only (src/config/stores.py STORE_CONFIG[...]["active"]). berrylush and
+# hm are flagged active=False and are excluded from search RESULTS by
+# get_inactive_stores()/hybrid_search.py even though they remain in the on-disk index
+# (see test_unified_catalogue_spans_all_9_stores).
+_VALID_STORES = frozenset({
+    "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
+    "globalrepublic", "libas",
+})
+_INACTIVE_STORES = frozenset({"hm", "berrylush"})
 
 
 def test_black_dress_spans_multiple_stores(unified_retriever) -> None:
-    """'black dress' must return hits from >=2 of the 6 live stores; hm must never appear."""
+    """'black dress' must return hits from >=2 active stores; inactive stores never appear."""
     results = unified_retriever.search("black dress", top_k=20)
     assert len(results) > 0, "No results for 'black dress'"
     stores = {r["store"] for r in results if r.get("store")}
 
-    # hm must never appear — it is excluded from the unified index
-    assert "hm" not in stores, (
-        f"H&M appeared in 'black dress' results — it must be excluded from the unified index. "
-        f"Stores present: {stores}"
+    # Inactive stores (hm, berrylush) must never appear in search results.
+    inactive_hit = stores & _INACTIVE_STORES
+    assert not inactive_hit, (
+        f"Inactive store(s) appeared in 'black dress' results — they must be excluded "
+        f"at query time. Stores present: {stores}"
     )
-    # All returned stores must be from the known-valid set
+    # All returned stores must be from the known-valid (active) set
     unknown = stores - _VALID_STORES
     assert not unknown, f"Unknown store(s) in results: {unknown}"
 
     assert len(stores) >= 2, (
         f"'black dress' only hit store(s): {stores}. "
-        "Expected results from >=2 of the 6 live stores."
+        "Expected results from >=2 active stores."
     )
     # Use ASCII-safe output to avoid cp1252 encoding errors on Windows
     print(f"\n'black dress' stores: {sorted(stores)}")
@@ -157,23 +194,24 @@ def test_black_dress_spans_multiple_stores(unified_retriever) -> None:
 
 
 def test_white_sneakers_spans_multiple_stores(unified_retriever) -> None:
-    """'white sneakers' must return hits from >=2 of the 6 live stores; hm must never appear."""
+    """'white sneakers' must return hits from >=2 active stores; inactive stores never appear."""
     results = unified_retriever.search("white sneakers", top_k=20)
     assert len(results) > 0, "No results for 'white sneakers'"
     stores = {r["store"] for r in results if r.get("store")}
 
-    # hm must never appear — it is excluded from the unified index
-    assert "hm" not in stores, (
-        f"H&M appeared in 'white sneakers' results — it must be excluded. "
+    # Inactive stores (hm, berrylush) must never appear in search results.
+    inactive_hit = stores & _INACTIVE_STORES
+    assert not inactive_hit, (
+        f"Inactive store(s) appeared in 'white sneakers' results — they must be excluded. "
         f"Stores present: {stores}"
     )
-    # All returned stores must be from the known-valid set
+    # All returned stores must be from the known-valid (active) set
     unknown = stores - _VALID_STORES
     assert not unknown, f"Unknown store(s) in results: {unknown}"
 
     assert len(stores) >= 2, (
         f"'white sneakers' only hit store(s): {stores}. "
-        "Expected results from >=2 of the 6 live stores."
+        "Expected results from >=2 active stores."
     )
     print(f"\n'white sneakers' stores: {sorted(stores)}")
     for r in results[:5]:

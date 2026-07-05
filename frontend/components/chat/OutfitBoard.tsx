@@ -5,7 +5,14 @@ import Image from "next/image"
 import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } from "lucide-react"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
+import { cn } from "@/lib/utils"
 import type { ItemLink, ItemSummary, LookSnapshot, OutfitVariant, SaveLookResponse } from "@/lib/api/types"
+
+// Marigold/amber brand accent for the "your item" owned-seed card — distinct from
+// the primary theme so the user's own garment always reads as visually different
+// from a catalogue product (no buy link, no price, no store badge). Used as a
+// literal Tailwind arbitrary-value class (e.g. `border-[#E8A33D]`) below, not as
+// a JS variable, so Tailwind's static class scanner picks it up at build time.
 
 // ---------------------------------------------------------------------------
 // Shopify store slugs — these stores support Shopify cart permalinks.
@@ -53,6 +60,12 @@ interface OutfitBoardProps {
   cartUrl?: string | null
   /** Top-level per-item links for non-variant flow (non-Shopify). */
   itemLinks?: ItemLink[] | null
+  /**
+   * Local object URL for the user's own uploaded photo (set by sendImage() on the
+   * assistant message). Rendered on the owned-seed card in place of the catalogue
+   * image; falls back to the item's image_url when absent (e.g. restored sessions).
+   */
+  anchorImageUrl?: string | null
   sessionId: string
   anchorItemId: string
   anchorCategory: string
@@ -124,6 +137,7 @@ export function OutfitBoard({
   outfitVariants,
   cartUrl: topLevelCartUrl,
   itemLinks: topLevelItemLinks,
+  anchorImageUrl,
   sessionId,
   anchorItemId,
   anchorCategory,
@@ -145,6 +159,14 @@ export function OutfitBoard({
   const [savedLookId, setSavedLookId] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Cross-store "open all items" inline panel — most browsers block every
+  // window.open() after the first one within a single click handler, so a
+  // forEach loop of window.open() silently drops all but one tab in real
+  // browsers (Playwright's automation flags mask this). Instead we toggle an
+  // inline panel of plain <a target="_blank"> links, each clicked individually
+  // by the user — a real click per link is never popup-blocked.
+  const [showOpenAllPanel, setShowOpenAllPanel] = useState(false)
 
   // Derive the displayed items, rationale, budget, and buy links from the active variant (if any).
   const activeVariant =
@@ -168,9 +190,57 @@ export function OutfitBoard({
     activeCartUrl != null &&
     (brand != null ? SHOPIFY_STORE_SLUGS.has(brand) : false)
 
-  const seed = displayItems.find((it) => it.slot_role === "seed")
-  const complements = displayItems.filter((it) => it.slot_role === "complement")
+  // ---------------------------------------------------------------------------
+  // Slot derivation — self-consistent regardless of backend slot_role tagging.
+  // Prefer explicit slot_role tags. If NONE of the items carry a slot_role
+  // (a known backend gap — see spec.md B4b) fall back to treating the first
+  // item as the hero and the rest as complements, so every returned item
+  // still renders as a slot card instead of being silently dropped.
+  // ---------------------------------------------------------------------------
+  const hasAnySlotRole = displayItems.some((it) => it.slot_role != null)
+  const seed = hasAnySlotRole
+    ? displayItems.find((it) => it.slot_role === "seed")
+    : displayItems[0]
+  const complements = hasAnySlotRole
+    ? displayItems.filter((it) => it.slot_role === "complement")
+    : displayItems.slice(1)
   const allOutfitItems = seed ? [seed, ...complements] : complements
+
+  // Per-item link map — resolves each rendered card's buy URL. Built once so
+  // "Open all items" and the individual slot cards always agree.
+  const itemLinkMap = new Map<string, string>(
+    (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
+  )
+
+  /**
+   * Resolve a single item's buy URL: item_links → server pdp_url → legacy pdp_handle + template.
+   * Owned items (the user's own uploaded garment) never have a buy link, regardless of
+   * what the backend sends — this is a hard UI guarantee, not just a backend contract.
+   */
+  function resolveItemUrl(item: ItemSummary): string | null {
+    if (item.is_owned) return null
+    return (
+      itemLinkMap.get(item.article_id) ??
+      item.pdp_url ??
+      (item.pdp_handle && brandConfig?.pdp_url_template
+        ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
+        : null)
+    )
+  }
+
+  // Owned items (the user's own garment) are never purchasable — exclude them from
+  // the price total, "open all items" fan-out, and the flywheel item counts below.
+  const priceableItems = allOutfitItems.filter((it) => !it.is_owned)
+
+  // The displayed total MUST match the rendered (purchasable) cards. Sum the
+  // rendered items' price_inr and prefer it; only fall back to the server-supplied
+  // budget when a rendered item is missing a price (no authoritative sum
+  // can be computed) — see spec.md B4b.
+  const renderedPriceSum =
+    priceableItems.length > 0 && priceableItems.every((it) => it.price_inr != null)
+      ? priceableItems.reduce((sum, it) => sum + (it.price_inr as number), 0)
+      : null
+  const displayTotal = renderedPriceSum ?? displayBudget
 
   // Log look_shown once on mount — uses the base items/budget from props
   // (not variant-derived), as the look exposure event is for the whole look.
@@ -231,7 +301,7 @@ export function OutfitBoard({
         anchor_category: anchorCategory,
         occasion: occasion ?? null,
         brand: brand ?? null,
-        look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+        look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         filled_slots: complements.map((c) => ({
           slot: c.outfit_slot,
           item_id: c.article_id,
@@ -250,45 +320,25 @@ export function OutfitBoard({
     }
   }
 
-  /** Non-Shopify / cross-store path: open each item's deep-link in a new tab. */
+  /**
+   * Non-Shopify / cross-store path: toggle the inline "open all items" panel
+   * listing every RENDERED, purchasable card's deep-link as a plain anchor.
+   * We deliberately do NOT call window.open() in a loop here — browsers only
+   * allow one popup per user gesture, so a forEach of window.open() drops all
+   * but the first tab in real Chrome/Edge/Safari. The panel reuses
+   * `priceableItems` / `resolveItemUrl` (not the raw server item_links, and
+   * never the owned seed) so the links always match exactly what the user
+   * sees on the board and can actually buy.
+   */
   function handleOpenAllItems() {
     fireAddTheLookEvent()
-    if (activeItemLinks && activeItemLinks.length > 0) {
-      // Prefer server-supplied item_links (cart_links helper output).
-      activeItemLinks.forEach((link) => {
-        window.open(link.buy_url, "_blank", "noopener,noreferrer")
-      })
-    } else {
-      // Cross-store fallback: use server-built pdp_url per item (unified mode),
-      // then pdp_handle + brandConfig template (legacy per-brand mode).
-      allOutfitItems.forEach((item) => {
-        const url =
-          item.pdp_url ??
-          (item.pdp_handle && brandConfig?.pdp_url_template
-            ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
-            : null)
-        if (url) {
-          window.open(url, "_blank", "noopener,noreferrer")
-        }
-      })
-    }
+    setShowOpenAllPanel((prev) => !prev)
   }
 
   /** Build a self-contained snapshot of the currently active variant/look. */
   function buildSnapshot(): LookSnapshot {
-    // Build per-item buy_url: prefer item_links map, then server-built pdp_url,
-    // then legacy pdp_handle + template (for backward compat with per-brand mode).
-    const itemLinkMap = new Map<string, string>(
-      (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
-    )
-
     const snapshotItems = displayItems.map((item) => {
-      const buyUrl =
-        itemLinkMap.get(item.article_id) ??
-        item.pdp_url ??
-        (item.pdp_handle && brandConfig?.pdp_url_template
-          ? brandConfig.pdp_url_template.replace("{handle}", item.pdp_handle)
-          : null)
+      const buyUrl = resolveItemUrl(item)
       return {
         article_id: item.article_id,
         display_name: item.display_name ?? item.prod_name,
@@ -312,7 +362,7 @@ export function OutfitBoard({
       variant_label: activeVariant?.label ?? null,
       occasion: occasion ?? null,
       look_gender: lookGender ?? null,
-      budget_total_inr: displayBudget ?? null,
+      budget_total_inr: displayTotal ?? null,
       brand: brand ?? null,
     }
   }
@@ -330,7 +380,7 @@ export function OutfitBoard({
         occasion: occasion ?? null,
         look_gender: lookGender ?? null,
         anchor_item_id: anchorItemId,
-        look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+        look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         snapshot,
       }
       const res = await fetch(`${backendUrl}/looks`, {
@@ -359,7 +409,7 @@ export function OutfitBoard({
           anchor_category: anchorCategory,
           occasion: occasion ?? null,
           brand: brand ?? null,
-          look_total_inr: displayBudget ? Math.round(displayBudget) : null,
+          look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         })
       }
     } catch {
@@ -385,11 +435,6 @@ export function OutfitBoard({
   const filledSlotNames = complements
     .map((c) => c.outfit_slot)
     .filter(Boolean) as string[]
-
-  // Per-item link map for SlotCard buy overlays on non-Shopify brands.
-  const itemLinkMap = new Map<string, string>(
-    (activeItemLinks ?? []).map((l) => [l.article_id, l.buy_url]),
-  )
 
   return (
     <div className="w-full rounded-xl border bg-card p-4 space-y-3">
@@ -433,8 +478,10 @@ export function OutfitBoard({
             key={item.article_id}
             item={item}
             pdpUrlTemplate={brandConfig?.pdp_url_template}
-            isSeed={item.slot_role === "seed"}
-            overrideBuyUrl={itemLinkMap.get(item.article_id) ?? null}
+            isSeed={item.article_id === seed?.article_id}
+            overrideBuyUrl={resolveItemUrl(item)}
+            anchorImageUrl={item.article_id === seed?.article_id ? anchorImageUrl : undefined}
+            onSend={onSend}
           />
         ))}
       </div>
@@ -450,8 +497,10 @@ export function OutfitBoard({
         </div>
       )}
 
-      {/* Add the look — Shopify: single cart URL; non-Shopify: open-all */}
-      {displayBudget != null && (
+      {/* Add the look — Shopify: single cart URL; non-Shopify: open-all.
+          Amount is always displayTotal (sum of rendered cards) so the label
+          never desyncs from what "Open all items" actually opens. */}
+      {displayTotal != null && (
         <div className="space-y-2">
           {isShopify && activeCartUrl ? (
             <button
@@ -459,16 +508,55 @@ export function OutfitBoard({
               className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
             >
               <ShoppingBag className="h-4 w-4" />
-              Add the look to cart — ₹{Math.round(displayBudget).toLocaleString("en-IN")}
+              Add the look to cart — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
             </button>
           ) : (
-            <button
-              onClick={handleOpenAllItems}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Open all items — ₹{Math.round(displayBudget).toLocaleString("en-IN")}
-            </button>
+            <>
+              <button
+                onClick={handleOpenAllItems}
+                data-testid="open-all-items-button"
+                aria-expanded={showOpenAllPanel}
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open all items — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
+              </button>
+              {showOpenAllPanel && (
+                <div
+                  data-testid="open-all-panel"
+                  className="rounded-lg border bg-muted/40 p-2 space-y-1.5"
+                >
+                  <p className="text-[10px] text-muted-foreground px-1">
+                    Opens each store in a new tab
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {priceableItems.map((item) => {
+                      const url = resolveItemUrl(item)
+                      if (!url) return null
+                      const label =
+                        item.store_display ??
+                        getStoreDisplayName(item.store) ??
+                        item.store ??
+                        item.prod_name
+                      return (
+                        <a
+                          key={item.article_id}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid="open-all-panel-item"
+                          className="inline-flex items-center gap-1 rounded-full border bg-background text-xs px-3 py-1 text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                        >
+                          {label}
+                          {item.price_inr != null &&
+                            ` — ₹${item.price_inr.toLocaleString("en-IN")}`}
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -552,38 +640,50 @@ function SlotCard({
   pdpUrlTemplate,
   isSeed,
   overrideBuyUrl,
+  anchorImageUrl,
+  onSend,
 }: {
   item: ItemSummary
   pdpUrlTemplate: string | undefined
   isSeed: boolean
   overrideBuyUrl: string | null
+  /** The user's own uploaded photo — only meaningful when this card is the owned seed. */
+  anchorImageUrl?: string | null
+  /** Wired through so the owned card can offer "Where can I buy one like this?". */
+  onSend?: (text: string) => void
 }) {
+  // The owned seed (user's own uploaded garment) is never purchasable: no buy link,
+  // no price, no store badge — regardless of what the backend happens to send.
+  const isOwned = isSeed && item.is_owned === true
+
   // Priority: override (from item_links) → server-built pdp_url → legacy pdp_handle template.
-  const buyUrl =
-    overrideBuyUrl ??
-    item.pdp_url ??
-    (item.pdp_handle && pdpUrlTemplate
-      ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
-      : null)
+  const buyUrl = isOwned
+    ? null
+    : (overrideBuyUrl ??
+      item.pdp_url ??
+      (item.pdp_handle && pdpUrlTemplate
+        ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
+        : null))
 
-  const slotLabel = isSeed
-    ? "Hero"
-    : item.outfit_slot
-      ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
-      : "Item"
+  const slotLabel = isOwned
+    ? "Your item"
+    : isSeed
+      ? "Hero"
+      : item.outfit_slot
+        ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
+        : "Item"
 
-  return (
-    <a
-      href={buyUrl ?? undefined}
-      target={buyUrl ? "_blank" : undefined}
-      rel="noopener noreferrer"
-      className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
-    >
+  // Prefer the user's actual uploaded photo; fall back to the catalogue image_url
+  // (e.g. a restored session where the object URL no longer exists in memory).
+  const imageSrc = isOwned ? (anchorImageUrl ?? item.image_url) : item.image_url
+
+  const cardBody = (
+    <>
       <div className="relative aspect-[4/5] bg-muted max-h-52 overflow-hidden">
-        {item.image_url ? (
+        {imageSrc ? (
           <Image
-            src={item.image_url}
-            alt={item.prod_name}
+            src={imageSrc}
+            alt={isOwned ? "Your uploaded photo" : item.prod_name}
             fill
             sizes="(max-width: 640px) 50vw, 33vw"
             unoptimized
@@ -594,25 +694,60 @@ function SlotCard({
             👗
           </div>
         )}
-        <span className="absolute top-1.5 left-1.5 rounded-sm bg-background/90 text-foreground text-[10px] font-semibold px-1.5 py-0.5">
+        <span
+          className={cn(
+            "absolute top-1.5 left-1.5 rounded-sm text-[10px] font-semibold px-1.5 py-0.5",
+            isOwned ? "bg-[#E8A33D] text-white" : "bg-background/90 text-foreground",
+          )}
+        >
           {slotLabel}
         </span>
       </div>
       <div className="p-1.5">
         <p className="text-xs font-medium leading-tight line-clamp-2">{item.prod_name}</p>
-        {item.price_inr != null && (
+        {!isOwned && item.price_inr != null && (
           <p className="text-xs text-muted-foreground mt-0.5">
             ₹{item.price_inr.toLocaleString("en-IN")}
           </p>
         )}
-        {/* Store badge — shown on each card so mixed-store outfits are clear */}
-        {(item.store_display ?? item.store) && (
+        {/* Store badge — shown on each (non-owned) card so mixed-store outfits are clear */}
+        {!isOwned && (item.store_display ?? item.store) && (
           <p className="inline-flex items-center gap-0.5 mt-0.5 text-[9px] font-medium text-primary/80 bg-primary/10 rounded-sm px-1 py-0.5 leading-none">
             <Store className="h-2 w-2" aria-hidden />
             {item.store_display ?? getStoreDisplayName(item.store) ?? item.store}
           </p>
         )}
       </div>
+    </>
+  )
+
+  if (isOwned) {
+    return (
+      <div className="rounded-lg border-2 border-[#E8A33D] bg-background overflow-hidden">
+        {cardBody}
+        {onSend && (
+          <div className="px-1.5 pb-1.5">
+            <button
+              type="button"
+              onClick={() => onSend("Where can I buy one like this?")}
+              className="w-full rounded-full border border-[#E8A33D] text-[#E8A33D] text-[10px] font-medium px-2 py-1 hover:bg-[#E8A33D]/10 transition-colors"
+            >
+              Where can I buy one like this?
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <a
+      href={buyUrl ?? undefined}
+      target={buyUrl ? "_blank" : undefined}
+      rel="noopener noreferrer"
+      className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
+    >
+      {cardBody}
     </a>
   )
 }

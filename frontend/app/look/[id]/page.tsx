@@ -8,9 +8,11 @@
  * Accessible by anonymous visitors; no demo session required.
  */
 
+import type { Metadata } from "next"
 import Link from "next/link"
 import Image from "next/image"
 import { ExternalLink, ShoppingBag, Sparkles } from "lucide-react"
+import { Logo } from "@/components/Logo"
 import type { ItemLink, LookSnapshot, SharedLook } from "@/lib/api/types"
 
 // Default backend — the looks table is shared, any service can answer.
@@ -46,6 +48,36 @@ async function fetchSharedLook(id: string): Promise<SharedLook | null> {
 
 function formatOccasion(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+// ---------------------------------------------------------------------------
+// Page metadata — resilient to fetch failure (falls back to a static title)
+// ---------------------------------------------------------------------------
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
+  const { id } = await params
+  const look = await fetchSharedLook(id)
+
+  if (!look) {
+    return {
+      title: "StyleMitra look",
+      description: "A saved outfit look from StyleMitra — your AI stylist for fashion discovery.",
+    }
+  }
+
+  const occasion = look.snapshot?.occasion ?? look.occasion
+  const itemCount = look.snapshot?.items?.length ?? 0
+  const titlePrefix = occasion ? formatOccasion(occasion) : "Saved Look"
+  const description = `A ${itemCount}-item ${occasion ? formatOccasion(occasion).toLowerCase() + " " : ""}look styled with StyleMitra.`
+
+  return {
+    title: `${titlePrefix} — StyleMitra look`,
+    description,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +134,9 @@ export default async function SharedLookPage({
   return (
     <main className="min-h-screen bg-background">
       <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+        {/* Brand */}
+        <Logo className="mb-2" />
+
         {/* Header */}
         <div className="space-y-1">
           <h1 className="text-xl font-bold tracking-tight">Saved Look</h1>
@@ -135,17 +170,15 @@ export default async function SharedLookPage({
                 : item.outfit_slot
                   ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
                   : "Item"
-              const buyUrl =
-                itemLinkMap.get(item.article_id) ?? item.buy_url ?? item.pdp_handle ?? null
+              // Note: item.pdp_handle is a bare handle, not a resolvable URL — never
+              // use it as an href fallback. If no real URL is available, render
+              // the item card without a link.
+              const buyUrl = itemLinkMap.get(item.article_id) ?? item.buy_url ?? null
+              const cardClassName =
+                "rounded-lg border bg-card overflow-hidden hover:shadow-md transition-shadow"
 
-              return (
-                <a
-                  key={item.article_id}
-                  href={buyUrl ?? undefined}
-                  target={buyUrl ? "_blank" : undefined}
-                  rel="noopener noreferrer"
-                  className="rounded-lg border bg-card overflow-hidden hover:shadow-md transition-shadow"
-                >
+              const cardContent = (
+                <>
                   <div className="relative aspect-[4/5] bg-muted">
                     {item.image_url ? (
                       <Image
@@ -175,6 +208,28 @@ export default async function SharedLookPage({
                       </p>
                     )}
                   </div>
+                </>
+              )
+
+              // No resolvable URL (e.g. a bare pdp_handle would have been a broken
+              // link) — render the card without a link rather than a dead anchor.
+              if (!buyUrl) {
+                return (
+                  <div key={item.article_id} className={cardClassName}>
+                    {cardContent}
+                  </div>
+                )
+              }
+
+              return (
+                <a
+                  key={item.article_id}
+                  href={buyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cardClassName}
+                >
+                  {cardContent}
                 </a>
               )
             })}

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
 import pandas as pd
+
+from src.config.stores import get_inactive_stores
 
 from .dense_search import DenseRetriever
 from .sparse_search import SparseRetriever
@@ -223,6 +226,30 @@ class HybridRetriever:
                 self.catalogue_df["product_type_name"].str.lower() != "fabric_material"
             ).values  # boolean array aligned with catalogue_df
 
+        # Inactive stores (e.g. berrylush — password-walled since 2026-07) must never
+        # appear in ANY result path.  STORE_CONFIG is the single source of truth; mirror
+        # the fabric_material exclusion mechanism so inactive-store rows are stripped
+        # out of the BM25 window before scoring, same as fabric bolts.
+        _not_inactive_store_mask: np.ndarray | None = None
+        if "store" in self.catalogue_df.columns:
+            inactive_stores = get_inactive_stores()
+            if inactive_stores:
+                _not_inactive_store_mask = (
+                    ~self.catalogue_df["store"].str.lower().isin(inactive_stores)
+                ).values  # boolean array aligned with catalogue_df
+
+        def _combine_masks(*masks: np.ndarray | None) -> np.ndarray | None:
+            """AND together any non-None boolean masks aligned with catalogue_df."""
+            present = [m for m in masks if m is not None]
+            if not present:
+                return None
+            combined = present[0]
+            for m in present[1:]:
+                combined = combined & m
+            return combined
+
+        _exclusion_mask = _combine_masks(_not_fabric_mask, _not_inactive_store_mask)
+
         sparse_allowed_ids: np.ndarray | None = None
         type_filter_val = (filters or {}).get("product_type_name")
         if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
@@ -233,15 +260,16 @@ class HybridRetriever:
                     _MATERIAL_ONLY_RE
                 )
                 type_mask = type_mask & not_material
-            if _not_fabric_mask is not None:
-                type_mask = type_mask & _not_fabric_mask
+            if _exclusion_mask is not None:
+                type_mask = type_mask & _exclusion_mask
             sparse_allowed_ids = (
                 self.catalogue_df.index[type_mask].values.astype(str)
             )
-        elif _not_fabric_mask is not None:
-            # No explicit type filter — still exclude fabric_material from BM25 window.
+        elif _exclusion_mask is not None:
+            # No explicit type filter — still exclude fabric_material/inactive-store rows
+            # from the BM25 window.
             sparse_allowed_ids = (
-                self.catalogue_df.index[_not_fabric_mask].values.astype(str)
+                self.catalogue_df.index[_exclusion_mask].values.astype(str)
             )
 
         dense_hits = self.dense.search(query, top_k=fetch_k * 2)
@@ -294,24 +322,37 @@ class HybridRetriever:
             row = self.catalogue_df.loc[article_id]
             facets = row["facets"] if isinstance(row["facets"], dict) else {}
 
+            # --- Inactive-store exclusion (belt-and-suspenders on top of the BM25 mask) ---
+            # The BM25 pre-filter already strips inactive-store rows from its window, but
+            # dense (FAISS) hits are never pre-filtered, so this check is the only guard on
+            # that path.  STORE_CONFIG is the single source of truth (see get_inactive_stores).
+            item_store_raw = (
+                str(row["store"]).lower()
+                if "store" in row.index and row["store"] is not None
+                else ""
+            )
+            if item_store_raw in get_inactive_stores():
+                continue
+
             # --- Store filter (cross-store unified index only; no-op on per-brand indices) ---
             if store_filter is not None:
-                item_store = (
-                    str(row["store"]).lower()
-                    if "store" in row.index and row["store"] is not None
-                    else ""
-                )
-                if item_store != store_filter.lower():
+                if item_store_raw != store_filter.lower():
                     continue
 
             # --- Gender filter (column-level; covers Shopify stores with index_group_name="N/A") ---
+            item_gender = (
+                str(row["gender"]).lower()
+                if "gender" in row.index and row["gender"] is not None
+                else "unknown"
+            )
             if gender_filter is not None:
-                item_gender = (
-                    str(row["gender"]).lower()
-                    if "gender" in row.index and row["gender"] is not None
-                    else "unknown"
-                )
-                if item_gender not in (gender_filter.lower(), "unknown"):
+                # Explicit gender filter: exclude the OPPOSITE gender AND anything outside
+                # {men, women} (unknown/null/empty).  Previously "unknown" rows were always
+                # kept, which let items with no verified gender (mostly store=globalrepublic)
+                # leak into e.g. a "men" search — the men's constraint was silently unenforced
+                # against them.  With no gender filter, behaviour is unchanged (unknown rows
+                # still pass through normally).
+                if item_gender not in ("men", "women") or item_gender != gender_filter.lower():
                     continue
 
             if remaining_filters:
@@ -381,11 +422,7 @@ class HybridRetriever:
                         and not pd.isna(row["pdp_live"])
                         else None
                     ),
-                    "gender": (
-                        str(row["gender"]).lower()
-                        if "gender" in row.index and row["gender"] is not None
-                        else "unknown"
-                    ),
+                    "gender": item_gender,
                 }
             )
 

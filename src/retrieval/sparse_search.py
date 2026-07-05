@@ -15,6 +15,10 @@ class SparseRetriever:
         self.config = config
         self.bm25: BM25Okapi | None = None
         self.article_ids: np.ndarray | None = None
+        # Hash-based id -> position lookup, built once so per-search allowed_ids
+        # filtering doesn't pay an O(n) np.isin scan over the full (68k+) object
+        # dtype article_ids array on every call.
+        self._id_to_pos: dict[str, int] | None = None
 
     def build_index(self, catalogue_df: pd.DataFrame, save_dir: Path) -> None:
         save_dir = Path(save_dir)
@@ -24,6 +28,7 @@ class SparseRetriever:
         tokenized = [self._tokenize(t) for t in catalogue_df["search_text"].tolist()]
         self.bm25 = BM25Okapi(tokenized)
         self.article_ids = catalogue_df["article_id"].values.astype(str)
+        self._id_to_pos = {aid: i for i, aid in enumerate(self.article_ids)}
 
         with open(save_dir / "bm25.pkl", "wb") as f:
             pickle.dump(self.bm25, f)
@@ -40,6 +45,7 @@ class SparseRetriever:
         instance.article_ids = np.load(
             str(save_dir / "bm25_article_ids.npy"), allow_pickle=True
         )
+        instance._id_to_pos = {aid: i for i, aid in enumerate(instance.article_ids)}
         return instance
 
     def search(
@@ -52,9 +58,16 @@ class SparseRetriever:
         scores = self.bm25.get_scores(tokens)
         if allowed_ids is not None:
             # Zero out scores for items not in the allowed set so only pre-filtered
-            # items compete for the top-k slots.  np.isin is O(n) and at 44k items
-            # adds < 1 ms — cheaper than widening k to surface filtered items naturally.
-            mask = np.isin(self.article_ids, allowed_ids)
+            # items compete for the top-k slots.  np.isin over the full (68k+)
+            # object-dtype article_ids array is O(n) with no hash fast-path and
+            # got expensive as the catalogue grew; instead build the boolean mask
+            # by hashing the (much smaller) allowed_ids into positions via the
+            # precomputed id->position dict.  Mask semantics are bit-identical to
+            # np.isin(self.article_ids, allowed_ids).
+            mask = np.zeros(len(self.article_ids), dtype=bool)
+            allowed_str = np.asarray(allowed_ids).astype(str)
+            positions = [self._id_to_pos[aid] for aid in allowed_str if aid in self._id_to_pos]
+            mask[positions] = True
             scores = scores * mask
         top_indices = np.argsort(scores)[::-1][:top_k]
         return [

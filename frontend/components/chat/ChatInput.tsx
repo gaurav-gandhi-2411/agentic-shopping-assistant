@@ -192,8 +192,8 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             size="sm"
             onClick={handleImagePickerClick}
             disabled={disabled}
-            title="Find this + style it"
-            aria-label="Find this + style it"
+            title="Style what you own"
+            aria-label="Style what you own"
             className="shrink-0 h-9 px-2.5"
           >
             <ImagePlus className="h-4 w-4" />

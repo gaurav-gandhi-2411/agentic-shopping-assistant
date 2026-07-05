@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useChatStream } from "@/hooks/useChatStream"
 import { MessageList } from "@/components/chat/MessageList"
 import { ChatInput } from "@/components/chat/ChatInput"
+import { Logo } from "@/components/Logo"
 
 export default function DemoChatPage() {
   const [brandName, setBrandName] = useState<string | null>(null)
@@ -32,7 +33,10 @@ export default function DemoChatPage() {
   const showWarmup = isSending && !hasAssistantReply
 
   function handleSend(text: string) {
-    sendMessage(text, null)
+    // No cidOverride: let useChatStream fall back to conversationIdRef.current
+    // so follow-up turns (refinements like "in blue now") stay in the same
+    // conversation instead of forcing a new one every message.
+    sendMessage(text)
   }
 
   if (!mounted || brandName === null) {
@@ -45,11 +49,19 @@ export default function DemoChatPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Header */}
-      <header className="border-b bg-background px-6 py-3 flex items-center shrink-0">
-        <span className="font-semibold text-sm tracking-tight">
-          {brandName} Shopping Assistant
-        </span>
+      {/* Header — StyleMitra alone in unified mode, "StyleMitra x <Brand>" for a
+          brand-specific demo (brandId is only set in the shelved per-brand path). */}
+      <header className="border-b-2 border-primary/15 bg-background px-6 py-3 flex items-center shrink-0">
+        {brandId ? (
+          <span className="inline-flex items-center gap-1.5">
+            <Logo showWordmark={false} iconClassName="h-5 w-5 text-primary shrink-0" />
+            <span className="font-semibold text-sm tracking-tight">
+              StyleMitra <span className="text-muted-foreground font-normal">x</span> {brandName}
+            </span>
+          </span>
+        ) : (
+          <Logo />
+        )}
       </header>
 
       {/* Chat area */}

@@ -157,7 +157,17 @@ def build_cart_action(items: list[dict], brand: str) -> dict:
     - **Single non-Shopify store**: ``cart_url`` is None; per-item links.
     - Items with no ``pdp_handle`` and no variant mapping appear in ``missing``.
     - Empty ``items`` list returns an empty-but-valid response with kind="open_all".
+    - **Owned anchor** ("Owned anchor" feature): items carrying ``_owned`` or
+      ``is_owned`` truthy (e.g. the seed resolved from a user-uploaded photo of
+      an item they already own) are NEVER for sale. This is the single choke
+      point for that exclusion — they are dropped before cart_url/item_links
+      are built, so every caller (HTTP /chat, WS /chat/stream, POST /style/from-
+      image) automatically excludes owned items from cart totals and buy links.
     """
+    # "Owned anchor": drop owned items before any cart/link logic runs — they are
+    # never for sale (see module + function docstring above).
+    items = [it for it in items if not (it.get("_owned") or it.get("is_owned"))]
+
     if not items:
         return {
             "kind": "open_all",

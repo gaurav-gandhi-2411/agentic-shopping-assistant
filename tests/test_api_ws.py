@@ -264,6 +264,37 @@ def test_ws_ooc_turn(monkeypatch: pytest.MonkeyPatch, client: TestClient):
         assert "catalogue" in full_text.lower()
 
 
+def test_ws_close_code_1000_after_done(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+):
+    """After a completed turn, the server must initiate a clean close (code 1000).
+
+    Regression test: without an explicit `await websocket.close(code=1000)` after
+    WSDoneMessage, the ASGI server closes the socket implicitly when the handler
+    returns, which some clients observe as an abnormal close and retry — even
+    though items/done were already delivered.
+    """
+    monkeypatch.setattr(deps, "get_agent_factory", _make_factory(_MockAgent(_SEARCH_RESULT)))
+    monkeypatch.setattr(deps, "_llm", _MockLLM(["Great blue jackets!"]))
+
+    with client.websocket_connect("/chat/stream") as ws:
+        ws.send_json({"type": "user_message", "message": "show me blue jackets"})
+
+        done_seen = False
+        for _ in range(30):
+            msg = ws.receive_json()
+            if msg["type"] == "done":
+                done_seen = True
+                break
+
+        assert done_seen, "expected a done frame before checking the close code"
+
+        # The next raw ASGI message after done must be the server-initiated close.
+        raw = ws.receive()
+        assert raw["type"] == "websocket.close"
+        assert raw["code"] == 1000
+
+
 def test_ws_cancel_before_agent_completes(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ):

@@ -113,7 +113,7 @@ async def main() -> None:
                     )
 
             if items:
-                print(f"\n--- RAW items[0] ---")
+                print("\n--- RAW items[0] ---")
                 print(json.dumps(items[0], indent=2))
             print()
 

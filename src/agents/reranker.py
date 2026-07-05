@@ -59,7 +59,11 @@ def _enforce_colour_diversity(
     the lowest-ranked pick for the best different-colour candidate from the pool."""
     if not _DATE_NIGHT_RE.search(query):
         return selected
-    colours = [it.get("colour", "").lower() for it in selected]
+    # `.get("colour")` can return an explicit None (the key is present but its value
+    # is None) — the dict.get default only applies when the key is MISSING entirely.
+    # Calling `.lower()` on that None crashes the whole turn, so normalise with
+    # `or ""` rather than relying on `.get(key, "")`.
+    colours = [(it.get("colour") or "").lower() for it in selected]
     if len(set(colours)) >= 2:
         return selected  # already diverse
     dominant = colours[0] if colours else ""
@@ -67,12 +71,12 @@ def _enforce_colour_diversity(
     for cand in candidates:
         if cand["article_id"] in seen_ids:
             continue
-        if cand.get("colour", "").lower() != dominant:
+        if (cand.get("colour") or "").lower() != dominant:
             swapped = selected[:-1] + [cand]
             logger.debug(
                 "[reranker] colour-diversity swap: dropped %s (%s), added %s (%s)",
-                selected[-1]["article_id"], selected[-1].get("colour", ""),
-                cand["article_id"], cand.get("colour", ""),
+                selected[-1]["article_id"], selected[-1].get("colour") or "",
+                cand["article_id"], cand.get("colour") or "",
             )
             return swapped
     return selected  # no alternative found — keep as is
@@ -81,10 +85,13 @@ def _enforce_colour_diversity(
 def _format_candidates(items: list[dict]) -> str:
     lines = []
     for i, it in enumerate(items, 1):
-        lines.append(
-            f"{i}. {it['display_name']}"
-            f" ({it.get('colour', '')} {it.get('product_type', '')} | {it.get('department', '')})"
-        )
+        # `or ""` guards against explicit None values (not just missing keys) so a
+        # candidate with e.g. colour=None renders as blank rather than the literal
+        # string "None" in the LLM prompt.
+        colour = it.get("colour") or ""
+        product_type = it.get("product_type") or ""
+        department = it.get("department") or ""
+        lines.append(f"{i}. {it['display_name']} ({colour} {product_type} | {department})")
     return "\n".join(lines)
 
 

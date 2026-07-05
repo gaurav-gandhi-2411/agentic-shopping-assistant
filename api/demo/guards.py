@@ -21,7 +21,13 @@ logger = logging.getLogger(__name__)
 def _get_per_ip_limit() -> int:
     return max(1, int(os.environ.get("DEMO_PER_IP_HOUR_LIMIT", "10")))
 
-_DAILY_REQUEST_CAP: int = 200  # requests per brand per UTC day
+
+# DEMO_DAILY_REQUEST_CAP env var overrides the default (200) without a code
+# change or Docker rebuild — set it on the Cloud Run service to raise the cap
+# for a testing window, then remove/reset it before opening to the public.
+def _get_daily_request_cap() -> int:
+    return max(1, int(os.environ.get("DEMO_DAILY_REQUEST_CAP", "200")))
+
 _DAILY_COST_CAP_USD: float = 0.50  # USD per brand per UTC day
 
 # ---------------------------------------------------------------------------
@@ -148,7 +154,7 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
 
 
 def check_daily_cap(brand: str, engine: Any) -> bool:
-    """Return True if today's request_count is below _DAILY_REQUEST_CAP.
+    """Return True if today's request_count is below the daily request cap.
 
     Fails open on DB error.
     """
@@ -165,7 +171,7 @@ def check_daily_cap(brand: str, engine: Any) -> bool:
                 {"brand": brand, "date": today},
             ).fetchone()
             count = int(row[0]) if row else 0
-            return count < _DAILY_REQUEST_CAP
+            return count < _get_daily_request_cap()
     except Exception:
         logger.warning(
             "check_daily_cap: DB error for brand=%s; failing open",

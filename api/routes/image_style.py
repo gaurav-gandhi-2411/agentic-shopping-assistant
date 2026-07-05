@@ -35,14 +35,16 @@ import io
 import logging
 import os
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
+import pandas as pd
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 import api.deps as deps
 from api.auth import get_current_user_id_or_demo
 from api.schemas import ItemLink, ItemSummary, OutfitVariant
+from src.agents.intent_parser import parse_intent
 from src.agents.outfit.cart_links import build_cart_action
 from src.agents.outfit.composer import compose_outfit_variants
 from src.agents.outfit.image_anchor import find_anchor_from_image
@@ -108,6 +110,40 @@ def _brand_index_exists(brand: str, config: dict) -> bool:
     return (idx_dir / "clip.faiss").exists() and (idx_dir / "clip_article_ids.npy").exists()
 
 
+def _resolve_gender(
+    intent_gender: str | None,
+    catalogue_df: pd.DataFrame,
+    anchor_id: str,
+    brand_cfg: Any,
+) -> str:
+    """Resolve which gender to steer outfit composition with.
+
+    Precedence:
+      1. Gender parsed from the user's free-text message (``intent.gender``),
+         when it is an unambiguous "men" or "women".
+      2. The anchor item's own catalogue ``gender`` column, when it is
+         "men" or "women".
+      3. The brand's configured default (``brand_cfg.gender_default``).
+
+    "unisex"/"mixed" values are never returned directly — composition needs a
+    concrete men/women slice, so "mixed" is coerced to "women" only as the
+    final fallback (steps 1 and 2 are skipped for those values, falling
+    through to the next precedence level).
+    """
+    if intent_gender in ("men", "women"):
+        return intent_gender
+
+    if "gender" in catalogue_df.columns and "article_id" in catalogue_df.columns:
+        match = catalogue_df.loc[catalogue_df["article_id"] == anchor_id, "gender"]
+        if not match.empty and match.iloc[0] is not None:
+            anchor_gender = str(match.iloc[0]).lower()
+            if anchor_gender in ("men", "women"):
+                return anchor_gender
+
+    brand_default = (brand_cfg.gender_default if brand_cfg else "women") or "women"
+    return "women" if brand_default == "mixed" else brand_default
+
+
 def _build_variant_response(variant: dict, brand: str) -> OutfitVariant:
     """Convert a compose_outfit look dict into an OutfitVariant schema object."""
     seed = variant.get("seed_item")
@@ -153,22 +189,32 @@ async def post_style_from_image(
     file: UploadFile,
     user_id: Annotated[str, Depends(get_current_user_id_or_demo)],
     conversation_id: Annotated[str | None, Form()] = None,
+    message: Annotated[str | None, Form()] = None,
 ) -> JSONResponse:
     """Compose a look from an uploaded fashion image.
 
     Multipart upload: field name ``file``.
     Accepted types: image/jpeg, image/png, image/webp, image/heic, image/heif.
     Max size: 15 MB.
+    Optional ``message`` text field is parsed for a budget cap ("under 2000")
+    and an occasion ("for a party") using the same deterministic intent
+    parser as POST /chat; both are echoed back as ``user_text`` in the
+    response and used to steer ``compose_outfit_variants``.
 
     Returns the same payload shape as a chat outfit response:
     ``look_id``, ``occasion``, ``outfit_rationale``, ``outfit_variants``,
     ``items`` (seed + complements), ``cart_url``, ``item_links``,
-    ``budget_total_inr``.
+    ``budget_total_inr``, ``user_text``.
 
     Returns 404 when image_input_enabled=false or the brand CLIP index is absent.
     Returns 400 for invalid content-type, non-image bytes, or unreadable files.
     Returns 413 for files exceeding the 15 MB limit.
     """
+    # Normalise blank/whitespace-only text to None so downstream parsing and
+    # the echoed "user_text" field are consistent regardless of how the
+    # client sent an empty form field.
+    message = message.strip() or None if message else None
+
     config = deps.get_config()
     # Resolve the active brand the same way api/main.py does at startup:
     # unified mode (BRAND unset or "unified" or UNIFIED=1) → "unified".
@@ -292,19 +338,33 @@ async def post_style_from_image(
     except Exception:
         brand_cfg = None
 
-    gender = (brand_cfg.gender_default if brand_cfg else "women") or "women"
-    if gender == "mixed":
-        gender = "women"
-
+    # Parse optional free-text message for a budget cap, an occasion, and a
+    # gender using the same deterministic intent parser as POST /chat — no
+    # duplicated regex/keyword logic here.
     occasion = _DEFAULT_OCCASION
+    budget_max_inr: int | None = None
+    intent_gender: str | None = None
+    if message:
+        intent = parse_intent(message)
+        if intent.occasion is not None:
+            occasion = intent.occasion
+        budget_max_inr = intent.budget_max_inr
+        intent_gender = intent.gender
 
+    gender = _resolve_gender(intent_gender, catalogue_df, anchor_id, brand_cfg)
+
+    # "Owned anchor" feature: the seed resolved from an uploaded photo is an item
+    # the user already OWNS, never a catalogue item for sale. owned_anchor=True
+    # stamps _owned on the seed in every variant; complements stay shoppable.
     variants = compose_outfit_variants(
         catalogue_df,
         retriever,
         seed_article_id=anchor_id,
         occasion_slug=occasion,
         gender=gender,
+        budget_inr=budget_max_inr,
         brand_gender_default=gender,
+        owned_anchor=True,
     )
 
     # ── Grounded rationale generation ─────────────────────────────────────────
@@ -355,8 +415,14 @@ async def post_style_from_image(
                 "filters": {"gender": gender},
                 "new_items_this_turn": True,
                 "anchor_article_id": anchor_id,
+                # "Owned anchor": image uploads are always owned by default — a
+                # follow-up "Style this" / re-compose must not re-tag this item
+                # as buyable. See graph.py outfit_node and src/agents/state.py.
+                "anchor_is_owned": True,
             }
         )
+        if message:
+            existing["last_user_text"] = message
         # Ensure ConversationMemory exists so _build_invoke_state in chat.py
         # does not KeyError on session["_memory"] when resuming this session.
         if "_memory" not in existing:
@@ -388,6 +454,7 @@ async def post_style_from_image(
         "cart_url": cart_action.get("cart_url"),
         "item_links": cart_action.get("item_links"),
         "budget_total_inr": base.get("budget_total_inr"),
+        "user_text": message,
     }
 
     return JSONResponse(content=payload)
