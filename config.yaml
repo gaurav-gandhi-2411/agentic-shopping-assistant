@@ -19,6 +19,11 @@ retrieval:
   # Sweep table confirmed 0.20 passes all gates (rel@10>=0.40, cov@10>=2.0, mono<=0.30).
   # Owner approved 0.20 (2026-06-14). Keep 0.0 to restore legacy pure-relevance behaviour.
   store_diversity: 0.20
+  # Hard per-store cap on the candidate pool handed to the LLM reranker (applied
+  # after store_diversity_rerank; backfills from the wider RRF pool when the cap
+  # would otherwise shrink the pool below top_k). 0/None disables the cap.
+  # See src/retrieval/hybrid_search.py::apply_per_store_cap. Phase A (2026-07-06).
+  per_store_cap: 4
 
 llm:
   provider: "ollama"

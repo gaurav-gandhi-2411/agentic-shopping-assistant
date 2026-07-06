@@ -178,6 +178,19 @@ _COLOUR_MAP: dict[str, str] = {
     "brown": "Brown",
     "khaki": "Khaki",
     "turquoise": "Turquoise",
+    # Phase A colour-backfill extension (2026-07-06) — common catalogue colours that
+    # were missing from the base map, added so query-side colour parsing and the
+    # catalogue-side colour backfill (src/catalogue/cleaning.py) share one vocabulary.
+    "mustard": "Yellow",
+    "burgundy": "Dark Red",
+    "maroon": "Dark Red",
+    "wine": "Dark Red",
+    "lavender": "Purple",
+    "charcoal": "Dark Grey",
+    "peach": "Light Pink",
+    "olive": "Khaki",
+    "teal": "Turquoise",
+    "rust": "Rust",
 }
 
 _COLOUR_SORTED: list[tuple[str, str]] = sorted(

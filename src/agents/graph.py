@@ -22,6 +22,7 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
+from src.catalogue.cleaning import is_fabric_bolt_text
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
@@ -940,10 +941,9 @@ def build_graph(
 
     # Bolt-good / fabric SKU types — not finished wearable garments.
     # Prevents "Unstitched Dress Material" from surfacing in dress or outfit searches.
-    _MATERIAL_ONLY_RE = re.compile(
-        r"\bunstitched\b|dress material|fabric piece|blouse piece",
-        re.IGNORECASE,
-    )
+    # Shared with src/retrieval/hybrid_search.py via is_fabric_bolt_text (single
+    # source of truth) — a "blouse piece" mention alone does NOT exclude a row when
+    # it is also a finished saree (see src/catalogue/cleaning.py docstring).
 
     # Build a set of valid values per facet once at graph-construction time.
     _valid_facet_values: dict[str, set[str]] = {
@@ -1235,9 +1235,9 @@ def build_graph(
         # check prod_name and detail_desc, not just product_type.
         def _is_material(it: dict) -> bool:
             return (
-                _MATERIAL_ONLY_RE.search(it.get("product_type", ""))
-                or _MATERIAL_ONLY_RE.search(it.get("prod_name", ""))
-                or _MATERIAL_ONLY_RE.search(it.get("display_name", ""))
+                is_fabric_bolt_text(it.get("product_type", ""))
+                or is_fabric_bolt_text(it.get("prod_name", ""))
+                or is_fabric_bolt_text(it.get("display_name", ""))
             )
 
         result["items"] = [it for it in result["items"] if not _is_material(it)]

@@ -28,24 +28,31 @@ def _make_catalogue(rows: list[dict]) -> pd.DataFrame:
     Each row dict may specify: article_id, store, gender, product_type_name,
     prod_name. Missing fields fall back to safe defaults so tests only need to
     set the columns they care about.
+
+    prod_name defaults to a value derived from article_id (not a fixed literal)
+    so that HybridRetriever's pre-rerank (prod_name, colour) dedup — added in
+    Phase A (2026-07-06) — does not collapse distinct synthetic rows that happen
+    to share the default placeholder name/colour; tests that want to exercise
+    dedup should set prod_name/facets explicitly instead.
     """
-    defaults = {
-        "display_name": "Item",
-        "prod_name": "Item",
-        "detail_desc": "desc",
-        "image_url": None,
-        "price_inr": 500.0,
-        "pdp_handle": None,
-        "pdp_live": True,
-        "product_type_name": "shirt",
-        "facets": {
-            "colour_group_name": "Black",
-            "product_type_name": "shirt",
-            "department_name": "Menswear",
-        },
-    }
     full_rows = []
     for r in rows:
+        article_id = r.get("article_id", "unknown")
+        defaults = {
+            "display_name": f"Item {article_id}",
+            "prod_name": f"Item {article_id}",
+            "detail_desc": "desc",
+            "image_url": None,
+            "price_inr": 500.0,
+            "pdp_handle": None,
+            "pdp_live": True,
+            "product_type_name": "shirt",
+            "facets": {
+                "colour_group_name": "Black",
+                "product_type_name": "shirt",
+                "department_name": "Menswear",
+            },
+        }
         merged = {**defaults, **r}
         full_rows.append(merged)
     return pd.DataFrame(full_rows)
