@@ -230,7 +230,10 @@ class SaveLookRequest(BaseModel):
     """Body for POST /looks — persist the current outfit board for sharing."""
 
     session_id: str = Field(..., description="Anonymous demo session identifier.")
-    brand: str = Field(..., description="Brand slug, e.g. 'hm' or 'myntra'.")
+    brand: str | None = Field(
+        default=None,
+        description="Brand slug, e.g. 'hm' or 'myntra'. None in unified/cross-store mode.",
+    )
     look_id: str | None = Field(default=None, description="Ephemeral look id from the outfit engine.")
     occasion: str | None = Field(default=None, description="Occasion label, e.g. 'casual'.")
     look_gender: str | None = Field(default=None, description="Gender label: 'men', 'women', 'unisex'.")

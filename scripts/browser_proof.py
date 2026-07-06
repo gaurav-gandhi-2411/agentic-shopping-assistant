@@ -10,6 +10,9 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
   5. (--product flow, B4c) The cross-store "Open all items" CTA opens an inline
      panel of per-item links instead of looping window.open() (which real
      browsers popup-block after the first call per user gesture).
+  6. (--product flow, B5) "Save look" actually persists in unified (no-brand)
+     mode: POST /looks returns 201, the "Look saved!" panel + share URL appear,
+     and the shared /look/{id} page renders the saved items.
 
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
@@ -716,6 +719,130 @@ def step_b4c_open_all_panel(page: Page, state: ProofState) -> None:
     )
 
 
+def step_b5_save_look(page: Page, state: ProofState) -> None:
+    """B5: full "Save look" round trip -- fix for the confirmed bug where the
+    unified-mode frontend sent `brand: null` and the backend's (previously)
+    required `SaveLookRequest.brand: str` field rejected it with a 422,
+    surfacing as "Failed to save" (see scripts/save_look_repro.py, the red
+    baseline this step re-proves is now green).
+
+    Reproduces the exact validated path from save_look_repro.py: send
+    "black dress for women", click "Style this" on the first card to produce
+    an outfit board, then click "Save look" and assert:
+      1. POST /looks returns 201 (via a response listener registered BEFORE
+         the click, so nothing is missed).
+      2. The "Look saved!" panel appears with a non-empty share URL.
+      3. Opening that share URL (same browser/tab) renders >=1 item with a
+         non-empty title, and does NOT show "Look not found".
+    """
+    looks_post_statuses: list[int] = []
+
+    def _on_response(res) -> None:  # noqa: ANN001 - playwright Response, avoided import for brevity
+        if "/looks" in res.url and res.request.method == "POST":
+            looks_post_statuses.append(res.status)
+
+    page.on("response", _on_response)
+
+    try:
+        baseline = card_count(page)
+        send_text(page, "black dress for women")
+        after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+        wait_for_turn_idle(page)
+        gained = after - baseline
+        state.record(
+            "B5a. 'black dress for women' renders cards (precondition)",
+            gained >= 1,
+            f"cards {baseline}->{after}",
+        )
+        if gained < 1:
+            return
+
+        first_card = page.locator(CARD_SELECTOR).nth(baseline)
+        board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+        try:
+            first_card.get_by_text("Style this", exact=True).first.click()
+        except Exception as exc:  # noqa: BLE001
+            state.record(
+                "B5b. 'Style this' produces an outfit board (precondition)",
+                False,
+                f"click failed: {exc}",
+            )
+            return
+
+        deadline = time.time() + CARD_WAIT_TIMEOUT_S
+        while time.time() < deadline:
+            if page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline:
+                break
+            page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+        wait_for_turn_idle(page)
+
+        board = page.locator(OUTFIT_BOARD_SELECTOR)
+        board_count = board.count()
+        state.record(
+            "B5b. 'Style this' produces an outfit board (precondition)",
+            board_count > board_baseline,
+            f"boards on page: {board_count}",
+        )
+        if board_count <= board_baseline:
+            return
+
+        # Same board the final (image-upload / interaction) turn produced —
+        # assistant messages render top-to-bottom, so `.last` is this turn's
+        # board (see step_b4_image_board's docstring for the same reasoning).
+        board0 = board.last
+        save_btn = board0.locator("button", has=page.locator("svg.lucide-bookmark")).first
+        if save_btn.count() == 0:
+            state.record("B5c. POST /looks returns 201", False, "no 'Save look' button found")
+            return
+
+        save_btn.click()
+
+        deadline = time.time() + 15
+        while time.time() < deadline and not looks_post_statuses:
+            page.wait_for_timeout(500)
+
+        post_201 = 201 in looks_post_statuses
+        shot(page, "b5a_after_save_click")
+        state.record(
+            "B5c. POST /looks returns 201",
+            post_201,
+            f"observed POST /looks statuses={looks_post_statuses}",
+        )
+
+        try:
+            board0.get_by_text("Look saved!", exact=False).wait_for(timeout=10_000)
+        except Exception as exc:  # noqa: BLE001
+            shot(page, "b5b_saved_panel_FAIL")
+            state.record("B5d. 'Look saved!' panel appears with share URL", False, str(exc))
+            return
+
+        share_code = board0.locator("code")
+        share_url = share_code.first.inner_text().strip() if share_code.count() > 0 else ""
+        shot(page, "b5b_saved_panel")
+        state.record(
+            "B5d. 'Look saved!' panel appears with share URL",
+            bool(share_url),
+            f"share_url={share_url!r}",
+        )
+        if not share_url:
+            return
+
+        page.goto(share_url, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_timeout(2_000)
+        not_found = page.get_by_text("Look not found", exact=False).count() > 0
+        item_cards = page.locator(CARD_SELECTOR)
+        n_items = item_cards.count()
+        title = card_title(item_cards.first) if n_items > 0 else ""
+        shot(page, "b5c_shared_look_page")
+        state.record(
+            "B5e. shared /look/{id} page renders >=1 item with a title (not 'Look not found')",
+            (not not_found) and n_items >= 1 and bool(title.strip()),
+            f"not_found={not_found} n_items={n_items} first_title={title!r} url={share_url}",
+        )
+    finally:
+        page.remove_listener("response", _on_response)
+
+
 def step_console_errors(state: ProofState) -> None:
     """Step f: classify collected console/pageerror messages; fail only on severe ones."""
     severe = []
@@ -777,7 +904,7 @@ def main() -> int:
     parser.add_argument(
         "--product",
         action="store_true",
-        help="Run only the new product-bug-check steps (B1-B4) instead of the original a-f flow.",
+        help="Run only the new product-bug-check steps (B1-B5) instead of the original a-f flow.",
     )
     args = parser.parse_args()
 
@@ -806,6 +933,7 @@ def main() -> int:
                     image_new_cards = step_image_upload(page, state, Path(args.image))
                     step_b4_image_board(page, state, expected_new_cards=image_new_cards)
                     step_b4c_open_all_panel(page, state)
+                    step_b5_save_look(page, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(

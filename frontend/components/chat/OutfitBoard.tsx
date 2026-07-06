@@ -375,7 +375,7 @@ export function OutfitBoard({
       const snapshot = buildSnapshot()
       const body = {
         session_id: sessionId,
-        brand: brand ?? null,
+        brand: brand ?? "unified",
         look_id: lookId ?? null,
         occasion: occasion ?? null,
         look_gender: lookGender ?? null,
@@ -412,7 +412,8 @@ export function OutfitBoard({
           look_total_inr: displayTotal ? Math.round(displayTotal) : null,
         })
       }
-    } catch {
+    } catch (err) {
+      console.error("save look failed", err)
       setSaveState("error")
       // Reset error state after 3 s so the user can retry.
       setTimeout(() => setSaveState("idle"), 3000)

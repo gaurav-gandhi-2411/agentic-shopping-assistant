@@ -334,6 +334,34 @@ class TestPostLook:
         assert resp.status_code == 201
         assert resp.json()["share_path"] == f"/look/{custom_id}"
 
+    def test_null_brand_coalesces_to_unified(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unified-mode frontend sends brand=null; the DB column is NOT NULL, so
+        the route must coalesce to "unified" instead of 422-ing or crashing."""
+        monkeypatch.setattr(looks_module, "_get_engine", lambda req: None)
+        body = {**_POST_BODY, "brand": None}
+        tc = TestClient(_app, raise_server_exceptions=True)
+        resp = tc.post("/looks", json=body)
+        assert resp.status_code == 201
+        saved_id = resp.json()["id"]
+
+        get_resp = tc.get(f"/looks/{saved_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["brand"] == "unified"
+
+    def test_omitted_brand_coalesces_to_unified(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """brand is optional in SaveLookRequest; omitting it entirely must also
+        coalesce to "unified" rather than 422-ing."""
+        monkeypatch.setattr(looks_module, "_get_engine", lambda req: None)
+        body = {k: v for k, v in _POST_BODY.items() if k != "brand"}
+        tc = TestClient(_app, raise_server_exceptions=True)
+        resp = tc.post("/looks", json=body)
+        assert resp.status_code == 201
+        saved_id = resp.json()["id"]
+
+        get_resp = tc.get(f"/looks/{saved_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["brand"] == "unified"
+
 
 # ---------------------------------------------------------------------------
 # GET /looks/{look_id} tests
