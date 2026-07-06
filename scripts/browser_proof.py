@@ -13,6 +13,12 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
   6. (--product flow, B5) "Save look" actually persists in unified (no-brand)
      mode: POST /looks returns 201, the "Look saved!" panel + share URL appear,
      and the shared /look/{id} page renders the saved items.
+  7. (--phase-a flow, A1-A4) Content assertions for index-quality fixes that are
+     NOT YET DEPLOYED at the time these steps were written (2026-07-06): saree
+     recall, "white" adjective relevance, no visible duplicate titles, and
+     store-diversity in results. These are expected to FAIL until the
+     corresponding index-quality fixes ship — that is the point of writing them
+     ahead of the fix (red baseline).
 
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
@@ -27,6 +33,7 @@ import argparse
 import re
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -874,6 +881,130 @@ def step_console_errors(state: ProofState) -> None:
     state.record("f. zero severe render-related console/pageerror exceptions", passed, detail)
 
 
+def normalize_title(title: str) -> str:
+    """Lowercase, strip non-alphanumeric characters, and collapse whitespace.
+
+    Used by A3 to compare card titles for visible duplicates regardless of
+    punctuation/casing differences (e.g. "Black Dress - Women's" vs
+    "black dress womens" should be treated as the same visible title).
+    """
+    lowered = title.lower()
+    alnum_only = re.sub(r"[^a-z0-9]+", " ", lowered)
+    return re.sub(r"\s+", " ", alnum_only).strip()
+
+
+def step_a1_sarees(page: Page, state: ProofState) -> None:
+    """A1: 'sarees' must return >=10 cards, with >=8 of the first 10 titles
+    containing 'saree' (case-insensitive). Index-quality regression check —
+    NOT YET FIXED at the time this step was written; expected red until the
+    saree-recall fix deploys.
+    """
+    baseline = card_count(page)
+    send_text(page, "sarees")
+    after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    gained = after - baseline
+    shot(page, "a1_sarees")
+
+    if gained < 10:
+        state.record(
+            "A1. 'sarees' >=10 cards & >=8/10 titles contain 'saree'",
+            False,
+            f"cards {baseline}->{after} (need >=10 new cards, got {gained})",
+        )
+        return
+
+    titles = [card_title(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(10)]
+    hits = sum(1 for t in titles if "saree" in t.lower())
+    passed = hits >= 8
+    state.record(
+        "A1. 'sarees' >=10 cards & >=8/10 titles contain 'saree'",
+        passed,
+        f"cards {baseline}->{after} | hits={hits}/10 | titles={titles}",
+    )
+
+
+def step_a2_white_sneakers(page: Page, state: ProofState) -> None:
+    """A2: 'white sneakers for men' must return >=5 cards, with >=3 of the
+    first 5 titles containing 'white'. Index-quality regression check for
+    adjective ("white") relevance — expected red until the fix deploys.
+    """
+    baseline = card_count(page)
+    send_text(page, "white sneakers for men")
+    after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    gained = after - baseline
+    shot(page, "a2_white_sneakers")
+
+    if gained < 5:
+        state.record(
+            "A2. 'white sneakers for men' >=5 cards & >=3/5 titles contain 'white'",
+            False,
+            f"cards {baseline}->{after} (need >=5 new cards, got {gained})",
+        )
+        return
+
+    titles = [card_title(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(5)]
+    hits = sum(1 for t in titles if "white" in t.lower())
+    passed = hits >= 3
+    state.record(
+        "A2. 'white sneakers for men' >=5 cards & >=3/5 titles contain 'white'",
+        passed,
+        f"cards {baseline}->{after} | hits={hits}/5 | titles={titles}",
+    )
+
+
+def step_a3_black_dress_dedup(page: Page, state: ProofState) -> None:
+    """A3: 'black dress for women' — the first 10 card titles, once normalized
+    (lowercased, non-alphanumeric stripped, whitespace collapsed), must have
+    NO two identical entries (no visible duplicate products). Index-quality
+    regression check — expected red until the dedup fix deploys.
+    """
+    baseline = card_count(page)
+    send_text(page, "black dress for women")
+    after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    gained = after - baseline
+    shot(page, "a3_black_dress_dedup")
+
+    n = min(gained, 10)
+    titles = [card_title(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(n)]
+    normalized = [normalize_title(t) for t in titles]
+    counts = Counter(normalized)
+    dupes = sorted(t for t, c in counts.items() if c > 1)
+    passed = gained >= 1 and len(dupes) == 0
+    state.record(
+        "A3. 'black dress for women' first 10 titles have no visible duplicates",
+        passed,
+        f"cards {baseline}->{after} | titles(first {n})={titles} | duplicate_normalized_titles={dupes}",
+    )
+
+
+def step_a4_summer_dress_store_diversity(page: Page, state: ProofState) -> None:
+    """A4: 'summer dress' — across the first 10 cards' store badges, no single
+    store may account for more than 4 of them. Index-quality regression check
+    for store-diversity in results — expected red until the fix deploys.
+    """
+    baseline = card_count(page)
+    send_text(page, "summer dress")
+    after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    gained = after - baseline
+    shot(page, "a4_summer_dress_stores")
+
+    n = min(gained, 10)
+    stores = [card_store_badge(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(n)]
+    counts = Counter(s for s in stores if s)
+    max_store, max_count = counts.most_common(1)[0] if counts else (None, 0)
+    passed = gained >= 1 and max_count <= 4
+    state.record(
+        "A4. 'summer dress' no single store >4/10 of first cards",
+        passed,
+        f"cards {baseline}->{after} | stores(first {n})={stores} | "
+        f"counts={dict(counts)} | max_store={max_store!r} max_count={max_count}",
+    )
+
+
 def print_summary(state: ProofState) -> bool:
     """Print the final PASS/FAIL table. Returns True if every check passed."""
     print("\n" + "=" * 78)
@@ -906,6 +1037,15 @@ def main() -> int:
         action="store_true",
         help="Run only the new product-bug-check steps (B1-B5) instead of the original a-f flow.",
     )
+    parser.add_argument(
+        "--phase-a",
+        action="store_true",
+        help=(
+            "Run only the Phase-A index-quality content-assertion steps (A1-A4): saree "
+            "recall, 'white' adjective relevance, duplicate-title detection, and "
+            "store-diversity. These assert fixes that may not be deployed yet."
+        ),
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -934,6 +1074,11 @@ def main() -> int:
                     step_b4_image_board(page, state, expected_new_cards=image_new_cards)
                     step_b4c_open_all_panel(page, state)
                     step_b5_save_look(page, state)
+                elif args.phase_a:
+                    step_a1_sarees(page, state)
+                    step_a2_white_sneakers(page, state)
+                    step_a3_black_dress_dedup(page, state)
+                    step_a4_summer_dress_store_diversity(page, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(
