@@ -32,7 +32,7 @@ export function ItemCard({ item, onSend }: Props) {
     item.store_display ?? getStoreDisplayName(item.store) ?? brand?.display_name ?? null
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div className="rounded-lg border bg-card overflow-hidden" data-gender={item.gender}>
       <div className="flex gap-3 p-3 hover:bg-accent/30 transition-colors">
         {/* Image or placeholder */}
         <div className="w-16 h-20 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">

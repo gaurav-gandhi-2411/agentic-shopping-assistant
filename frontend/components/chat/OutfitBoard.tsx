@@ -6,7 +6,14 @@ import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } fro
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 import { cn } from "@/lib/utils"
-import type { ItemLink, ItemSummary, LookSnapshot, OutfitVariant, SaveLookResponse } from "@/lib/api/types"
+import type {
+  ItemLink,
+  ItemSummary,
+  LookSnapshot,
+  OutfitVariant,
+  SaveLookResponse,
+  SuppressedSlot,
+} from "@/lib/api/types"
 
 // Marigold/amber brand accent for the "your item" owned-seed card — distinct from
 // the primary theme so the user's own garment always reads as visually different
@@ -60,6 +67,14 @@ interface OutfitBoardProps {
   cartUrl?: string | null
   /** Top-level per-item links for non-variant flow (non-Shopify). */
   itemLinks?: ItemLink[] | null
+  /** Top-level suppressed slots for non-variant flow; variant-level takes precedence when present. */
+  suppressedSlots?: SuppressedSlot[] | null
+  /** "partner" marks this board as a partner-anchored look; absent/"primary" is the user's own look. */
+  lookRole?: "primary" | "partner" | null
+  /** Board heading override for partner looks — falls back to "Your partner's look" when absent. */
+  lookTitle?: string | null
+  /** One-line explanation of how a partner look was coordinated with the primary look. */
+  coordinatedWith?: string | null
   /**
    * Local object URL for the user's own uploaded photo (set by sendImage() on the
    * assistant message). Rendered on the owned-seed card in place of the catalogue
@@ -79,6 +94,11 @@ interface OutfitBoardProps {
 
 /** Format occasion slug for display — "sangeet_look" → "Sangeet Look". */
 function formatOccasion(slug: string): string {
+  return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/** Format a suppressed slot name for display — "footwear" → "Footwear". */
+function formatSlotLabel(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
@@ -137,6 +157,10 @@ export function OutfitBoard({
   outfitVariants,
   cartUrl: topLevelCartUrl,
   itemLinks: topLevelItemLinks,
+  suppressedSlots: topLevelSuppressedSlots,
+  lookRole,
+  lookTitle,
+  coordinatedWith,
   anchorImageUrl,
   sessionId,
   anchorItemId,
@@ -181,6 +205,10 @@ export function OutfitBoard({
   // Buy link resolution: prefer variant-level, fall back to top-level message fields.
   const activeCartUrl = activeVariant?.cart_url ?? topLevelCartUrl ?? null
   const activeItemLinks = activeVariant?.item_links ?? topLevelItemLinks ?? null
+  const activeSuppressedSlots = activeVariant?.suppressed_slots ?? topLevelSuppressedSlots ?? null
+
+  // Partner-look presentation — non-partner boards render unchanged.
+  const isPartnerLook = lookRole === "partner"
 
   // Cross-store Shopify check: only enable cart permalink when a single-store Shopify
   // cart_url is present.  In mixed-store outfits (unified mode) we degrade gracefully
@@ -439,6 +467,25 @@ export function OutfitBoard({
 
   return (
     <div className="w-full rounded-xl border bg-card p-4 space-y-3">
+      {/* Partner-look heading — board-level badge + title + coordination note.
+          Rendered only when the backend marks this board look_role === "partner";
+          primary boards fall straight through to the occasion/gender header below. */}
+      {isPartnerLook && (
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-[#E8A33D]/15 text-[#E8A33D] text-[10px] font-semibold px-2 py-0.5">
+              Partner look
+            </span>
+            <h3 className="text-sm font-semibold text-foreground">
+              {lookTitle || "Your partner's look"}
+            </h3>
+          </div>
+          {coordinatedWith && (
+            <p className="text-xs text-muted-foreground">{coordinatedWith}</p>
+          )}
+        </div>
+      )}
+
       {/* Header — occasion + gender badges */}
       <div className="flex items-center gap-2">
         {occasion && (
@@ -486,6 +533,19 @@ export function OutfitBoard({
           />
         ))}
       </div>
+
+      {/* Suppressed-slot notes — honest, unobtrusive disclosure of slots the
+          stylist intentionally left empty rather than filling with a wrong-gender
+          or off-vocabulary item. No error styling; silently absent when empty. */}
+      {activeSuppressedSlots && activeSuppressedSlots.length > 0 && (
+        <div className="space-y-0.5">
+          {activeSuppressedSlots.map((s) => (
+            <p key={s.slot} className="text-[11px] text-muted-foreground/70 px-1">
+              {formatSlotLabel(s.slot)} — {s.reason}
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* Stylist's note — rationale block */}
       {displayRationale && (
@@ -674,6 +734,11 @@ function SlotCard({
         ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
         : "Item"
 
+  // Testability attributes consumed by the Playwright proof suite — always present
+  // (empty string when the underlying field is absent) so selectors can rely on them.
+  const dataSlotValue = isSeed ? "seed" : (item.outfit_slot ?? "")
+  const dataGenderValue = item.gender ?? ""
+
   // Prefer the user's actual uploaded photo; fall back to the catalogue image_url
   // (e.g. a restored session where the object URL no longer exists in memory).
   const imageSrc = isOwned ? (anchorImageUrl ?? item.image_url) : item.image_url
@@ -724,7 +789,11 @@ function SlotCard({
 
   if (isOwned) {
     return (
-      <div className="rounded-lg border-2 border-[#E8A33D] bg-background overflow-hidden">
+      <div
+        className="rounded-lg border-2 border-[#E8A33D] bg-background overflow-hidden"
+        data-slot={dataSlotValue}
+        data-gender={dataGenderValue}
+      >
         {cardBody}
         {onSend && (
           <div className="px-1.5 pb-1.5">
@@ -747,6 +816,8 @@ function SlotCard({
       target={buyUrl ? "_blank" : undefined}
       rel="noopener noreferrer"
       className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
+      data-slot={dataSlotValue}
+      data-gender={dataGenderValue}
     >
       {cardBody}
     </a>

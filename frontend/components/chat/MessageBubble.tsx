@@ -170,6 +170,10 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
                 outfitVariants={message.outfitVariants}
                 cartUrl={message.cartUrl}
                 itemLinks={message.itemLinks}
+                suppressedSlots={message.suppressedSlots}
+                lookRole={message.lookRole}
+                lookTitle={message.lookTitle}
+                coordinatedWith={message.coordinatedWith}
                 anchorImageUrl={message.anchorImageUrl}
                 sessionId={message.id}
                 anchorItemId={seed?.article_id ?? ""}
