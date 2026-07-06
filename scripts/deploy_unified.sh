@@ -112,11 +112,16 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # are both in-memory and assume a single running instance. >1 instance would let
 # traffic silently bypass the demo rate/cost caps and would fragment in-memory
 # session state across instances.
+# TEMPORARY: DEMO_PER_IP_HOUR_LIMIT and DEMO_DAILY_REQUEST_CAP are raised above
+# their defaults (10/IP/hour, 200/brand/day) for GG's testing window. --set-env-vars
+# replaces the full env-var set, so omitting these here would silently clobber the
+# raised limits currently live on the service. Remove this override in the
+# pre-public hardening pass (see project_prepublic_hardening memory).
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
   --region="${GAR_REGION}" \
   --no-traffic \
-  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://asa-stylist.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/" \
+  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://asa-stylist.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/,DEMO_PER_IP_HOUR_LIMIT=1000,DEMO_DAILY_REQUEST_CAP=5000" \
   --set-secrets="${SECRETS}" \
   --memory=4Gi \
   --cpu=1 \
@@ -165,20 +170,28 @@ gcloud run services update-traffic "${SERVICE}" \
 echo "  Traffic is now 100% on ${NEW_REVISION}"
 
 # ---------------------------------------------------------------------------
-# Step 9: Delete the previous revision to keep latestCreated clean
+# Step 9: Delete the previous revision (opt-in only)
+#   Project rule: keep the previous revision at 0% traffic as rollback until GG
+#   confirms the new revision in the browser. Deletion only runs when explicitly
+#   requested via DELETE_PREV_REVISION=1; default behavior is to keep it.
 # ---------------------------------------------------------------------------
 if [[ -n "${PREV_REVISION}" && "${PREV_REVISION}" != "${NEW_REVISION}" ]]; then
-  echo "=== Step 9: Delete previous revision ${PREV_REVISION} ==="
-  # Cloud Run blocks deletion of latestCreatedRevisionName; only attempt if it differs.
-  LATEST_CREATED=$(gcloud run services describe "${SERVICE}" \
-    --region="${GAR_REGION}" \
-    --format="value(status.latestCreatedRevisionName)")
-  if [[ "${PREV_REVISION}" != "${LATEST_CREATED}" ]]; then
-    gcloud run revisions delete "${PREV_REVISION}" --region="${GAR_REGION}" --quiet \
-      && echo "  Deleted ${PREV_REVISION}" \
-      || echo "  WARN: could not delete ${PREV_REVISION} (non-fatal)"
+  if [[ "${DELETE_PREV_REVISION:-0}" == "1" ]]; then
+    echo "=== Step 9: Delete previous revision ${PREV_REVISION} ==="
+    # Cloud Run blocks deletion of latestCreatedRevisionName; only attempt if it differs.
+    LATEST_CREATED=$(gcloud run services describe "${SERVICE}" \
+      --region="${GAR_REGION}" \
+      --format="value(status.latestCreatedRevisionName)")
+    if [[ "${PREV_REVISION}" != "${LATEST_CREATED}" ]]; then
+      gcloud run revisions delete "${PREV_REVISION}" --region="${GAR_REGION}" --quiet \
+        && echo "  Deleted ${PREV_REVISION}" \
+        || echo "  WARN: could not delete ${PREV_REVISION} (non-fatal)"
+    else
+      echo "  Skipping delete — ${PREV_REVISION} is still latestCreated (non-fatal)"
+    fi
   else
-    echo "  Skipping delete — ${PREV_REVISION} is still latestCreated (non-fatal)"
+    echo "=== Step 9: Keeping previous revision ${PREV_REVISION} as rollback (0% traffic) ==="
+    echo "  Set DELETE_PREV_REVISION=1 to delete it. Rollback revision kept: ${PREV_REVISION}"
   fi
 fi
 
