@@ -32,6 +32,14 @@ class AgentState(TypedDict):
     suppressed_slots: list[dict] | None  # [{"slot": ..., "reason": ...}] — see
                                           # composer.compose_outfit's docstring
 
+    # Phase B Part 2 — cross-gender PARTNER styling. Set by outfit_node ONLY when
+    # this turn composed a companion look for the user's partner; None/omitted
+    # for the primary look. "look_role" doubles as the frontend discriminator
+    # ("partner" vs primary/omitted) — see api/schemas.py ChatResponse.
+    look_role: str | None
+    look_title: str | None
+    coordinated_with: str | None
+
     # Conversation memory — the ConversationMemory instance for this conversation.
     # Injected into the initial state so the compiled graph singleton can access it
     # without needing memory as a constructor argument.  No node returns this field;

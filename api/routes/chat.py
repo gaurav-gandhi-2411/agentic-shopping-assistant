@@ -341,6 +341,9 @@ def post_chat(
             item_links=_base_item_links,
             suggestion_chips=_chips,
             suppressed_slots=result.get("suppressed_slots") or None,
+            look_role=result.get("look_role"),
+            look_title=result.get("look_title"),
+            coordinated_with=result.get("coordinated_with"),
         )
 
     finally:
@@ -690,6 +693,9 @@ async def ws_chat(websocket: WebSocket) -> None:
                     ),
                     "suggestion_chips": result.get("suggestion_chips") or None,
                     "suppressed_slots": result.get("suppressed_slots") or None,
+                    "look_role": result.get("look_role"),
+                    "look_title": result.get("look_title"),
+                    "coordinated_with": result.get("coordinated_with"),
                 },
                 message_id=last_message_id,
             ).model_dump_json()

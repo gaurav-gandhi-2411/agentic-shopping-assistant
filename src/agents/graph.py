@@ -12,7 +12,13 @@ from src.agents.outfit.composer import (
     compose_outfit_variants,
     swap_slot_in_look,
 )
-from src.agents.outfit.rationale import generate_rationales
+from src.agents.outfit.partner import (
+    build_coordinated_with_text,
+    compose_partner_look,
+    detect_partner_intent,
+    resolve_partner_gender,
+)
+from src.agents.outfit.rationale import generate_rationales, template_rationale
 from src.agents.outfit.slots import resolve_look_gender
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
@@ -620,6 +626,58 @@ def build_graph(
                 }
             # No session item matched this reference — fall through to the
             # existing outfit-intent / deterministic-search behaviour below.
+
+        # Phase B Part 2: cross-gender PARTNER styling intent — explicit
+        # relationship words ("husband", "wife", "his and hers", "couple", ...)
+        # trigger a SEPARATE companion look in the partner's gender, coordinated
+        # with the session's current look anchor. Checked before the general
+        # look-refinement regex since it's a narrower, higher-priority route;
+        # detect_partner_intent is deliberately conservative (see its docstring)
+        # so ambiguous phrasing ("also show me shirts") never fires this path.
+        _partner_intent = detect_partner_intent(raw_q)
+        if _partner_intent.matched:
+            # Route via action="outfit" regardless of whether an anchor is found —
+            # route_decision() only understands the fixed action vocabulary (it does
+            # NOT recognise "pending_answer"/"pending_respond", which are terminal
+            # plans only valid when returned by a node that connects directly to
+            # END). outfit_node's partner_look branch performs the actual anchor
+            # lookup and returns the honest "no anchor" prompt itself (requirement 2:
+            # "if the session has no anchor/look, do not guess") when
+            # partner_anchor_article_id doesn't resolve to a session item.
+            _session_items = state.get("retrieved_items", [])
+            _partner_anchor = next(
+                (it for it in _session_items if it.get("_role") == "seed"), None
+            )
+            _anchor_gender = (
+                (_partner_anchor.get("gender") or "").lower() if _partner_anchor else ""
+            )
+            if _anchor_gender not in ("men", "women"):
+                _anchor_gender = _resolve_session_gender(state) or _brand_cfg.gender_default
+            _partner_gender = resolve_partner_gender(_partner_intent.gender_hint, _anchor_gender)
+            _partner_occ_slug = (
+                _reconstruct_occasion_from_history(state.get("messages", [])) or "casual"
+            )
+            _partner_plan = {
+                "action": "outfit",
+                "article_id": None,
+                "occasion": _partner_occ_slug,
+                "gender": _partner_gender,
+                "budget_inr": None,
+                "partner_look": True,
+                "partner_anchor_article_id": (
+                    _partner_anchor["article_id"] if _partner_anchor else None
+                ),
+            }
+            logger.info(
+                "[router/partner-look] anchor=%s anchor_gender=%s partner_gender=%s "
+                "occasion=%s trigger=%r | query=%r",
+                _partner_plan["partner_anchor_article_id"], _anchor_gender, _partner_gender,
+                _partner_occ_slug, _partner_intent.matched_phrase, raw_q[:60],
+            )
+            return {
+                "current_plan": json.dumps(_partner_plan),
+                "tool_calls": state.get("tool_calls", []) + [{"router_decision": _partner_plan}],
+            }
 
         # RED 2c follow-up turn: deterministic look-refinement re-compose.
         # Session persistence (api/routes/chat.py::_persist_result) only carries
@@ -1552,6 +1610,136 @@ def build_graph(
 
     def outfit_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
+
+        # Phase B Part 2: cross-gender PARTNER styling — router_node already
+        # resolved the partner's gender + the anchor to coordinate with; this
+        # branch composes a SEPARATE companion look and returns early, never
+        # falling through to the primary-look compose/variant machinery below
+        # (the primary look must remain untouched — requirement: "The primary
+        # look must remain untouched").
+        if plan.get("partner_look"):
+            _partner_anchor_id = plan.get("partner_anchor_article_id")
+            _session_items = state.get("retrieved_items", [])
+            _partner_anchor_item = next(
+                (it for it in _session_items if it.get("article_id") == _partner_anchor_id),
+                None,
+            )
+            _partner_gender = plan.get("gender") or "women"
+            _partner_occasion = plan.get("occasion") or "casual"
+
+            if _partner_anchor_item is None:
+                # Anchor vanished from session state between router_node and
+                # outfit_node (shouldn't normally happen) — honest prompt, not a guess.
+                answer = (
+                    "Tell me or show me what you're wearing first, then I'll "
+                    "style your partner to match."
+                )
+                if streaming_mode:
+                    return {
+                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                        "final_answer": None,
+                        "messages": [],
+                    }
+                return {
+                    "final_answer": answer,
+                    "messages": [{"role": "assistant", "content": answer}],
+                }
+
+            try:
+                _partner_result = compose_partner_look(
+                    catalogue_df,
+                    retriever,
+                    anchor_item=_partner_anchor_item,
+                    occasion_slug=_partner_occasion,
+                    partner_gender=_partner_gender,
+                )
+            except Exception as _pe:
+                logger.warning("[outfit/partner] compose_partner_look failed (%s)", _pe)
+                _partner_result = None
+
+            if _partner_result is None or _partner_result.get("seed_item") is None:
+                answer = (
+                    f"I couldn't find a {_partner_gender}'s "
+                    f"{_partner_occasion.replace('_', ' ')} look in this catalogue to "
+                    f"coordinate with that item — try a different occasion."
+                )
+                if streaming_mode:
+                    return {
+                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                        "final_answer": None,
+                        "messages": [],
+                    }
+                return {
+                    "final_answer": answer,
+                    "messages": [{"role": "assistant", "content": answer}],
+                }
+
+            _anchor_colour = (_partner_anchor_item.get("colour") or "").lower()
+            _anchor_type = (
+                _partner_anchor_item.get("product_type")
+                or _partner_anchor_item.get("prod_name")
+                or ""
+            ).lower()
+            try:
+                _partner_rationale = generate_rationales(
+                    [_partner_result],
+                    llm,
+                    occasion=_partner_occasion,
+                    gender=_partner_gender,
+                    partner_context={"anchor_colour": _anchor_colour, "anchor_type": _anchor_type},
+                )[0]
+            except Exception as _pre:
+                logger.warning("[outfit/partner] generate_rationales failed (%s)", _pre)
+                _partner_rationale = template_rationale(_partner_result)
+            _partner_result["rationale"] = _partner_rationale
+
+            _coordinated_with = build_coordinated_with_text(
+                _partner_anchor_item, _partner_result, _partner_occasion
+            )
+
+            _p_seed = _partner_result.get("seed_item")
+            _p_complements = _partner_result.get("complements", [])
+            _p_items_out = ([_p_seed] if _p_seed else []) + _p_complements
+            _p_empty_slots = _partner_result.get("empty_slots", [])
+
+            answer = f"**Your partner's look**\n\n{_partner_rationale}\n\n_{_coordinated_with}_"
+            for _slot in _p_empty_slots:
+                answer += (
+                    f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+                    f"this look in the current catalogue._"
+                )
+
+            update: dict = {
+                "retrieved_items": _p_items_out,
+                "new_items_this_turn": True,
+                "tool_calls": state.get("tool_calls", []) + [
+                    {"outfit": {
+                        "article_id": _p_seed.get("article_id") if _p_seed else None,
+                        "occasion": _partner_occasion,
+                        "gender": _partner_gender,
+                        "partner_look": True,
+                    }}
+                ],
+                "look_id": _partner_result.get("look_id"),
+                "occasion": _partner_result.get("occasion"),
+                "look_gender": _partner_result.get("gender"),
+                "outfit_rationale": _partner_rationale,
+                "outfit_variants": None,
+                "budget_total_inr": _partner_result.get("budget_total_inr"),
+                "suppressed_slots": _partner_result.get("suppressed_slots"),
+                "look_role": "partner",
+                "look_title": "Your partner's look",
+                "coordinated_with": _coordinated_with,
+            }
+            if streaming_mode:
+                update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
+                update["final_answer"] = None
+                update["messages"] = []
+            else:
+                update["final_answer"] = answer
+                update["messages"] = [{"role": "assistant", "content": answer}]
+            return update
+
         article_id = plan.get("article_id") or plan.get("article_id", "")
 
         # Fallback: use first retrieved item when the LLM didn't extract an explicit ID.
@@ -1735,7 +1923,6 @@ def build_graph(
             )
         except Exception as _re:
             logger.warning("[outfit] generate_rationales failed (%s) — using templates", _re)
-            from src.agents.outfit.rationale import template_rationale
             rationales = [template_rationale(v) for v in look_variants]
 
         # Attach rationale to each variant
@@ -1779,7 +1966,6 @@ def build_graph(
                     logger.warning(
                         "[outfit] generate_rationales failed for ethnic_shift (%s)", _re2
                     )
-                    from src.agents.outfit.rationale import template_rationale
                     _ethnic_look["rationale"] = template_rationale(_ethnic_look)
                 result = _ethnic_look
         elif _variant_preference:

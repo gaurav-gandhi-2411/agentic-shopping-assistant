@@ -43,9 +43,17 @@ seed_type, complement_pairs (list of {slot, colour, type}), and colour_harmony.
 Return a JSON array of rationale strings — one per outfit, in the same order.
 Each rationale must:
   - Be 1–3 sentences.
-  - Reference ONLY the provided colours, product types, slots, and occasion.
+  - Reference ONLY the provided colours, product types, slots, and occasion —
+    PLUS coordinates_with_anchor_colour/coordinates_with_anchor_type when a
+    fact-sheet includes them (see below).
   - NOT mention price, fabric composition, brand, size, or fit.
   - Sound like a warm personal stylist, not a spec sheet.
+
+If a fact-sheet includes coordinates_with_anchor_colour and/or
+coordinates_with_anchor_type, this is a PARTNER companion look for the other
+half of a couple — briefly mention how it coordinates with that anchor item
+(e.g. its colour), in addition to the usual rationale.
+
 Respond with ONLY the JSON array and nothing else."""
 
 _RATIONALE_USER = "Fact-sheets:\n{fact_sheets_json}"
@@ -54,13 +62,18 @@ _RATIONALE_USER = "Fact-sheets:\n{fact_sheets_json}"
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 
-def build_fact_sheet(look: dict) -> dict:
+def build_fact_sheet(look: dict, *, partner_context: dict[str, str] | None = None) -> dict:
     """Extract only real, grounded attributes from a look dict.
 
     Never includes price, fabric, brand, or size — only colour/type/slot/occasion.
 
     Args:
         look: A dict in the same shape as compose_outfit's return value.
+        partner_context: Phase B Part 2 cross-gender partner styling — when
+            given (keys "anchor_colour", "anchor_type"), adds
+            "coordinates_with_anchor_colour"/"coordinates_with_anchor_type" so
+            the LLM can mention how this companion look coordinates with the
+            ORIGINAL anchor look. None for regular (non-partner) looks.
 
     Returns:
         A compact fact-sheet dict safe to include in an LLM prompt.
@@ -89,7 +102,7 @@ def build_fact_sheet(look: dict) -> dict:
         occasion,
     )
 
-    return {
+    fact_sheet: dict = {
         "occasion": occasion.replace("_", " "),
         "gender": gender,
         "seed_colour": seed_colour,
@@ -97,6 +110,32 @@ def build_fact_sheet(look: dict) -> dict:
         "complement_pairs": complement_pairs,
         "colour_harmony": harmony,
     }
+    if partner_context:
+        anchor_colour = (partner_context.get("anchor_colour") or "").strip()
+        anchor_type = (partner_context.get("anchor_type") or "").strip()
+        if anchor_colour:
+            fact_sheet["coordinates_with_anchor_colour"] = anchor_colour
+        if anchor_type:
+            fact_sheet["coordinates_with_anchor_type"] = anchor_type
+    return fact_sheet
+
+
+def _partner_whitelist_tokens(partner_context: dict[str, str] | None) -> set[str] | None:
+    """Return grounding-whitelist tokens derived from partner_context, or None.
+
+    See validate_rationale's extra_whitelist_tokens param — the ORIGINAL
+    anchor look's colour/type words live in a DIFFERENT look's items, so they
+    must be explicitly whitelisted for the partner look's own grounding check.
+    """
+    if not partner_context:
+        return None
+    tokens: set[str] = set()
+    for key in ("anchor_colour", "anchor_type"):
+        val = (partner_context.get(key) or "").lower().strip()
+        if val:
+            tokens.update(val.split())
+            tokens.add(val)
+    return tokens or None
 
 
 def generate_rationales(
@@ -105,6 +144,7 @@ def generate_rationales(
     *,
     occasion: str,
     gender: str,
+    partner_context: dict[str, str] | None = None,
 ) -> list[str]:
     """Generate a grounded stylist rationale for each look in a single LLM call.
 
@@ -121,6 +161,9 @@ def generate_rationales(
         llm:      LLMClient to use for generation.
         occasion: Occasion slug (used for template fallback labelling).
         gender:   Gender string (used for fact-sheet context).
+        partner_context: Phase B Part 2 — see build_fact_sheet. Applied to
+            EVERY look in this batch (callers only pass partner_context when
+            generating rationale for a single partner look).
 
     Returns:
         A list of rationale strings, one per look (same order, same length).
@@ -128,7 +171,7 @@ def generate_rationales(
     if not looks:
         return []
 
-    fact_sheets = [build_fact_sheet(look) for look in looks]
+    fact_sheets = [build_fact_sheet(look, partner_context=partner_context) for look in looks]
 
     # Attempt ONE batched LLM call
     llm_rationales: list[str | None] = [None] * len(looks)
@@ -152,6 +195,7 @@ def generate_rationales(
         logger.warning("[rationale] LLM call failed (%s) — using templates for all", exc)
 
     # Apply grounding gate; fall back to template on failure
+    extra_whitelist_tokens = _partner_whitelist_tokens(partner_context)
     results: list[str] = []
     for i, look in enumerate(looks):
         all_items = _look_all_items(look)
@@ -159,7 +203,7 @@ def generate_rationales(
 
         llm_text = llm_rationales[i]
         if llm_text:
-            cleaned, flags = validate_rationale(llm_text, all_items, occ)
+            cleaned, flags = validate_rationale(llm_text, all_items, occ, extra_whitelist_tokens)
             grounding_flags = [f for f in flags if f.startswith("rationale:all_dropped")]
             if grounding_flags:
                 logger.debug(

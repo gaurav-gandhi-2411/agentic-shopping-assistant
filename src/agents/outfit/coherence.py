@@ -32,6 +32,64 @@ _NEUTRAL_COLOURS: frozenset[str] = frozenset({
     "light beige", "off white", "silver", "cream", "khaki", "charcoal",
 })
 
+# ── Couple-harmony palette (Phase B Part 2: cross-gender partner styling) ──────
+# Maps an anchor look's colour to a small set of COMPLEMENTARY (never identical)
+# partner-look colours.  Deliberately reuses/extends the muted-coordinating and
+# neutral tiers above so a rust anchor + navy/cream partner look reads as the
+# same deliberate colour story that colour_score() already treats as harmony —
+# a companion look must coordinate WITH the anchor, not clash with it, but a
+# matching-matching (identical hue) couple look is not the goal here.
+COUPLE_HARMONY_MAP: dict[str, tuple[str, ...]] = {
+    "rust": ("navy blue", "cream", "olive"),
+    "black": ("burgundy", "grey", "white"),
+    "white": ("navy blue", "black", "beige"),
+    "navy blue": ("cream", "rust", "grey"),
+    "dark blue": ("cream", "grey", "beige"),
+    "blue": ("cream", "grey", "navy blue"),
+    "red": ("navy blue", "charcoal", "cream"),
+    "dark red": ("navy blue", "charcoal", "cream"),
+    "pink": ("grey", "navy blue", "charcoal"),
+    "light pink": ("grey", "navy blue", "charcoal"),
+    "dark pink": ("grey", "navy blue", "charcoal"),
+    "maroon": ("beige", "grey", "cream"),
+    "burgundy": ("grey", "cream", "navy blue"),
+    "wine": ("grey", "cream", "navy blue"),
+    "mustard": ("navy blue", "charcoal", "olive"),
+    "olive": ("cream", "mustard", "rust"),
+    "teal": ("cream", "grey", "coral"),
+    "green": ("cream", "beige", "grey"),
+    "dark green": ("cream", "beige", "grey"),
+    "purple": ("grey", "silver", "cream"),
+    "dark purple": ("grey", "silver", "cream"),
+    "yellow": ("navy blue", "charcoal", "grey"),
+    "dark yellow": ("navy blue", "charcoal", "grey"),
+    "beige": ("navy blue", "olive", "burgundy"),
+    "cream": ("navy blue", "olive", "burgundy"),
+    "gold": ("navy blue", "burgundy", "charcoal"),
+    "orange": ("navy blue", "charcoal", "cream"),
+    "dark orange": ("navy blue", "charcoal", "cream"),
+    "grey": ("burgundy", "navy blue", "black"),
+    "dark grey": ("burgundy", "navy blue", "black"),
+    "peach": ("grey", "navy blue", "olive"),
+    "lavender": ("grey", "charcoal", "navy blue"),
+}
+
+# Safe neutral fallback for any anchor colour not in COUPLE_HARMONY_MAP above —
+# a companion look always gets SOME palette guidance rather than none.
+_DEFAULT_COUPLE_HARMONY: tuple[str, ...] = ("navy blue", "grey", "charcoal")
+
+
+def couple_harmony_palette(anchor_colour: str) -> tuple[str, ...]:
+    """Return complementary partner-look colours for a given anchor colour.
+
+    Deliberately EXCLUDES the anchor's own colour — a coordinated couple look
+    (Phase B Part 2) reads through complementary/muted-neutral tones, not
+    identical-hue matching-matching. Falls back to a safe neutral default
+    (navy/grey/charcoal) for any anchor colour not in COUPLE_HARMONY_MAP.
+    """
+    key = (anchor_colour or "").lower().strip()
+    return COUPLE_HARMONY_MAP.get(key, _DEFAULT_COUPLE_HARMONY)
+
 
 def is_coherent_candidate(
     candidate: dict,

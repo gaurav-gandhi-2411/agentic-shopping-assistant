@@ -77,6 +77,12 @@ class ItemSummary(BaseModel):
     # None/empty = item not found in other stores (current reality for ~all items).
     # Prices are SNAPSHOT — never real-time.  Frontend must display snapshot disclaimer.
     price_matches: list[PriceMatch] | None = None
+    # Phase B Part 2: per-item gender ("women"/"men"/"unknown") — lets the frontend
+    # render cross-gender PARTNER looks (and any mixed-gender board) without
+    # guessing from product_type/display_name. Populated for every item that
+    # flows through this single serialization point (search results, primary
+    # outfit items, partner-look items, variant items).
+    gender: str = "unknown"
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":
@@ -103,6 +109,7 @@ class ItemSummary(BaseModel):
             store_display=get_store_display_name(store),
             # Owned items are never for sale — never emit a buy link for them.
             pdp_url=None if is_owned else build_pdp_url(store, item),
+            gender=_ns(item.get("gender"), "unknown").lower() or "unknown",
         )
 
 
@@ -180,6 +187,12 @@ class ChatResponse(BaseModel):
     # Front-end renders these as tappable chip buttons that retrigger search with
     # the chosen colour filter applied to the current context.
     suggestion_chips: list[str] | None = None
+    # Phase B Part 2: cross-gender PARTNER styling board-level fields. "partner"
+    # marks a SEPARATE companion look (never mixed into the primary look) — None
+    # (omitted) for every regular/primary board.
+    look_role: str | None = None
+    look_title: str | None = None
+    coordinated_with: str | None = None
 
 
 # ---------------------------------------------------------------------------

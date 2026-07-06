@@ -120,6 +120,7 @@ def validate_rationale(
     text: str,
     look_items: list[dict],
     occasion: str | None,
+    extra_whitelist_tokens: set[str] | None = None,
 ) -> tuple[str, list[str]]:
     """Grounding gate for LLM-generated outfit rationales.
 
@@ -130,6 +131,14 @@ def validate_rationale(
     "anchor", "tone", "piece", "look", "outfit", "style", etc.) are never flagged.
 
     Also applies the same price/size/material scrubbing as validate_response.
+
+    Args:
+        extra_whitelist_tokens: additional lowercase tokens/phrases to whitelist
+            beyond this look's own items — used by the cross-gender PARTNER
+            styling feature (Phase B Part 2) so a companion-look rationale can
+            reference the ORIGINAL anchor look's colour/product-type (which
+            live in a DIFFERENT look's items, not this one) without being
+            flagged as an ungrounded claim.
 
     Returns (cleaned_text, flags) where flags use the same "category:token" format.
     If the cleaned text would be empty (all sentences dropped), returns the original
@@ -156,6 +165,9 @@ def validate_rationale(
     if occasion:
         whitelist_tokens.update(occasion.lower().replace("_", " ").split())
         whitelist_tokens.add(occasion.lower())
+
+    if extra_whitelist_tokens:
+        whitelist_tokens.update(t.lower().strip() for t in extra_whitelist_tokens if t)
 
     # Apply price/size/material scrubbing (reuse existing logic)
     # We treat look_items as retrieved_items for this purpose
