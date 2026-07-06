@@ -10,11 +10,15 @@ import pandas as pd
 from src.agents.outfit.coherence import colour_score, is_coherent_candidate
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY
 from src.agents.outfit.slots import (
+    accessory_query_matches,
     classify_anchor,
     fabric_score_delta,
     gender_allowed,
     get_fill_slots,
     is_ethnic_item,
+    is_gender_neutral_accessory,
+    is_novelty_item,
+    is_slot_type_allowed,
     is_western_item,
 )
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
@@ -76,6 +80,7 @@ def compose_outfit(
     pairing_stats: dict | None = None,  # {(anchor_cat, fill_cat, occasion): PairingStat}
     brand_gender_default: str = "women",
     owned_anchor: bool = False,
+    exclude_ids: set[str] | None = None,
 ) -> dict:
     """Compose an outfit for a given occasion, optionally anchored to a seed item.
 
@@ -88,9 +93,15 @@ def compose_outfit(
             own). Owned seeds are never for sale — ``build_cart_action`` excludes
             them from cart/link/total machinery, and ``ItemSummary.from_agent_item``
             suppresses their ``pdp_url``. Complements are never owned.
+        exclude_ids: article_ids that must NEVER be picked as a complement, in
+            addition to the seed itself. Used by ``compose_biased_look`` so a
+            variant hard-excludes the BASE look's complement ids — guaranteeing
+            a visibly different look whenever the candidate pool has an
+            alternative, instead of relying only on score nudges to change the
+            winner (Phase B Part 1: "guaranteed-distinct variants").
 
     Returns a dict with: look_id, seed_item, complements, outfit_rationale,
-    empty_slots, occasion, gender, budget_total_inr.
+    empty_slots, suppressed_slots, occasion, gender, budget_total_inr.
     """
     look_id = str(uuid.uuid4())
 
@@ -103,9 +114,14 @@ def compose_outfit(
         facets = row["facets"] if isinstance(row.get("facets"), dict) else {}
         seed_item = _row_to_item(seed_article_id, row, facets, role="seed")
     else:
-        # Occasion-driven entry: retrieve an anchor appropriate for the occasion
+        # Occasion-driven entry: retrieve an anchor appropriate for the occasion.
+        # Push the gender into the retriever filter (same fix as _find_best_candidate
+        # below) so the candidate window itself is already single-gender — the
+        # gender_allowed() re-check right below is now belt-and-suspenders, not the
+        # only gate.  Skipped for "unisex" (no single-gender filter makes sense).
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
-        candidates = retriever.search(anchor_query, top_k=10)
+        anchor_filters = {"gender": gender} if gender in ("men", "women") else None
+        candidates = retriever.search(anchor_query, top_k=10, filters=anchor_filters)
         # Filter by occasion coherence AND gender compatibility
         valid = [
             c
@@ -145,7 +161,8 @@ def compose_outfit(
     # ── Step 2: fill each slot ──────────────────────────────────────────────
     complements: list[dict] = []
     empty_slots: list[str] = []
-    seen_ids: set[str] = {seed_article_id}
+    suppressed_slots: list[dict] = []
+    seen_ids: set[str] = {seed_article_id} | (exclude_ids or set())
     seen_prod_colour: set[tuple[str, str]] = set()
     seen_prod_colour.add((normalize_prod_name(anchor_name), anchor_colour))
 
@@ -197,8 +214,19 @@ def compose_outfit(
             candidate_store = candidate.get("store")
             if candidate_store:
                 seen_stores.add(str(candidate_store).lower())
-        elif slot_spec.required:
-            empty_slots.append(slot_spec.slot_name)
+        else:
+            # Honest slot suppression (Phase B Part 1): no valid candidate survived
+            # the gender/slot-type/coherence/budget gates for this slot.  We do NOT
+            # fill it cross-gender or with an off-vocabulary item — record why it's
+            # missing so the frontend can show an honest note instead of silently
+            # dropping the slot.  A 3-item correct look beats a 5-item wrong one.
+            suppressed_slots.append(
+                {"slot": slot_spec.slot_name, "reason": _suppression_reason(
+                    slot_spec.slot_name, effective_gender,
+                )}
+            )
+            if slot_spec.required:
+                empty_slots.append(slot_spec.slot_name)
 
     # ── Step 3: build rationale ─────────────────────────────────────────────
     comp_names = [c.get("display_name") or c.get("prod_name") for c in complements]
@@ -230,10 +258,30 @@ def compose_outfit(
         "complements": complements,
         "outfit_rationale": rationale,
         "empty_slots": empty_slots,
+        "suppressed_slots": suppressed_slots,
         "occasion": occasion_slug,
         "gender": effective_gender,
         "budget_total_inr": budget_total,
     }
+
+
+def _suppression_reason(slot_name: str, gender: str) -> str:
+    """Return a short, honest, user-facing reason a slot was suppressed (no
+    candidate survived the gender/slot-type/coherence/budget gates).
+
+    Deliberately generic rather than quoting a specific inventory count — we
+    don't have a live per-store count at request time, and a wrong number would
+    be worse than a plain "not yet" statement.
+    """
+    labels = {
+        "footwear": "footwear",
+        "outerwear": "outerwear",
+        "accessory": "accessories",
+        "bottom": "bottoms",
+        "top": "tops",
+    }
+    label = labels.get(slot_name, slot_name)
+    return f"No {gender}'s {label} in our partner stores yet"
 
 
 def compose_outfit_variants(
@@ -390,6 +438,26 @@ def compose_biased_look(
     Returns None if the variant cannot be composed coherently, or if it would
     be identical to the base.
     """
+    # Guaranteed-distinct variants (Phase B Part 1): for the two FIXED variants
+    # ("alternate_colour", "formality_shift"), hard-exclude the base look's OWN
+    # complement article_ids up front, rather than relying only on the bias
+    # score nudges to (maybe) promote a different winner. Whenever the candidate
+    # pool has ANY alternative for a slot, this guarantees the variant differs
+    # from the base for that slot — _is_distinct_look (the caller) still gates on
+    # "differs from base" so a too-thin pool honestly yields fewer variants
+    # instead of a padded duplicate.
+    #
+    # "ethnic_shift" is NOT a fixed variant — it's the ad-hoc "make this look
+    # more ethnic" refinement bias (graph.py). Its job is to shift STYLE within
+    # the same gates, not to guarantee a different item; when the pool's only
+    # gender-valid candidate for a slot is the one already in the base look,
+    # ethnic_shift must still return it rather than suppressing the slot (see
+    # TestComposeBiasedLookEthnicShiftGating.test_ethnic_shift_never_bypasses_gender_gate).
+    exclude_ids = (
+        {c["article_id"] for c in (base_look.get("complements") or [])}
+        if bias_mode != "ethnic_shift"
+        else set()
+    )
     biased_retriever = _BiasedRetriever(
         retriever=retriever,
         bias_mode=bias_mode,
@@ -413,6 +481,7 @@ def compose_biased_look(
             pairing_stats=pairing_stats,
             brand_gender_default=brand_gender_default,
             owned_anchor=owned_anchor,
+            exclude_ids=exclude_ids,
         )
         if look.get("seed_item") is None:
             return None
@@ -508,11 +577,15 @@ class _BiasedRetriever:
     (kurta/palazzo/dupatta/jutti/...) actually exist in-pool to be promoted.
     """
 
-    # Colours preferred for "alternate colour story" variant
+    # Colours preferred for "alternate colour story" variant.  "dark turquoise",
+    # "dark purple" and "indigo" were removed (Phase B Part 1 catalogue colour
+    # audit — data/processed/unified/catalogue.parquet has no rows with those
+    # colour_group_name values, so they could never match anything) and replaced
+    # with colours confirmed present in the real catalogue.
     _ALTERNATE_PALETTE: frozenset[str] = frozenset({
-        "gold", "turquoise", "dark turquoise", "purple", "dark purple",
-        "coral", "teal", "olive", "maroon", "dark orange", "dark pink",
-        "indigo", "violet",
+        "gold", "turquoise", "purple", "coral", "teal", "olive", "maroon",
+        "dark orange", "dark pink", "violet",
+        "rust", "navy blue", "mustard", "burgundy",
     })
 
     # Embellishment keywords that indicate a dressier item
@@ -627,7 +700,33 @@ def _find_best_candidate(
     anchor_class: str,
     seen_stores: set[str] | None = None,
 ) -> dict | None:
-    candidates = retriever.search(query, top_k=20)
+    # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
+    # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
+    # for a thin slot (e.g. women's footwear) an unfiltered top-20 window could be
+    # 20/20 wrong-gender items, emptying the pool instead of ever widening it.
+    # HybridRetriever's gender filter (src/retrieval/hybrid_search.py) ALSO
+    # excludes "unknown"-gender rows when a gender filter is set — the same
+    # conservative "never guess gender in" rule as gender_allowed() below, now
+    # enforced on the retrieval window itself, not just on whatever slipped
+    # through unfiltered.
+    candidates = retriever.search(query, top_k=40, filters={"gender": gender})
+
+    # Gender-neutral accessory fallback: fires ONLY when the gendered search
+    # above returned nothing for an accessory slot.  Widens to an unfiltered
+    # search and accepts ONLY unknown-gender candidates whose product_type/name
+    # is a genuinely unisex accessory sub-type (sunglasses, belt, watch, cap) —
+    # never a garment.  A women's footwear or a men's kurta slot returning empty
+    # is NEVER filled this way; it falls through to honest suppression instead.
+    neutral_fallback_ids: set[str] = set()
+    if not candidates and slot_name == "accessory":
+        widened = retriever.search(query, top_k=40)
+        for item in widened:
+            item_gender = (item.get("gender") or "unknown").lower()
+            if item_gender == "unknown" and is_gender_neutral_accessory(
+                item.get("product_type") or "", item.get("prod_name") or ""
+            ):
+                candidates.append(item)
+                neutral_fallback_ids.add(item["article_id"])
 
     scored: list[tuple[float, dict]] = []
     for item in candidates:
@@ -639,10 +738,34 @@ def _find_best_candidate(
         )
         if item_key in seen_prod_colour:
             continue
-        # Per-item gender hard gate (belt-and-suspenders; coherence.py also checks this)
-        if not gender_allowed((item.get("gender") or "unknown").lower(), gender):
+        # Per-item gender hard gate (belt-and-suspenders; coherence.py also checks
+        # this; the retriever-level filter above already enforces it for the
+        # common case). The narrow gender-neutral-accessory fallback above is the
+        # ONLY way an "unknown"-gender item reaches this point.
+        is_neutral_fallback_item = item["article_id"] in neutral_fallback_ids
+        if not is_neutral_fallback_item and not gender_allowed(
+            (item.get("gender") or "unknown").lower(), gender
+        ):
             continue
-        if not is_coherent_candidate(item, occasion_slug, gender, slot_name):
+        # Slot-type hard gate: reject candidates whose classified item-type
+        # doesn't belong to this slot (e.g. bottom-classified trousers can never
+        # fill an "accessory" slot — the live-proven "paperbag pants badged
+        # Accessory" bug).
+        item_pt = item.get("product_type") or ""
+        item_name = item.get("prod_name") or item.get("display_name") or ""
+        if not is_slot_type_allowed(slot_name, item_pt, item_name):
+            continue
+        # Accessory vocabulary gate: within the "accessory" slot class, a
+        # dupatta-seeking query must not accept a handbag and vice versa.
+        if slot_name == "accessory" and not accessory_query_matches(query, item_pt, item_name):
+            continue
+        # Novelty/quality guard: conservative denylist rejects costume/novelty
+        # items (e.g. "Luxury Piano Shape Statement Handbag") from any slot.
+        if is_novelty_item(item_name):
+            continue
+        if not is_coherent_candidate(
+            item, occasion_slug, gender, slot_name, skip_gender_gate=is_neutral_fallback_item
+        ):
             continue
         if budget_remaining is not None:
             price = item.get("price_inr") or 0.0
@@ -922,6 +1045,7 @@ def _empty_result(look_id: str, occasion_slug: str, gender: str, reason: str) ->
         "complements": [],
         "outfit_rationale": reason,
         "empty_slots": [],
+        "suppressed_slots": [],
         "occasion": occasion_slug,
         "gender": gender,
         "budget_total_inr": None,

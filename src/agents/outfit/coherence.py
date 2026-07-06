@@ -1,18 +1,35 @@
 from __future__ import annotations
 
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
-from src.agents.outfit.slots import WOMEN_ONLY_ETHNIC_KEYWORDS, gender_allowed, is_western_item
+from src.agents.outfit.slots import (
+    WOMEN_ONLY_ETHNIC_KEYWORDS,
+    gender_allowed,
+    is_western_item,
+    is_western_marker_item,
+)
+
+# Muted/earthy tones added for Phase B Part 1 (real catalogue colour audit — see
+# offline check).  These coordinate well with each other in BOTH ethnic (jewel/
+# warm co-star) and western (colour-story) styling — unlike the primary-hue
+# _JEWEL_TONES below (red/blue/green/...), which really DO clash with each
+# other in a western context (see test_western_mismatch_scores_low), these
+# muted tones are a dedicated "coordinating" tier so e.g. a rust anchor +
+# navy blue complement scores as a colour story, not a random clash.
+_MUTED_COORDINATING_COLOURS: frozenset[str] = frozenset({
+    "navy blue", "mustard", "burgundy", "lavender", "peach",
+    "maroon", "olive", "teal", "wine", "rust",
+})
 
 # Jewel tones valid as co-stars in ethnic/festive occasions (multi_jewel harmony tier)
 _JEWEL_TONES: frozenset[str] = frozenset({
     "red", "dark red", "dark pink", "pink", "orange", "dark orange",
     "blue", "dark blue", "green", "dark green", "purple", "dark purple",
     "gold", "yellow", "dark yellow", "turquoise", "dark turquoise",
-})
+}) | _MUTED_COORDINATING_COLOURS
 
 _NEUTRAL_COLOURS: frozenset[str] = frozenset({
     "black", "white", "grey", "dark grey", "light grey", "beige",
-    "light beige", "off white", "silver",
+    "light beige", "off white", "silver", "cream", "khaki", "charcoal",
 })
 
 
@@ -21,6 +38,8 @@ def is_coherent_candidate(
     occasion_slug: str,
     gender: str,
     slot_name: str,
+    *,
+    skip_gender_gate: bool = False,
 ) -> bool:
     """Return False if candidate violates any hard coherence gate; True otherwise.
 
@@ -31,6 +50,13 @@ def is_coherent_candidate(
     2. ethnic_only occasion: reject western items in any slot.
     3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's wedding_guest).
     4. Ethnic anchor + formality >= 4: reject western candidates in non-outerwear slots.
+
+    Args:
+        skip_gender_gate: When True, skips gate 0b ONLY.  Set by composer.
+            _find_best_candidate for the narrow gender-neutral-accessory
+            fallback path (sunglasses/belt/watch/cap with gender="unknown"),
+            where the caller has ALREADY verified the item is a genuinely
+            unisex accessory sub-type — every other gate still runs unchanged.
     """
     occasion = get_occasion(occasion_slug)
     is_men = gender.lower() == "men"
@@ -45,9 +71,10 @@ def is_coherent_candidate(
             return False
 
     # Gate 0b: per-item gender mismatch — unknown is excluded from gendered looks.
-    candidate_gender = (candidate.get("gender") or "unknown").lower()
-    if not gender_allowed(candidate_gender, gender):
-        return False
+    if not skip_gender_gate:
+        candidate_gender = (candidate.get("gender") or "unknown").lower()
+        if not gender_allowed(candidate_gender, gender):
+            return False
 
     # Gate 1: dupatta is women-only
     if slot_name == "accessory" and is_men:
@@ -55,12 +82,21 @@ def is_coherent_candidate(
         if "dupatta" in combined:
             return False
 
-    # Gate 2: ethnic_only occasions reject western items entirely
-    if occasion.ethnic_lean == ETHNIC_ONLY and is_western_item(pt, name):
+    # Gate 2: ethnic_only occasions reject western items entirely.  is_western_item
+    # only covers western_top/bottom/one_piece — is_western_marker_item is layered
+    # on top so a footwear/outerwear/unknown-class item that's EXPLICITLY western
+    # (sneakers, denim, bomber, hoodie, blazer, t-shirt) is caught too: a sangeet
+    # look must never accept a pair of sneakers or a denim jacket.
+    if occasion.ethnic_lean == ETHNIC_ONLY and (
+        is_western_item(pt, name) or is_western_marker_item(pt, name)
+    ):
         return False
 
-    # Gate 3: ethnic_heavy occasions reject western_casual items
-    if occasion.ethnic_lean == ETHNIC_HEAVY and is_western_item(pt, name):
+    # Gate 3: ethnic_heavy occasions reject western_casual items (same marker
+    # extension as gate 2 above).
+    if occasion.ethnic_lean == ETHNIC_HEAVY and (
+        is_western_item(pt, name) or is_western_marker_item(pt, name)
+    ):
         # Western formal (blazer/trousers/shirt) may be OK for men's wedding_guest
         if is_men and occasion_slug == "wedding_guest":
             combined = (pt + " " + name).lower()
@@ -116,9 +152,16 @@ def colour_score(
             return 0.8  # jewel-tone co-star is valid
         return 0.6  # anything else is acceptable
 
-    # Western occasions: original rules
+    # Western occasions: original rules, extended with a "muted coordinating"
+    # tier (Phase B Part 1) so two earthy/jewel-warm tones (e.g. rust + navy
+    # blue) read as a deliberate colour story rather than a random clash — this
+    # is a SEPARATE, smaller set from _JEWEL_TONES precisely so bright primary
+    # pairs (red+blue, both already in _JEWEL_TONES) keep clashing here, as
+    # tested by test_western_mismatch_scores_low.
     if c_lower in _NEUTRAL_COLOURS or a_lower in _NEUTRAL_COLOURS:
         return 1.0
     if c_lower == a_lower:
         return 0.9
+    if c_lower in _MUTED_COORDINATING_COLOURS and a_lower in _MUTED_COORDINATING_COLOURS:
+        return 0.75
     return 0.4

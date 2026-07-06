@@ -118,30 +118,24 @@ def _resolve_gender(
 ) -> str:
     """Resolve which gender to steer outfit composition with.
 
-    Precedence:
-      1. Gender parsed from the user's free-text message (``intent.gender``),
-         when it is an unambiguous "men" or "women".
-      2. The anchor item's own catalogue ``gender`` column, when it is
-         "men" or "women".
-      3. The brand's configured default (``brand_cfg.gender_default``).
-
-    "unisex"/"mixed" values are never returned directly — composition needs a
-    concrete men/women slice, so "mixed" is coerced to "women" only as the
-    final fallback (steps 1 and 2 are skipped for those values, falling
-    through to the next precedence level).
+    Precedence: intent_gender > the anchor item's own catalogue `gender` column
+    > the brand's configured default.  Thin wrapper around
+    ``src.agents.outfit.slots.resolve_look_gender`` — the SAME precedence logic
+    used by graph.py's outfit_node for follow-up chat turns on this same
+    image-upload anchor, so both entry points agree on gender for one session.
+    ``session_gender`` is None here: this is the FIRST turn for a fresh upload,
+    so there is no prior session context to consult yet.
     """
-    if intent_gender in ("men", "women"):
-        return intent_gender
-
-    if "gender" in catalogue_df.columns and "article_id" in catalogue_df.columns:
-        match = catalogue_df.loc[catalogue_df["article_id"] == anchor_id, "gender"]
-        if not match.empty and match.iloc[0] is not None:
-            anchor_gender = str(match.iloc[0]).lower()
-            if anchor_gender in ("men", "women"):
-                return anchor_gender
+    from src.agents.outfit.slots import resolve_look_gender
 
     brand_default = (brand_cfg.gender_default if brand_cfg else "women") or "women"
-    return "women" if brand_default == "mixed" else brand_default
+    return resolve_look_gender(
+        intent_gender=intent_gender,
+        session_gender=None,
+        catalogue_df=catalogue_df,
+        anchor_id=anchor_id,
+        brand_gender_default=brand_default,
+    )
 
 
 def _build_variant_response(variant: dict, brand: str) -> OutfitVariant:
@@ -175,6 +169,7 @@ def _build_variant_response(variant: dict, brand: str) -> OutfitVariant:
         budget_total_inr=variant.get("budget_total_inr"),
         cart_url=cart_url,
         item_links=item_links,
+        suppressed_slots=variant.get("suppressed_slots") or None,
     )
 
 
@@ -455,6 +450,7 @@ async def post_style_from_image(
         "item_links": cart_action.get("item_links"),
         "budget_total_inr": base.get("budget_total_inr"),
         "user_text": message,
+        "suppressed_slots": base.get("suppressed_slots") or None,
     }
 
     return JSONResponse(content=payload)

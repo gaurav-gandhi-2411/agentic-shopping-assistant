@@ -13,6 +13,7 @@ from src.agents.outfit.composer import (
     swap_slot_in_look,
 )
 from src.agents.outfit.rationale import generate_rationales
+from src.agents.outfit.slots import resolve_look_gender
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import (
@@ -1558,7 +1559,21 @@ def build_graph(
             article_id = state["retrieved_items"][0]["article_id"]
 
         occasion_slug = plan.get("occasion") or "casual"
-        gender = plan.get("gender") or _brand_cfg.gender_default
+        # Gender resolution (Phase B Part 1): explicit text > session context >
+        # the resolved anchor item's OWN gender column > brand default.  This
+        # matters most for the image-upload owned-anchor path — a photo of a
+        # men's shirt (article_id already resolved above) must never silently
+        # compose a women's-default look just because plan["gender"] is empty
+        # and the brand's configured default happens to be "women".  Shared with
+        # api/routes/image_style.py's own gender resolution (resolve_look_gender)
+        # so both entry points agree on the same anchor for the same session.
+        gender = resolve_look_gender(
+            intent_gender=plan.get("gender"),
+            session_gender=_resolve_session_gender(state),
+            catalogue_df=catalogue_df,
+            anchor_id=article_id or None,
+            brand_gender_default=_brand_cfg.gender_default,
+        )
         budget_inr = plan.get("budget_inr")
 
         # "Owned anchor" feature: if the resolved seed IS the session's image-upload
@@ -1811,6 +1826,9 @@ def build_graph(
             "outfit_rationale": base_rationale,
             "outfit_variants": look_variants,
             "budget_total_inr": result.get("budget_total_inr"),
+            # Honest slot suppression (Phase B Part 1): [{"slot": ..., "reason": ...}]
+            # for slots with no valid candidate — see composer.compose_outfit.
+            "suppressed_slots": result.get("suppressed_slots"),
         }
         if streaming_mode:
             update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})

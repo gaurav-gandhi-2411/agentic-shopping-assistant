@@ -169,6 +169,7 @@ def _build_outfit_variants(result: dict) -> list[OutfitVariant] | None:
                 budget_total_inr=variant.get("budget_total_inr"),
                 cart_url=cart_url,
                 item_links=item_links,
+                suppressed_slots=variant.get("suppressed_slots") or None,
             )
             out.append(ov)
         except Exception as _e:
@@ -339,6 +340,7 @@ def post_chat(
             cart_url=_base_cart_url,
             item_links=_base_item_links,
             suggestion_chips=_chips,
+            suppressed_slots=result.get("suppressed_slots") or None,
         )
 
     finally:
@@ -687,6 +689,7 @@ async def ws_chat(websocket: WebSocket) -> None:
                         if _ws_base_item_links else None
                     ),
                     "suggestion_chips": result.get("suggestion_chips") or None,
+                    "suppressed_slots": result.get("suppressed_slots") or None,
                 },
                 message_id=last_message_id,
             ).model_dump_json()

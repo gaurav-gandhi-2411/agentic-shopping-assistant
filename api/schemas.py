@@ -110,6 +110,19 @@ class ItemSummary(BaseModel):
 # Outfit variants
 # ---------------------------------------------------------------------------
 
+
+class SuppressedSlot(BaseModel):
+    """A look slot with no valid candidate after the gender/slot-type/coherence/
+    budget gates — intentionally left empty rather than filled with a
+    wrong-gender or off-vocabulary item (Phase B Part 1: honest slot
+    suppression). `reason` is short and safe to render directly to the user,
+    e.g. "No women's footwear in our partner stores yet".
+    """
+
+    slot: str
+    reason: str
+
+
 class OutfitVariant(BaseModel):
     """One switchable outfit variant (base, colour story, or formality lean)."""
 
@@ -126,6 +139,8 @@ class OutfitVariant(BaseModel):
     # individually ("Buy at {store_display}") without any Myntra fallback for non-Myntra items.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
+    # Slots suppressed for THIS variant (None when compose_outfit didn't report any).
+    suppressed_slots: list[SuppressedSlot] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +173,9 @@ class ChatResponse(BaseModel):
     # Cart action fields — populated for outfit responses; None otherwise.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
+    # Slots (of the base/active variant) suppressed for lack of a valid candidate —
+    # see SuppressedSlot. None for non-outfit turns or when nothing was suppressed.
+    suppressed_slots: list[SuppressedSlot] | None = None
     # Colour refinement chips — available colours from the current result set.
     # Front-end renders these as tappable chip buttons that retrigger search with
     # the chosen colour filter applied to the current context.
