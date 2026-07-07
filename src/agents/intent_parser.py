@@ -441,7 +441,7 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     """Merge a new turn's intent with accumulated session context.
 
     Fields carried forward from session_context when the new intent does not
-    specify them: garment_type, gender, colour, occasion.
+    specify them: garment_type, gender, colour, occasion, budget_max_inr.
 
     Never overwrites a field already populated by the new intent.
     Always preserves raw_query from the new intent.
@@ -451,8 +451,9 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     intent:
         The IntentV1 produced by parse_intent() for the current turn.
     session_context:
-        Dict with keys "garment_type", "gender", "colour", "occasion"
-        (all str | None) from the prior resolved intent.
+        Dict with keys "garment_type", "gender", "colour", "occasion",
+        "budget_max_inr" (all str | None, budget_max_inr is int | None) from
+        the prior resolved intent.
 
     Returns
     -------
@@ -473,7 +474,9 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         occasion=intent.occasion
         if intent.occasion is not None
         else session_context.get("occasion"),
-        budget_max_inr=intent.budget_max_inr,
+        budget_max_inr=intent.budget_max_inr
+        if intent.budget_max_inr is not None
+        else session_context.get("budget_max_inr"),
         store_filter=intent.store_filter,
         raw_query=intent.raw_query,
         is_product_query=intent.is_product_query,

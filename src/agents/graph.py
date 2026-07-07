@@ -903,6 +903,17 @@ def build_graph(
                 else (state.get("filters") or {}).get("colour_group_name")
             ),
             "occasion": state.get("occasion"),
+            # Budget carry-forward: reconstructed from the accumulated filter dict
+            # (state["filters"] survives the session round-trip via
+            # api/routes/chat.py::_persist_result) the same way gender/colour are
+            # reconstructed above — merge_with_context() previously never inherited
+            # budget_max_inr at all, so a colour/refinement turn with no fresh budget
+            # mention relied entirely on this accidental filter-dict carry-forward,
+            # which the fallback ladder in search_node can silently strip (e.g. a
+            # zero-result retry that drops price_max along with other facets). Feeding
+            # it through merge_with_context as well gives budget the same durable,
+            # intent-level inheritance garment_type/gender/occasion already get.
+            "budget_max_inr": _prior_filters.get("price_max"),
         }
 
         # Merge new intent with session context (carries forward unspecified fields)
