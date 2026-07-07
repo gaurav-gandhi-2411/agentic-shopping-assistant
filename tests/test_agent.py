@@ -487,3 +487,63 @@ def test_colour_refinement_inherits_most_recent_turn_gender_and_garment(
     assert turn4_genders and all(g == "men" for g in turn4_genders), (
         f"Expected turn 4 items to stay men's, got {turn4_genders}"
     )
+
+
+# ---------------------------------------------------------------------------
+# S3a fix: a genuine garment-type PIVOT must NOT inherit a stale colour filter
+# from an unrelated earlier turn.
+#
+# Live-proven bug (phase-b browser retest, 2026-07-07): "black dress for
+# women" -> "Style this <dress>" -> "white shirt for men" -> "Style this
+# <shirt>" -> "style a kurta for sangeet for women" silently narrowed the
+# sangeet-kurta search to only WHITE kurtas (colour_group_name="White" carried
+# over from the unrelated men's-shirt turn), which returned far fewer results
+# than the un-narrowed search and, on a sparser catalogue slice, can return 0.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_index
+def test_garment_pivot_drops_stale_colour_filter(
+    config, unified_retriever, unified_catalogue_df
+):
+    """A turn that pivots to a NEW garment type + gender must not inherit an
+    unrelated earlier turn's colour filter, even though the intervening
+    "Style this" turn never touched `filters` (outfit turns leave it as-is).
+    """
+    os.environ["AGENT_LOOP_FAST_PATH"] = "true"
+    llm = MockLLM(["ok"] * 20)
+    session = {
+        "messages": [],
+        "retrieved_items": [],
+        "filters": {},
+        "excluded_colours": None,
+        "_memory": ConversationMemory(llm, config),
+    }
+    agent = build_graph(unified_retriever, unified_catalogue_df, llm, config)
+
+    turn1 = _run_turn(agent, session, "black dress for women")
+    assert turn1["retrieved_items"], "precondition: turn 1 must return dresses"
+    first_dress = turn1["retrieved_items"][0]
+    _run_turn(agent, session, f"Style this {first_dress.get('prod_name')}")
+
+    turn3 = _run_turn(agent, session, "white shirt for men")
+    assert turn3["retrieved_items"], "precondition: turn 3 must return men's shirts"
+    first_shirt = turn3["retrieved_items"][0]
+    _run_turn(agent, session, f"Style this {first_shirt.get('prod_name')}")
+
+    turn5 = _run_turn(agent, session, "style a kurta for sangeet for women")
+
+    filters = turn5.get("filters", {})
+    assert "colour_group_name" not in filters, (
+        f"Expected the stale 'White' colour filter from turn 3 to be dropped "
+        f"on this garment pivot, got filters={filters}"
+    )
+    assert filters.get("product_type_name", "").lower() == "kurta"
+    assert filters.get("gender") == "women"
+
+    turn5_items = turn5.get("retrieved_items", [])
+    colours = {(it.get("colour") or "").lower() for it in turn5_items}
+    assert len(colours) > 1, (
+        f"Expected kurtas of more than one colour once the stale 'white' filter "
+        f"is dropped, got colours={colours}"
+    )

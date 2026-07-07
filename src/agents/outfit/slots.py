@@ -257,6 +257,30 @@ def is_novelty_item(prod_name: str) -> bool:
     return False
 
 
+# S5 fix: juniors/kids garments mislabeled as adult inventory. This catalogue's
+# `gender` column derives from `index_group_name`, and juniors/girls/boys/kids
+# SKUs are indexed under "Ladieswear"/"Menswear" alongside genuinely adult
+# items (verified: "M&H Juniors Girls Blue Straight Knee Length Denim Skirts"
+# and "Juniors by Lifestyle Kids-Girls White Pure Cotton Print Top" both carry
+# gender="women", index_group_name="Ladieswear" in data/processed/unified/
+# catalogue.parquet) — so gender_allowed() alone lets them through into ADULT
+# outfit slots. Live-proven: an office look's bottom slot filled with the
+# Juniors denim-skirt item above. Deliberately narrow (four markers, not a
+# broader age/size heuristic) to avoid rejecting real adult inventory whose
+# name happens to share a word.
+_KIDS_MARKER_RE = re.compile(r"\b(junior|juniors|girl|girls|boy|boys|kid|kids)\b", re.IGNORECASE)
+
+
+def is_kids_item(prod_name: str) -> bool:
+    """Return True if `prod_name` carries a juniors/girls/boys/kids marker.
+
+    Checked as an ADDITIONAL gate in composer._find_best_candidate, alongside
+    (never instead of) the gender/slot-type/novelty gates — see module
+    docstring on _KIDS_MARKER_RE for why the gender column alone isn't enough.
+    """
+    return bool(_KIDS_MARKER_RE.search(prod_name or ""))
+
+
 def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:
     """Return True if a footwear/outerwear/unknown-class item carries an
     explicit WESTERN marker word (sneaker, denim, bomber, hoodie, blazer,

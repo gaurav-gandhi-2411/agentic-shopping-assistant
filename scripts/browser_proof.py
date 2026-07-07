@@ -519,9 +519,19 @@ PB_FOOTWEAR_TITLE_RE = re.compile(
     r"\b(shoes?|sneakers?|loafers?|sandals?|heels?|flats?|juttis?|mojaris?)\b", re.IGNORECASE
 )
 # S5 occasion-register vocabulary: an office look's bottom must read as
-# tailored, not casual. "denim skirt" is deliberately checked as a phrase (a
-# plain "skirt" is fine; "denim skirt" is not) per spec.
-PB_S5_FORBIDDEN_BOTTOM_RE = re.compile(r"\b(shorts?|denim\s+skirt|joggers?)\b", re.IGNORECASE)
+# tailored, not casual. "denim skirt(s)" is deliberately checked as a phrase (a
+# plain "skirt" is fine; "denim skirt(s)" is not) per spec. `skirts?` (not just
+# `skirt`) so a plural title like "... Denim Skirts" still matches — the
+# live-proven miss: "M&H Juniors Girls Blue Straight Knee Length Denim Skirts"
+# slipped past the old singular-only `denim\s+skirt` pattern. Also forbids
+# juniors/girls/boys/kids markers in ANY adult look slot (the same catalogue-
+# mislabeling root cause fixed in src/agents/outfit/slots.py::is_kids_item) —
+# a juniors item is never appropriate for an adult office look regardless of
+# whether its own bottom-type wording happens to look tailored.
+PB_S5_FORBIDDEN_BOTTOM_RE = re.compile(
+    r"\b(shorts?|denim\s+skirts?|joggers?|junior|juniors|girls?|boys?|kids?)\b",
+    re.IGNORECASE,
+)
 PB_S5_REQUIRED_BOTTOM_RE = re.compile(r"\b(trousers?|pants?|palazzos?|skirts?)\b", re.IGNORECASE)
 
 

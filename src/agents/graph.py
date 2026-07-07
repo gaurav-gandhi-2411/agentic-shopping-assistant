@@ -817,6 +817,31 @@ def build_graph(
             if _types:
                 _ctx_garment = _Counter(_types).most_common(1)[0][0].lower()
 
+        # S3a fix: detect a genuine garment-type PIVOT (this turn names a
+        # DIFFERENT garment than the session's prior dominant garment) so
+        # search_node can drop stale accumulated filters instead of re-merging
+        # them. merge_with_context() below already decides, at the IntentV1
+        # level, which fields (garment_type/gender/colour/occasion) carry
+        # forward when the new turn doesn't specify them — but search_node
+        # independently re-merges the RAW accumulated filter dict
+        # (state["filters"]) underneath the new plan's filters. That second,
+        # dict-level merge silently resurrects facets merge_with_context never
+        # intended to carry forward this turn: e.g. "white shirt for men" sets
+        # colour_group_name="White"; the next turn "style a kurta for sangeet
+        # for women" has its own explicit gender/garment and no colour at all,
+        # yet colour_group_name="White" survives in the merged filter dict and
+        # silently narrows the sangeet-kurta search to only WHITE kurtas
+        # (reproduced locally: 10 kurtas -> 6 once the stale colour survives).
+        # Only garment_type pivots trigger the reset — a colour-only or
+        # budget-only refinement ("in blue now", "cheaper") must still inherit
+        # the prior garment/gender context, which is unaffected here since
+        # intent.garment_type is None for those queries.
+        _is_garment_pivot = (
+            intent.garment_type is not None
+            and _ctx_garment is not None
+            and intent.garment_type != _ctx_garment
+        )
+
         # Reconstruct gender context from prior-turn filters.
         # Prefer explicit gender key; fall back to index_group_name for backwards compat.
         _prior_filters = state.get("filters") or {}
@@ -831,7 +856,18 @@ def build_graph(
         session_context = {
             "garment_type": _ctx_garment,
             "gender": _ctx_gender,
-            "colour": (state.get("filters") or {}).get("colour_group_name"),
+            # S3a fix: never inherit a stale colour into a genuine garment-type
+            # pivot. merge_with_context() has no way to tell "in blue now"
+            # (a real colour refinement of the SAME garment) apart from "kurta
+            # for sangeet" (a pivot to a different garment that just happens to
+            # follow a colour-filtered search) — that distinction has to be made
+            # here, using _is_garment_pivot, before the colour ever reaches
+            # merge_with_context.
+            "colour": (
+                None
+                if _is_garment_pivot
+                else (state.get("filters") or {}).get("colour_group_name")
+            ),
             "occasion": state.get("occasion"),
         }
 
@@ -904,13 +940,20 @@ def build_graph(
         }
         if _is_similar_query and _anchor_id and not merged_intent.garment_type:
             plan["anchor_article_id"] = _anchor_id
+        if _is_garment_pivot:
+            # S3a fix: tell search_node to build this turn's filters from
+            # _plan_filters alone — do NOT re-merge stale accumulated
+            # state["filters"] on top of a genuine garment pivot.
+            plan["reset_filters"] = True
 
         logger.info(
-            "[router/intent] product → search | garment=%s gender=%s colour=%s anchor=%s | query=%r",
+            "[router/intent] product → search | garment=%s gender=%s colour=%s anchor=%s "
+            "pivot=%s | query=%r",
             merged_intent.garment_type,
             merged_intent.gender,
             merged_intent.colour,
             plan.get("anchor_article_id"),
+            _is_garment_pivot,
             raw_q[:60],
         )
         return {
@@ -1087,7 +1130,14 @@ def build_graph(
                 ],
             }
         # Merge accumulated state filters with any new filters the router specified.
-        merged = {**state.get("filters", {}), **plan.get("filters", {})}
+        # S3a fix: router_node sets plan["reset_filters"]=True on a genuine
+        # garment-type pivot (e.g. "white shirt for men" -> "kurta for sangeet
+        # for women") — in that case, start from an empty base instead of
+        # re-merging the stale accumulated dict, which would otherwise
+        # silently resurrect facets (colour_group_name, etc.) the pivot never
+        # intended to carry forward (see router_node's _is_garment_pivot).
+        _filters_base = {} if plan.get("reset_filters") else state.get("filters", {})
+        merged = {**_filters_base, **plan.get("filters", {})}
 
         # Keep index_group_name in lockstep with "gender" whenever "gender" is present.
         # "gender" is the freshest signal — it comes from IntentParser's merge_with_context,

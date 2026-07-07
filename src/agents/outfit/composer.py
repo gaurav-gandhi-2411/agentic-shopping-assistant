@@ -17,6 +17,7 @@ from src.agents.outfit.slots import (
     get_fill_slots,
     is_ethnic_item,
     is_gender_neutral_accessory,
+    is_kids_item,
     is_novelty_item,
     is_slot_type_allowed,
     is_western_item,
@@ -122,7 +123,10 @@ def compose_outfit(
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
         candidates = retriever.search(anchor_query, top_k=10, filters=anchor_filters)
-        # Filter by occasion coherence AND gender compatibility
+        # Filter by occasion coherence AND gender compatibility. S5 fix: also
+        # reject juniors/girls/boys/kids items as a look ANCHOR — the same
+        # catalogue mislabeling that lets them fill complement slots (see
+        # is_kids_item) would otherwise let one become the seed itself.
         valid = [
             c
             for c in candidates
@@ -131,6 +135,7 @@ def compose_outfit(
                 (c.get("gender") or "unknown").lower(),
                 gender if gender != "unisex" else "unisex",
             )
+            and not is_kids_item(c.get("prod_name") or c.get("display_name") or "")
         ]
         if not valid:
             _no_anchor_msg = (
@@ -353,6 +358,16 @@ def compose_outfit_variants(
 
     variants: list[dict] = [base]
 
+    # S6 fix: sequential composition. Each subsequent variant must exclude
+    # every complement id already used by an EARLIER accepted variant (not
+    # just the base's) — otherwise two independently-biased variants that both
+    # only have ONE non-base alternative per slot converge on the identical
+    # complement set (live-proven: "Colour Palette" and "Dressed Up" landing on
+    # the same navy blazer + white bag once the base's own items were the only
+    # ones excluded from each). `accumulated_ids` tracks every complement id
+    # used by any variant accepted so far, seeded with the base's own ids.
+    accumulated_ids: set[str] = {c["article_id"] for c in (base.get("complements") or [])}
+
     # ── Variant 1: Alternate colour story ───────────────────────────────────
     # Build a biased candidate selector that prefers a different colour palette.
     # We wrap the retriever with a scoring override that flips colour preferences.
@@ -368,10 +383,12 @@ def compose_outfit_variants(
         brand_gender_default=brand_gender_default,
         bias_mode="alternate_colour",
         owned_anchor=owned_anchor,
+        extra_exclude_ids=accumulated_ids,
     )
-    if alt_colour_look and _is_distinct_look(alt_colour_look, base):
+    if alt_colour_look and _is_distinct_look(alt_colour_look, variants):
         alt_colour_look["variant_label"] = "Colour story"
         variants.append(alt_colour_look)
+        accumulated_ids |= {c["article_id"] for c in (alt_colour_look.get("complements") or [])}
 
     # ── Variant 2: Dressier or Lighter lean ──────────────────────────────────
     # Shift formality within the same occasion family.
@@ -387,26 +404,37 @@ def compose_outfit_variants(
         brand_gender_default=brand_gender_default,
         bias_mode="formality_shift",
         owned_anchor=owned_anchor,
+        extra_exclude_ids=accumulated_ids,
     )
-    if formality_look and _is_distinct_look(formality_look, base):
+    if formality_look and _is_distinct_look(formality_look, variants):
         # Label: ethnic/formal occasions get "Lighter"; western/casual get "Dressier"
         from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
         occ = get_occasion(occasion_slug)
         is_formal_ethnic = occ.ethnic_lean in (ETHNIC_HEAVY, ETHNIC_ONLY) or occ.formality >= 4
         formality_look["variant_label"] = "Lighter" if is_formal_ethnic else "Dressier"
         variants.append(formality_look)
+        accumulated_ids |= {c["article_id"] for c in (formality_look.get("complements") or [])}
 
     return variants
 
 
-def _is_distinct_look(look: dict, base: dict) -> bool:
-    """Return True if the look has at least one complement not in the base look.
+def _is_distinct_look(look: dict, others: dict | list[dict]) -> bool:
+    """Return True if `look` has at least one complement not present in ANY
+    look in `others`.
 
-    Used to avoid shipping two identical variants.
+    `others` may be a single look dict (legacy 2-look comparison) or a list of
+    look dicts — checked against EVERY previously-accepted variant (S6 fix),
+    not just the base, so a third variant that happens to converge on the same
+    complement set as an earlier NON-BASE variant is correctly rejected too
+    (a duplicate that matches variant 1 but differs from the base was
+    previously accepted as "distinct" since only the base was checked).
     """
-    base_ids = {c["article_id"] for c in (base.get("complements") or [])}
+    other_looks = [others] if isinstance(others, dict) else others
+    other_ids: set[str] = set()
+    for o in other_looks:
+        other_ids |= {c["article_id"] for c in (o.get("complements") or [])}
     look_ids = {c["article_id"] for c in (look.get("complements") or [])}
-    return bool(look_ids - base_ids)
+    return bool(look_ids - other_ids)
 
 
 def compose_biased_look(
@@ -422,6 +450,7 @@ def compose_biased_look(
     brand_gender_default: str,
     bias_mode: str,
     owned_anchor: bool = False,
+    extra_exclude_ids: set[str] | None = None,
 ) -> dict | None:
     """Compose a variant look using a biased retriever wrapper.
 
@@ -434,6 +463,15 @@ def compose_biased_look(
       lehenga, saree, dupatta, ...) and away from purely western items — used for
       "make this look more ethnic" refinement turns. Gender/occasion/coherence
       gates are unchanged; this only re-scores candidates within the same gates.
+
+    Args:
+        extra_exclude_ids: additional article_ids to hard-exclude on top of the
+            base look's own complement ids (S6 fix) — the caller passes every
+            complement id used by PRIOR variants in the same
+            compose_outfit_variants() call, so a third/later variant can never
+            converge on a complement set identical to an earlier NON-BASE
+            variant. Ignored for bias_mode="ethnic_shift" (see the exclude_ids
+            comment below — that mode never hard-excludes).
 
     Returns None if the variant cannot be composed coherently, or if it would
     be identical to the base.
@@ -458,6 +496,8 @@ def compose_biased_look(
         if bias_mode != "ethnic_shift"
         else set()
     )
+    if bias_mode != "ethnic_shift" and extra_exclude_ids:
+        exclude_ids = exclude_ids | extra_exclude_ids
     biased_retriever = _BiasedRetriever(
         retriever=retriever,
         bias_mode=bias_mode,
@@ -762,6 +802,13 @@ def _find_best_candidate(
         # Novelty/quality guard: conservative denylist rejects costume/novelty
         # items (e.g. "Luxury Piano Shape Statement Handbag") from any slot.
         if is_novelty_item(item_name):
+            continue
+        # S5 fix: reject juniors/girls/boys/kids items from ADULT look slots —
+        # the catalogue's gender column mislabels many of these as "women"/
+        # "men" (see is_kids_item docstring), so gender_allowed() alone is not
+        # enough (live-proven: an office look's bottom slot filled with a
+        # "M&H Juniors Girls ... Denim Skirts" item).
+        if is_kids_item(item_name):
             continue
         if not is_coherent_candidate(
             item, occasion_slug, gender, slot_name, skip_gender_gate=is_neutral_fallback_item

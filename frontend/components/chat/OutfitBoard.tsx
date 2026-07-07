@@ -308,6 +308,14 @@ export function OutfitBoard({
         event_type: "variant_selected",
         session_id: sessionId,
         look_id: lookId,
+        // S4a/422 fix: the backend's EventRequest schema requires anchor_item_id
+        // and anchor_category on every event type (api/routes/events.py) — this
+        // call was the one postEvent() call site missing them, so every variant
+        // switch 422'd silently in the browser console (POST /events, "Field
+        // required" for anchor_item_id/anchor_category). Every other postEvent
+        // call in this file already includes both fields.
+        anchor_item_id: anchorItemId,
+        anchor_category: anchorCategory,
         variant_id: variant.variant_id,
         variant_label: variant.label,
         occasion: occasion ?? null,

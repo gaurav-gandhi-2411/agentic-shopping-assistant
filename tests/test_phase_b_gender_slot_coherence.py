@@ -42,6 +42,7 @@ from src.agents.outfit.slots import (
     accessory_query_matches,
     classify_item,
     is_gender_neutral_accessory,
+    is_kids_item,
     is_novelty_item,
     is_slot_type_allowed,
     is_western_marker_item,
@@ -221,6 +222,70 @@ class TestIsNoveltyItem:
 
     def test_plain_garment_not_rejected(self) -> None:
         assert is_novelty_item("Black Cotton Trousers") is False
+
+
+class TestIsKidsItem:
+    """S5 fix: juniors/girls/boys/kids garments mislabeled as adult inventory
+    (catalogue gender column derives from index_group_name, which buckets
+    juniors/kids SKUs under "Ladieswear"/"Menswear" alongside real adult
+    items) — live-proven bug: a "M&H Juniors Girls Blue Straight Knee Length
+    Denim Skirts" item (gender="women") filled an office look's bottom slot.
+    """
+
+    def test_juniors_girls_denim_skirt_rejected(self) -> None:
+        assert is_kids_item("M&H Juniors Girls Blue Straight Knee Length Denim Skirts") is True
+
+    def test_juniors_kids_top_rejected(self) -> None:
+        assert is_kids_item("Juniors by Lifestyle Kids-Girls White Pure Cotton Print Top") is True
+
+    def test_boys_item_rejected(self) -> None:
+        assert is_kids_item("Boys Blue Cotton Shirt") is True
+
+    def test_kids_item_rejected(self) -> None:
+        assert is_kids_item("Kids Party Wear Dress") is True
+
+    def test_plain_adult_garment_not_rejected(self) -> None:
+        assert is_kids_item("Women Black Solid A-Line Dress") is False
+
+    def test_empty_name_not_rejected(self) -> None:
+        assert is_kids_item("") is False
+        assert is_kids_item(None) is False
+
+
+class TestFindBestCandidateKidsItemRejected:
+    """Mirrors TestFindBestCandidatePianoHandbagRejected — a juniors/girls item
+    must never win a slot even when it's the only candidate returned and
+    passes the gender filter (the exact live scenario: the catalogue's own
+    gender column already says "women")."""
+
+    def test_juniors_denim_skirt_never_selected(self) -> None:
+        juniors_skirt = {
+            "article_id": "JUNIOR1",
+            "prod_name": "M&H Juniors Girls Blue Straight Knee Length Denim Skirts",
+            "display_name": "M&H Juniors Girls Blue Straight Knee Length Denim Skirts",
+            "product_type": "skirt",
+            "colour": "blue",
+            "gender": "women",
+            "score": 0.99,
+            "price_inr": 599.0,
+            "store": "myntra",
+            "detail_desc": "",
+        }
+        retriever = _FilterRecordingRetriever([juniors_skirt])
+        winner = _find_best_candidate(
+            query="trousers formal tailored",
+            slot_name="bottom",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is None
 
 
 # ---------------------------------------------------------------------------
@@ -794,6 +859,12 @@ class TestOfflineRealIndexCompositionEvidence:
         assert look["seed_item"] is not None
         for c in look["complements"]:
             assert c["gender"] == "women", f"non-women complement leaked in: {c}"
+            # S5 fix: live-proven bug — a "M&H Juniors Girls ... Denim Skirts"
+            # item (catalogue gender="women") filled an office look's bottom
+            # slot. No complement in ANY slot should carry a juniors/kids marker.
+            assert not is_kids_item(c.get("prod_name") or ""), (
+                f"juniors/kids item leaked into an adult office look: {c}"
+            )
         bottom = next((c for c in look["complements"] if c["_slot"] == "bottom"), None)
         if bottom is not None:
             pt_name = (bottom.get("product_type") or "").lower()
@@ -842,6 +913,20 @@ class TestOfflineRealIndexCompositionEvidence:
             assert c["gender"] == "women"
 
     def test_three_variants_pairwise_disjoint_complements(self, _unified_index: tuple) -> None:
+        """S6 fix: EVERY pair of variants (not just base-vs-alternate) must have
+        disjoint complement id sets.
+
+        Live-proven regression: for this exact anchor, "Colour story" and
+        "Dressier" both independently excluded only the BASE look's complement
+        ids, so when the alternate-colour candidate pool for a slot had just
+        ONE non-base option, both biased variants converged on the identical
+        pair of items ("Van Heusen ... Navy Blue ... Blazer" + "White Sculpted
+        Cat Crossbody Bag") — a duplicate `_is_distinct_look(variant, base)`
+        never caught because it only ever compared each variant to the base,
+        never to each other. This test previously only asserted variant-i !=
+        base (i==0), which is exactly the gap that let the live duplicate
+        through; it now asserts full pairwise disjointness.
+        """
         retriever, catalogue_df = _unified_index
         anchor_id = _find_article_id(catalogue_df, "women", "top", "Black")
         variants = compose_outfit_variants(
@@ -858,9 +943,9 @@ class TestOfflineRealIndexCompositionEvidence:
         assert len(variants) >= 1
         for i in range(len(id_sets)):
             for j in range(i + 1, len(id_sets)):
-                # "Guaranteed-distinct" is base-vs-alternate (see composer docs);
-                # pin that variant 0 (base) never fully overlaps any alternate.
-                if i == 0:
-                    assert id_sets[i] != id_sets[j] or not id_sets[i], (
-                        f"variant {j} must differ from the base look"
-                    )
+                overlap = id_sets[i] & id_sets[j]
+                assert not overlap, (
+                    f"variant {i} ({variants[i].get('variant_label')}) and variant {j} "
+                    f"({variants[j].get('variant_label')}) must have disjoint complement "
+                    f"ids, overlap={overlap}"
+                )
