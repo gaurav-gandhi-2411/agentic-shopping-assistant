@@ -11,6 +11,13 @@ _SYSTEM = """\
 You are a fashion product reranker. Given a user query and a numbered list of candidate \
 products, select the best 5 that match the full intent of the query.
 
+Each product line may include a price (₹) and a short description snippet after the dash. \
+Use the description for signal the name/colour/type alone don't carry — e.g. fabric or \
+warmth cues ("wool", "fleece-lined", "full sleeve" vs "lightweight", "sleeveless") to judge \
+season fit, or fit/occasion cues the query implies. Use price only when the query states a \
+budget or price preference. Never invent a price or description detail that isn't shown — \
+if a candidate has no snippet, judge it on name/colour/type alone.
+
 Ranking rules:
 - Occasion context: "date night" / "evening out" / "wedding" / "cocktail" → formal \
 or elegant wear; never sleepwear, underwear, or swimwear
@@ -82,6 +89,9 @@ def _enforce_colour_diversity(
     return selected  # no alternative found — keep as is
 
 
+_DESC_SNIPPET_CHARS = 120
+
+
 def _format_candidates(items: list[dict]) -> str:
     lines = []
     for i, it in enumerate(items, 1):
@@ -91,7 +101,20 @@ def _format_candidates(items: list[dict]) -> str:
         colour = it.get("colour") or ""
         product_type = it.get("product_type") or ""
         department = it.get("department") or ""
-        lines.append(f"{i}. {it['display_name']} ({colour} {product_type} | {department})")
+        price = it.get("price_inr")
+        price_str = f"₹{price:.0f}" if isinstance(price, (int, float)) else ""
+        # Truncate to a short snippet — the full detail_desc can run to several
+        # sentences, which would bloat the prompt and dilute the ranking signal.
+        desc = (it.get("detail_desc") or "").strip()
+        if len(desc) > _DESC_SNIPPET_CHARS:
+            desc = desc[:_DESC_SNIPPET_CHARS].rsplit(" ", 1)[0] + "…"
+        line = f"{i}. {it['display_name']} ({colour} {product_type} | {department}"
+        if price_str:
+            line += f" | {price_str}"
+        line += ")"
+        if desc:
+            line += f" — {desc}"
+        lines.append(line)
     return "\n".join(lines)
 
 
