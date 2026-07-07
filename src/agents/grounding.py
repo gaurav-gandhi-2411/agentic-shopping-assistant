@@ -36,6 +36,8 @@ _FALLBACK_MSGS: dict[str, str] = {
 def validate_response(
     response: str,
     retrieved_items: list[dict],
+    *,
+    allow_budget_mentions: bool = False,
 ) -> tuple[str, list[str]]:
     """Scan LLM response for ungrounded attribute claims.
 
@@ -43,6 +45,15 @@ def validate_response(
     A sentence containing a forbidden keyword is replaced with a standard
     disclaimer unless the keyword appears in any retrieved item's field values.
     Repeated fallback messages for the same category are deduplicated.
+
+    Args:
+        allow_budget_mentions: when True, exempts ONLY the "\\bbudget\\b" price
+            pattern from the scrub — used by validate_rationale when the
+            fact-sheet genuinely includes the user's own stated budget_inr, so
+            a rationale can say "kept within your budget" without being
+            scrubbed as an ungrounded price claim. Other price words (cost,
+            cheaper, expensive, sale, discount) are still scrubbed since
+            nothing grounds those as true.
     """
     if not response:
         return response, []
@@ -63,6 +74,8 @@ def validate_response(
 
         for category, patterns in FORBIDDEN_PATTERNS.items():
             for pat in patterns:
+                if allow_budget_mentions and pat == r"\bbudget\b":
+                    continue
                 if re.search(pat, s_lower) and not re.search(pat, backing):
                     hit_cat = category
                     hit_pat = pat
@@ -116,11 +129,32 @@ _KNOWN_PRODUCT_TYPES: frozenset[str] = frozenset({
 })
 
 
+# Matches a rupee figure however it's written: "₹5,000", "Rs. 5000", "INR 5000",
+# "5000 rupees" — captures just the numeric group so it can be parsed as a float.
+_RUPEE_AMOUNT_RE = re.compile(
+    r"(?:[₹]|\bRs\.?\b|\bINR\b)\s*([\d][\d,]*(?:\.\d+)?)"
+    r"|([\d][\d,]*(?:\.\d+)?)\s*(?:\bINR\b|\brupees?\b)",
+    re.IGNORECASE,
+)
+
+
+def _extract_rupee_amounts(text: str) -> list[float]:
+    """Pull every rupee figure out of a sentence as a float (commas stripped)."""
+    amounts: list[float] = []
+    for m in _RUPEE_AMOUNT_RE.finditer(text):
+        raw = m.group(1) or m.group(2)
+        if raw:
+            amounts.append(float(raw.replace(",", "")))
+    return amounts
+
+
 def validate_rationale(
     text: str,
     look_items: list[dict],
     occasion: str | None,
     extra_whitelist_tokens: set[str] | None = None,
+    *,
+    budget_inr: float | None = None,
 ) -> tuple[str, list[str]]:
     """Grounding gate for LLM-generated outfit rationales.
 
@@ -130,7 +164,10 @@ def validate_rationale(
     the whitelist.  Generic styling words ("balance", "hero", "neutral", "elevate",
     "anchor", "tone", "piece", "look", "outfit", "style", etc.) are never flagged.
 
-    Also applies the same price/size/material scrubbing as validate_response.
+    Also applies the same price/size/material scrubbing as validate_response,
+    except the "budget" keyword is exempted when budget_inr is genuinely known
+    (see validate_response's allow_budget_mentions) — other price words (cost,
+    cheaper, expensive, sale, discount) are still scrubbed unconditionally.
 
     Args:
         extra_whitelist_tokens: additional lowercase tokens/phrases to whitelist
@@ -139,6 +176,12 @@ def validate_rationale(
             reference the ORIGINAL anchor look's colour/product-type (which
             live in a DIFFERENT look's items, not this one) without being
             flagged as an ungrounded claim.
+        budget_inr: the user's own stated budget in INR, when known. Affects the
+            "budget" keyword exemption above, and is also used to catch a
+            fabricated rupee figure: if a sentence states a ₹/Rs/INR amount that
+            doesn't match budget_inr (within tolerance), the sentence is dropped
+            as an ungrounded numeric claim — the LLM could otherwise say "under
+            ₹5000" when the real budget is ₹3000.
 
     Returns (cleaned_text, flags) where flags use the same "category:token" format.
     If the cleaned text would be empty (all sentences dropped), returns the original
@@ -171,7 +214,9 @@ def validate_rationale(
 
     # Apply price/size/material scrubbing (reuse existing logic)
     # We treat look_items as retrieved_items for this purpose
-    scrubbed, flags = validate_response(text, look_items)
+    scrubbed, flags = validate_response(
+        text, look_items, allow_budget_mentions=budget_inr is not None
+    )
     if not scrubbed.strip():
         return text, flags + ["rationale:all_dropped"]
 
@@ -206,6 +251,15 @@ def validate_rationale(
                         if not any(w in whitelist_tokens for w in pt_words):
                             drop_reason = f"rationale:ungrounded_type:{pt_phrase}"
                             break
+
+        # Check for a fabricated budget figure: a ₹/Rs/INR amount that doesn't
+        # match the user's real budget_inr (within a small rounding tolerance).
+        if drop_reason is None and budget_inr is not None:
+            for amount in _extract_rupee_amounts(sentence):
+                tolerance = max(50.0, 0.02 * budget_inr)  # allow rounding, e.g. "under ₹5000"
+                if abs(amount - budget_inr) > tolerance:
+                    drop_reason = f"rationale:budget_mismatch:{amount:g}"
+                    break
 
         if drop_reason:
             flags.append(drop_reason)

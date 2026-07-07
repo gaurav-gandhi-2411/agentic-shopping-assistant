@@ -611,6 +611,20 @@ def build_graph(
         raw_q = state["user_query"]
         intent = parse_intent(raw_q)
 
+        # Budget carry-forward for the OUTFIT-composition fast-path branches below
+        # (style-anchor, partner-look, swap-slot, look-refinement, occasion-outfit).
+        # These branches return BEFORE the session_context/merge_with_context budget
+        # inheritance built further down for the search path (see "Budget
+        # carry-forward" comment near session_context), so without this they always
+        # hardcoded budget_inr=None (or used only this turn's intent.budget_max_inr) —
+        # a genuine "kurta under 3000" (turn 1) followed by "style this for a
+        # sangeet" (turn 2) silently dropped the budget for the outfit path. Mirrors
+        # the same state["filters"]["price_max"] fallback used at session_context
+        # construction time.
+        _inherited_budget_inr = intent.budget_max_inr
+        if _inherited_budget_inr is None:
+            _inherited_budget_inr = (state.get("filters") or {}).get("price_max")
+
         # RED 2b/3/B3c: explicit anchor reference ("Style this <item>",
         # "What goes with the/this <item>") — resolve deterministically against
         # session retrieved_items BEFORE any garment_type veto or LLM call.
@@ -644,7 +658,7 @@ def build_graph(
                     "article_id": _anchor["article_id"],
                     "occasion": _anchor_occasion,
                     "gender": _anchor_gender,
-                    "budget_inr": None,
+                    "budget_inr": _inherited_budget_inr,
                 }
                 logger.info(
                     "[router/style-anchor] resolved anchor=%s gender=%s occasion=%s | query=%r",
@@ -694,7 +708,7 @@ def build_graph(
                 "article_id": None,
                 "occasion": _partner_occ_slug,
                 "gender": _partner_gender,
-                "budget_inr": None,
+                "budget_inr": _inherited_budget_inr,
                 "partner_look": True,
                 "partner_anchor_article_id": (
                     _partner_anchor["article_id"] if _partner_anchor else None
@@ -752,7 +766,7 @@ def build_graph(
                         "article_id": _seed_item["article_id"],
                         "occasion": _occ_slug,
                         "gender": _refine_gender,
-                        "budget_inr": None,
+                        "budget_inr": _inherited_budget_inr,
                         "swap_slot": _slot_name,
                         "swap_exclude_id": (
                             _current_slot_item["article_id"] if _current_slot_item else None
@@ -784,7 +798,7 @@ def build_graph(
                     "article_id": _seed_item["article_id"],
                     "occasion": _occ_slug,
                     "gender": _refine_gender,
-                    "budget_inr": None,
+                    "budget_inr": _inherited_budget_inr,
                     "variant_preference": _bias_mode,
                 }
                 logger.info(
@@ -817,11 +831,11 @@ def build_graph(
                 "article_id": None,
                 "occasion": _occ_slug,
                 "gender": _occ_gender,
-                "budget_inr": intent.budget_max_inr,
+                "budget_inr": _inherited_budget_inr,
             }
             logger.info(
                 "[router/occasion-outfit] occasion=%s gender=%s budget=%s | query=%r",
-                _occ_slug, _occ_gender, intent.budget_max_inr, raw_q[:60],
+                _occ_slug, _occ_gender, _inherited_budget_inr, raw_q[:60],
             )
             return {
                 "current_plan": json.dumps(_occ_plan),
@@ -1810,6 +1824,13 @@ def build_graph(
                 or _partner_anchor_item.get("prod_name")
                 or ""
             ).lower()
+            # anchor_is_owned is NOT passed here: build_fact_sheet's anchor_is_owned
+            # describes ownership of THIS look's OWN seed_item, and the partner
+            # look's seed is always a freshly composed catalogue item for the
+            # partner — never the user's own upload. The couple's owned anchor (if
+            # any) is a DIFFERENT look, already surfaced via partner_context's
+            # coordinates_with_anchor_colour/type; claiming anchor_is_owned here
+            # would let the LLM wrongly say the partner's own seed is owned.
             try:
                 _partner_rationale = generate_rationales(
                     [_partner_result],
@@ -1817,6 +1838,8 @@ def build_graph(
                     occasion=_partner_occasion,
                     gender=_partner_gender,
                     partner_context={"anchor_colour": _anchor_colour, "anchor_type": _anchor_type},
+                    user_context=state.get("user_query"),
+                    budget_inr=plan.get("budget_inr"),
                 )[0]
             except Exception as _pre:
                 logger.warning("[outfit/partner] generate_rationales failed (%s)", _pre)
@@ -2049,7 +2072,13 @@ def build_graph(
         # Generate grounded rationales for all variants (one batched LLM call)
         try:
             rationales = generate_rationales(
-                look_variants, llm, occasion=occasion_slug, gender=gender
+                look_variants,
+                llm,
+                occasion=occasion_slug,
+                gender=gender,
+                user_context=state.get("user_query"),
+                budget_inr=budget_inr,
+                anchor_is_owned=owned_anchor,
             )
         except Exception as _re:
             logger.warning("[outfit] generate_rationales failed (%s) — using templates", _re)
@@ -2090,7 +2119,13 @@ def build_graph(
                 _ethnic_look["variant_label"] = "Ethnic"
                 try:
                     _ethnic_look["rationale"] = generate_rationales(
-                        [_ethnic_look], llm, occasion=occasion_slug, gender=gender
+                        [_ethnic_look],
+                        llm,
+                        occasion=occasion_slug,
+                        gender=gender,
+                        user_context=state.get("user_query"),
+                        budget_inr=budget_inr,
+                        anchor_is_owned=owned_anchor,
                     )[0]
                 except Exception as _re2:
                     logger.warning(
