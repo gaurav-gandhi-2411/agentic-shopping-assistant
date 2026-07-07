@@ -1447,11 +1447,44 @@ def build_graph(
         few_gender_results = gender_filter_applied and len(result["items"]) < 5
 
         # For refinement turns: exclude items the user has already seen before reranking.
+        # Pool-underflow fallback (same retry-then-honest-fallback shape as
+        # composer._find_best_candidate's bottom-slot retry, commit a982371): the
+        # first-pass fetch_k window can be exhausted by the prior-item exclusion on
+        # thin categories (e.g. sarees) or after several consecutive refinement turns,
+        # which previously fell straight through to silently re-showing already-seen
+        # items instead of a full fresh page. Before accepting that fallback we retry
+        # ONCE with a WIDER retrieval window; only if the widened pool still can't
+        # clear the >=2-fresh-items floor do we fall back to the full (possibly-repeat)
+        # candidate pool — flagged honestly via thin_category rather than silently
+        # claiming freshness it doesn't have.
         candidates = result["items"]
+        thin_category = False
         if refinement and prior_ids:
             fresh = [it for it in candidates if it["article_id"] not in prior_ids]
+            if len(fresh) < top_k:
+                _widened = search_catalogue(query, merged or None, retriever, fetch_k * 3)
+                _widened_fresh = [
+                    it for it in _widened["items"] if it["article_id"] not in prior_ids
+                ]
+                if len(_widened_fresh) > len(fresh):
+                    logger.info(
+                        "[search/pool-underflow] refinement fresh pool underflowed "
+                        "(fetch_k=%d, fresh=%d) — widened to fetch_k=%d (fresh=%d)",
+                        fetch_k, len(fresh), fetch_k * 3, len(_widened_fresh),
+                    )
+                    fresh = _widened_fresh
             if len(fresh) >= 2:
                 candidates = fresh
+                if len(fresh) < top_k:
+                    thin_category = True
+            else:
+                thin_category = True
+                logger.info(
+                    "[search/pool-underflow] refinement fresh pool still underflowed "
+                    "after widening (fresh=%d) — falling back to full candidate pool "
+                    "(may re-show prior items)",
+                    len(fresh),
+                )
 
         # Apply negative colour exclusion on the candidate pool before reranking
         # so the reranker never sees excluded-colour items. Guard: need at least 2
@@ -1530,6 +1563,8 @@ def build_graph(
         if few_gender_results:
             search_meta["few_gender_results"] = True
             search_meta["gender_group"] = merged.get("index_group_name", "")
+        if thin_category:
+            search_meta["thin_category"] = True
         update: dict = {
             "retrieved_items": items_out,
             "new_items_this_turn": True,
