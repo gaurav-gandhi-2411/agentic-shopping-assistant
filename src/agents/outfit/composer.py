@@ -7,7 +7,11 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from src.agents.outfit.coherence import colour_score, is_coherent_candidate
+from src.agents.outfit.coherence import (
+    colour_score,
+    is_coherent_candidate,
+    is_western_register_occasion,
+)
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
     accessory_query_matches,
@@ -727,7 +731,16 @@ class _BiasedRetriever:
         return 0.0
 
 
-def _find_best_candidate(
+# Phase B pool-underflow fallback: the single most unambiguous western
+# tailored bottom PRODUCT_TYPE_NAME value in this catalogue's F1 vocabulary
+# (src/catalogue/normalizer.py) — used as a catalogue-FACET filter (not a
+# semantic query) so the retry retrieval pass is immune to whatever embedding-
+# ranking dilution caused the first pass to come back empty/fully-gated.
+_WESTERN_BOTTOM_FALLBACK_PRODUCT_TYPE: str = "trousers"
+
+
+def _score_candidates(
+    candidates: list[dict],
     *,
     query: str,
     slot_name: str,
@@ -736,40 +749,19 @@ def _find_best_candidate(
     anchor_colour: str,
     seen_ids: set[str],
     seen_prod_colour: set[tuple[str, str]],
-    retriever: HybridRetriever,
     budget_remaining: float | None,
     pairing_stats: dict | None,
     anchor_class: str,
-    seen_stores: set[str] | None = None,
-) -> dict | None:
-    # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
-    # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
-    # for a thin slot (e.g. women's footwear) an unfiltered top-20 window could be
-    # 20/20 wrong-gender items, emptying the pool instead of ever widening it.
-    # HybridRetriever's gender filter (src/retrieval/hybrid_search.py) ALSO
-    # excludes "unknown"-gender rows when a gender filter is set — the same
-    # conservative "never guess gender in" rule as gender_allowed() below, now
-    # enforced on the retrieval window itself, not just on whatever slipped
-    # through unfiltered.
-    candidates = retriever.search(query, top_k=40, filters={"gender": gender})
+    seen_stores: set[str] | None,
+    neutral_fallback_ids: set[str],
+) -> list[tuple[float, dict]]:
+    """Run every hard gate + score every surviving candidate.
 
-    # Gender-neutral accessory fallback: fires ONLY when the gendered search
-    # above returned nothing for an accessory slot.  Widens to an unfiltered
-    # search and accepts ONLY unknown-gender candidates whose product_type/name
-    # is a genuinely unisex accessory sub-type (sunglasses, belt, watch, cap) —
-    # never a garment.  A women's footwear or a men's kurta slot returning empty
-    # is NEVER filled this way; it falls through to honest suppression instead.
-    neutral_fallback_ids: set[str] = set()
-    if not candidates and slot_name == "accessory":
-        widened = retriever.search(query, top_k=40)
-        for item in widened:
-            item_gender = (item.get("gender") or "unknown").lower()
-            if item_gender == "unknown" and is_gender_neutral_accessory(
-                item.get("product_type") or "", item.get("prod_name") or ""
-            ):
-                candidates.append(item)
-                neutral_fallback_ids.add(item["article_id"])
-
+    Extracted from _find_best_candidate so the SAME gate/scoring logic can be
+    re-run, unchanged, against a second (narrowed) retrieval pass — see the
+    pool-underflow fallback in _find_best_candidate below.  Returns the same
+    (score, item) tuple list _find_best_candidate previously built inline.
+    """
     scored: list[tuple[float, dict]] = []
     for item in candidates:
         if item["article_id"] in seen_ids:
@@ -854,6 +846,114 @@ def _find_best_candidate(
             final_score *= STORE_DIVERSITY_PENALTY
 
         scored.append((final_score, item))
+    return scored
+
+
+def _find_best_candidate(
+    *,
+    query: str,
+    slot_name: str,
+    occasion_slug: str,
+    gender: str,
+    anchor_colour: str,
+    seen_ids: set[str],
+    seen_prod_colour: set[tuple[str, str]],
+    retriever: HybridRetriever,
+    budget_remaining: float | None,
+    pairing_stats: dict | None,
+    anchor_class: str,
+    seen_stores: set[str] | None = None,
+) -> dict | None:
+    # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
+    # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
+    # for a thin slot (e.g. women's footwear) an unfiltered top-20 window could be
+    # 20/20 wrong-gender items, emptying the pool instead of ever widening it.
+    # HybridRetriever's gender filter (src/retrieval/hybrid_search.py) ALSO
+    # excludes "unknown"-gender rows when a gender filter is set — the same
+    # conservative "never guess gender in" rule as gender_allowed() below, now
+    # enforced on the retrieval window itself, not just on whatever slipped
+    # through unfiltered.
+    candidates = retriever.search(query, top_k=40, filters={"gender": gender})
+
+    # Gender-neutral accessory fallback: fires ONLY when the gendered search
+    # above returned nothing for an accessory slot.  Widens to an unfiltered
+    # search and accepts ONLY unknown-gender candidates whose product_type/name
+    # is a genuinely unisex accessory sub-type (sunglasses, belt, watch, cap) —
+    # never a garment.  A women's footwear or a men's kurta slot returning empty
+    # is NEVER filled this way; it falls through to honest suppression instead.
+    neutral_fallback_ids: set[str] = set()
+    if not candidates and slot_name == "accessory":
+        widened = retriever.search(query, top_k=40)
+        for item in widened:
+            item_gender = (item.get("gender") or "unknown").lower()
+            if item_gender == "unknown" and is_gender_neutral_accessory(
+                item.get("product_type") or "", item.get("prod_name") or ""
+            ):
+                candidates.append(item)
+                neutral_fallback_ids.add(item["article_id"])
+
+    scored = _score_candidates(
+        candidates,
+        query=query,
+        slot_name=slot_name,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        anchor_colour=anchor_colour,
+        seen_ids=seen_ids,
+        seen_prod_colour=seen_prod_colour,
+        budget_remaining=budget_remaining,
+        pairing_stats=pairing_stats,
+        anchor_class=anchor_class,
+        seen_stores=seen_stores,
+        neutral_fallback_ids=neutral_fallback_ids,
+    )
+
+    # Phase B pool-underflow fallback (live-proven: "office look for women"
+    # boarded with an EMPTY bottom slot on the deployed index — the real
+    # retrieval pool for a western-register bottom slot can be dominated by
+    # ethnic bottoms/sets/denim in some catalogue compositions even with the
+    # register-shaped query text, and the western-register/set/casual-marker
+    # gates above then correctly reject every candidate). Retry ONCE with an
+    # explicit product_type_name FACET filter narrowed to the single most
+    # unambiguous western tailored bottom type — this bypasses embedding/BM25
+    # ranking dilution entirely (a catalogue-facet filter, not a semantic
+    # query), so it finds genuine western trousers even when the first pass's
+    # ranked top-40 window never included one. Scoped narrowly: bottom slot,
+    # western-register occasion, AND only when the first pass produced ZERO
+    # survivors — never fires to override a gate that correctly rejected a
+    # non-empty pool for cause, and never relaxes any gate (the exact same
+    # _score_candidates gates run again on the narrowed pool).
+    if (
+        not scored
+        and slot_name == "bottom"
+        and is_western_register_occasion(occasion_slug)
+    ):
+        narrowed = retriever.search(
+            query,
+            top_k=40,
+            filters={"gender": gender, "product_type_name": _WESTERN_BOTTOM_FALLBACK_PRODUCT_TYPE},
+        )
+        if narrowed:
+            logger.info(
+                "[composer/pool-underflow] slot=%s occasion=%s first pass empty — "
+                "retrying with product_type_name=%s (%d candidates)",
+                slot_name, occasion_slug, _WESTERN_BOTTOM_FALLBACK_PRODUCT_TYPE, len(narrowed),
+            )
+            scored = _score_candidates(
+                narrowed,
+                query=query,
+                slot_name=slot_name,
+                occasion_slug=occasion_slug,
+                gender=gender,
+                anchor_colour=anchor_colour,
+                seen_ids=seen_ids,
+                seen_prod_colour=seen_prod_colour,
+                budget_remaining=budget_remaining,
+                pairing_stats=pairing_stats,
+                anchor_class=anchor_class,
+                seen_stores=seen_stores,
+                neutral_fallback_ids=set(),
+            )
 
     if not scored:
         return None

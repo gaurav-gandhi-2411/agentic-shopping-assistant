@@ -31,7 +31,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.agents.outfit.coherence import colour_score, is_coherent_candidate
+from src.agents.outfit.coherence import (
+    colour_score,
+    is_coherent_candidate,
+    is_western_register_occasion,
+)
 from src.agents.outfit.composer import (
     _find_best_candidate,
     compose_outfit,
@@ -524,6 +528,201 @@ class TestWesternRegisterGateOffice:
         an ethnic kurta must still be allowed for a casual look."""
         item = {"product_type": "kurta", "prod_name": "Cotton Printed Kurta", "gender": "women"}
         assert is_coherent_candidate(item, "casual", "women", "top") is True
+
+    def test_is_western_register_occasion_helper(self) -> None:
+        assert is_western_register_occasion("office") is True
+        assert is_western_register_occasion("wedding_guest") is False
+        assert is_western_register_occasion("casual") is False
+        assert is_western_register_occasion("party_evening") is False
+
+
+# ---------------------------------------------------------------------------
+# Phase B (follow-up): pool-underflow fallback — a live-reported regression
+# where the WESTERN_REGISTER + multi-piece-set + casual-marker gates,
+# correctly applied, over-filtered an office bottom-slot pool to EMPTY on the
+# deployed index (a different/larger catalogue composition than this repo's
+# offline unified index — see composer._find_best_candidate's pool-underflow
+# comment for the full root-cause writeup). The fix is retrieval-side: a
+# stronger western-lexical query (slots._default_bottom_query) plus a second
+# retrieval pass filtered by product_type_name="trousers" (a catalogue FACET,
+# immune to embedding-ranking dilution) when the first pass yields zero
+# survivors.
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultBottomQueryWesternLexicalStrength:
+    def test_office_bottom_query_has_explicit_western_vocabulary(self) -> None:
+        from src.agents.outfit.slots import _default_bottom_query
+
+        query = _default_bottom_query("office").lower()
+        assert "trousers" in query
+        assert "pants" in query
+        assert "western" in query
+
+    def test_casual_bottom_query_unchanged(self) -> None:
+        from src.agents.outfit.slots import _default_bottom_query
+
+        assert _default_bottom_query("casual") == "trousers jeans skirt"
+
+
+class _CallRecordingAdversarialRetriever:
+    """Simulates a live-index pool composition where the UNFILTERED query
+    surfaces only an ethnic multi-piece set (fully gated to empty), but a
+    product_type_name="trousers" facet filter finds a genuine western
+    trouser the first pass never ranked into its top-40 window."""
+
+    def __init__(self, second_pass_items: list[dict] | None = None) -> None:
+        self.calls: list[dict] = []
+        self._second_pass_items = second_pass_items
+
+    def search(self, query: str, top_k: int = 20, filters: dict | None = None) -> list[dict]:
+        self.calls.append({"query": query, "top_k": top_k, "filters": filters})
+        if filters and filters.get("product_type_name"):
+            return list(self._second_pass_items or [])
+        return [
+            {
+                "article_id": "SET1",
+                "prod_name": "Quirky Floral Printed Cotton Anarkali Sharara Set - Off White",
+                "display_name": "Quirky Floral Printed Cotton Anarkali Sharara Set - Off White",
+                "product_type": "sharara",
+                "colour": "off white",
+                "gender": "women",
+                "score": 0.99,
+                "price_inr": 1999.0,
+                "store": "myntra",
+                "detail_desc": "",
+            }
+        ]
+
+
+def _western_trouser(article_id: str = "TROUSER1") -> dict:
+    return {
+        "article_id": article_id,
+        "prod_name": "RAREISM Women Pink Tailored High-Rise Trousers",
+        "display_name": "RAREISM Women Pink Tailored High-Rise Trousers",
+        "product_type": "trousers",
+        "colour": "pink",
+        "gender": "women",
+        "score": 0.5,
+        "price_inr": 1299.0,
+        "store": "myntra",
+        "detail_desc": "",
+    }
+
+
+class TestPoolUnderflowFallback:
+    def test_second_pass_fires_when_first_pass_fully_gated(self) -> None:
+        retriever = _CallRecordingAdversarialRetriever(second_pass_items=[_western_trouser()])
+        winner = _find_best_candidate(
+            query="trousers pants tailored western formal office wear",
+            slot_name="bottom",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "TROUSER1"
+        # Exactly 2 calls: first pass (gender only), second pass (gender + product_type_name).
+        assert len(retriever.calls) == 2
+        assert retriever.calls[1]["filters"] == {"gender": "women", "product_type_name": "trousers"}
+
+    def test_still_suppressed_when_second_pass_also_empty(self) -> None:
+        """Honest suppression is the last resort — if even the narrowed
+        product_type_name retry finds nothing, the slot stays empty rather
+        than forcing a fill."""
+        retriever = _CallRecordingAdversarialRetriever(second_pass_items=[])
+        winner = _find_best_candidate(
+            query="trousers pants tailored western formal office wear",
+            slot_name="bottom",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is None
+
+    def test_fallback_does_not_fire_when_first_pass_already_has_a_survivor(self) -> None:
+        """Never fires to override a legitimately non-empty gated result —
+        only a genuinely EMPTY first pass triggers the retry."""
+
+        class _RetrieverWithGoodFirstPass:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def search(self, query, top_k=20, filters=None):
+                self.calls.append({"query": query, "top_k": top_k, "filters": filters})
+                return [_western_trouser(article_id="FIRSTPASS1")]
+
+        retriever = _RetrieverWithGoodFirstPass()
+        winner = _find_best_candidate(
+            query="trousers pants tailored western formal office wear",
+            slot_name="bottom",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "FIRSTPASS1"
+        assert len(retriever.calls) == 1, "must not issue a second retrieval call"
+
+    def test_fallback_does_not_fire_for_non_office_occasion(self) -> None:
+        """Casual is not a WESTERN_REGISTER occasion — the fallback must
+        never fire there even if the first pass is empty."""
+        retriever = _CallRecordingAdversarialRetriever(second_pass_items=[_western_trouser()])
+        winner = _find_best_candidate(
+            query="trousers jeans skirt casual",
+            slot_name="bottom",
+            occasion_slug="casual",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        # First pass returns only the (western-classified, non-office-gated)
+        # set item, which IS still rejected by the multi-piece-set gate
+        # regardless of occasion — so winner is None, and the fallback must
+        # NOT have fired (only 1 retriever call).
+        assert winner is None
+        assert len(retriever.calls) == 1
+
+    def test_fallback_does_not_fire_for_non_bottom_slot(self) -> None:
+        retriever = _CallRecordingAdversarialRetriever(second_pass_items=[_western_trouser()])
+        winner = _find_best_candidate(
+            query="jacket blazer coat cardigan formal tailored",
+            slot_name="outerwear",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is None
+        assert len(retriever.calls) == 1
 
 
 class TestFindBestCandidateKidsItemRejected:

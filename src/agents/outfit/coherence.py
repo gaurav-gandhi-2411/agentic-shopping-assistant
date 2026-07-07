@@ -29,6 +29,16 @@ _WESTERN_REGISTER_OCCASIONS: frozenset[str] = frozenset({"office"})
 # same conservative style as _WESTERN_MARKER_KEYWORDS in slots.py.
 _FESTIVE_MARKER_RE = re.compile(r"\b(quirky|festive)\b", re.IGNORECASE)
 
+
+def is_western_register_occasion(occasion_slug: str) -> bool:
+    """Return True if `occasion_slug` is one of the western-register
+    occasions gated by is_coherent_candidate's gate 4 (see
+    _WESTERN_REGISTER_OCCASIONS above). Exposed publicly so composer.py's
+    pool-underflow retrieval fallback can key off the SAME occasion set
+    used by the coherence gate, rather than duplicating the list.
+    """
+    return occasion_slug in _WESTERN_REGISTER_OCCASIONS
+
 # Muted/earthy tones added for Phase B Part 1 (real catalogue colour audit — see
 # offline check).  These coordinate well with each other in BOTH ethnic (jewel/
 # warm co-star) and western (colour-story) styling — unlike the primary-hue

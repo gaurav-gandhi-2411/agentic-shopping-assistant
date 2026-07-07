@@ -548,10 +548,20 @@ def _default_bottom_query(occasion_slug: str) -> str:
     evening) this drops "jeans"/"skirt" from the query entirely so retrieval is
     steered toward tailored trousers, matching "office bottom must retrieve
     trousers, not a denim skirt".
+
+    Phase B pool-composition fix: "trousers" alone (plus the register's
+    generic "formal tailored") is a weak western-only signal — in a larger/
+    differently-composed catalogue than this repo's own offline unified
+    index, "formal"/"tailored" score close to embroidered ETHNIC formal wear
+    too (a "Suit Set"/"Sharara Set" listing's own description text uses
+    "formal"/"tailored" register words just as often), which can let an
+    ethnic-heavy top-40 retrieval window dominate a western-register bottom
+    slot even before any gate runs.  "pants"/"western" add unambiguous
+    western-vocabulary lexical weight (BM25) without removing anything.
     """
     occ = get_occasion(occasion_slug)
     if occ.ethnic_lean == EITHER and occ.formality >= 3:
-        return "trousers"
+        return "trousers pants tailored western formal office wear"
     return "trousers jeans skirt"
 
 
