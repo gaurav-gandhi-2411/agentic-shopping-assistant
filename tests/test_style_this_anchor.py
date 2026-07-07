@@ -194,6 +194,54 @@ def test_style_this_named_item_composes_look(
 
 
 @pytest.mark.requires_index
+def test_style_this_recovers_office_occasion_from_history(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Phase B task 1 — occasion propagation. Root cause (pre-fix): the
+    style-anchor branch (graph.py router_node) used `state.get("occasion")`,
+    which is NEVER persisted across turns (see
+    _reconstruct_occasion_from_history's docstring — only retrieved_items/
+    filters/messages survive in the session dict) — so every "Style this"
+    click silently defaulted to occasion="casual", regardless of what the
+    prior search turn asked for. Live-proven: "black top for office for
+    women" -> Style this -> outfit composed with occasion="casual", dropping
+    the office formality gate and letting a denim mini skirt into the bottom
+    slot.
+
+    Fix: reconstruct occasion from conversation history the same way the
+    look-refinement and partner-look branches already do. This test asserts
+    the router's resolved plan carries occasion="office" — the composed
+    look's bottom-slot correctness for office is covered separately by the
+    formality-gate tests in test_phase_b_gender_slot_coherence.py.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "shirt"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    session_items = _make_session_shirt_items()
+    query = f"Style this {_ANCHOR_PROD_NAME}"
+    state = _blank_state_with_session(query, session_items, memory)
+    # Simulate the prior turn's occasion-bearing user message still present in
+    # session history, as api/routes/chat.py::_persist_result accumulates it.
+    state["messages"] = [
+        {"role": "user", "content": "black top for office for women"},
+        {"role": "assistant", "content": "Here are some office tops."},
+        {"role": "user", "content": query},
+    ]
+
+    result = agent.invoke(state)
+
+    router_decisions = [
+        tc["router_decision"] for tc in result.get("tool_calls", []) if "router_decision" in tc
+    ]
+    assert router_decisions, f"expected a router_decision tool_call, got {result.get('tool_calls')}"
+    assert router_decisions[0]["occasion"] == "office", (
+        f"expected occasion='office' recovered from history, got {router_decisions[0]}"
+    )
+
+
+@pytest.mark.requires_index
 def test_style_this_no_session_match_falls_back(
     _unified_index: tuple[HybridRetriever, pd.DataFrame],
 ) -> None:

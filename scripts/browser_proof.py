@@ -519,17 +519,28 @@ PB_FOOTWEAR_TITLE_RE = re.compile(
     r"\b(shoes?|sneakers?|loafers?|sandals?|heels?|flats?|juttis?|mojaris?)\b", re.IGNORECASE
 )
 # S5 occasion-register vocabulary: an office look's bottom must read as
-# tailored, not casual. "denim skirt(s)" is deliberately checked as a phrase (a
-# plain "skirt" is fine; "denim skirt(s)" is not) per spec. `skirts?` (not just
-# `skirt`) so a plural title like "... Denim Skirts" still matches — the
-# live-proven miss: "M&H Juniors Girls Blue Straight Knee Length Denim Skirts"
-# slipped past the old singular-only `denim\s+skirt` pattern. Also forbids
-# juniors/girls/boys/kids markers in ANY adult look slot (the same catalogue-
-# mislabeling root cause fixed in src/agents/outfit/slots.py::is_kids_item) —
-# a juniors item is never appropriate for an adult office look regardless of
-# whether its own bottom-type wording happens to look tailored.
+# tailored, not casual. "denim skirt(s)" is checked as CO-OCCURRENCE
+# (`denim` ... `skirt(s)`, either order, within a short word window) rather
+# than an adjacent phrase — the old adjacent-phrase-only pattern
+# (`denim\s+skirts?`) was a FALSE PASS on the live-proven miss: "ONLY Women
+# Blue Solid Denim Mini Skirts" has "Mini" between "Denim" and "Skirts" and
+# slipped straight through. `skirts?` (not just `skirt`) so a plural title
+# still matches. Standalone "mini skirt(s)" is forbidden even without the
+# word "denim" (a mini skirt is casual regardless of fabric). "jeans" is
+# forbidden outright for an office bottom — jeans are casual regardless of
+# how "office" the rest of the query was. Also forbids juniors/girls/boys/kids
+# markers in ANY adult look slot (the same catalogue-mislabeling root cause
+# fixed in src/agents/outfit/slots.py::is_kids_item) — a juniors item is never
+# appropriate for an adult office look regardless of whether its own
+# bottom-type wording happens to look tailored.
 PB_S5_FORBIDDEN_BOTTOM_RE = re.compile(
-    r"\b(shorts?|denim\s+skirts?|joggers?|junior|juniors|girls?|boys?|kids?)\b",
+    r"\bshorts?\b"
+    r"|\bjeans?\b"
+    r"|\bjoggers?\b"
+    r"|\bmini\s+skirts?\b"
+    r"|\bdenim\b[\w\s]{0,20}\bskirts?\b"
+    r"|\bskirts?\b[\w\s]{0,20}\bdenim\b"
+    r"|\b(?:junior|juniors|girls?|boys?|kids?)\b",
     re.IGNORECASE,
 )
 PB_S5_REQUIRED_BOTTOM_RE = re.compile(r"\b(trousers?|pants?|palazzos?|skirts?)\b", re.IGNORECASE)

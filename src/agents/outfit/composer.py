@@ -8,13 +8,14 @@ from dataclasses import dataclass
 import pandas as pd
 
 from src.agents.outfit.coherence import colour_score, is_coherent_candidate
-from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY
+from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
     accessory_query_matches,
     classify_anchor,
     fabric_score_delta,
     gender_allowed,
     get_fill_slots,
+    is_casual_marker_item,
     is_ethnic_item,
     is_gender_neutral_accessory,
     is_kids_item,
@@ -809,6 +810,17 @@ def _find_best_candidate(
         # enough (live-proven: an office look's bottom slot filled with a
         # "M&H Juniors Girls ... Denim Skirts" item).
         if is_kids_item(item_name):
+            continue
+        # Phase B: hard formality gate — for occasion.formality >= 3 (office,
+        # party_evening, haldi_mehendi, festive_puja, wedding_guest, sangeet,
+        # traditional_ethnic), reject any candidate carrying a casual/denim-
+        # register marker regardless of slot_name. _default_bottom_query()
+        # already drops "jeans"/"skirt" from the QUERY text for western
+        # formal occasions, but that only shapes ranking — it does not stop a
+        # casual item surfaced via other query terms from being ACCEPTED as
+        # the best-scoring candidate (live-proven: office look's bottom slot
+        # filled with "ONLY Women Blue Solid Denim Mini Skirts").
+        if get_occasion(occasion_slug).formality >= 3 and is_casual_marker_item(item_name):
             continue
         if not is_coherent_candidate(
             item, occasion_slug, gender, slot_name, skip_gender_gate=is_neutral_fallback_item

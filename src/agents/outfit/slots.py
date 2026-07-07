@@ -281,6 +281,37 @@ def is_kids_item(prod_name: str) -> bool:
     return bool(_KIDS_MARKER_RE.search(prod_name or ""))
 
 
+# Phase B: an adult, correctly-gendered item can still be casual-register and
+# leak into a formal/office look — _default_bottom_query() drops "jeans"/
+# "skirt" from the QUERY text for formality>=3 occasions, but that only
+# shapes retrieval ranking; it does not stop a casual item from being
+# retrieved via other query terms (register tokens, anchor colour, etc.) and
+# then accepted as the best-scoring candidate. Live-proven: "black top for
+# office for women" -> Style this -> bottom slot filled with "ONLY Women Blue
+# Solid Denim Mini Skirts" (adult item, correctly gendered, NOT caught by
+# is_kids_item). Deliberately narrow, word-boundary keyword list — conservative
+# false-negatives (a casual item slipping through on a word not in this list)
+# are safer than false positives that reject legitimate formal items. "denim"
+# is checked standalone (not just "denim skirt"/"denim jeans") per design: a
+# hypothetical "denim-look tailored trouser" is still rejected — keeping the
+# rule simple beats trying to carve out fabric-look exceptions.
+_CASUAL_MARKER_RE = re.compile(
+    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped)\b",
+    re.IGNORECASE,
+)
+
+
+def is_casual_marker_item(prod_name: str) -> bool:
+    """Return True if `prod_name` carries a casual/denim-register marker word.
+
+    Checked as an ADDITIONAL gate in composer._find_best_candidate for
+    formal occasions (occasion.formality >= 3), alongside (never instead of)
+    the gender/slot-type/novelty/kids gates — see module docstring on
+    _CASUAL_MARKER_RE for the live regression this closes.
+    """
+    return bool(_CASUAL_MARKER_RE.search(prod_name or ""))
+
+
 def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:
     """Return True if a footwear/outerwear/unknown-class item carries an
     explicit WESTERN marker word (sneaker, denim, bomber, hoodie, blazer,

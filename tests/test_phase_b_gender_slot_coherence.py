@@ -41,6 +41,7 @@ from src.agents.outfit.slots import (
     SLOT_ALLOWED_CLASSES,
     accessory_query_matches,
     classify_item,
+    is_casual_marker_item,
     is_gender_neutral_accessory,
     is_kids_item,
     is_novelty_item,
@@ -250,6 +251,124 @@ class TestIsKidsItem:
     def test_empty_name_not_rejected(self) -> None:
         assert is_kids_item("") is False
         assert is_kids_item(None) is False
+
+
+class TestIsCasualMarkerItem:
+    """Phase B task 2: an adult, correctly-gendered item can still be casual-
+    register and leak into a formal look — live-proven bug: "black top for
+    office for women" -> Style this -> bottom slot filled with "ONLY Women
+    Blue Solid Denim Mini Skirts" (adult item, NOT caught by is_kids_item)."""
+
+    def test_denim_mini_skirt_rejected(self) -> None:
+        assert is_casual_marker_item("ONLY Women Blue Solid Denim Mini Skirts") is True
+
+    def test_denim_alone_rejected_regardless_of_intervening_words(self) -> None:
+        """Conservative-by-design: "denim" is rejected standalone, not just as
+        part of "denim skirt"/"denim jeans" — a hypothetical "denim-look
+        tailored trouser" is still rejected rather than carving out a
+        fabric-look exception."""
+        assert is_casual_marker_item("Denim-look Tailored Trouser") is True
+
+    def test_jeans_rejected(self) -> None:
+        assert is_casual_marker_item("Slim Fit Blue Jeans") is True
+
+    def test_shorts_rejected(self) -> None:
+        assert is_casual_marker_item("Cotton Chino Shorts") is True
+
+    def test_joggers_rejected(self) -> None:
+        assert is_casual_marker_item("Grey Jersey Joggers") is True
+
+    def test_cargo_rejected(self) -> None:
+        assert is_casual_marker_item("Khaki Cargo Trousers") is True
+
+    def test_distressed_rejected(self) -> None:
+        assert is_casual_marker_item("Distressed Denim Jacket") is True
+
+    def test_ripped_rejected(self) -> None:
+        assert is_casual_marker_item("Ripped Skinny Jeans") is True
+
+    def test_plain_tailored_trouser_not_rejected(self) -> None:
+        assert is_casual_marker_item("Black Formal Tailored Trousers") is False
+
+    def test_plain_skirt_not_rejected(self) -> None:
+        """A non-denim, non-mini skirt (e.g. a tailored pencil skirt) is not
+        a casual marker on its own."""
+        assert is_casual_marker_item("Black Formal Pencil Skirt") is False
+
+    def test_empty_name_not_rejected(self) -> None:
+        assert is_casual_marker_item("") is False
+        assert is_casual_marker_item(None) is False
+
+
+class TestFindBestCandidateFormalityGateRejectsCasualBottom:
+    """Phase B task 2: the hard formality gate in _find_best_candidate, wired
+    at the same choke point as is_kids_item — must reject a casual-marker
+    candidate for a formality>=3 occasion (office) even though it is an adult,
+    correctly-gendered item that would otherwise win the slot on score alone.
+    """
+
+    def test_denim_mini_skirt_rejected_for_office(self) -> None:
+        denim_mini_skirt = {
+            "article_id": "ONLY1",
+            "prod_name": "ONLY Women Blue Solid Denim Mini Skirts",
+            "display_name": "ONLY Women Blue Solid Denim Mini Skirts",
+            "product_type": "skirt",
+            "colour": "blue",
+            "gender": "women",
+            "score": 0.99,
+            "price_inr": 799.0,
+            "store": "myntra",
+            "detail_desc": "",
+        }
+        retriever = _FilterRecordingRetriever([denim_mini_skirt])
+        winner = _find_best_candidate(
+            query="trousers formal tailored",
+            slot_name="bottom",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is None
+
+    def test_same_item_still_rejected_for_casual_occasion_on_its_own_merit(self) -> None:
+        """Sanity check that the formality gate is occasion-conditional: for a
+        casual occasion (formality=1), the denim mini skirt is NOT rejected by
+        the formality gate (though it may still be rejected/accepted by other
+        gates on its own facets — this test only isolates the new gate)."""
+        denim_mini_skirt = {
+            "article_id": "ONLY2",
+            "prod_name": "ONLY Women Blue Solid Denim Mini Skirts",
+            "display_name": "ONLY Women Blue Solid Denim Mini Skirts",
+            "product_type": "skirt",
+            "colour": "blue",
+            "gender": "women",
+            "score": 0.99,
+            "price_inr": 799.0,
+            "store": "myntra",
+            "detail_desc": "",
+        }
+        retriever = _FilterRecordingRetriever([denim_mini_skirt])
+        winner = _find_best_candidate(
+            query="trousers jeans skirt casual",
+            slot_name="bottom",
+            occasion_slug="casual",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "ONLY2"
 
 
 class TestFindBestCandidateKidsItemRejected:

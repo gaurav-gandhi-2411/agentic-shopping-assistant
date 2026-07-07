@@ -53,6 +53,22 @@ _OUTFIT_OCCASION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Phase B task 3: "<occasion> look" phrasing ("office look for women", "wedding
+# look") carries clear outfit-composition intent even though it uses none of
+# _OUTFIT_INTENT_RE's action verbs ("outfit", "style this/me/it", "complete
+# the look", ...) — "outfit" itself IS in that verb list, so "casual outfit
+# for men"/"an office outfit" already route correctly; the gap is specifically
+# an occasion word immediately followed by bare "look". Deliberately narrow —
+# requires the occasion word to be the token directly before "look" — so
+# "look for black dresses" / "looking for shirts" (no occasion word directly
+# before "look", and in fact no occasion word at all) never match.
+_OCCASION_LOOK_RE = re.compile(
+    r"\b(?:sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)"
+    r"\s+look\b",
+    re.IGNORECASE,
+)
+
 _BEACH_SUMMER_RE = re.compile(
     r"\b(beach|summer|vacation|holiday|resort)\b", re.IGNORECASE
 )
@@ -607,16 +623,32 @@ def build_graph(
                     _anchor_gender = (
                         _resolve_session_gender(state) or _brand_cfg.gender_default
                     )
+                # B-fix: state["occasion"] is NEVER persisted across turns (see
+                # _reconstruct_occasion_from_history docstring — only
+                # retrieved_items/filters/messages survive in the session
+                # dict), so `state.get("occasion")` here was ALWAYS None and
+                # this branch silently defaulted every "Style this" click to
+                # "casual" — live-proven: "black top for office for women" ->
+                # Style this -> outfit composed with occasion="casual",
+                # dropping the office formality gate entirely and letting a
+                # denim mini skirt into the bottom slot. Reconstruct from
+                # conversation history the same way the look-refinement and
+                # partner-look branches already do.
+                _anchor_occasion = (
+                    _reconstruct_occasion_from_history(state.get("messages", []))
+                    or state.get("occasion")
+                    or "casual"
+                )
                 _anchor_plan = {
                     "action": "outfit",
                     "article_id": _anchor["article_id"],
-                    "occasion": state.get("occasion") or "casual",
+                    "occasion": _anchor_occasion,
                     "gender": _anchor_gender,
                     "budget_inr": None,
                 }
                 logger.info(
-                    "[router/style-anchor] resolved anchor=%s gender=%s | query=%r",
-                    _anchor["article_id"], _anchor_gender, raw_q[:60],
+                    "[router/style-anchor] resolved anchor=%s gender=%s occasion=%s | query=%r",
+                    _anchor["article_id"], _anchor_gender, _anchor_occasion, raw_q[:60],
                 )
                 return {
                     "current_plan": json.dumps(_anchor_plan),
@@ -773,7 +805,9 @@ def build_graph(
         # than depending on the LLM router to free-parse the occasion + gender out of
         # the raw sentence — a malformed/off-schema LLM JSON response here used to
         # silently fall back to a plain search, dropping look_id entirely.
-        if _OUTFIT_OCCASION_RE.search(raw_q) and _OUTFIT_INTENT_RE.search(raw_q):
+        if _OUTFIT_OCCASION_RE.search(raw_q) and (
+            _OUTFIT_INTENT_RE.search(raw_q) or _OCCASION_LOOK_RE.search(raw_q)
+        ):
             _occ_slug = intent.occasion or state.get("occasion") or "casual"
             _occ_gender = (
                 intent.gender or _resolve_session_gender(state) or _brand_cfg.gender_default
