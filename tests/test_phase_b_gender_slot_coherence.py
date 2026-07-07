@@ -44,6 +44,7 @@ from src.agents.outfit.slots import (
     is_casual_marker_item,
     is_gender_neutral_accessory,
     is_kids_item,
+    is_multi_piece_set,
     is_novelty_item,
     is_slot_type_allowed,
     is_western_marker_item,
@@ -369,6 +370,160 @@ class TestFindBestCandidateFormalityGateRejectsCasualBottom:
         )
         assert winner is not None
         assert winner["article_id"] == "ONLY2"
+
+
+class TestIsMultiPieceSet:
+    """Phase B product gap 2: a multi-piece SET listing ("Anarkali Sharara
+    Set", "Kurta Set with Dupatta", a "Co-Ord Set") is a WHOLE OUTFIT, not a
+    single garment, and must never fill a single complement slot. Live-proven:
+    product_type_name="sharara" alone classifies as "ethnic_bottom" (a plain
+    single garment), never inspecting the freeform name for the "Set" signal.
+    """
+
+    def test_anarkali_sharara_set_detected_via_name_signal(self) -> None:
+        """The exact live-proven item: product_type="sharara" alone gives no
+        set signal — the freeform name's 2 distinct garment nouns (anarkali +
+        sharara) plus "Set" is what catches it."""
+        assert is_multi_piece_set(
+            "sharara", "Quirky Floral Printed Cotton Anarkali Sharara Set - Off White"
+        ) is True
+
+    def test_top_and_trousers_set_detected_via_name_signal(self) -> None:
+        assert is_multi_piece_set(
+            "trousers", "Sangria Women Green Cotton Linen Solid Top & Cropped Trousers Set"
+        ) is True
+
+    def test_coord_product_type_detected_via_product_type_signal(self) -> None:
+        """product_type="coord" alone is a dedicated set-type value — no
+        second garment noun needed in the name."""
+        assert is_multi_piece_set("coord", "Brown Abstract Printed Cotton Blend Co-Ord Set") is True
+
+    def test_suit_sets_product_type_detected_via_product_type_signal(self) -> None:
+        assert is_multi_piece_set("Suit Sets", "Monochrome Ethnic Suit Set") is True
+
+    def test_plain_palazzo_not_a_set(self) -> None:
+        """A single palazzo bottom is not a set — no "set" word in the name."""
+        assert is_multi_piece_set("palazzo", "Saadgi Women Red Ethnic Motifs Embroidered Palazzos") is False
+
+    def test_set_of_2_same_garment_pack_not_a_multi_piece_set(self) -> None:
+        """A "Set of 2" pack of the SAME garment (e.g. 2 pairs of palazzos)
+        is not a multi-piece OUTFIT set — only 1 distinct garment noun."""
+        assert is_multi_piece_set(
+            "palazzo", "TAG 7 Women Set of 2 White & Red Solid Flared Palazzos"
+        ) is False
+
+    def test_plain_trousers_not_a_set(self) -> None:
+        assert is_multi_piece_set("trousers", "RAREISM Women Pink Tailored High-Rise Trousers") is False
+
+    def test_empty_name_not_a_set(self) -> None:
+        assert is_multi_piece_set("trousers", "") is False
+        assert is_multi_piece_set("trousers", None) is False
+
+
+class TestFindBestCandidateMultiPieceSetRejected:
+    """Live-proven bug: "office look for women" board's bottom slot filled
+    with "Quirky Floral Printed Cotton Anarkali Sharara Set" — a whole
+    2-piece outfit, not a single bottom. Must never win a complement slot,
+    regardless of occasion (a set is never a single garment, ethnic occasions
+    included — see the sangeet regression test)."""
+
+    def _sharara_set(self, article_id: str = "SET1") -> dict:
+        return {
+            "article_id": article_id,
+            "prod_name": "Quirky Floral Printed Cotton Anarkali Sharara Set - Off White",
+            "display_name": "Quirky Floral Printed Cotton Anarkali Sharara Set - Off White",
+            "product_type": "sharara",
+            "colour": "off white",
+            "gender": "women",
+            "score": 0.99,
+            "price_inr": 1999.0,
+            "store": "myntra",
+            "detail_desc": "",
+        }
+
+    def test_sharara_set_never_fills_office_bottom_slot(self) -> None:
+        retriever = _FilterRecordingRetriever([self._sharara_set()])
+        winner = _find_best_candidate(
+            query="trousers formal tailored",
+            slot_name="bottom",
+            occasion_slug="office",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_top",
+        )
+        assert winner is None
+
+    def test_sharara_set_never_fills_sangeet_bottom_slot_either(self) -> None:
+        """A multi-piece set is rejected regardless of occasion — this gate
+        is NOT occasion-conditional, unlike the formality/western-register
+        gates (a set is never appropriate for a single slot, even ethnic)."""
+        retriever = _FilterRecordingRetriever([self._sharara_set(article_id="SET2")])
+        winner = _find_best_candidate(
+            query="sharara lehenga festive embellished",
+            slot_name="bottom",
+            occasion_slug="sangeet",
+            gender="women",
+            anchor_colour="red",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is None
+
+
+class TestWesternRegisterGateOffice:
+    """Phase B product gap 1: symmetric to the ETHNIC_ONLY gate — a
+    WESTERN_REGISTER occasion (office) must reject ethnic-classified
+    complements and explicit festive/quirky markers. Must NOT gate
+    wedding_guest or other ethnic-heavy/only occasions (those already have
+    their own, opposite-direction gates)."""
+
+    def test_ethnic_kurta_rejected_for_office_bottom_via_coherence_gate(self) -> None:
+        item = {
+            "product_type": "sharara",
+            "prod_name": "Quirky Floral Printed Cotton Anarkali Sharara Set - Off White",
+            "gender": "women",
+        }
+        assert is_coherent_candidate(item, "office", "women", "bottom") is False
+
+    def test_plain_ethnic_palazzo_rejected_for_office(self) -> None:
+        """Even a NON-quirky, non-set plain palazzo is rejected for office —
+        the gate is class-based (is_ethnic_item), not just a marker denylist."""
+        item = {"product_type": "palazzo", "prod_name": "Black Palazzo Trousers", "gender": "women"}
+        assert is_coherent_candidate(item, "office", "women", "bottom") is False
+
+    def test_festive_marker_rejected_for_office_even_if_western_classified(self) -> None:
+        item = {"product_type": "top", "prod_name": "Quirky Festive Print Top", "gender": "women"}
+        assert is_coherent_candidate(item, "office", "women", "top") is False
+
+    def test_western_tailored_trouser_allowed_for_office(self) -> None:
+        item = {
+            "product_type": "trousers",
+            "prod_name": "RAREISM Women Pink Tailored High-Rise Trousers",
+            "gender": "women",
+        }
+        assert is_coherent_candidate(item, "office", "women", "bottom") is True
+
+    def test_ethnic_item_not_gated_for_wedding_guest(self) -> None:
+        """The gate must be scoped to "office" only — an ethnic kurta/lehenga
+        item must still be ALLOWED for wedding_guest (an ethnic_heavy
+        occasion), never rejected by the new western-register gate."""
+        item = {"product_type": "lehenga", "prod_name": "Red Embroidered Lehenga", "gender": "women"}
+        assert is_coherent_candidate(item, "wedding_guest", "women", "one_piece") is True
+
+    def test_ethnic_item_not_gated_for_casual(self) -> None:
+        """casual is EITHER-lean but NOT in _WESTERN_REGISTER_OCCASIONS —
+        an ethnic kurta must still be allowed for a casual look."""
+        item = {"product_type": "kurta", "prod_name": "Cotton Printed Kurta", "gender": "women"}
+        assert is_coherent_candidate(item, "casual", "women", "top") is True
 
 
 class TestFindBestCandidateKidsItemRejected:

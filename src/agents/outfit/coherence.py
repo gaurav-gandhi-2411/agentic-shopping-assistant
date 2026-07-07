@@ -1,12 +1,33 @@
 from __future__ import annotations
 
+import re
+
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
     WOMEN_ONLY_ETHNIC_KEYWORDS,
     gender_allowed,
+    is_ethnic_item,
     is_western_item,
     is_western_marker_item,
 )
+
+# Phase B (product gap 1): symmetric to the ETHNIC_ONLY gate below (gate 2) —
+# a WESTERN-REGISTER occasion's slot candidates must never be ethnic-festive
+# wear.  Currently only "office" (occasions.py: formality=3, ethnic_lean=
+# EITHER) — the only occasion slug in this catalogue's model whose register is
+# strictly business/tailored-western.  "work"/"formal" free text both map to
+# the SAME "office" slug via intent_parser._OCCASION_MAP, so no other slug
+# needs this.  Deliberately EXCLUDES party_evening (also EITHER-lean but not
+# reported/asked for) and every ETHNIC_HEAVY/ETHNIC_ONLY occasion (haldi_
+# mehendi/festive_puja/wedding_guest/sangeet/traditional_ethnic) — those are
+# already correctly ethnic-leaning and must never be gated toward western.
+_WESTERN_REGISTER_OCCASIONS: frozenset[str] = frozenset({"office"})
+
+# Live-proven: an "office look for women" board's bottom slot filled with a
+# "Quirky Floral Printed Cotton Anarkali Sharara Set" — ethnic AND carrying an
+# explicit festive/quirky marker.  Checked as a simple word-boundary denylist,
+# same conservative style as _WESTERN_MARKER_KEYWORDS in slots.py.
+_FESTIVE_MARKER_RE = re.compile(r"\b(quirky|festive)\b", re.IGNORECASE)
 
 # Muted/earthy tones added for Phase B Part 1 (real catalogue colour audit — see
 # offline check).  These coordinate well with each other in BOTH ethnic (jewel/
@@ -107,7 +128,7 @@ def is_coherent_candidate(
     1. Dupatta slot: reject for men (belt-and-suspenders, also caught by gate 0).
     2. ethnic_only occasion: reject western items in any slot.
     3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's wedding_guest).
-    4. Ethnic anchor + formality >= 4: reject western candidates in non-outerwear slots.
+    4. western_register occasion (office): reject ethnic items and festive/quirky markers.
 
     Args:
         skip_gender_gate: When True, skips gate 0b ONLY.  Set by composer.
@@ -163,6 +184,17 @@ def is_coherent_candidate(
             )
             if is_formal_western:
                 return True  # allowed
+        return False
+
+    # Gate 4 (Phase B product gap 1): WESTERN_REGISTER occasions (currently
+    # only "office" — see _WESTERN_REGISTER_OCCASIONS docstring) reject
+    # ethnic-classified items AND anything carrying an explicit festive/quirky
+    # marker, symmetric to gates 2/3 above.  Live-proven: an office look's
+    # bottom slot filled with a "Quirky Floral Printed Cotton Anarkali
+    # Sharara Set" (ethnic + festive).
+    if occasion_slug in _WESTERN_REGISTER_OCCASIONS and (
+        is_ethnic_item(pt, name) or _FESTIVE_MARKER_RE.search(name)
+    ):
         return False
 
     return True

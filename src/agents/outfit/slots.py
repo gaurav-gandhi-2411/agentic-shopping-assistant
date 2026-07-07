@@ -312,6 +312,70 @@ def is_casual_marker_item(prod_name: str) -> bool:
     return bool(_CASUAL_MARKER_RE.search(prod_name or ""))
 
 
+# Phase B (product gap 2): a multi-piece SET listing ("Anarkali Sharara Set",
+# "Kurta Set with Dupatta", a "Co-Ord Set") is a WHOLE OUTFIT, not a single
+# garment — it must never fill a single complement slot (bottom/top/
+# outerwear/accessory/etc.), even though it may still be used as a look's own
+# SEED/anchor (a kurta set as a look's hero item is fine — compose_outfit's
+# seed resolution never calls composer._find_best_candidate, so this gate
+# never touches the seed).
+#
+# Live-proven root cause: product_type_name="sharara" alone (the catalogue's
+# OWN facet) classify_item()'s pt-first shortcut resolves straight to
+# "ethnic_bottom" WITHOUT ever inspecting the freeform name — so a
+# "Quirky Floral Printed Cotton Anarkali Sharara Set" (a 2-piece anarkali top
+# + sharara bottom SET) slipped past the bottom slot's hard slot-type gate
+# and filled an "office look" bottom slot.
+#
+# Two signals, either sufficient (both verified against the real unified
+# catalogue's own "Set"-in-name product rows — see offline check):
+#   1. product_type_name is one of the catalogue's own dedicated set-type
+#      values: "Suits"/"Suit Set(s)" (2-3 piece ethnic suit sets: kurta +
+#      bottom [+ dupatta]), "coord"/"Co-Ord" (western co-ord sets),
+#      "Sets"/"Track-Suit" (misc matching sets e.g. "Winter Set", "Cord Set").
+#   2. Freeform name contains the word "set(s)" AND mentions >= 2 DISTINCT
+#      garment nouns (e.g. "Anarkali" + "Sharara" + "Set", or "Top & Cropped
+#      Trousers Set") — this is what catches the live-proven bug, where the
+#      product_type facet alone ("sharara") only reveals ONE garment word.
+#      A single-garment name that merely happens to contain "Set" once (e.g.
+#      "TAG 7 Women Set of 2 ... Palazzos" — a 2-PACK of the SAME garment,
+#      not a multi-piece outfit) has only 1 distinct noun and is correctly
+#      NOT flagged.
+_SET_PRODUCT_TYPES: frozenset[str] = frozenset({
+    "suits", "suit set", "suit sets", "coord", "co-ord", "sets", "track-suit",
+})
+
+_SET_WORD_RE = re.compile(r"\bsets?\b", re.IGNORECASE)
+
+# Garment-noun vocabulary reused from the anchor-classification keyword sets
+# above — used ONLY to count how many distinct garment types a name mentions.
+_SET_GARMENT_NOUN_KEYWORDS: frozenset[str] = (
+    ETHNIC_TOP_KEYWORDS
+    | ETHNIC_ONE_PIECE_KEYWORDS
+    | ETHNIC_BOTTOM_KEYWORDS
+    | WESTERN_TOP_KEYWORDS
+    | WESTERN_BOTTOM_KEYWORDS
+    | WESTERN_ONE_PIECE_KEYWORDS
+    | OUTERWEAR_KEYWORDS
+    | frozenset({"dupatta"})
+)
+
+
+def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
+    """Return True if this item is a multi-piece SET listing (a whole outfit)
+    rather than a single garment. See the module comment above
+    _SET_PRODUCT_TYPES for the two conservative signals checked.
+    """
+    pt = (product_type or "").lower().strip()
+    if pt in _SET_PRODUCT_TYPES:
+        return True
+    name = (prod_name or "").lower()
+    if not _SET_WORD_RE.search(name):
+        return False
+    distinct_nouns = {kw for kw in _SET_GARMENT_NOUN_KEYWORDS if _contains_word(name, kw)}
+    return len(distinct_nouns) >= 2
+
+
 def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:
     """Return True if a footwear/outerwear/unknown-class item carries an
     explicit WESTERN marker word (sneaker, denim, bomber, hoodie, blazer,

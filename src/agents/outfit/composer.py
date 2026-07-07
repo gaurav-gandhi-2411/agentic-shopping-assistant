@@ -19,6 +19,7 @@ from src.agents.outfit.slots import (
     is_ethnic_item,
     is_gender_neutral_accessory,
     is_kids_item,
+    is_multi_piece_set,
     is_novelty_item,
     is_slot_type_allowed,
     is_western_item,
@@ -795,6 +796,14 @@ def _find_best_candidate(
         item_pt = item.get("product_type") or ""
         item_name = item.get("prod_name") or item.get("display_name") or ""
         if not is_slot_type_allowed(slot_name, item_pt, item_name):
+            continue
+        # Multi-piece SET gate: a "Set" listing (e.g. "Anarkali Sharara Set",
+        # a "Co-Ord Set") is a WHOLE OUTFIT, not a single garment — it must
+        # never fill a single complement slot. Checked right after the
+        # slot-type gate since it's a type-level rejection (product_type
+        # alone can under-classify a set as a single ethnic/western bottom —
+        # see is_multi_piece_set's docstring for the live-proven root cause).
+        if is_multi_piece_set(item_pt, item_name):
             continue
         # Accessory vocabulary gate: within the "accessory" slot class, a
         # dupatta-seeking query must not accept a handbag and vice versa.
