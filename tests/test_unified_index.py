@@ -74,18 +74,19 @@ def test_unified_catalogue_has_store_column(unified_df: pd.DataFrame) -> None:
     assert unified_df["store"].notna().all(), "Some rows have null store"
 
 
-def test_unified_catalogue_spans_all_9_stores(unified_df: pd.DataFrame) -> None:
-    """All 9 stores must be present in the on-disk index; H&M must be absent (archival data).
+def test_unified_catalogue_spans_all_8_live_stores(unified_df: pd.DataFrame) -> None:
+    """All 8 live stores must be present in the on-disk index; H&M/berrylush must be absent.
 
-    berrylush is included here even though it is flagged ``active: False`` in
-    ``src/config/stores.py`` — the unified index deliberately retains inactive-store
-    rows on disk (so re-activation is a config flip, not a reindex); query-time
-    search is what excludes them (see ``get_inactive_stores`` in
-    ``src/retrieval/hybrid_search.py`` and ``_VALID_STORES`` below).
+    Phase A (2026-07-06): berrylush is now excluded ENTIRELY at build time (dropped
+    from ``UNIFIED_STORES`` in ``scripts/build_unified_index.py``), not merely
+    filtered at query time — it stopped occupying FAISS/BM25 candidate-window slots.
+    Re-enabling berrylush now requires re-running the build script, not just
+    flipping its ``active`` flag in ``src/config/stores.py`` (see
+    ``test_hm_and_berrylush_not_in_unified_catalogue`` below).
     """
     expected = {
         "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
-        "berrylush", "globalrepublic", "libas",
+        "globalrepublic", "libas",
     }
     actual = set(unified_df["store"].unique())
     assert expected == actual, (
@@ -93,12 +94,22 @@ def test_unified_catalogue_spans_all_9_stores(unified_df: pd.DataFrame) -> None:
     )
 
 
-def test_hm_not_in_unified_catalogue(unified_df: pd.DataFrame) -> None:
-    """H&M must NOT appear in the unified catalogue (excluded — archival Kaggle data, no live PDP)."""
+def test_hm_and_berrylush_not_in_unified_catalogue(unified_df: pd.DataFrame) -> None:
+    """H&M and berrylush must NOT appear in the unified catalogue (both excluded at build time).
+
+    H&M: archival Kaggle data, no live PDP/image.
+    berrylush: store inactive (password-walled) — dropped at build time since Phase A
+    (2026-07-06), not just filtered at query time (see EXCLUDED_STORES in
+    scripts/build_unified_index.py).
+    """
     stores_present = set(unified_df["store"].unique())
     assert "hm" not in stores_present, (
         "H&M was found in the unified catalogue. "
         "It must be excluded (archival data, no live PDP/image)."
+    )
+    assert "berrylush" not in stores_present, (
+        "berrylush was found in the unified catalogue. "
+        "It must be excluded entirely at build time (Phase A, 2026-07-06)."
     )
 
 
@@ -155,10 +166,10 @@ def test_unified_clip_ids_aligned(unified_df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 
-# Active stores only (src/config/stores.py STORE_CONFIG[...]["active"]). berrylush and
-# hm are flagged active=False and are excluded from search RESULTS by
-# get_inactive_stores()/hybrid_search.py even though they remain in the on-disk index
-# (see test_unified_catalogue_spans_all_9_stores).
+# Active/live stores — the 8 stores present in the on-disk unified index (see
+# test_unified_catalogue_spans_all_8_live_stores). hm and berrylush are both excluded
+# entirely at build time (Phase A, 2026-07-06) so they can never appear in results;
+# _INACTIVE_STORES is kept as a belt-and-suspenders assertion set.
 _VALID_STORES = frozenset({
     "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
     "globalrepublic", "libas",

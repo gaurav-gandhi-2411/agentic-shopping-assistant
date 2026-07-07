@@ -60,6 +60,11 @@ async def post_look(body: SaveLookRequest, request: Request) -> SaveLookResponse
         HTTPException 503: No database configured — saving cannot persist.
         HTTPException 500: Unexpected DB error during insert.
     """
+    # saved_looks.brand is NOT NULL in storage; the frontend sends brand=null in
+    # unified/cross-store mode (no single-brand catalogue), so coalesce here rather
+    # than rejecting the request with a 422 at the schema layer.
+    brand = body.brand or "unified"
+
     engine = _get_engine(request)
     if engine is None:
         # Dev fallback: use in-memory store (persists for process lifetime only)
@@ -68,7 +73,7 @@ async def post_look(body: SaveLookRequest, request: Request) -> SaveLookResponse
             new_id = save_look_memory(
                 session_id=body.session_id,
                 user_id=body.user_id,
-                brand=body.brand,
+                brand=brand,
                 look_id=body.look_id,
                 occasion=body.occasion,
                 look_gender=body.look_gender,
@@ -87,7 +92,7 @@ async def post_look(body: SaveLookRequest, request: Request) -> SaveLookResponse
             engine,
             session_id=body.session_id,
             user_id=body.user_id,
-            brand=body.brand,
+            brand=brand,
             look_id=body.look_id,
             occasion=body.occasion,
             look_gender=body.look_gender,

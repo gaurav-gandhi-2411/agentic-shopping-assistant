@@ -257,6 +257,37 @@ def test_fabric_material_cases(prod_name: str, brand: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase A (2026-07-06) — finished sarees sold "with blouse piece" must NOT be
+# swallowed by the fabric_material compound match. See src/catalogue/cleaning.py
+# for the equivalent build-time reclassification rule (same "saree + blouse
+# piece" combined signal).
+# ---------------------------------------------------------------------------
+
+FINISHED_SAREE_CASES: list[str] = [
+    "Peach Printed Georgette Saree With Unstitched Blouse Piece",
+    "Meena Bazaar Turquoise Blue Woven Design Silk Blend Saree with Blouse Piece",
+    "Sangria Blue Striped Saree & Embellished Blouse Piece",
+]
+
+
+@pytest.mark.parametrize("prod_name", FINISHED_SAREE_CASES)
+def test_finished_saree_with_blouse_piece_classifies_as_saree(prod_name: str) -> None:
+    """A saree bundled with a (possibly unstitched) blouse piece is a finished garment."""
+    result = normalize_garment_type(prod_name)
+    assert result.garment_type == "saree", (
+        f"'{prod_name}': expected garment_type='saree', got {result.garment_type!r}"
+    )
+    assert result.category == "apparel"
+
+
+def test_saree_brand_prefix_stays_fabric_material() -> None:
+    """'Saree Mall' is a brand name — the product itself is unstitched dress material."""
+    result = normalize_garment_type("Saree mall Black Unstitched Dress Material")
+    assert result.garment_type == "fabric_material"
+    assert result.category == "raw_material"
+
+
+# ---------------------------------------------------------------------------
 # Brand false-positive regression — DressBerry/20Dresses must not mis-classify
 # ---------------------------------------------------------------------------
 

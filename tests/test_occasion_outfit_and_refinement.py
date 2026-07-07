@@ -20,7 +20,12 @@ from typing import Iterator
 import pandas as pd
 import pytest
 
-from src.agents.graph import build_graph
+from src.agents.graph import (
+    _OCCASION_LOOK_RE,
+    _OUTFIT_INTENT_RE,
+    _OUTFIT_OCCASION_RE,
+    build_graph,
+)
 from src.memory.conversation import ConversationMemory
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.hybrid_search import HybridRetriever
@@ -169,3 +174,69 @@ def test_make_this_look_more_formal_recomposes_new_look(
     )
     turn2_items = turn2_result.get("retrieved_items", [])
     assert len(turn2_items) >= 2, f"expected >=2 items on the refinement turn, got {turn2_items}"
+
+
+# ---------------------------------------------------------------------------
+# Phase B task 3: "<occasion> look" phrasing must route to outfit composition.
+# ---------------------------------------------------------------------------
+
+
+def _routes_to_outfit(query: str) -> bool:
+    """Mirrors graph.py router_node's RED 2c first-turn gate condition:
+    `_OUTFIT_OCCASION_RE.search(raw_q) and (_OUTFIT_INTENT_RE.search(raw_q) or
+    _OCCASION_LOOK_RE.search(raw_q))`.
+    """
+    return bool(
+        _OUTFIT_OCCASION_RE.search(query)
+        and (_OUTFIT_INTENT_RE.search(query) or _OCCASION_LOOK_RE.search(query))
+    )
+
+
+class TestOccasionLookRoutingRegex:
+    """Root cause (pre-fix): "office look for women" carries no
+    _OUTFIT_INTENT_RE action verb ("outfit", "style this/me/it", "complete
+    the look", ...) — bare "look" alone was never recognised as an outfit
+    action, so this phrasing fell through to a plain search instead of
+    outfit composition. "casual outfit for men"/"an office outfit" already
+    routed correctly pre-fix since "outfit" itself IS in _OUTFIT_INTENT_RE —
+    included here as regression guards, not as newly-fixed cases.
+    """
+
+    def test_office_look_for_women_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("office look for women") is True
+
+    def test_wedding_look_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("wedding look") is True
+
+    def test_casual_outfit_for_men_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("casual outfit for men") is True
+
+    def test_an_office_outfit_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("an office outfit") is True
+
+    def test_look_for_black_dresses_is_search_not_outfit(self) -> None:
+        """Negative: no occasion word directly precedes "look" here (in fact
+        no occasion word at all) — must remain a plain product search."""
+        assert _routes_to_outfit("look for black dresses") is False
+
+    def test_looking_for_shirts_is_search_not_outfit(self) -> None:
+        assert _routes_to_outfit("looking for shirts") is False
+
+
+@pytest.mark.requires_index
+def test_office_look_for_women_direct_phrasing_composes_board(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Phase B task 3 — integration proof: the direct phrasing "office look
+    for women" (no prior turn, no explicit anchor) must compose an outfit
+    board on its own, not fall through to a plain search."""
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "office top"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    state = _blank_state("office look for women", memory)
+    result = agent.invoke(state)
+
+    assert result.get("look_id"), f"expected look_id, tool_calls={result.get('tool_calls')}"
+    assert result.get("look_gender") == "women"

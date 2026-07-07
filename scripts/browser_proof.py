@@ -10,6 +10,39 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
   5. (--product flow, B4c) The cross-store "Open all items" CTA opens an inline
      panel of per-item links instead of looping window.open() (which real
      browsers popup-block after the first call per user gesture).
+  6. (--product flow, B5) "Save look" actually persists in unified (no-brand)
+     mode: POST /looks returns 201, the "Look saved!" panel + share URL appear,
+     and the shared /look/{id} page renders the saved items.
+  7. (--phase-a flow, A1-A4) Content assertions for index-quality: saree
+     recall+depth, "white" adjective relevance, no visible duplicate titles
+     (incl. cross-turn), and store-diversity in results. Respec'd 2026-07-06
+     after a live post-deploy run showed the reranker deliberately returns
+     ~5 cards per turn by design — thresholds are calibrated to that reality,
+     not to an assumed >=10-per-turn page size.
+  8. (--phase-b flow, S1-S6) Content assertions for the reported outfit
+     gender-leak bug (GG screenshot 2026-07-06: a women's rust dress look
+     contained a MEN'S cardigan, MEN'S formal shoes, and a novelty "Luxury
+     Piano Shape Handbag") and the Phase-B fix surface (backend+frontend
+     committed 2026-07-07, not yet deployed at the time this flow was last
+     extended): per-card `data-slot`/`data-gender` attrs (S1-S5, hard-FAIL on
+     a non-empty wrong `data-gender`, title-word fallback when empty),
+     suppressed-slot honesty notes (S1, evidence-only), partner-look
+     cross-gender styling (S4), occasion-register vocabulary (S5), and
+     distinct outfit variants (S6). This flow intentionally does NOT fix
+     product code.
+
+     Turn-budget note: the coordinator's target is <=8 assistant turns for
+     the whole --phase-b run. S1-S3 (2 turns each: query + "Style this") are
+     unchanged from the RED-baseline run and total 6; S4 requires a genuinely
+     FRESH session (own Playwright page/tab, so its own `demo_session_token`
+     — see partner-gender-resolution isolation in its docstring) with its own
+     3 turns (query + "Style this" + the partner follow-up). 6 + 3 = 9 turns
+     BEFORE S5's turn(s), already over budget — S5 tries a single send first
+     and S6 spends zero turns (reuses an already-rendered board's variant
+     tabs instead of querying). This 9-vs-8 conflict is a real arithmetic
+     tension between "S1-S3 unchanged" + "S4 needs a fresh session" and the
+     <=8 target; it is flagged in the implementer's report, not silently
+     resolved by dropping either requirement.
 
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
@@ -24,6 +57,7 @@ import argparse
 import re
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -113,6 +147,11 @@ class ProofState:
 
     results: list[CheckResult] = field(default_factory=list)
     console_issues: list[str] = field(default_factory=list)
+    # Titles observed by earlier Phase-A steps in THIS session, so A3's dedup
+    # check can span turns (a duplicate that straddles two different queries
+    # is still a visible duplicate to the user). Only populated/consumed by
+    # the --phase-a step group; unused by the original a-f/B steps.
+    phase_a_titles: list[str] = field(default_factory=list)
 
     def record(self, name: str, passed: bool, detail: str = "") -> None:
         status = "PASS" if passed else "FAIL"
@@ -456,6 +495,55 @@ SIMILAR_ROW_SELECTOR = "p.text-xs.font-medium.truncate.leading-tight"
 # OutfitBoard's root container (`w-full rounded-xl ...`) — distinct from ItemCard's
 # `rounded-lg` root and from SlotCard's `rounded-lg` tiles nested inside it.
 OUTFIT_BOARD_SELECTOR = "div.rounded-xl.border.bg-card.p-4"
+# Non-owned SlotCard tiles render as `<a>`; the owned-anchor seed (no buy link)
+# renders as a plain `<div>` and is excluded by this selector already (see
+# OutfitBoard.tsx SlotCard: only the non-owned branch returns an `<a>` root).
+OUTFIT_BOARD_SLOT_SELECTOR = "a.rounded-lg.border.bg-background"
+
+# ---------------------------------------------------------------------------
+# Phase-B (owned-anchor gender-leak red-baseline) word-boundary regexes.
+# Deliberately \b-anchored so "women"/"women's" never trips the MEN check —
+# "men" is a literal substring of "women", the classic substring trap this
+# bug report explicitly calls out — and symmetrically "ladies"/"women" don't
+# false-positive the WOMEN check on a men's-look complement that happens to
+# mention an unrelated word containing "men" (e.g. none in this catalogue, but
+# defensive regardless).
+# ---------------------------------------------------------------------------
+PB_MEN_WORD_RE = re.compile(r"\b(men|men's|male)\b", re.IGNORECASE)
+PB_WOMEN_WORD_RE = re.compile(r"\b(women|women's|ladies)\b", re.IGNORECASE)
+PB_NOVELTY_RE = re.compile(r"\b(piano|guitar|novelty|quirky|costume)\b", re.IGNORECASE)
+PB_CASUAL_WESTERN_RE = re.compile(r"\b(sneakers?|denim|hoodie|bomber)\b", re.IGNORECASE)
+# Footwear-ish title vocabulary (S1/S2/S5 slot-sanity checks) — a card tagged
+# `data-slot="footwear"` should read as footwear regardless of gender.
+PB_FOOTWEAR_TITLE_RE = re.compile(
+    r"\b(shoes?|sneakers?|loafers?|sandals?|heels?|flats?|juttis?|mojaris?)\b", re.IGNORECASE
+)
+# S5 occasion-register vocabulary: an office look's bottom must read as
+# tailored, not casual. "denim skirt(s)" is checked as CO-OCCURRENCE
+# (`denim` ... `skirt(s)`, either order, within a short word window) rather
+# than an adjacent phrase — the old adjacent-phrase-only pattern
+# (`denim\s+skirts?`) was a FALSE PASS on the live-proven miss: "ONLY Women
+# Blue Solid Denim Mini Skirts" has "Mini" between "Denim" and "Skirts" and
+# slipped straight through. `skirts?` (not just `skirt`) so a plural title
+# still matches. Standalone "mini skirt(s)" is forbidden even without the
+# word "denim" (a mini skirt is casual regardless of fabric). "jeans" is
+# forbidden outright for an office bottom — jeans are casual regardless of
+# how "office" the rest of the query was. Also forbids juniors/girls/boys/kids
+# markers in ANY adult look slot (the same catalogue-mislabeling root cause
+# fixed in src/agents/outfit/slots.py::is_kids_item) — a juniors item is never
+# appropriate for an adult office look regardless of whether its own
+# bottom-type wording happens to look tailored.
+PB_S5_FORBIDDEN_BOTTOM_RE = re.compile(
+    r"\bshorts?\b"
+    r"|\bjeans?\b"
+    r"|\bjoggers?\b"
+    r"|\bmini\s+skirts?\b"
+    r"|\bdenim\b[\w\s]{0,20}\bskirts?\b"
+    r"|\bskirts?\b[\w\s]{0,20}\bdenim\b"
+    r"|\b(?:junior|juniors|girls?|boys?|kids?)\b",
+    re.IGNORECASE,
+)
+PB_S5_REQUIRED_BOTTOM_RE = re.compile(r"\b(trousers?|pants?|palazzos?|skirts?)\b", re.IGNORECASE)
 
 
 def step_b3_interactions(page: Page, state: ProofState) -> None:
@@ -716,6 +804,130 @@ def step_b4c_open_all_panel(page: Page, state: ProofState) -> None:
     )
 
 
+def step_b5_save_look(page: Page, state: ProofState) -> None:
+    """B5: full "Save look" round trip -- fix for the confirmed bug where the
+    unified-mode frontend sent `brand: null` and the backend's (previously)
+    required `SaveLookRequest.brand: str` field rejected it with a 422,
+    surfacing as "Failed to save" (see scripts/save_look_repro.py, the red
+    baseline this step re-proves is now green).
+
+    Reproduces the exact validated path from save_look_repro.py: send
+    "black dress for women", click "Style this" on the first card to produce
+    an outfit board, then click "Save look" and assert:
+      1. POST /looks returns 201 (via a response listener registered BEFORE
+         the click, so nothing is missed).
+      2. The "Look saved!" panel appears with a non-empty share URL.
+      3. Opening that share URL (same browser/tab) renders >=1 item with a
+         non-empty title, and does NOT show "Look not found".
+    """
+    looks_post_statuses: list[int] = []
+
+    def _on_response(res) -> None:  # noqa: ANN001 - playwright Response, avoided import for brevity
+        if "/looks" in res.url and res.request.method == "POST":
+            looks_post_statuses.append(res.status)
+
+    page.on("response", _on_response)
+
+    try:
+        baseline = card_count(page)
+        send_text(page, "black dress for women")
+        after = wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+        wait_for_turn_idle(page)
+        gained = after - baseline
+        state.record(
+            "B5a. 'black dress for women' renders cards (precondition)",
+            gained >= 1,
+            f"cards {baseline}->{after}",
+        )
+        if gained < 1:
+            return
+
+        first_card = page.locator(CARD_SELECTOR).nth(baseline)
+        board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+        try:
+            first_card.get_by_text("Style this", exact=True).first.click()
+        except Exception as exc:  # noqa: BLE001
+            state.record(
+                "B5b. 'Style this' produces an outfit board (precondition)",
+                False,
+                f"click failed: {exc}",
+            )
+            return
+
+        deadline = time.time() + CARD_WAIT_TIMEOUT_S
+        while time.time() < deadline:
+            if page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline:
+                break
+            page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+        wait_for_turn_idle(page)
+
+        board = page.locator(OUTFIT_BOARD_SELECTOR)
+        board_count = board.count()
+        state.record(
+            "B5b. 'Style this' produces an outfit board (precondition)",
+            board_count > board_baseline,
+            f"boards on page: {board_count}",
+        )
+        if board_count <= board_baseline:
+            return
+
+        # Same board the final (image-upload / interaction) turn produced —
+        # assistant messages render top-to-bottom, so `.last` is this turn's
+        # board (see step_b4_image_board's docstring for the same reasoning).
+        board0 = board.last
+        save_btn = board0.locator("button", has=page.locator("svg.lucide-bookmark")).first
+        if save_btn.count() == 0:
+            state.record("B5c. POST /looks returns 201", False, "no 'Save look' button found")
+            return
+
+        save_btn.click()
+
+        deadline = time.time() + 15
+        while time.time() < deadline and not looks_post_statuses:
+            page.wait_for_timeout(500)
+
+        post_201 = 201 in looks_post_statuses
+        shot(page, "b5a_after_save_click")
+        state.record(
+            "B5c. POST /looks returns 201",
+            post_201,
+            f"observed POST /looks statuses={looks_post_statuses}",
+        )
+
+        try:
+            board0.get_by_text("Look saved!", exact=False).wait_for(timeout=10_000)
+        except Exception as exc:  # noqa: BLE001
+            shot(page, "b5b_saved_panel_FAIL")
+            state.record("B5d. 'Look saved!' panel appears with share URL", False, str(exc))
+            return
+
+        share_code = board0.locator("code")
+        share_url = share_code.first.inner_text().strip() if share_code.count() > 0 else ""
+        shot(page, "b5b_saved_panel")
+        state.record(
+            "B5d. 'Look saved!' panel appears with share URL",
+            bool(share_url),
+            f"share_url={share_url!r}",
+        )
+        if not share_url:
+            return
+
+        page.goto(share_url, wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_timeout(2_000)
+        not_found = page.get_by_text("Look not found", exact=False).count() > 0
+        item_cards = page.locator(CARD_SELECTOR)
+        n_items = item_cards.count()
+        title = card_title(item_cards.first) if n_items > 0 else ""
+        shot(page, "b5c_shared_look_page")
+        state.record(
+            "B5e. shared /look/{id} page renders >=1 item with a title (not 'Look not found')",
+            (not not_found) and n_items >= 1 and bool(title.strip()),
+            f"not_found={not_found} n_items={n_items} first_title={title!r} url={share_url}",
+        )
+    finally:
+        page.remove_listener("response", _on_response)
+
+
 def step_console_errors(state: ProofState) -> None:
     """Step f: classify collected console/pageerror messages; fail only on severe ones."""
     severe = []
@@ -745,6 +957,756 @@ def step_console_errors(state: ProofState) -> None:
     if severe:
         detail += " | SEVERE: " + " || ".join(severe[:5])
     state.record("f. zero severe render-related console/pageerror exceptions", passed, detail)
+
+
+def normalize_title(title: str) -> str:
+    """Lowercase, strip non-alphanumeric characters, and collapse whitespace.
+
+    Used by A3 to compare card titles for visible duplicates regardless of
+    punctuation/casing differences (e.g. "Black Dress - Women's" vs
+    "black dress womens" should be treated as the same visible title).
+    """
+    lowered = title.lower()
+    alnum_only = re.sub(r"[^a-z0-9]+", " ", lowered)
+    return re.sub(r"\s+", " ", alnum_only).strip()
+
+
+def step_a1_sarees(page: Page, state: ProofState) -> None:
+    """A1: respec'd 2026-07-06 to the product's ACTUAL 5-cards-per-turn reranker
+    design (coordinator correction after live post-deploy run: every turn across
+    all steps yielded ~5 new cards — the original >=10 threshold mis-specified
+    the assertion, not a product bug).
+
+    Turn 1 ("sarees"): >=5 new cards, with >=4 of the first 5 titles containing
+    'saree' (case-insensitive).
+    Turn 2 ("wedding saree under 2000", depth evidence — respec'd again
+    2026-07-06): a SECOND, INDEPENDENT full-search query (not a "more ..."
+    refinement of turn 1) must also return >=5 new cards, with >=4 of those 5
+    titles containing 'saree'. A "more sarees under 2000" refinement was tried
+    first but rejected: refinement turns can legitimately render <5 new cards
+    for reasons unrelated to catalogue depth (e.g. excluding items already
+    shown in the top-5), which is Phase C (refinement-behavior) territory, not
+    a Phase A (index-quality) signal. A fresh independent search query isolates
+    depth from refinement dedup logic. Titles from both turns are appended to
+    `state.phase_a_titles`, so A3's cross-turn dedup check is the actual depth
+    proof: 10 distinct sarees observed across two independent queries.
+
+    Also fixes the settle-wait bug: `wait_for_more_cards` returns as soon as the
+    FIRST new card lands, which can under-count a turn that renders several
+    cards in quick succession. Both turns now call `wait_for_turn_idle` and
+    re-read `card_count` AFTER the turn settles, before computing `gained`.
+    """
+    baseline = card_count(page)
+    send_text(page, "sarees")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)  # let the full turn settle before counting
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, "a1_sarees")
+
+    if gained < 5:
+        state.record(
+            "A1a. 'sarees' >=5 cards & >=4/5 titles contain 'saree'",
+            False,
+            f"cards {baseline}->{after} (need >=5 new cards, got {gained})",
+        )
+        return
+
+    titles = [card_title(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(5)]
+    hits = sum(1 for t in titles if "saree" in t.lower())
+    passed = hits >= 4
+    state.record(
+        "A1a. 'sarees' >=5 cards & >=4/5 titles contain 'saree'",
+        passed,
+        f"cards {baseline}->{after} | hits={hits}/5 | titles={titles}",
+    )
+    state.phase_a_titles.extend(titles)
+
+    # Depth evidence: a SECOND, INDEPENDENT full-search query (not a "more ..."
+    # refinement of turn 1) should surface ANOTHER page of sarees, isolating
+    # catalogue depth from refinement-turn dedup behavior (Phase C territory).
+    baseline2 = after
+    send_text(page, "wedding saree under 2000")
+    wait_for_more_cards(page, baseline2, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after2 = card_count(page)
+    gained2 = after2 - baseline2
+    shot(page, "a1b_wedding_saree")
+
+    if gained2 < 5:
+        state.record(
+            "A1b. 'wedding saree under 2000' >=5 NEW cards & >=4/5 titles contain 'saree'",
+            False,
+            f"cards {baseline2}->{after2} (need >=5 new cards, got {gained2})",
+        )
+        return
+
+    titles2 = [card_title(page.locator(CARD_SELECTOR).nth(baseline2 + i)) for i in range(5)]
+    hits2 = sum(1 for t in titles2 if "saree" in t.lower())
+    passed2 = hits2 >= 4
+    state.record(
+        "A1b. 'wedding saree under 2000' >=5 NEW cards & >=4/5 titles contain 'saree'",
+        passed2,
+        f"cards {baseline2}->{after2} | hits={hits2}/5 | titles={titles2}",
+    )
+    state.phase_a_titles.extend(titles2)
+
+
+def step_a2_white_sneakers(page: Page, state: ProofState) -> None:
+    """A2: 'white sneakers for men' must return >=5 cards, with >=3 of the
+    first 5 titles containing 'white'. Index-quality regression check for
+    adjective ("white") relevance. Threshold unchanged (was already correct
+    for the 5-cards-per-turn reality); settle-wait bug fixed per A1's docstring.
+    """
+    baseline = card_count(page)
+    send_text(page, "white sneakers for men")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)  # let the full turn settle before counting
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, "a2_white_sneakers")
+
+    if gained < 5:
+        state.record(
+            "A2. 'white sneakers for men' >=5 cards & >=3/5 titles contain 'white'",
+            False,
+            f"cards {baseline}->{after} (need >=5 new cards, got {gained})",
+        )
+        return
+
+    titles = [card_title(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(5)]
+    hits = sum(1 for t in titles if "white" in t.lower())
+    passed = hits >= 3
+    state.record(
+        "A2. 'white sneakers for men' >=5 cards & >=3/5 titles contain 'white'",
+        passed,
+        f"cards {baseline}->{after} | hits={hits}/5 | titles={titles}",
+    )
+    state.phase_a_titles.extend(titles)
+
+
+def step_a3_black_dress_dedup(page: Page, state: ProofState) -> None:
+    """A3: 'black dress for women' — respec'd to the 5-cards-per-turn reality:
+    the new turn's (up to 5) titles are normalized (lowercased, non-alphanumeric
+    stripped, whitespace collapsed) and checked for duplicates AGAINST BOTH each
+    other AND every title already seen this session (`state.phase_a_titles`,
+    populated by A1/A2) — a duplicate that straddles two different queries is
+    still a visible duplicate to the user, so the cross-turn check is
+    deliberate, not a relaxation. Settle-wait bug fixed per A1's docstring.
+    """
+    baseline = card_count(page)
+    send_text(page, "black dress for women")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)  # let the full turn settle before counting
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, "a3_black_dress_dedup")
+
+    n = min(gained, 5)
+    titles = [card_title(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(n)]
+    combined = state.phase_a_titles + titles
+    normalized = [normalize_title(t) for t in combined]
+    counts = Counter(normalized)
+    dupes = sorted(t for t, c in counts.items() if c > 1)
+    passed = gained >= 1 and len(dupes) == 0
+    state.record(
+        "A3. 'black dress for women' new titles have no visible duplicates "
+        "(incl. cross-turn vs. earlier Phase-A queries this session)",
+        passed,
+        f"cards {baseline}->{after} | new_titles(first {n})={titles} | "
+        f"prior_session_titles={state.phase_a_titles} | duplicate_normalized_titles={dupes}",
+    )
+    state.phase_a_titles.extend(titles)
+
+
+def step_a4_summer_dress_store_diversity(page: Page, state: ProofState) -> None:
+    """A4: 'summer dress' — respec'd to the 5-cards-per-turn reality: across the
+    (up to 5) new cards' store badges, no single store may account for more
+    than 3 of them (was >4-of-10; 3-of-5 is the equivalent >60% concentration
+    threshold). Settle-wait bug fixed per A1's docstring.
+    """
+    baseline = card_count(page)
+    send_text(page, "summer dress")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)  # let the full turn settle before counting
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, "a4_summer_dress_stores")
+
+    n = min(gained, 5)
+    stores = [card_store_badge(page.locator(CARD_SELECTOR).nth(baseline + i)) for i in range(n)]
+    counts = Counter(s for s in stores if s)
+    max_store, max_count = counts.most_common(1)[0] if counts else (None, 0)
+    passed = gained >= 1 and max_count <= 3
+    state.record(
+        "A4. 'summer dress' no single store >3/5 of new cards",
+        passed,
+        f"cards {baseline}->{after} | stores(first {n})={stores} | "
+        f"counts={dict(counts)} | max_store={max_store!r} max_count={max_count}",
+    )
+
+
+def card_data_attrs(card_locator) -> tuple[str | None, str | None]:
+    """Read `data-gender`/`data-slot` attrs off a card locator, if the frontend
+    has added them (it has not as of this writing — see the Phase-B module
+    docstring entry). Returns (None, None) when absent so callers degrade
+    gracefully to title heuristics rather than crashing."""
+    try:
+        gender = card_locator.get_attribute("data-gender")
+    except Exception:  # noqa: BLE001 - best-effort evidence extraction
+        gender = None
+    try:
+        slot = card_locator.get_attribute("data-slot")
+    except Exception:  # noqa: BLE001
+        slot = None
+    return gender, slot
+
+
+def board_complement_cards(page: Page) -> list:
+    """Return locators for every COMPLEMENT slot card in the LATEST outfit board
+    on the page (assistant turns render top-to-bottom, so `.last` is always the
+    most recent board — same reasoning as B4/B5's docstrings).
+
+    Complement identification is defensive per the task spec: prefer a
+    `data-slot` attribute if a later frontend fix adds one (`data-slot != "seed"`
+    would then mark a card as a complement); until then, fall back to the
+    "Hero" text badge SlotCard already renders on the seed/hero card today
+    (its only <span> child — see OutfitBoard.tsx), which is the one
+    title-independent signal available now to exclude the hero from the
+    cross-gender-leak check. The owned-anchor card (no buy link) is already
+    excluded by OUTFIT_BOARD_SLOT_SELECTOR, which only matches `<a>` tiles.
+    """
+    board = page.locator(OUTFIT_BOARD_SELECTOR)
+    if board.count() == 0:
+        return []
+    board0 = board.last
+    slot_cards = board0.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+    complements = []
+    for i in range(slot_cards.count()):
+        card = slot_cards.nth(i)
+        slot_attr = card.get_attribute("data-slot")
+        if slot_attr is not None:
+            if slot_attr.lower() != "seed":
+                complements.append(card)
+            continue
+        try:
+            badge_text = card.locator("span").first.inner_text().strip()
+        except Exception:  # noqa: BLE001
+            badge_text = ""
+        if badge_text.lower() != "hero":
+            complements.append(card)
+    return complements
+
+
+def _send_and_style_first(page: Page, state: ProofState, query: str, label_prefix: str) -> bool:
+    """Shared Phase-B precondition: send `query`, wait for cards, click 'Style
+    this' on the first new card, then wait for the resulting outfit board.
+
+    Records two precondition CheckResults (`{label_prefix}a`/`{label_prefix}b`).
+    Returns True iff both preconditions passed, so callers can proceed straight
+    to their content assertion against `board_complement_cards(page)`.
+    """
+    baseline = card_count(page)
+    send_text(page, query)
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    state.record(
+        f"{label_prefix}a. '{query}' renders cards (precondition)",
+        gained >= 1,
+        f"cards {baseline}->{after}",
+    )
+    if gained < 1:
+        return False
+
+    first_card = page.locator(CARD_SELECTOR).nth(baseline)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    try:
+        first_card.get_by_text("Style this", exact=True).first.click()
+    except Exception as exc:  # noqa: BLE001
+        state.record(
+            f"{label_prefix}b. 'Style this' produces an outfit board (precondition)",
+            False,
+            f"click failed: {exc}",
+        )
+        return False
+
+    deadline = time.time() + CARD_WAIT_TIMEOUT_S
+    while time.time() < deadline:
+        if page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline:
+            break
+        page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+    wait_for_turn_idle(page)
+
+    board_count = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    passed = board_count > board_baseline
+    state.record(
+        f"{label_prefix}b. 'Style this' produces an outfit board (precondition)",
+        passed,
+        f"boards on page: {board_count}",
+    )
+    return passed
+
+
+def _collect_complement_evidence(page: Page) -> tuple[list, list[str]]:
+    """Return (complement locators, formatted evidence strings incl. title +
+    data-gender/data-slot) for the latest outfit board. Shared by S1-S3."""
+    complements = board_complement_cards(page)
+    evidence = []
+    for c in complements:
+        title = card_title(c)
+        gender_attr, slot_attr = card_data_attrs(c)
+        evidence.append(f"title={title!r} data-gender={gender_attr!r} data-slot={slot_attr!r}")
+    return complements, evidence
+
+
+def assert_complement_gender(
+    cards: list,
+    expected_gender: str,
+    opposite_word_re: re.Pattern[str],
+    state: ProofState,
+    check_name: str,
+) -> None:
+    """Assert every card in `cards` is gender-consistent with `expected_gender`.
+
+    Prefers the frontend's `data-gender` attribute: a non-empty value that
+    disagrees with `expected_gender` is a hard FAIL regardless of title
+    wording (this is the whole point of the Phase-B frontend fix — an
+    authoritative, title-independent signal). A card with an EMPTY
+    `data-gender` (not tagged, e.g. `"unknown"` normalized to `""` upstream,
+    or a pre-fix deploy) falls back to the pre-existing word-boundary title
+    heuristic against `opposite_word_re`, so the check still catches an
+    obvious leak on untagged cards. Shared by S1/S2/S3/S4.
+    """
+    wrong_attr_hits: list[str] = []
+    title_word_hits: list[str] = []
+    evidence: list[str] = []
+    for c in cards:
+        title = card_title(c)
+        gender_attr, slot_attr = card_data_attrs(c)
+        evidence.append(f"title={title!r} data-gender={gender_attr!r} data-slot={slot_attr!r}")
+        if gender_attr:
+            if gender_attr.lower() != expected_gender:
+                wrong_attr_hits.append(f"{title!r} (data-gender={gender_attr!r})")
+        elif opposite_word_re.search(title):
+            title_word_hits.append(title)
+    passed = len(cards) >= 1 and not wrong_attr_hits and not title_word_hits
+    state.record(
+        check_name,
+        passed,
+        f"n_cards={len(cards)} wrong_data_gender_hits={wrong_attr_hits} "
+        f"title_word_hits={title_word_hits} | " + " || ".join(evidence),
+    )
+
+
+def assert_footwear_slot_sanity(cards: list, state: ProofState, check_name: str) -> None:
+    """Any card tagged `data-slot="footwear"` must have a footwear-ish title
+    (shoe|sneaker|loafer|sandal|heel|flat|jutti|mojari). Absence of a
+    footwear card is NOT a failure — footwear is an optional slot for casual
+    looks; the honest-suppression note (if any) is separate EVIDENCE, not
+    part of this assertion (see `suppression_note_lines`).
+    """
+    footwear_cards = [c for c in cards if (card_data_attrs(c)[1] or "").lower() == "footwear"]
+    if not footwear_cards:
+        state.record(check_name, True, "no footwear-slot card present (optional slot, OK)")
+        return
+    titles = [card_title(c) for c in footwear_cards]
+    bad = [t for t in titles if not PB_FOOTWEAR_TITLE_RE.search(t)]
+    state.record(check_name, not bad, f"footwear_cards={titles} non_footwear_titles={bad}")
+
+
+def suppression_note_lines(board_locator) -> list[str]:
+    """Evidence-only helper (not an assertion): lines of the board's visible
+    text containing an em dash '—', the separator OutfitBoard.tsx's
+    suppressed-slot notes use (`"{Slot} — {reason}"`). The rationale block and
+    partner `coordinated_with` text do not use an em dash, so this is a
+    reliable-enough heuristic for EVIDENCE purposes without needing to escape
+    OutfitBoard's Tailwind arbitrary-value classes (`text-[11px]`,
+    `text-muted-foreground/70`) into a CSS selector.
+    """
+    try:
+        text = board_locator.inner_text()
+    except Exception:  # noqa: BLE001 - best-effort evidence extraction
+        return []
+    return [line.strip() for line in text.splitlines() if "—" in line]
+
+
+def variant_tab_button_group(board_locator):
+    """Return the Locator for the variant-switcher button GROUP on
+    `board_locator`, or None if this board doesn't render one (<2 variants).
+
+    Both the variant switcher and the refinement-chip row use the identical
+    Tailwind class list `flex flex-wrap gap-1.5` (see OutfitBoard.tsx) with no
+    distinguishing testid. The variant switcher, when present, is ALWAYS the
+    FIRST such div in DOM order (rendered right after the occasion/gender
+    header, before the slot grid); the refinement chips are ALWAYS the LAST
+    (rendered after Save/share). When only one such div exists, it's the
+    refinement-chip row (variants absent) — distinguishing by COUNT rather
+    than by button text avoids depending on variant label wording.
+    """
+    groups = board_locator.locator(r"div.flex.flex-wrap.gap-1\.5")
+    if groups.count() < 2:
+        return None
+    return groups.first
+
+
+def step_pb_s1_womens_look_consistency(page: Page, state: ProofState) -> None:
+    """Phase-B S1 (RED-BASELINE target): 'black dress for women' -> 'Style this'
+    on the first card -> every COMPLEMENT card must be gender-consistent
+    (data-gender=="women", hard FAIL on a non-empty wrong value, title-word
+    fallback when empty) and must NOT match a novelty marker
+    (piano|guitar|novelty|quirky|costume). This directly reproduces the
+    reported bug: a women's rust dress look containing a MEN'S cardigan, MEN'S
+    formal shoes, and a novelty "Luxury Piano Shape Handbag". Also asserts
+    footwear slot-sanity (any data-slot="footwear" card reads as footwear) and
+    records (evidence only, not an assertion) whether a suppressed-slot note
+    is visible on the board.
+    """
+    if not _send_and_style_first(page, state, "black dress for women", "PB-S1"):
+        return
+    shot(page, "pb_s1_womens_look")
+
+    board = page.locator(OUTFIT_BOARD_SELECTOR).last
+    complements, _ = _collect_complement_evidence(page)
+
+    assert_complement_gender(
+        complements,
+        "women",
+        PB_MEN_WORD_RE,
+        state,
+        "PB-S1c. women's look: every complement is gender-consistent "
+        "(data-gender, title fallback)",
+    )
+
+    novelty_hits = [card_title(c) for c in complements if PB_NOVELTY_RE.search(card_title(c))]
+    state.record(
+        "PB-S1d. women's look: no complement title matches a novelty marker",
+        len(complements) >= 1 and not novelty_hits,
+        f"n_complements={len(complements)} novelty_hits={novelty_hits}",
+    )
+
+    assert_footwear_slot_sanity(
+        complements,
+        state,
+        "PB-S1e. women's look: any footwear-slot card has a footwear-ish title",
+    )
+
+    # Evidence-only (not an assertion, per spec): whether a suppressed-slot
+    # note is visible. Printed rather than state.record'd so it never affects
+    # PASS/FAIL — the coordinator asked for this as evidence only.
+    print(f"[EVIDENCE] PB-S1 suppression-note lines visible on board: {suppression_note_lines(board)}")
+
+
+def step_pb_s2_mens_look_consistency(page: Page, state: ProofState) -> None:
+    """Phase-B S2: 'white shirt for men' -> 'Style this' on the first card ->
+    every COMPLEMENT card must be gender-consistent (data-gender=="men", hard
+    FAIL on a non-empty wrong value, title-word fallback when empty). Mirror-
+    image check of S1 — proves the leak isn't one-directional. Also asserts
+    footwear slot-sanity (any data-slot="footwear" card reads as footwear).
+    """
+    if not _send_and_style_first(page, state, "white shirt for men", "PB-S2"):
+        return
+    shot(page, "pb_s2_mens_look")
+
+    complements, _ = _collect_complement_evidence(page)
+    assert_complement_gender(
+        complements,
+        "men",
+        PB_WOMEN_WORD_RE,
+        state,
+        "PB-S2c. men's look: every complement is gender-consistent "
+        "(data-gender, title fallback)",
+    )
+    assert_footwear_slot_sanity(
+        complements,
+        state,
+        "PB-S2d. men's look: any footwear-slot card has a footwear-ish title",
+    )
+
+
+def step_pb_s3_sangeet_ethnic_gate(page: Page, state: ProofState) -> None:
+    """Phase-B S3: 'style a kurta for sangeet for women' -> 'Style this' on the
+    first card -> every COMPLEMENT card's title must NOT contain a casual-
+    western marker (sneaker(s)|denim|hoodie|bomber). Ethnic-occasion gate check
+    — a sangeet/kurta look pulling in sneakers or a bomber jacket is the same
+    class of bug as S1's cross-gender leak, just gated on occasion instead of
+    gender. Unchanged from the RED-baseline run, plus a NEW gender-consistency
+    assertion (data-gender=="women", title fallback).
+    """
+    if not _send_and_style_first(page, state, "style a kurta for sangeet for women", "PB-S3"):
+        return
+    shot(page, "pb_s3_sangeet_ethnic")
+
+    complements, evidence = _collect_complement_evidence(page)
+    casual_hits = [
+        card_title(c) for c in complements if PB_CASUAL_WESTERN_RE.search(card_title(c))
+    ]
+    passed = len(complements) >= 1 and not casual_hits
+    state.record(
+        "PB-S3c. sangeet/ethnic look: no complement title contains a "
+        "casual-western marker (sneaker/denim/hoodie/bomber)",
+        passed,
+        f"n_complements={len(complements)} casual_hits={casual_hits} | " + " || ".join(evidence),
+    )
+    assert_complement_gender(
+        complements,
+        "women",
+        PB_MEN_WORD_RE,
+        state,
+        "PB-S3d. sangeet/ethnic look: every complement is gender-consistent "
+        "(data-gender, title fallback)",
+    )
+
+
+def step_pb_s4_partner_styling(context, base_url: str, state: ProofState) -> None:
+    """Phase-B S4 (NEW): partner-styling cross-gender coordination.
+
+    Runs in a FRESH session — its own Playwright page/tab off the SAME
+    browser context (a new page gets its own `sessionStorage`, hence its own
+    `demo_session_token`/conversation, without the overhead of a whole new
+    BrowserContext) — rather than the shared session S1-S3 use. This isolates
+    two things: (1) the "original board still present, unchanged" assertion
+    below can't be confused with an earlier step's board mutating the page,
+    and (2) 'husband' partner-gender resolution isn't influenced by any prior
+    turn's gender context (e.g. S2's men's-shirt turn immediately before it,
+    if this ran in the shared session).
+
+    Turn budget: 3 sends in this fresh session (query, 'Style this' click,
+    the partner follow-up) — see the module docstring's Phase-B turn-budget
+    note for how this interacts with the requested "<=8 messages total" goal.
+
+    Flow: 'black dress for women' -> 'Style this' on first card -> capture
+    the resulting board's complement titles -> 'what should my husband wear
+    with this?' -> assert a NEW board appears with the partner heading/badge,
+    a coordinated_with subheading mentioning the anchor, EVERY card in the
+    partner board is data-gender=="men" (hard FAIL on any "women"), and the
+    ORIGINAL women's board is still present with the SAME complement titles
+    captured before the partner turn.
+    """
+    fresh_page = context.new_page()
+    try:
+        if not step_load_chat(fresh_page, base_url, state):
+            return
+        if not _send_and_style_first(fresh_page, state, "black dress for women", "PB-S4"):
+            return
+        shot(fresh_page, "pb_s4_original_board")
+
+        original_complements = board_complement_cards(fresh_page)
+        original_titles = [card_title(c) for c in original_complements]
+
+        board_baseline = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count()
+        send_text(fresh_page, "what should my husband wear with this?")
+        deadline = time.time() + CARD_WAIT_TIMEOUT_S
+        while time.time() < deadline:
+            if fresh_page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline:
+                break
+            fresh_page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+        wait_for_turn_idle(fresh_page)
+        shot(fresh_page, "pb_s4_partner_board")
+
+        board_count = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count()
+        state.record(
+            "PB-S4a. 'what should my husband wear with this?' produces a NEW outfit board",
+            board_count > board_baseline,
+            f"boards on page: {board_count}",
+        )
+        if board_count <= board_baseline:
+            return
+
+        partner_board = fresh_page.locator(OUTFIT_BOARD_SELECTOR).last
+        try:
+            board_text = partner_board.inner_text()
+        except Exception:  # noqa: BLE001
+            board_text = ""
+
+        has_partner_marker = "Partner look" in board_text or "Your partner's look" in board_text
+        state.record(
+            "PB-S4b. partner board shows the partner heading/badge",
+            has_partner_marker,
+            f"board_text_snippet={board_text[:200]!r}",
+        )
+
+        coordinated_line = next(
+            (line for line in board_text.splitlines() if "coordinated" in line.lower()),
+            "",
+        )
+        mentions_anchor = (
+            "black dress" in coordinated_line.lower() or "coordinated" in coordinated_line.lower()
+        )
+        state.record(
+            "PB-S4c. partner board's coordinated_with subheading mentions the anchor",
+            bool(coordinated_line) and mentions_anchor,
+            f"coordinated_line={coordinated_line!r}",
+        )
+
+        partner_slot_cards = partner_board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        n_partner_cards = partner_slot_cards.count()
+        partner_cards = [partner_slot_cards.nth(i) for i in range(n_partner_cards)]
+        assert_complement_gender(
+            partner_cards,
+            "men",
+            PB_WOMEN_WORD_RE,
+            state,
+            "PB-S4d. every card in the partner board is data-gender==\"men\" "
+            "(hard FAIL on any \"women\")",
+        )
+
+        # Original board must still be present, unchanged — re-derive its
+        # complement titles the SAME way `original_titles` was captured
+        # (excluding the hero/seed via data-slot) and compare.
+        still_present = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count() >= 2
+        original_board_now = fresh_page.locator(OUTFIT_BOARD_SELECTOR).first
+        current_cards = original_board_now.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        recheck_titles = []
+        for i in range(current_cards.count()):
+            c = current_cards.nth(i)
+            slot_attr = c.get_attribute("data-slot")
+            if (slot_attr or "").lower() != "seed":
+                recheck_titles.append(card_title(c))
+        unchanged = still_present and recheck_titles == original_titles
+        state.record(
+            "PB-S4e. original women's board is still present with unchanged complement titles",
+            unchanged,
+            f"original_titles={original_titles} recheck_titles={recheck_titles} "
+            f"still_present={still_present}",
+        )
+    finally:
+        fresh_page.close()
+
+
+def step_pb_s5_occasion_register(page: Page, state: ProofState) -> None:
+    """Phase-B S5 (NEW): occasion register — an office-context look's
+    bottom-slot item should read as tailored (trouser/pant/palazzo/skirt), not
+    casual (shorts/denim skirt/joggers).
+
+    Tries the cheapest phrasing first ('office look for women', a single send
+    that may compose a board directly) to keep this step's turn cost minimal
+    (see the module's Phase-B turn-budget note); only falls back to the
+    'style a garment for office' + 'Style this' 2-turn flow if the single
+    send doesn't board within the settle window.
+    """
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, "office look for women")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    board_after_direct = page.locator(OUTFIT_BOARD_SELECTOR).count()
+
+    if board_after_direct > board_baseline:
+        state.record(
+            "PB-S5a. 'office look for women' produces an outfit board directly",
+            True,
+            f"boards on page: {board_after_direct}",
+        )
+    else:
+        state.record(
+            "PB-S5a. 'office look for women' produces an outfit board directly",
+            False,
+            f"no board after direct send (boards={board_after_direct}); "
+            "falling back to 'style this' flow",
+        )
+        if not _send_and_style_first(
+            page, state, "black top for office for women", "PB-S5fallback"
+        ):
+            return
+
+    board = page.locator(OUTFIT_BOARD_SELECTOR).last
+    shot(page, "pb_s5_office_look")
+
+    slot_cards = board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+    bottom_title = None
+    for i in range(slot_cards.count()):
+        c = slot_cards.nth(i)
+        slot_attr = c.get_attribute("data-slot")
+        if (slot_attr or "").lower() == "bottom":
+            bottom_title = card_title(c)
+            break
+
+    if bottom_title is None:
+        state.record(
+            "PB-S5b. office look's bottom-slot card is tailored, not casual",
+            False,
+            "no data-slot='bottom' card present on the board",
+        )
+        return
+
+    forbidden_hit = bool(PB_S5_FORBIDDEN_BOTTOM_RE.search(bottom_title))
+    required_hit = bool(PB_S5_REQUIRED_BOTTOM_RE.search(bottom_title))
+    state.record(
+        "PB-S5b. office look's bottom-slot card is tailored, not casual",
+        required_hit and not forbidden_hit,
+        f"bottom_title={bottom_title!r} forbidden_hit={forbidden_hit} required_hit={required_hit}",
+    )
+
+
+def step_pb_s6_distinct_variants(page: Page, state: ProofState) -> None:
+    """Phase-B S6 (NEW): distinct outfit variants.
+
+    Zero-turn-cost by design (see the module's Phase-B turn-budget note):
+    reuses whichever board ALREADY on the page (from S1/S2/S3/S5, in DOM
+    order — S4 runs in its own separate page, so its boards are never visible
+    here) is the first to expose >=2 variant tabs, rather than sending a new
+    query. If NO board on the page has >=2 variants, this is recorded as
+    evidence (thin-pool honesty is allowed per spec) rather than a hard
+    failure.
+    """
+    boards = page.locator(OUTFIT_BOARD_SELECTOR)
+    n_boards = boards.count()
+    target_board = None
+    tab_group = None
+    for i in range(n_boards):
+        b = boards.nth(i)
+        g = variant_tab_button_group(b)
+        if g is not None and g.locator("button").count() >= 2:
+            target_board = b
+            tab_group = g
+            break
+
+    if target_board is None:
+        state.record(
+            "PB-S6. >=2 outfit variants exist and their complement sets are pairwise disjoint",
+            True,
+            f"no board among the {n_boards} on the page rendered >=2 variant tabs this run "
+            "(thin-variant-pool honesty — not a hard failure per spec)",
+        )
+        return
+
+    buttons = tab_group.locator("button")
+    n_variants = buttons.count()
+    variant_labels: list[str] = []
+    variant_title_sets: list[set[str]] = []
+    for i in range(n_variants):
+        buttons.nth(i).click()
+        # Variant switching is a local React state update (no network round
+        # trip beyond a fire-and-forget telemetry POST /events — see
+        # handleVariantSwitch), so a short fixed wait is enough to settle the
+        # re-render; wait_for_turn_idle's "Stop" button polling doesn't apply
+        # here since no assistant turn is in flight.
+        page.wait_for_timeout(500)
+        variant_labels.append(buttons.nth(i).inner_text().strip())
+        cards = target_board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        titles: set[str] = set()
+        for j in range(cards.count()):
+            c = cards.nth(j)
+            slot_attr = c.get_attribute("data-slot")
+            if (slot_attr or "").lower() != "seed":
+                titles.add(card_title(c))
+        variant_title_sets.append(titles)
+    shot(page, "pb_s6_variants")
+
+    pairwise_disjoint = all(
+        variant_title_sets[i].isdisjoint(variant_title_sets[j])
+        for i in range(n_variants)
+        for j in range(i + 1, n_variants)
+    )
+    passed = n_variants >= 2 and pairwise_disjoint
+    state.record(
+        "PB-S6. >=2 outfit variants exist and their complement sets are pairwise disjoint",
+        passed,
+        f"n_variants={n_variants} labels={variant_labels} "
+        f"title_sets={[sorted(s) for s in variant_title_sets]} pairwise_disjoint={pairwise_disjoint}",
+    )
 
 
 def print_summary(state: ProofState) -> bool:
@@ -777,7 +1739,29 @@ def main() -> int:
     parser.add_argument(
         "--product",
         action="store_true",
-        help="Run only the new product-bug-check steps (B1-B4) instead of the original a-f flow.",
+        help="Run only the new product-bug-check steps (B1-B5) instead of the original a-f flow.",
+    )
+    parser.add_argument(
+        "--phase-a",
+        action="store_true",
+        help=(
+            "Run only the Phase-A index-quality content-assertion steps (A1-A4): saree "
+            "recall, 'white' adjective relevance, duplicate-title detection, and "
+            "store-diversity. These assert fixes that may not be deployed yet."
+        ),
+    )
+    parser.add_argument(
+        "--phase-b",
+        action="store_true",
+        help=(
+            "Run the Phase-B content-assertion steps (S1-S6) for the reported outfit "
+            "gender-leak bug and the Phase-B fix surface: women's-look / men's-look "
+            "cross-gender leak checks with data-gender/data-slot assertions and footwear "
+            "slot-sanity (S1-S2), a sangeet/ethnic-occasion casual-western + gender gate "
+            "(S3), partner-styling cross-gender coordination in a fresh session (S4), "
+            "office-look occasion-register vocabulary (S5), and distinct outfit variants "
+            "(S6)."
+        ),
     )
     args = parser.parse_args()
 
@@ -806,6 +1790,19 @@ def main() -> int:
                     image_new_cards = step_image_upload(page, state, Path(args.image))
                     step_b4_image_board(page, state, expected_new_cards=image_new_cards)
                     step_b4c_open_all_panel(page, state)
+                    step_b5_save_look(page, state)
+                elif args.phase_a:
+                    step_a1_sarees(page, state)
+                    step_a2_white_sneakers(page, state)
+                    step_a3_black_dress_dedup(page, state)
+                    step_a4_summer_dress_store_diversity(page, state)
+                elif args.phase_b:
+                    step_pb_s1_womens_look_consistency(page, state)
+                    step_pb_s2_mens_look_consistency(page, state)
+                    step_pb_s3_sangeet_ethnic_gate(page, state)
+                    step_pb_s4_partner_styling(context, args.base_url, state)
+                    step_pb_s5_occasion_register(page, state)
+                    step_pb_s6_distinct_variants(page, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(

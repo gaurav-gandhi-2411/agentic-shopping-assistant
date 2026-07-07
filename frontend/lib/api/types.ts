@@ -13,6 +13,18 @@ export interface ItemLink {
 }
 
 /**
+ * A look slot with no valid candidate after the gender/slot-type/coherence/
+ * budget gates — intentionally left empty rather than filled with a
+ * wrong-gender or off-vocabulary item. `reason` is short and safe to render
+ * directly to the user, e.g. "No women's footwear in our partner stores yet".
+ * Mirrors api/schemas.py SuppressedSlot.
+ */
+export interface SuppressedSlot {
+  slot: string
+  reason: string
+}
+
+/**
  * The self-contained snapshot stored when a look is saved.
  * Typed loosely so partial-data (older saves) never crash the reader.
  */
@@ -113,6 +125,8 @@ export interface OutfitVariant {
   cart_url?: string | null
   /** Per-item buy links; present when cart_url is null (non-Shopify). */
   item_links?: ItemLink[] | null
+  /** Slots suppressed for THIS variant (absent/empty when nothing was suppressed). */
+  suppressed_slots?: SuppressedSlot[] | null
 }
 
 /**
@@ -160,6 +174,11 @@ export interface ItemSummary {
    * and the item must never render a buy link, price, or store badge.
    */
   is_owned?: boolean
+  /**
+   * Item gender, populated for gender-consistency checks in the styling agent.
+   * Optional/absent on older payloads — treat as unknown when missing.
+   */
+  gender?: "women" | "men" | "unknown"
 }
 
 export interface ConversationSummary {
@@ -204,6 +223,14 @@ export interface ChatMessage {
   anchorImageUrl?: string | null
   /** Backend-suggested follow-up prompts; render as clickable pills for the latest assistant message. */
   suggestionChips?: string[] | null
+  /** Slots (of the active variant) suppressed for lack of a valid candidate. */
+  suppressedSlots?: SuppressedSlot[] | null
+  /** "partner" for a partner-anchored board; absent/"primary" for the user's own look. */
+  lookRole?: "primary" | "partner" | null
+  /** Board heading override for partner looks, e.g. "Your partner's look". */
+  lookTitle?: string | null
+  /** Short explanatory text for how a partner look was coordinated with the primary look. */
+  coordinatedWith?: string | null
 }
 
 // Discriminated union of every frame the WS server can send.
@@ -233,6 +260,14 @@ export type WsFrame =
         item_links?: ItemLink[] | null
         /** Backend-suggested follow-up prompts (e.g. contextual refinements). */
         suggestion_chips?: string[] | null
+        /** Slots (of the active variant) suppressed for lack of a valid candidate. */
+        suppressed_slots?: SuppressedSlot[] | null
+        /** "partner" for a partner-anchored board; absent/"primary" for the user's own look. */
+        look_role?: "primary" | "partner" | null
+        /** Board heading override for partner looks, e.g. "Your partner's look". */
+        look_title?: string | null
+        /** Short explanatory text for how a partner look was coordinated with the primary look. */
+        coordinated_with?: string | null
       }
     }
   | { type: "cancelled" }

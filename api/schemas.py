@@ -77,6 +77,12 @@ class ItemSummary(BaseModel):
     # None/empty = item not found in other stores (current reality for ~all items).
     # Prices are SNAPSHOT — never real-time.  Frontend must display snapshot disclaimer.
     price_matches: list[PriceMatch] | None = None
+    # Phase B Part 2: per-item gender ("women"/"men"/"unknown") — lets the frontend
+    # render cross-gender PARTNER looks (and any mixed-gender board) without
+    # guessing from product_type/display_name. Populated for every item that
+    # flows through this single serialization point (search results, primary
+    # outfit items, partner-look items, variant items).
+    gender: str = "unknown"
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":
@@ -103,12 +109,26 @@ class ItemSummary(BaseModel):
             store_display=get_store_display_name(store),
             # Owned items are never for sale — never emit a buy link for them.
             pdp_url=None if is_owned else build_pdp_url(store, item),
+            gender=_ns(item.get("gender"), "unknown").lower() or "unknown",
         )
 
 
 # ---------------------------------------------------------------------------
 # Outfit variants
 # ---------------------------------------------------------------------------
+
+
+class SuppressedSlot(BaseModel):
+    """A look slot with no valid candidate after the gender/slot-type/coherence/
+    budget gates — intentionally left empty rather than filled with a
+    wrong-gender or off-vocabulary item (Phase B Part 1: honest slot
+    suppression). `reason` is short and safe to render directly to the user,
+    e.g. "No women's footwear in our partner stores yet".
+    """
+
+    slot: str
+    reason: str
+
 
 class OutfitVariant(BaseModel):
     """One switchable outfit variant (base, colour story, or formality lean)."""
@@ -126,6 +146,8 @@ class OutfitVariant(BaseModel):
     # individually ("Buy at {store_display}") without any Myntra fallback for non-Myntra items.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
+    # Slots suppressed for THIS variant (None when compose_outfit didn't report any).
+    suppressed_slots: list[SuppressedSlot] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -158,10 +180,19 @@ class ChatResponse(BaseModel):
     # Cart action fields — populated for outfit responses; None otherwise.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
+    # Slots (of the base/active variant) suppressed for lack of a valid candidate —
+    # see SuppressedSlot. None for non-outfit turns or when nothing was suppressed.
+    suppressed_slots: list[SuppressedSlot] | None = None
     # Colour refinement chips — available colours from the current result set.
     # Front-end renders these as tappable chip buttons that retrigger search with
     # the chosen colour filter applied to the current context.
     suggestion_chips: list[str] | None = None
+    # Phase B Part 2: cross-gender PARTNER styling board-level fields. "partner"
+    # marks a SEPARATE companion look (never mixed into the primary look) — None
+    # (omitted) for every regular/primary board.
+    look_role: str | None = None
+    look_title: str | None = None
+    coordinated_with: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +261,10 @@ class SaveLookRequest(BaseModel):
     """Body for POST /looks — persist the current outfit board for sharing."""
 
     session_id: str = Field(..., description="Anonymous demo session identifier.")
-    brand: str = Field(..., description="Brand slug, e.g. 'hm' or 'myntra'.")
+    brand: str | None = Field(
+        default=None,
+        description="Brand slug, e.g. 'hm' or 'myntra'. None in unified/cross-store mode.",
+    )
     look_id: str | None = Field(default=None, description="Ephemeral look id from the outfit engine.")
     occasion: str | None = Field(default=None, description="Occasion label, e.g. 'casual'.")
     look_gender: str | None = Field(default=None, description="Gender label: 'men', 'women', 'unisex'.")

@@ -12,7 +12,14 @@ from src.agents.outfit.composer import (
     compose_outfit_variants,
     swap_slot_in_look,
 )
-from src.agents.outfit.rationale import generate_rationales
+from src.agents.outfit.partner import (
+    build_coordinated_with_text,
+    compose_partner_look,
+    detect_partner_intent,
+    resolve_partner_gender,
+)
+from src.agents.outfit.rationale import generate_rationales, template_rationale
+from src.agents.outfit.slots import resolve_look_gender
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import (
@@ -22,6 +29,7 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
+from src.catalogue.cleaning import is_fabric_bolt_text
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
@@ -42,6 +50,22 @@ _OUTFIT_INTENT_RE = re.compile(
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
     r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
+    re.IGNORECASE,
+)
+
+# Phase B task 3: "<occasion> look" phrasing ("office look for women", "wedding
+# look") carries clear outfit-composition intent even though it uses none of
+# _OUTFIT_INTENT_RE's action verbs ("outfit", "style this/me/it", "complete
+# the look", ...) — "outfit" itself IS in that verb list, so "casual outfit
+# for men"/"an office outfit" already route correctly; the gap is specifically
+# an occasion word immediately followed by bare "look". Deliberately narrow —
+# requires the occasion word to be the token directly before "look" — so
+# "look for black dresses" / "looking for shirts" (no occasion word directly
+# before "look", and in fact no occasion word at all) never match.
+_OCCASION_LOOK_RE = re.compile(
+    r"\b(?:sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)"
+    r"\s+look\b",
     re.IGNORECASE,
 )
 
@@ -587,6 +611,20 @@ def build_graph(
         raw_q = state["user_query"]
         intent = parse_intent(raw_q)
 
+        # Budget carry-forward for the OUTFIT-composition fast-path branches below
+        # (style-anchor, partner-look, swap-slot, look-refinement, occasion-outfit).
+        # These branches return BEFORE the session_context/merge_with_context budget
+        # inheritance built further down for the search path (see "Budget
+        # carry-forward" comment near session_context), so without this they always
+        # hardcoded budget_inr=None (or used only this turn's intent.budget_max_inr) —
+        # a genuine "kurta under 3000" (turn 1) followed by "style this for a
+        # sangeet" (turn 2) silently dropped the budget for the outfit path. Mirrors
+        # the same state["filters"]["price_max"] fallback used at session_context
+        # construction time.
+        _inherited_budget_inr = intent.budget_max_inr
+        if _inherited_budget_inr is None:
+            _inherited_budget_inr = (state.get("filters") or {}).get("price_max")
+
         # RED 2b/3/B3c: explicit anchor reference ("Style this <item>",
         # "What goes with the/this <item>") — resolve deterministically against
         # session retrieved_items BEFORE any garment_type veto or LLM call.
@@ -599,16 +637,32 @@ def build_graph(
                     _anchor_gender = (
                         _resolve_session_gender(state) or _brand_cfg.gender_default
                     )
+                # B-fix: state["occasion"] is NEVER persisted across turns (see
+                # _reconstruct_occasion_from_history docstring — only
+                # retrieved_items/filters/messages survive in the session
+                # dict), so `state.get("occasion")` here was ALWAYS None and
+                # this branch silently defaulted every "Style this" click to
+                # "casual" — live-proven: "black top for office for women" ->
+                # Style this -> outfit composed with occasion="casual",
+                # dropping the office formality gate entirely and letting a
+                # denim mini skirt into the bottom slot. Reconstruct from
+                # conversation history the same way the look-refinement and
+                # partner-look branches already do.
+                _anchor_occasion = (
+                    _reconstruct_occasion_from_history(state.get("messages", []))
+                    or state.get("occasion")
+                    or "casual"
+                )
                 _anchor_plan = {
                     "action": "outfit",
                     "article_id": _anchor["article_id"],
-                    "occasion": state.get("occasion") or "casual",
+                    "occasion": _anchor_occasion,
                     "gender": _anchor_gender,
-                    "budget_inr": None,
+                    "budget_inr": _inherited_budget_inr,
                 }
                 logger.info(
-                    "[router/style-anchor] resolved anchor=%s gender=%s | query=%r",
-                    _anchor["article_id"], _anchor_gender, raw_q[:60],
+                    "[router/style-anchor] resolved anchor=%s gender=%s occasion=%s | query=%r",
+                    _anchor["article_id"], _anchor_gender, _anchor_occasion, raw_q[:60],
                 )
                 return {
                     "current_plan": json.dumps(_anchor_plan),
@@ -618,6 +672,58 @@ def build_graph(
                 }
             # No session item matched this reference — fall through to the
             # existing outfit-intent / deterministic-search behaviour below.
+
+        # Phase B Part 2: cross-gender PARTNER styling intent — explicit
+        # relationship words ("husband", "wife", "his and hers", "couple", ...)
+        # trigger a SEPARATE companion look in the partner's gender, coordinated
+        # with the session's current look anchor. Checked before the general
+        # look-refinement regex since it's a narrower, higher-priority route;
+        # detect_partner_intent is deliberately conservative (see its docstring)
+        # so ambiguous phrasing ("also show me shirts") never fires this path.
+        _partner_intent = detect_partner_intent(raw_q)
+        if _partner_intent.matched:
+            # Route via action="outfit" regardless of whether an anchor is found —
+            # route_decision() only understands the fixed action vocabulary (it does
+            # NOT recognise "pending_answer"/"pending_respond", which are terminal
+            # plans only valid when returned by a node that connects directly to
+            # END). outfit_node's partner_look branch performs the actual anchor
+            # lookup and returns the honest "no anchor" prompt itself (requirement 2:
+            # "if the session has no anchor/look, do not guess") when
+            # partner_anchor_article_id doesn't resolve to a session item.
+            _session_items = state.get("retrieved_items", [])
+            _partner_anchor = next(
+                (it for it in _session_items if it.get("_role") == "seed"), None
+            )
+            _anchor_gender = (
+                (_partner_anchor.get("gender") or "").lower() if _partner_anchor else ""
+            )
+            if _anchor_gender not in ("men", "women"):
+                _anchor_gender = _resolve_session_gender(state) or _brand_cfg.gender_default
+            _partner_gender = resolve_partner_gender(_partner_intent.gender_hint, _anchor_gender)
+            _partner_occ_slug = (
+                _reconstruct_occasion_from_history(state.get("messages", [])) or "casual"
+            )
+            _partner_plan = {
+                "action": "outfit",
+                "article_id": None,
+                "occasion": _partner_occ_slug,
+                "gender": _partner_gender,
+                "budget_inr": _inherited_budget_inr,
+                "partner_look": True,
+                "partner_anchor_article_id": (
+                    _partner_anchor["article_id"] if _partner_anchor else None
+                ),
+            }
+            logger.info(
+                "[router/partner-look] anchor=%s anchor_gender=%s partner_gender=%s "
+                "occasion=%s trigger=%r | query=%r",
+                _partner_plan["partner_anchor_article_id"], _anchor_gender, _partner_gender,
+                _partner_occ_slug, _partner_intent.matched_phrase, raw_q[:60],
+            )
+            return {
+                "current_plan": json.dumps(_partner_plan),
+                "tool_calls": state.get("tool_calls", []) + [{"router_decision": _partner_plan}],
+            }
 
         # RED 2c follow-up turn: deterministic look-refinement re-compose.
         # Session persistence (api/routes/chat.py::_persist_result) only carries
@@ -660,7 +766,7 @@ def build_graph(
                         "article_id": _seed_item["article_id"],
                         "occasion": _occ_slug,
                         "gender": _refine_gender,
-                        "budget_inr": None,
+                        "budget_inr": _inherited_budget_inr,
                         "swap_slot": _slot_name,
                         "swap_exclude_id": (
                             _current_slot_item["article_id"] if _current_slot_item else None
@@ -692,7 +798,7 @@ def build_graph(
                     "article_id": _seed_item["article_id"],
                     "occasion": _occ_slug,
                     "gender": _refine_gender,
-                    "budget_inr": None,
+                    "budget_inr": _inherited_budget_inr,
                     "variant_preference": _bias_mode,
                 }
                 logger.info(
@@ -713,7 +819,9 @@ def build_graph(
         # than depending on the LLM router to free-parse the occasion + gender out of
         # the raw sentence — a malformed/off-schema LLM JSON response here used to
         # silently fall back to a plain search, dropping look_id entirely.
-        if _OUTFIT_OCCASION_RE.search(raw_q) and _OUTFIT_INTENT_RE.search(raw_q):
+        if _OUTFIT_OCCASION_RE.search(raw_q) and (
+            _OUTFIT_INTENT_RE.search(raw_q) or _OCCASION_LOOK_RE.search(raw_q)
+        ):
             _occ_slug = intent.occasion or state.get("occasion") or "casual"
             _occ_gender = (
                 intent.gender or _resolve_session_gender(state) or _brand_cfg.gender_default
@@ -723,11 +831,11 @@ def build_graph(
                 "article_id": None,
                 "occasion": _occ_slug,
                 "gender": _occ_gender,
-                "budget_inr": intent.budget_max_inr,
+                "budget_inr": _inherited_budget_inr,
             }
             logger.info(
                 "[router/occasion-outfit] occasion=%s gender=%s budget=%s | query=%r",
-                _occ_slug, _occ_gender, intent.budget_max_inr, raw_q[:60],
+                _occ_slug, _occ_gender, _inherited_budget_inr, raw_q[:60],
             )
             return {
                 "current_plan": json.dumps(_occ_plan),
@@ -757,6 +865,31 @@ def build_graph(
             if _types:
                 _ctx_garment = _Counter(_types).most_common(1)[0][0].lower()
 
+        # S3a fix: detect a genuine garment-type PIVOT (this turn names a
+        # DIFFERENT garment than the session's prior dominant garment) so
+        # search_node can drop stale accumulated filters instead of re-merging
+        # them. merge_with_context() below already decides, at the IntentV1
+        # level, which fields (garment_type/gender/colour/occasion) carry
+        # forward when the new turn doesn't specify them — but search_node
+        # independently re-merges the RAW accumulated filter dict
+        # (state["filters"]) underneath the new plan's filters. That second,
+        # dict-level merge silently resurrects facets merge_with_context never
+        # intended to carry forward this turn: e.g. "white shirt for men" sets
+        # colour_group_name="White"; the next turn "style a kurta for sangeet
+        # for women" has its own explicit gender/garment and no colour at all,
+        # yet colour_group_name="White" survives in the merged filter dict and
+        # silently narrows the sangeet-kurta search to only WHITE kurtas
+        # (reproduced locally: 10 kurtas -> 6 once the stale colour survives).
+        # Only garment_type pivots trigger the reset — a colour-only or
+        # budget-only refinement ("in blue now", "cheaper") must still inherit
+        # the prior garment/gender context, which is unaffected here since
+        # intent.garment_type is None for those queries.
+        _is_garment_pivot = (
+            intent.garment_type is not None
+            and _ctx_garment is not None
+            and intent.garment_type != _ctx_garment
+        )
+
         # Reconstruct gender context from prior-turn filters.
         # Prefer explicit gender key; fall back to index_group_name for backwards compat.
         _prior_filters = state.get("filters") or {}
@@ -771,8 +904,30 @@ def build_graph(
         session_context = {
             "garment_type": _ctx_garment,
             "gender": _ctx_gender,
-            "colour": (state.get("filters") or {}).get("colour_group_name"),
+            # S3a fix: never inherit a stale colour into a genuine garment-type
+            # pivot. merge_with_context() has no way to tell "in blue now"
+            # (a real colour refinement of the SAME garment) apart from "kurta
+            # for sangeet" (a pivot to a different garment that just happens to
+            # follow a colour-filtered search) — that distinction has to be made
+            # here, using _is_garment_pivot, before the colour ever reaches
+            # merge_with_context.
+            "colour": (
+                None
+                if _is_garment_pivot
+                else (state.get("filters") or {}).get("colour_group_name")
+            ),
             "occasion": state.get("occasion"),
+            # Budget carry-forward: reconstructed from the accumulated filter dict
+            # (state["filters"] survives the session round-trip via
+            # api/routes/chat.py::_persist_result) the same way gender/colour are
+            # reconstructed above — merge_with_context() previously never inherited
+            # budget_max_inr at all, so a colour/refinement turn with no fresh budget
+            # mention relied entirely on this accidental filter-dict carry-forward,
+            # which the fallback ladder in search_node can silently strip (e.g. a
+            # zero-result retry that drops price_max along with other facets). Feeding
+            # it through merge_with_context as well gives budget the same durable,
+            # intent-level inheritance garment_type/gender/occasion already get.
+            "budget_max_inr": _prior_filters.get("price_max"),
         }
 
         # Merge new intent with session context (carries forward unspecified fields)
@@ -844,13 +999,20 @@ def build_graph(
         }
         if _is_similar_query and _anchor_id and not merged_intent.garment_type:
             plan["anchor_article_id"] = _anchor_id
+        if _is_garment_pivot:
+            # S3a fix: tell search_node to build this turn's filters from
+            # _plan_filters alone — do NOT re-merge stale accumulated
+            # state["filters"] on top of a genuine garment pivot.
+            plan["reset_filters"] = True
 
         logger.info(
-            "[router/intent] product → search | garment=%s gender=%s colour=%s anchor=%s | query=%r",
+            "[router/intent] product → search | garment=%s gender=%s colour=%s anchor=%s "
+            "pivot=%s | query=%r",
             merged_intent.garment_type,
             merged_intent.gender,
             merged_intent.colour,
             plan.get("anchor_article_id"),
+            _is_garment_pivot,
             raw_q[:60],
         )
         return {
@@ -940,10 +1102,9 @@ def build_graph(
 
     # Bolt-good / fabric SKU types — not finished wearable garments.
     # Prevents "Unstitched Dress Material" from surfacing in dress or outfit searches.
-    _MATERIAL_ONLY_RE = re.compile(
-        r"\bunstitched\b|dress material|fabric piece|blouse piece",
-        re.IGNORECASE,
-    )
+    # Shared with src/retrieval/hybrid_search.py via is_fabric_bolt_text (single
+    # source of truth) — a "blouse piece" mention alone does NOT exclude a row when
+    # it is also a finished saree (see src/catalogue/cleaning.py docstring).
 
     # Build a set of valid values per facet once at graph-construction time.
     _valid_facet_values: dict[str, set[str]] = {
@@ -1028,7 +1189,14 @@ def build_graph(
                 ],
             }
         # Merge accumulated state filters with any new filters the router specified.
-        merged = {**state.get("filters", {}), **plan.get("filters", {})}
+        # S3a fix: router_node sets plan["reset_filters"]=True on a genuine
+        # garment-type pivot (e.g. "white shirt for men" -> "kurta for sangeet
+        # for women") — in that case, start from an empty base instead of
+        # re-merging the stale accumulated dict, which would otherwise
+        # silently resurrect facets (colour_group_name, etc.) the pivot never
+        # intended to carry forward (see router_node's _is_garment_pivot).
+        _filters_base = {} if plan.get("reset_filters") else state.get("filters", {})
+        merged = {**_filters_base, **plan.get("filters", {})}
 
         # Keep index_group_name in lockstep with "gender" whenever "gender" is present.
         # "gender" is the freshest signal — it comes from IntentParser's merge_with_context,
@@ -1235,9 +1403,9 @@ def build_graph(
         # check prod_name and detail_desc, not just product_type.
         def _is_material(it: dict) -> bool:
             return (
-                _MATERIAL_ONLY_RE.search(it.get("product_type", ""))
-                or _MATERIAL_ONLY_RE.search(it.get("prod_name", ""))
-                or _MATERIAL_ONLY_RE.search(it.get("display_name", ""))
+                is_fabric_bolt_text(it.get("product_type", ""))
+                or is_fabric_bolt_text(it.get("prod_name", ""))
+                or is_fabric_bolt_text(it.get("display_name", ""))
             )
 
         result["items"] = [it for it in result["items"] if not _is_material(it)]
@@ -1293,11 +1461,44 @@ def build_graph(
         few_gender_results = gender_filter_applied and len(result["items"]) < 5
 
         # For refinement turns: exclude items the user has already seen before reranking.
+        # Pool-underflow fallback (same retry-then-honest-fallback shape as
+        # composer._find_best_candidate's bottom-slot retry, commit a982371): the
+        # first-pass fetch_k window can be exhausted by the prior-item exclusion on
+        # thin categories (e.g. sarees) or after several consecutive refinement turns,
+        # which previously fell straight through to silently re-showing already-seen
+        # items instead of a full fresh page. Before accepting that fallback we retry
+        # ONCE with a WIDER retrieval window; only if the widened pool still can't
+        # clear the >=2-fresh-items floor do we fall back to the full (possibly-repeat)
+        # candidate pool — flagged honestly via thin_category rather than silently
+        # claiming freshness it doesn't have.
         candidates = result["items"]
+        thin_category = False
         if refinement and prior_ids:
             fresh = [it for it in candidates if it["article_id"] not in prior_ids]
+            if len(fresh) < top_k:
+                _widened = search_catalogue(query, merged or None, retriever, fetch_k * 3)
+                _widened_fresh = [
+                    it for it in _widened["items"] if it["article_id"] not in prior_ids
+                ]
+                if len(_widened_fresh) > len(fresh):
+                    logger.info(
+                        "[search/pool-underflow] refinement fresh pool underflowed "
+                        "(fetch_k=%d, fresh=%d) — widened to fetch_k=%d (fresh=%d)",
+                        fetch_k, len(fresh), fetch_k * 3, len(_widened_fresh),
+                    )
+                    fresh = _widened_fresh
             if len(fresh) >= 2:
                 candidates = fresh
+                if len(fresh) < top_k:
+                    thin_category = True
+            else:
+                thin_category = True
+                logger.info(
+                    "[search/pool-underflow] refinement fresh pool still underflowed "
+                    "after widening (fresh=%d) — falling back to full candidate pool "
+                    "(may re-show prior items)",
+                    len(fresh),
+                )
 
         # Apply negative colour exclusion on the candidate pool before reranking
         # so the reranker never sees excluded-colour items. Guard: need at least 2
@@ -1376,6 +1577,8 @@ def build_graph(
         if few_gender_results:
             search_meta["few_gender_results"] = True
             search_meta["gender_group"] = merged.get("index_group_name", "")
+        if thin_category:
+            search_meta["thin_category"] = True
         update: dict = {
             "retrieved_items": items_out,
             "new_items_this_turn": True,
@@ -1551,6 +1754,145 @@ def build_graph(
 
     def outfit_node(state: AgentState) -> dict:
         plan = json.loads(state.get("current_plan") or "{}")
+
+        # Phase B Part 2: cross-gender PARTNER styling — router_node already
+        # resolved the partner's gender + the anchor to coordinate with; this
+        # branch composes a SEPARATE companion look and returns early, never
+        # falling through to the primary-look compose/variant machinery below
+        # (the primary look must remain untouched — requirement: "The primary
+        # look must remain untouched").
+        if plan.get("partner_look"):
+            _partner_anchor_id = plan.get("partner_anchor_article_id")
+            _session_items = state.get("retrieved_items", [])
+            _partner_anchor_item = next(
+                (it for it in _session_items if it.get("article_id") == _partner_anchor_id),
+                None,
+            )
+            _partner_gender = plan.get("gender") or "women"
+            _partner_occasion = plan.get("occasion") or "casual"
+
+            if _partner_anchor_item is None:
+                # Anchor vanished from session state between router_node and
+                # outfit_node (shouldn't normally happen) — honest prompt, not a guess.
+                answer = (
+                    "Tell me or show me what you're wearing first, then I'll "
+                    "style your partner to match."
+                )
+                if streaming_mode:
+                    return {
+                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                        "final_answer": None,
+                        "messages": [],
+                    }
+                return {
+                    "final_answer": answer,
+                    "messages": [{"role": "assistant", "content": answer}],
+                }
+
+            try:
+                _partner_result = compose_partner_look(
+                    catalogue_df,
+                    retriever,
+                    anchor_item=_partner_anchor_item,
+                    occasion_slug=_partner_occasion,
+                    partner_gender=_partner_gender,
+                )
+            except Exception as _pe:
+                logger.warning("[outfit/partner] compose_partner_look failed (%s)", _pe)
+                _partner_result = None
+
+            if _partner_result is None or _partner_result.get("seed_item") is None:
+                answer = (
+                    f"I couldn't find a {_partner_gender}'s "
+                    f"{_partner_occasion.replace('_', ' ')} look in this catalogue to "
+                    f"coordinate with that item — try a different occasion."
+                )
+                if streaming_mode:
+                    return {
+                        "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                        "final_answer": None,
+                        "messages": [],
+                    }
+                return {
+                    "final_answer": answer,
+                    "messages": [{"role": "assistant", "content": answer}],
+                }
+
+            _anchor_colour = (_partner_anchor_item.get("colour") or "").lower()
+            _anchor_type = (
+                _partner_anchor_item.get("product_type")
+                or _partner_anchor_item.get("prod_name")
+                or ""
+            ).lower()
+            # anchor_is_owned is NOT passed here: build_fact_sheet's anchor_is_owned
+            # describes ownership of THIS look's OWN seed_item, and the partner
+            # look's seed is always a freshly composed catalogue item for the
+            # partner — never the user's own upload. The couple's owned anchor (if
+            # any) is a DIFFERENT look, already surfaced via partner_context's
+            # coordinates_with_anchor_colour/type; claiming anchor_is_owned here
+            # would let the LLM wrongly say the partner's own seed is owned.
+            try:
+                _partner_rationale = generate_rationales(
+                    [_partner_result],
+                    llm,
+                    occasion=_partner_occasion,
+                    gender=_partner_gender,
+                    partner_context={"anchor_colour": _anchor_colour, "anchor_type": _anchor_type},
+                    user_context=state.get("user_query"),
+                    budget_inr=plan.get("budget_inr"),
+                )[0]
+            except Exception as _pre:
+                logger.warning("[outfit/partner] generate_rationales failed (%s)", _pre)
+                _partner_rationale = template_rationale(_partner_result)
+            _partner_result["rationale"] = _partner_rationale
+
+            _coordinated_with = build_coordinated_with_text(
+                _partner_anchor_item, _partner_result, _partner_occasion
+            )
+
+            _p_seed = _partner_result.get("seed_item")
+            _p_complements = _partner_result.get("complements", [])
+            _p_items_out = ([_p_seed] if _p_seed else []) + _p_complements
+            _p_empty_slots = _partner_result.get("empty_slots", [])
+
+            answer = f"**Your partner's look**\n\n{_partner_rationale}\n\n_{_coordinated_with}_"
+            for _slot in _p_empty_slots:
+                answer += (
+                    f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+                    f"this look in the current catalogue._"
+                )
+
+            update: dict = {
+                "retrieved_items": _p_items_out,
+                "new_items_this_turn": True,
+                "tool_calls": state.get("tool_calls", []) + [
+                    {"outfit": {
+                        "article_id": _p_seed.get("article_id") if _p_seed else None,
+                        "occasion": _partner_occasion,
+                        "gender": _partner_gender,
+                        "partner_look": True,
+                    }}
+                ],
+                "look_id": _partner_result.get("look_id"),
+                "occasion": _partner_result.get("occasion"),
+                "look_gender": _partner_result.get("gender"),
+                "outfit_rationale": _partner_rationale,
+                "outfit_variants": None,
+                "budget_total_inr": _partner_result.get("budget_total_inr"),
+                "suppressed_slots": _partner_result.get("suppressed_slots"),
+                "look_role": "partner",
+                "look_title": "Your partner's look",
+                "coordinated_with": _coordinated_with,
+            }
+            if streaming_mode:
+                update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
+                update["final_answer"] = None
+                update["messages"] = []
+            else:
+                update["final_answer"] = answer
+                update["messages"] = [{"role": "assistant", "content": answer}]
+            return update
+
         article_id = plan.get("article_id") or plan.get("article_id", "")
 
         # Fallback: use first retrieved item when the LLM didn't extract an explicit ID.
@@ -1558,7 +1900,21 @@ def build_graph(
             article_id = state["retrieved_items"][0]["article_id"]
 
         occasion_slug = plan.get("occasion") or "casual"
-        gender = plan.get("gender") or _brand_cfg.gender_default
+        # Gender resolution (Phase B Part 1): explicit text > session context >
+        # the resolved anchor item's OWN gender column > brand default.  This
+        # matters most for the image-upload owned-anchor path — a photo of a
+        # men's shirt (article_id already resolved above) must never silently
+        # compose a women's-default look just because plan["gender"] is empty
+        # and the brand's configured default happens to be "women".  Shared with
+        # api/routes/image_style.py's own gender resolution (resolve_look_gender)
+        # so both entry points agree on the same anchor for the same session.
+        gender = resolve_look_gender(
+            intent_gender=plan.get("gender"),
+            session_gender=_resolve_session_gender(state),
+            catalogue_df=catalogue_df,
+            anchor_id=article_id or None,
+            brand_gender_default=_brand_cfg.gender_default,
+        )
         budget_inr = plan.get("budget_inr")
 
         # "Owned anchor" feature: if the resolved seed IS the session's image-upload
@@ -1716,11 +2072,16 @@ def build_graph(
         # Generate grounded rationales for all variants (one batched LLM call)
         try:
             rationales = generate_rationales(
-                look_variants, llm, occasion=occasion_slug, gender=gender
+                look_variants,
+                llm,
+                occasion=occasion_slug,
+                gender=gender,
+                user_context=state.get("user_query"),
+                budget_inr=budget_inr,
+                anchor_is_owned=owned_anchor,
             )
         except Exception as _re:
             logger.warning("[outfit] generate_rationales failed (%s) — using templates", _re)
-            from src.agents.outfit.rationale import template_rationale
             rationales = [template_rationale(v) for v in look_variants]
 
         # Attach rationale to each variant
@@ -1758,13 +2119,18 @@ def build_graph(
                 _ethnic_look["variant_label"] = "Ethnic"
                 try:
                     _ethnic_look["rationale"] = generate_rationales(
-                        [_ethnic_look], llm, occasion=occasion_slug, gender=gender
+                        [_ethnic_look],
+                        llm,
+                        occasion=occasion_slug,
+                        gender=gender,
+                        user_context=state.get("user_query"),
+                        budget_inr=budget_inr,
+                        anchor_is_owned=owned_anchor,
                     )[0]
                 except Exception as _re2:
                     logger.warning(
                         "[outfit] generate_rationales failed for ethnic_shift (%s)", _re2
                     )
-                    from src.agents.outfit.rationale import template_rationale
                     _ethnic_look["rationale"] = template_rationale(_ethnic_look)
                 result = _ethnic_look
         elif _variant_preference:
@@ -1811,6 +2177,9 @@ def build_graph(
             "outfit_rationale": base_rationale,
             "outfit_variants": look_variants,
             "budget_total_inr": result.get("budget_total_inr"),
+            # Honest slot suppression (Phase B Part 1): [{"slot": ..., "reason": ...}]
+            # for slots with no valid candidate — see composer.compose_outfit.
+            "suppressed_slots": result.get("suppressed_slots"),
         }
         if streaming_mode:
             update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})

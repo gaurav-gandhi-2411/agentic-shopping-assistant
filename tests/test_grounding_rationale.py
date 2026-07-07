@@ -163,6 +163,56 @@ class TestValidateRationale:
         assert len(ungrounded) == 0, f"Generic words falsely flagged: {ungrounded}"
 
 
+class TestValidateRationaleBudgetMismatch:
+    """The LLM could hallucinate a rupee figure that doesn't match the user's real
+    budget_inr (e.g. say "under ₹5000" when the true budget is ₹3000). This must
+    be caught the same way other ungrounded claims are — flagged and dropped."""
+
+    def test_fabricated_budget_figure_is_dropped(self) -> None:
+        look = _make_look(seed_colour="blue", seed_type="kurta")
+        items = [look["seed_item"]] + look["complements"]
+        text = "This kurta keeps you comfortably under your ₹5000 budget."
+        cleaned, flags = validate_rationale(
+            text, items, look["occasion"], budget_inr=3000.0
+        )
+        mismatch_flags = [f for f in flags if "budget_mismatch" in f]
+        assert len(mismatch_flags) > 0, f"Expected budget_mismatch flag but got: {flags}"
+        if "rationale:all_dropped" not in flags:
+            assert "5000" not in cleaned
+
+    def test_matching_budget_figure_is_kept(self) -> None:
+        look = _make_look(seed_colour="blue", seed_type="kurta")
+        items = [look["seed_item"]] + look["complements"]
+        text = "This kurta keeps you comfortably within your ₹3000 budget."
+        cleaned, flags = validate_rationale(
+            text, items, look["occasion"], budget_inr=3000.0
+        )
+        mismatch_flags = [f for f in flags if "budget_mismatch" in f]
+        assert len(mismatch_flags) == 0, f"Matching figure wrongly flagged: {mismatch_flags}"
+        assert "3000" in cleaned
+
+    def test_no_budget_known_does_not_check_numbers(self) -> None:
+        """When budget_inr is None, no numeric check runs — the "budget" word itself
+        is still scrubbed by the pre-existing price patterns (unrelated to this check)."""
+        look = _make_look(seed_colour="blue", seed_type="kurta")
+        items = [look["seed_item"]] + look["complements"]
+        text = "The kurta looks great."
+        cleaned, flags = validate_rationale(text, items, look["occasion"], budget_inr=None)
+        assert not any("budget_mismatch" in f for f in flags)
+
+    def test_close_rounded_figure_within_tolerance_is_kept(self) -> None:
+        """A small rounding difference (e.g. ₹2980 vs a real ₹3000 budget) should
+        not be flagged as fabricated."""
+        look = _make_look(seed_colour="blue", seed_type="kurta")
+        items = [look["seed_item"]] + look["complements"]
+        text = "This kurta comes in at around ₹2980, right at your budget."
+        cleaned, flags = validate_rationale(
+            text, items, look["occasion"], budget_inr=3000.0
+        )
+        mismatch_flags = [f for f in flags if "budget_mismatch" in f]
+        assert len(mismatch_flags) == 0, f"Rounded figure wrongly flagged: {mismatch_flags}"
+
+
 # ── template_rationale tests ────────────────────────────────────────────────────
 
 class TestTemplateRationale:

@@ -2,7 +2,14 @@
 
 import { useCallback, useRef, useState } from "react"
 import { getWsUrl } from "@/lib/api/client"
-import type { ChatMessage, ItemSummary, OutfitVariant, ItemLink, WsFrame } from "@/lib/api/types"
+import type {
+  ChatMessage,
+  ItemSummary,
+  OutfitVariant,
+  ItemLink,
+  SuppressedSlot,
+  WsFrame,
+} from "@/lib/api/types"
 
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
@@ -32,6 +39,10 @@ interface StyleFromImageResponse {
   cart_url?: string | null
   item_links?: ItemLink[] | null
   anchor_article_id?: string | null
+  suppressed_slots?: SuppressedSlot[] | null
+  look_role?: "primary" | "partner" | null
+  look_title?: string | null
+  coordinated_with?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +217,10 @@ export function useChatStream({
               const cartUrl = frame.final_state.cart_url ?? null
               const itemLinks = frame.final_state.item_links ?? null
               const suggestionChips = frame.final_state.suggestion_chips ?? null
+              const suppressedSlots = frame.final_state.suppressed_slots ?? null
+              const lookRole = frame.final_state.look_role ?? null
+              const lookTitle = frame.final_state.look_title ?? null
+              const coordinatedWith = frame.final_state.coordinated_with ?? null
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -223,6 +238,10 @@ export function useChatStream({
                         cartUrl,
                         itemLinks,
                         suggestionChips,
+                        suppressedSlots,
+                        lookRole,
+                        lookTitle,
+                        coordinatedWith,
                       }
                     : m
                 )
@@ -453,6 +472,10 @@ export function useChatStream({
                 outfitVariants: data.outfit_variants ?? null,
                 cartUrl: data.cart_url ?? null,
                 itemLinks: data.item_links ?? null,
+                suppressedSlots: data.suppressed_slots ?? null,
+                lookRole: data.look_role ?? null,
+                lookTitle: data.look_title ?? null,
+                coordinatedWith: data.coordinated_with ?? null,
                 // Thread the user's own uploaded photo onto the assistant message so
                 // the owned-seed card in OutfitBoard can render it instead of (or as a
                 // fallback for) the catalogue image. Never revoked while this message

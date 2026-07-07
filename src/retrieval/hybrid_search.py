@@ -5,6 +5,7 @@ import re
 import numpy as np
 import pandas as pd
 
+from src.catalogue.cleaning import is_fabric_bolt_text
 from src.config.stores import get_inactive_stores
 
 from .dense_search import DenseRetriever
@@ -58,14 +59,12 @@ _STORE_PENALTY: float = 0.5
 # is the backstop for queries with genuinely no catalogue matches.
 _RELEVANCE_FLOOR: float = 0.0060
 
-# Items matching this pattern are fabric bolts / unstitched material — not wearable
-# garments.  Myntra lists them under product_type="dress", so they dominate BM25 scores
-# for dress queries.  Mirrored from graph.py's _MATERIAL_ONLY_RE; applied in the BM25
-# pre-filter so the retrieval window is filled by real garments, not fabric bolts.
-_MATERIAL_ONLY_RE = re.compile(
-    r"\bunstitched\b|dress material|fabric piece|blouse piece",
-    re.IGNORECASE,
-)
+# Fabric bolts / unstitched material — not wearable garments. Myntra lists them
+# under product_type="dress", so they dominate BM25 scores for dress queries.
+# is_fabric_bolt_text (src/catalogue/cleaning.py) is the single source of truth,
+# shared with graph.py's _is_material — a "blouse piece" mention alone does NOT
+# exclude a row when it is also a finished saree.  Applied in the BM25 pre-filter
+# so the retrieval window is filled by real garments, not fabric bolts.
 
 
 def normalize_prod_name(name: str) -> str:
@@ -182,6 +181,128 @@ def store_diversity_rerank(
     return selected
 
 
+def dedup_candidates_keep_cheapest(candidates: list[dict]) -> list[dict]:
+    """Dedup a candidate pool by (normalized prod_name, colour), keeping the cheapest.
+
+    Runs at candidate-collection time — BEFORE the store-diversity rerank — so
+    near-duplicate listings (same product, same colour, often re-listed across
+    stores or in multiple sizes) never crowd the pool handed to the diversity
+    rerank and the LLM reranker. The existing post-rerank dedup in
+    ``src/agents/graph.py`` remains as a safety net for anything that slips through
+    (e.g. duplicates introduced by the anchor-based retrieval path).
+
+    Preserves the relative order of the FIRST-seen item per duplicate group (i.e.
+    RRF order is unaffected), but keeps the cheapest item's fields for that group
+    when a cheaper duplicate appears later in the pool. Items with unknown/None
+    price never displace a priced item within the same group.
+
+    Parameters
+    ----------
+    candidates:
+        Full list of filter-passing result dicts, in descending-RRF-score order.
+
+    Returns
+    -------
+    Deduped list, same relative order as the input (one entry per group, positioned
+    at that group's first occurrence).
+    """
+    best: dict[tuple[str, str], dict] = {}
+    order: list[tuple[str, str]] = []
+
+    for item in candidates:
+        key = (
+            normalize_prod_name(item.get("prod_name") or item.get("display_name", "")),
+            (item.get("colour") or "").lower(),
+        )
+        price = item.get("price_inr")
+        price_sort = price if isinstance(price, (int, float)) else float("inf")
+
+        if key not in best:
+            best[key] = item
+            order.append(key)
+        else:
+            cur_price = best[key].get("price_inr")
+            cur_sort = cur_price if isinstance(cur_price, (int, float)) else float("inf")
+            if price_sort < cur_sort:
+                best[key] = item
+
+    return [best[k] for k in order]
+
+
+def apply_per_store_cap(
+    selected: list[dict],
+    full_pool: list[dict],
+    cap: int,
+    top_k: int,
+) -> list[dict]:
+    """Enforce a per-store cap on the candidate pool handed to the LLM reranker.
+
+    Walks *selected* (already store-diversity-reranked, in final order) and keeps
+    at most *cap* items per store. If the cap drops the pool below *top_k*,
+    backfills the shortfall from *full_pool* (the wider RRF-ordered candidate
+    window, pre-diversity-rerank) with items from stores still under cap, in RRF
+    order — so the reranker still receives up to *top_k* items when the wider pool
+    has more diversity to offer than the MMR selection surfaced.
+
+    Guards (no-op, returns *selected* unchanged):
+      - ``cap <= 0`` (or None).
+      - Fewer than 2 distinct stores in *full_pool* — mirrors store_diversity_rerank's
+        own single-store guard. Single-brand indices (e.g. the legacy H&M-only index)
+        have no ``store`` column, so every item's store is ``None``; without this
+        guard the cap would wrongly collapse ALL of them into one "store" bucket and
+        truncate the pool for a purely cross-store feature that doesn't apply here.
+        Checked against *full_pool* (not *selected*) so a narrow query where the
+        diversity rerank still surfaces only one store's items — while OTHER stores
+        exist deeper in the RRF pool — still gets the cap+backfill treatment.
+
+    Parameters
+    ----------
+    selected:
+        Store-diversity-reranked candidate list (output of store_diversity_rerank).
+    full_pool:
+        The full filter-passing candidate pool in RRF order (pre-diversity-rerank),
+        used both as the cross-store-potential check and as a backfill source.
+    cap:
+        Maximum items per store to keep. Config knob: retrieval.per_store_cap.
+    top_k:
+        Target pool size to backfill up to.
+    """
+    if not cap or cap <= 0:
+        return selected
+
+    distinct_stores = {item.get("store") for item in full_pool}
+    if len(distinct_stores) < 2:
+        return selected
+
+    store_counts: dict[str | None, int] = {}
+    kept: list[dict] = []
+    kept_ids: set[str] = set()
+
+    for item in selected:
+        store = item.get("store")
+        n = store_counts.get(store, 0)
+        if n < cap:
+            kept.append(item)
+            kept_ids.add(item["article_id"])
+            store_counts[store] = n + 1
+        # else: dropped — this store already has `cap` items in the pool
+
+    if len(kept) < top_k:
+        for item in full_pool:
+            if len(kept) >= top_k:
+                break
+            if item["article_id"] in kept_ids:
+                continue
+            store = item.get("store")
+            n = store_counts.get(store, 0)
+            if n < cap:
+                kept.append(item)
+                kept_ids.add(item["article_id"])
+                store_counts[store] = n + 1
+
+    return kept
+
+
 class HybridRetriever:
     def __init__(
         self,
@@ -256,8 +377,8 @@ class HybridRetriever:
             pt_col = self.catalogue_df["product_type_name"].str.lower()
             type_mask = pt_col == type_filter_val.lower()
             if "prod_name" in self.catalogue_df.columns:
-                not_material = ~self.catalogue_df["prod_name"].fillna("").str.contains(
-                    _MATERIAL_ONLY_RE
+                not_material = ~self.catalogue_df["prod_name"].fillna("").apply(
+                    is_fabric_bolt_text
                 )
                 type_mask = type_mask & not_material
             if _exclusion_mask is not None:
@@ -426,6 +547,12 @@ class HybridRetriever:
                 }
             )
 
+        # --- Candidate-pool dedup (pre-rerank) ---
+        # Dedup by (normalized prod_name, colour) BEFORE the diversity rerank so
+        # near-duplicate listings never occupy a slot in the pool handed to the LLM
+        # reranker. graph.py's post-rerank dedup remains as a safety net.
+        candidates = dedup_candidates_keep_cheapest(candidates)
+
         # --- Store-diversity re-rank (MMR nudge) ---
         # Guard: skip when a store filter is set (user explicitly narrowed to one store).
         store_diversity: float = self.config["retrieval"].get("store_diversity", 0.0)
@@ -433,6 +560,9 @@ class HybridRetriever:
             results = candidates[:top_k]
         else:
             results = store_diversity_rerank(candidates, top_k, store_diversity)
+            per_store_cap: int = self.config["retrieval"].get("per_store_cap", 0)
+            if per_store_cap:
+                results = apply_per_store_cap(results, candidates, per_store_cap, top_k)
 
         # Deprioritize items with known-dead PDP links — move them to end of list
         live = [it for it in results if it.get("pdp_live") is not False]

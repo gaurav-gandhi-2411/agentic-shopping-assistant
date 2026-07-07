@@ -76,6 +76,38 @@ class TestFormatCandidatesNoneSafety:
         assert "None" not in text
 
 
+class TestFormatCandidatesPriceAndDescription:
+    """Regression guard for the price/description enrichment: these fields were
+    present on every candidate dict (from hybrid_search.py) but never reached
+    the reranker prompt — colour/type/department alone give no season, fabric,
+    or budget signal."""
+
+    def test_price_and_description_appear_in_rendered_line(self) -> None:
+        items = [_item("1", "black", price_inr=2998.0, detail_desc="Long sleeve wool dress.")]
+        text = _format_candidates(items)
+        assert "2998" in text
+        assert "wool" in text.lower()
+
+    def test_long_description_is_truncated_not_dumped_whole(self) -> None:
+        long_desc = "A " + "very " * 60 + "long description that goes on and on."
+        items = [_item("1", "black", detail_desc=long_desc)]
+        text = _format_candidates(items)
+        # The full ~300-char description must not appear verbatim in the prompt.
+        assert long_desc not in text
+
+    def test_missing_price_or_description_does_not_crash_or_render_none(self) -> None:
+        items = [_item("1", "black", price_inr=None, detail_desc=None)]
+        text = _format_candidates(items)
+        assert "None" not in text
+
+    def test_missing_price_and_description_keys_entirely_still_render(self) -> None:
+        """Candidates without price_inr/detail_desc keys at all (e.g. older callers)
+        must still format cleanly — the fields are additive, not required."""
+        items = [_item("1", "black")]
+        text = _format_candidates(items)
+        assert "1. Item 1" in text
+
+
 class TestRerankFallsBackOnLlmFailure:
     """Regression guard: rerank() must never crash even with None-colour items,
     whether the LLM call fails or the colour-diversity post-check runs."""

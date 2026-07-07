@@ -139,6 +139,13 @@ _COMPILED_RULES: list[tuple[re.Pattern[str], str, str]] = [
 # Preposition barrier pattern — anchors where the garment noun search stops
 _BARRIER_RE = re.compile(r"\b(for|under|with|to)\b", re.IGNORECASE)
 
+# Saree word / "blouse piece" phrase — co-occurrence means a finished saree sold
+# with a bundled blouse fabric swatch (see Step 1.5 override below). NOT used to
+# exempt bare "saree" mentions on their own (e.g. "Saree Mall" is a brand name,
+# and its "Unstitched Dress Material" products correctly stay fabric_material).
+_SAREE_WORD_RE = re.compile(r"\bsarees?\b|\bsari\b", re.IGNORECASE)
+_BLOUSE_PIECE_RE = re.compile(r"blouse\s*piece", re.IGNORECASE)
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -191,6 +198,18 @@ def normalize_garment_type(
             name_lower = brand_prefix_re.sub("", name_lower)
 
     residual = name_lower
+
+    # ── Step 1.5: finished-saree-with-blouse-piece override ─────────────────────
+    # A saree word co-occurring with "blouse piece" is always a finished, shoppable
+    # saree — regardless of whether the blouse piece itself is "unstitched" (the
+    # dominant real-world pattern: "Saree With Unstitched Blouse Piece") and
+    # regardless of noun position (some listings use "&" instead of "with", so
+    # there is no preposition barrier to demote the trailing "blouse" noun — e.g.
+    # "Sangria Blue Striped Saree & Embellished Blouse Piece"). This must be
+    # checked BEFORE the generic compound-term loop and the rightmost-noun rule,
+    # both of which would otherwise let "unstitched"/"blouse" win.
+    if _SAREE_WORD_RE.search(residual) and _BLOUSE_PIECE_RE.search(residual):
+        return NormalizationResult(garment_type="saree", category="apparel", type_confidence="high")
 
     # ── Step 2: compound-term lookup ────────────────────────────────────────────
     for phrase, gtype in _COMPOUND_SORTED:
@@ -261,6 +280,10 @@ def _fallback_product_type(product_type_name: str | None) -> NormalizationResult
         return NormalizationResult(garment_type=None, category="unknown", type_confidence="unknown")
 
     label_lower = product_type_name.lower().strip()
+
+    # Finished-saree-with-blouse-piece override — see Step 1.5 in normalize_garment_type.
+    if _SAREE_WORD_RE.search(label_lower) and _BLOUSE_PIECE_RE.search(label_lower):
+        return NormalizationResult(garment_type="saree", category="apparel", type_confidence="medium")
 
     # Check compound terms first
     for phrase, gtype in _COMPOUND_SORTED:
