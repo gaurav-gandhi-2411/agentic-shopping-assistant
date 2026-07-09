@@ -71,19 +71,21 @@ gcloud storage cp -r data/processed/flipkart/  gs://$GCS_BUCKET/flipkart/
 
 ### 3. Build, push, and deploy to Cloud Run
 
-**Option A — local script** (fill in variables first):
+**Unified service (current deployment target, `asa-stylist-api`):**
+
+```bash
+pwsh scripts/deploy_backend.ps1
+```
+
+See DEPLOY.md, "Deploy backend (unified service)", for the full gotcha list (traffic
+pinning, env-block replacement). There is no CI/GitHub Actions deploy path — the workflow
+that used to cover this was removed 2026-07-09; see DEPLOY.md "CI/CD" for why.
+
+**Per-brand legacy path** (fill in variables first):
 
 ```bash
 bash scripts/deploy_demo.sh
 ```
-
-**Option B — GitHub Actions** (preferred for CI-tracked deploys):
-
-```bash
-gh workflow run deploy-demo.yml --field brands="snitch myntra flipkart"
-```
-
-Or via the GitHub UI: Actions → "Deploy Demo (Cloud Run + Vercel)" → Run workflow.
 
 ---
 
