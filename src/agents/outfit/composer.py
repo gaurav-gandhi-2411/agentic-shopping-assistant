@@ -157,7 +157,28 @@ def compose_outfit(
             )
             and not is_kids_item(c.get("prod_name") or c.get("display_name") or "")
         ]
+        # Budget gate (live-proven bug: "I'm pear-shaped, sangeet look under
+        # ₹8000" boarded a ₹9,900 lehenga ANCHOR — this filter previously
+        # gated occasion/gender/kids only, never price, so `valid[0]` could
+        # pick an over-budget item and the look violated the cap before a
+        # single complement was even considered). ONLY applied here — the
+        # explicit seed_article_id path above (a user's "Style this <item>"
+        # choice) must never be budget-rejected; the user already chose that
+        # exact item, so only complements get budget-squeezed for that path,
+        # same as before this fix.
+        _pre_budget_valid = valid
+        if budget_inr is not None:
+            valid = [c for c in valid if (c.get("price_inr") or 0.0) <= budget_inr]
         if not valid:
+            if budget_inr is not None and _pre_budget_valid:
+                # Occasion/gender-valid anchors existed but ALL were over budget —
+                # honest budget-specific message, never a silent fall-back to an
+                # over-budget anchor (mirrors _no_anchor_msg's style below).
+                _no_budget_anchor_msg = (
+                    f"No {gender} {occasion_slug.replace('_', ' ')} pieces within "
+                    f"₹{budget_inr:,.0f} in our partner stores yet — try a higher budget."
+                )
+                return _empty_result(look_id, occasion_slug, gender, _no_budget_anchor_msg)
             _no_anchor_msg = (
                 f"No {gender} items found in this catalogue for a "
                 f"{occasion_slug.replace('_', ' ')} look. "
