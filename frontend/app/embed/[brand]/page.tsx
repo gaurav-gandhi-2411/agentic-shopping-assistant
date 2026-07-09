@@ -236,6 +236,7 @@ export default function EmbedPage() {
         isSending={isSending}
         onSend={handleSend}
         brand={brandId}
+        onSendSuggestion={handleSend}
       />
 
       {/* Connection lost banner */}

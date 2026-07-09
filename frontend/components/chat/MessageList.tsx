@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import type { ChatMessage } from "@/lib/api/types"
+import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { MessageBubble } from "./MessageBubble"
 
 interface Props {
@@ -10,11 +11,14 @@ interface Props {
   onSend?: (text: string) => void
   /** Brand id propagated to OutfitBoard for buy link resolution. */
   brand?: string
+  /** Sends a suggestion chip's text as if the user typed it. Empty-state chips render only when this is provided. */
+  onSendSuggestion?: (text: string) => void
 }
 
-export function MessageList({ messages, isSending, onSend, brand }: Props) {
+export function MessageList({ messages, isSending, onSend, brand, onSendSuggestion }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const isStreamingRef = useRef(false)
+  const { data: brandConfig } = useBrandConfig()
 
   // Scroll to bottom when messages change, using instant scroll during
   // streaming and smooth scroll for new (non-streaming) messages.
@@ -27,6 +31,7 @@ export function MessageList({ messages, isSending, onSend, brand }: Props) {
   }, [messages])
 
   if (messages.length === 0) {
+    const chips = brandConfig?.suggestion_chips ?? []
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-8 select-none">
         <span className="text-5xl" aria-hidden>
@@ -37,6 +42,19 @@ export function MessageList({ messages, isSending, onSend, brand }: Props) {
           Try &ldquo;show me red summer dresses&rdquo; or &ldquo;casual blue
           jeans under ₹2,000&rdquo;
         </p>
+        {onSendSuggestion && chips.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-2 max-w-sm mt-2">
+            {chips.map((chip) => (
+              <button
+                key={chip}
+                onClick={() => onSendSuggestion(chip)}
+                className="text-xs px-3 py-1.5 rounded-full border border-border bg-background hover:bg-accent transition-colors"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )
   }

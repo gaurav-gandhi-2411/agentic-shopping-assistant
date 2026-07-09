@@ -65,7 +65,13 @@ export default function DemoChatPage() {
       </header>
 
       {/* Chat area */}
-      <MessageList messages={messages} isSending={isSending} onSend={handleSend} brand={brandId} />
+      <MessageList
+        messages={messages}
+        isSending={isSending}
+        onSend={handleSend}
+        brand={brandId}
+        onSendSuggestion={handleSend}
+      />
 
       {connectionLost && (
         <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive text-center">
