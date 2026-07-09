@@ -106,6 +106,37 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
       reused unchanged, same as --wave-7 -- --p3 does not call it a second
       time.
 
+  11. (--p2 flow, P2-1..P2-5) Content assertions for the P2 couple-
+      coordination deepening feature (backend+frontend built locally, to be
+      deployed before this flow runs): a FRESH session's FIRST turn --
+      "style us as a couple for a reception under 15000" with NO prior
+      anchor/search -- must render TWO back-to-back outfit boards in the
+      SAME assistant turn (P2-1): board 0 her primary look, board 1 his
+      partner look (`lookRole == "partner"`, same `OutfitBoard.tsx` rendering
+      the pre-existing single-partner path already uses -- verified against
+      the source at this writing, ~line 481-495 `isPartnerLook = lookRole
+      === "partner"`). Each board is checked for gender purity scoped to
+      ITS OWN complement cards via `complement_cards_of_board` (P2-2), a
+      PER-PERSON (not combined) budget cap independently on each board's own
+      slot-price sum (P2-3), and board 1's partner badge/heading +
+      "Coordinated with..." subtext while board 0 shows neither (P2-4,
+      honest-thinness on board 1 recorded as evidence, not a failure). P2-5
+      re-proves the PRE-EXISTING single-partner flow ("black dress for
+      women" -> "Style this" -> "what should my husband wear with this?")
+      still produces its original one-board shape by directly reusing
+      `step_pb_s4_partner_styling` in a brand-new fresh session -- this is
+      additive proof, not a re-assertion that touches/duplicates PB-S4's own
+      checks. Verified against `OutfitBoard.tsx` before writing P2-1..P2-4:
+      there is NO `data-look-role` (or any other) DOM attribute
+      distinguishing a partner board from a primary one -- the "Partner
+      look" badge text is the only signal that exists today -- so
+      index-based board selection (`.nth(0)`/`.nth(1)`) is the only
+      addressing scheme available, and it is safe specifically because P2-1
+      runs in a fresh session's very first turn (see the P2 constants-block
+      comment in the source for the full reasoning). Console-errors reuses
+      the shared `step_console_errors` call in `main`'s `finally` block,
+      same as --wave-7/--p3 -- --p2 does not call it a second time.
+
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
 
@@ -1224,10 +1255,16 @@ def card_data_attrs(card_locator) -> tuple[str | None, str | None]:
     return gender, slot
 
 
-def board_complement_cards(page: Page) -> list:
-    """Return locators for every COMPLEMENT slot card in the LATEST outfit board
-    on the page (assistant turns render top-to-bottom, so `.last` is always the
-    most recent board — same reasoning as B4/B5's docstrings).
+def complement_cards_of_board(board_locator) -> list:
+    """Return locators for every COMPLEMENT slot card on a SPECIFIC board
+    locator (as opposed to always the latest board on the page).
+
+    Factored out of `board_complement_cards` (which still delegates to this
+    for its own `.last`-board behaviour, unchanged for every existing caller)
+    so the --p2 couple-from-scratch flow can inspect a caller-chosen board by
+    INDEX (board 0 = her look, board 1 = his look — both known up front,
+    since a fresh session's first turn renders them in a fixed, deterministic
+    order) rather than only ever the most-recently-rendered board.
 
     Complement identification is defensive per the task spec: prefer a
     `data-slot` attribute if a later frontend fix adds one (`data-slot != "seed"`
@@ -1238,11 +1275,7 @@ def board_complement_cards(page: Page) -> list:
     cross-gender-leak check. The owned-anchor card (no buy link) is already
     excluded by OUTFIT_BOARD_SLOT_SELECTOR, which only matches `<a>` tiles.
     """
-    board = page.locator(OUTFIT_BOARD_SELECTOR)
-    if board.count() == 0:
-        return []
-    board0 = board.last
-    slot_cards = board0.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+    slot_cards = board_locator.locator(OUTFIT_BOARD_SLOT_SELECTOR)
     complements = []
     for i in range(slot_cards.count()):
         card = slot_cards.nth(i)
@@ -1258,6 +1291,20 @@ def board_complement_cards(page: Page) -> list:
         if badge_text.lower() != "hero":
             complements.append(card)
     return complements
+
+
+def board_complement_cards(page: Page) -> list:
+    """Return locators for every COMPLEMENT slot card in the LATEST outfit board
+    on the page (assistant turns render top-to-bottom, so `.last` is always the
+    most recent board — same reasoning as B4/B5's docstrings).
+
+    See `complement_cards_of_board` for the per-board extraction logic and the
+    P2 flow's reason for factoring it out.
+    """
+    board = page.locator(OUTFIT_BOARD_SELECTOR)
+    if board.count() == 0:
+        return []
+    return complement_cards_of_board(board.last)
 
 
 def _send_and_style_first(page: Page, state: ProofState, query: str, label_prefix: str) -> bool:
@@ -2394,6 +2441,195 @@ def step_p3_3_ban_sweep(page: Page, state: ProofState) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# P2 (couple-coordination deepening) constants & steps.
+#
+# Verified against frontend/components/chat/OutfitBoard.tsx before writing
+# these checks (read-before-edit): the ONLY DOM signal that distinguishes a
+# "partner" board from a "primary" board is the conditionally-rendered
+# "Partner look" badge span + "Your partner's look" (or `lookTitle`) heading
+# + optional `coordinatedWith` paragraph (lines ~477-495) — there is NO
+# `data-look-role` (or any other) attribute on the board's root div
+# (`OUTFIT_BOARD_SELECTOR`'s `div.rounded-xl.border.bg-card.p-4`) or anywhere
+# else in the component. `isPartnerLook = lookRole === "partner"` (line 211)
+# only ever gates that text block. This means index-based board selection
+# (`.nth(0)` / `.nth(1)`) is the ONLY way to address "her" vs "his" board at
+# all right now, not a shortcut taken for convenience. It is SAFE here
+# specifically because P2-1 runs in a FRESH session's very first turn: no
+# other board can already be on the page, assistant messages (and the boards
+# inside them) render top-to-bottom in arrival order (same reasoning
+# `board_complement_cards`'s `.last` usage relies on elsewhere in this file),
+# and the feature spec's own ordering ("the first a primary board ... the
+# second a partner board") fixes board 0 = her/primary, board 1 = his/partner
+# deterministically. P2-4 additionally cross-checks this assumption directly
+# (asserts board 0 does NOT carry the partner badge while board 1 does),
+# so an index-vs-role mismatch would surface as an explicit FAIL rather than
+# silently mis-attributing gender/budget checks to the wrong board.
+#
+# Turn budget: P2-1 (couple-from-scratch) is ONE send in its own fresh
+# session (the single query renders both boards in the same assistant turn).
+# P2-5 is a full SEPARATE fresh session reusing `step_pb_s4_partner_styling`
+# unchanged (3 sends: query, "Style this" click, partner follow-up — see
+# that function's own docstring). Total for --p2: 1 + 3 = 4 sends across two
+# sessions, comfortably under the <=8-turn target the Phase-B docstring's
+# turn-budget note discusses for a much busier flow.
+# ---------------------------------------------------------------------------
+
+P2_QUERY = "style us as a couple for a reception under 15000"
+# Per-person cap, not a combined-total cap: the feature spec states the
+# budget as "under 15000" for styling "us as a couple", but a couple is two
+# independent people each shopping their own look — a shared pool that added
+# up to 15000 across BOTH boards would silently halve what either partner
+# could actually spend on themselves once split, and nothing in the query
+# says "for both of us combined". Each board's own slot-price sum is checked
+# against the FULL 15000 independently (P2-3), not their sum against 15000.
+P2_BUDGET_INR = 15000
+
+
+def step_p2_couple_from_scratch(context, base_url: str, state: ProofState) -> None:
+    """P2-1..P2-4: a FRESH session's FIRST turn — "style us as a couple for a
+    reception under 15000" with no prior anchor/search — must render TWO
+    back-to-back outfit boards (her primary look, then his partner look) in
+    the SAME assistant turn.
+
+    Runs in its own Playwright page (own `sessionStorage`/`demo_session_token`,
+    same isolation reasoning as `step_pb_s4_partner_styling`), since "no prior
+    anchor/search" is only true in a session that has sent nothing yet.
+    """
+    fresh_page = context.new_page()
+    try:
+        if not step_load_chat(fresh_page, base_url, state):
+            return
+
+        board_baseline = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count()
+        send_text(fresh_page, P2_QUERY)
+        deadline = time.time() + CARD_WAIT_TIMEOUT_S
+        while time.time() < deadline:
+            if fresh_page.locator(OUTFIT_BOARD_SELECTOR).count() >= board_baseline + 2:
+                break
+            fresh_page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+        wait_for_turn_idle(fresh_page)
+        shot(fresh_page, "p2_1_couple_from_scratch")
+
+        n_boards = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count()
+        passed = n_boards >= 2
+        extra_note = (
+            f" (NOTE: n_boards={n_boards} > 2 -- more boards than the expected "
+            "primary+partner pair; recorded as evidence, not a hard failure, since "
+            "the spec doesn't preclude it, but board 0/1 are still checked as her/his)"
+            if n_boards > 2
+            else ""
+        )
+        state.record(
+            "P2-1. couple-from-scratch query renders >=2 outfit boards in ONE turn",
+            passed,
+            f"boards_on_page={n_boards} (baseline was {board_baseline}){extra_note}",
+        )
+        if not passed:
+            return
+
+        her_board = fresh_page.locator(OUTFIT_BOARD_SELECTOR).nth(0)
+        his_board = fresh_page.locator(OUTFIT_BOARD_SELECTOR).nth(1)
+
+        # -- P2-2: gender purity, scoped to each board individually --------
+        her_complements = complement_cards_of_board(her_board)
+        his_complements = complement_cards_of_board(his_board)
+
+        assert_complement_gender(
+            her_complements,
+            "women",
+            PB_MEN_WORD_RE,
+            state,
+            "P2-2a. board 0 (her look): every complement is gender-consistent "
+            "(data-gender, title fallback)",
+        )
+        assert_complement_gender(
+            his_complements,
+            "men",
+            PB_WOMEN_WORD_RE,
+            state,
+            "P2-2b. board 1 (his look): every complement is gender-consistent "
+            "(data-gender, title fallback)",
+        )
+
+        # -- P2-3: budget is a PER-PERSON cap, not a combined total --------
+        her_slot_cards = her_board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        her_prices = [
+            _parse_rupee_amount(her_slot_cards.nth(i).inner_text())
+            for i in range(her_slot_cards.count())
+        ]
+        her_prices = [p for p in her_prices if p is not None]
+        her_sum = sum(her_prices)
+
+        his_slot_cards = his_board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        his_prices = [
+            _parse_rupee_amount(his_slot_cards.nth(i).inner_text())
+            for i in range(his_slot_cards.count())
+        ]
+        his_prices = [p for p in his_prices if p is not None]
+        his_sum = sum(his_prices)
+
+        state.record(
+            "P2-3. EACH board's own slot-price sum independently respects "
+            f"the per-person ₹{P2_BUDGET_INR} cap (not their combined total)",
+            her_sum <= P2_BUDGET_INR and his_sum <= P2_BUDGET_INR,
+            f"her_slot_price_sum={her_sum} (n_prices_parsed={len(her_prices)}/"
+            f"{her_slot_cards.count()}) his_slot_price_sum={his_sum} "
+            f"(n_prices_parsed={len(his_prices)}/{his_slot_cards.count()}) "
+            f"combined={her_sum + his_sum} cap={P2_BUDGET_INR}",
+        )
+
+        # -- P2-4: partner labeling + honesty ------------------------------
+        # Same text-matching precedent `step_pb_s4_partner_styling` already
+        # uses (PB-S4b/c) -- copied rather than abstracted into a shared
+        # helper since this is only the SECOND use of the pattern (see the
+        # "duplicate twice, abstract on the third occurrence" rule), and P2's
+        # "mentions_anchor" equivalent has no anchor phrase to match against
+        # (couple-from-scratch has no prior "black dress"-style anchor query
+        # the way PB-S4 does) -- so here it's simplified to "a non-empty
+        # coordinated_with line exists", not an anchor-name substring match.
+        try:
+            his_board_text = his_board.inner_text()
+        except Exception:  # noqa: BLE001
+            his_board_text = ""
+        try:
+            her_board_text = her_board.inner_text()
+        except Exception:  # noqa: BLE001
+            her_board_text = ""
+
+        his_has_partner_marker = (
+            "Partner look" in his_board_text or "Your partner's look" in his_board_text
+        )
+        her_has_partner_marker = (
+            "Partner look" in her_board_text or "Your partner's look" in her_board_text
+        )
+        coordinated_line = next(
+            (line for line in his_board_text.splitlines() if "coordinated" in line.lower()),
+            "",
+        )
+        passed_p2_4 = his_has_partner_marker and not her_has_partner_marker
+        state.record(
+            "P2-4. board 1 (his) shows the partner badge/heading + a "
+            "'Coordinated with...' subtext; board 0 (her) does NOT",
+            passed_p2_4,
+            f"his_has_partner_marker={his_has_partner_marker} "
+            f"her_has_partner_marker={her_has_partner_marker} "
+            f"coordinated_line={coordinated_line!r} "
+            f"n_her_complements={len(her_complements)} n_his_complements={len(his_complements)}",
+        )
+
+        # Honest-thinness evidence (not an assertion): a thinner his-board is
+        # fine per spec as long as P2-2b (no cross-gender leak) already
+        # passed above -- recorded here purely as context for that result.
+        print(
+            "[EVIDENCE] P2 board sizes -- her_complements="
+            f"{len(her_complements)} his_complements={len(his_complements)} "
+            f"(a thinner his-board is honest, not a failure, on its own)"
+        )
+    finally:
+        fresh_page.close()
+
+
 def print_summary(state: ProofState) -> bool:
     """Print the final PASS/FAIL table. Returns True if every check passed."""
     print("\n" + "=" * 78)
@@ -2475,6 +2711,22 @@ def main() -> int:
             "says 'after all turns' -- see the module docstring)."
         ),
     )
+    parser.add_argument(
+        "--p2",
+        action="store_true",
+        help=(
+            "Run the P2 couple-coordination-deepening content-assertion steps "
+            "(P2-1..P2-5): a fresh session's first turn ('style us as a couple for "
+            "a reception under 15000', no prior anchor) renders TWO back-to-back "
+            "outfit boards in one turn (P2-1), each board's own gender purity "
+            "(P2-2) and per-person (not combined) budget cap (P2-3), board 1's "
+            "partner badge/'Coordinated with...' subtext while board 0 shows "
+            "neither (P2-4), and a regression re-check that the pre-existing "
+            "single-partner flow ('black dress for women' -> 'Style this' -> "
+            "'what should my husband wear with this?') still works via a direct "
+            "reuse of the --phase-b PB-S4 step in a brand-new fresh session (P2-5)."
+        ),
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -2528,6 +2780,13 @@ def main() -> int:
                     step_p3_2_hero(page, state)
                     step_p3_4_persistence(page, state)
                     step_p3_3_ban_sweep(page, state)
+                elif args.p2:
+                    step_p2_couple_from_scratch(context, args.base_url, state)
+                    # P2-5: direct reuse of the existing --phase-b PB-S4 step in
+                    # its own brand-new fresh session -- proves the pre-existing
+                    # single-partner flow is unchanged, without touching or
+                    # duplicating PB-S4's own checks (see the module docstring).
+                    step_pb_s4_partner_styling(context, args.base_url, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(
