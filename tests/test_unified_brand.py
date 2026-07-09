@@ -23,6 +23,7 @@ _EXPECTED_CHIPS = [
     "Wedding-guest saree under ₹5000",
     "Style my partner for a reception",
     "Mehendi look in green",
+    "What suits my body type?",
 ]
 
 
