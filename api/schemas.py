@@ -162,6 +162,32 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
 
 
+class PartnerLook(BaseModel):
+    """A SECOND, coordinated companion board for a "couple-from-scratch" turn.
+
+    Mirrors ChatResponse's own top-level look fields exactly (same field names,
+    same shapes) so the frontend can render it through the identical OutfitBoard
+    prop contract. Present only when outfit_node composed both a primary AND a
+    partner look in the SAME turn (see src/agents/state.py partner_* fields);
+    the pre-existing single-partner-turn flow (e.g. "what should my husband
+    wear with this?") is unaffected and continues to use ChatResponse's own
+    singleton look_role/look_title/coordinated_with fields, never this one.
+    """
+
+    items: list[ItemSummary] = Field(default_factory=list)
+    look_id: str | None = None
+    occasion: str | None = None
+    look_gender: str | None = None
+    budget_total_inr: float | None = None
+    outfit_rationale: str | None = None
+    cart_url: str | None = None
+    item_links: list[ItemLink] | None = None
+    suppressed_slots: list[SuppressedSlot] | None = None
+    look_role: str | None = None
+    look_title: str | None = None
+    coordinated_with: str | None = None
+
+
 class ChatResponse(BaseModel):
     conversation_id: str
     response: str
@@ -193,6 +219,9 @@ class ChatResponse(BaseModel):
     look_role: str | None = None
     look_title: str | None = None
     coordinated_with: str | None = None
+    # Wave 7 — "couple-from-scratch" turn: a SECOND coordinated board alongside
+    # the primary one above. None for every turn except couple-from-scratch.
+    partner_look: PartnerLook | None = None
 
 
 # ---------------------------------------------------------------------------

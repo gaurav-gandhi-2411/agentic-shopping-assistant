@@ -23,6 +23,7 @@ from api.schemas import (
     ItemLink,
     ItemSummary,
     OutfitVariant,
+    PartnerLook,
     WSCancelledMessage,
     WSDoneMessage,
     WSErrorMessage,
@@ -202,6 +203,76 @@ def _build_base_cart_action(result: dict, brand: str) -> tuple[str | None, list[
     return cart_url, item_links
 
 
+def _normalize_look_role(role: str | None) -> str | None:
+    """Map an internal AgentState look_role value to the external API contract.
+
+    The external contract (ChatResponse/WSDoneMessage.look_role, OutfitBoard's
+    lookRole prop) is exactly "partner" | None — see api/schemas.py and
+    frontend/components/chat/OutfitBoard.tsx's `isPartnerLook` gate. The
+    pre-existing single-partner-turn flow already sets look_role="partner"
+    directly, so it passes through unchanged. The newer P2 couple-from-scratch
+    flow (src/agents/graph.py's _compose_couple_from_scratch) sets the PRIMARY
+    board's own look_role to "couple_primary" — internal bookkeeping to
+    distinguish it from an ordinary primary turn — but from the frontend's
+    perspective it IS an ordinary (non-partner) board, so it's normalized to
+    None here (no "Partner look" badge on the primary board of a couple turn).
+    """
+    return "partner" if role == "partner" else None
+
+
+def _partner_look_from_result(result: dict, brand: str) -> PartnerLook | None:
+    """Build the SECOND ("couple-from-scratch") board from a turn's agent result.
+
+    Reads the `partner_*`-prefixed AgentState fields (parallel to the existing
+    singleton `look_id`/`look_role`/... fields — see src/agents/state.py) that
+    outfit_node sets ONLY when it composed both a primary AND a partner look in
+    the SAME turn. Returns None when no such second look was composed this
+    turn — in particular the PRE-EXISTING single-partner-turn flow (e.g. "what
+    should my husband wear with this?") never populates `partner_retrieved_items`
+    and so always returns None here, leaving that flow's singleton
+    look_role/look_title/coordinated_with fields as the only look data (unchanged
+    behaviour).
+
+    look_role on the returned PartnerLook is always the literal string
+    "partner" (regardless of the internal value — currently "couple_partner",
+    see src/agents/graph.py) so the frontend's OutfitBoard renders its
+    "Partner look" badge + look_title + coordinated_with text exactly like the
+    pre-existing single-partner-turn board does — the presence of a PartnerLook
+    payload at all already signals "this is the companion board".
+
+    "always visual" hard rule applies here too: items without an image_url are
+    dropped before serialising.
+    """
+    raw_items = [it for it in (result.get("partner_retrieved_items") or []) if it.get("image_url")]
+    if not raw_items:
+        return None
+
+    item_summaries = [ItemSummary.from_agent_item(it) for it in raw_items]
+
+    cart_url, item_links = _build_base_cart_action(
+        {
+            "seed_item": result.get("partner_seed_item"),
+            "complements": result.get("partner_complements"),
+        },
+        brand,
+    )
+
+    return PartnerLook(
+        items=item_summaries,
+        look_id=result.get("partner_look_id"),
+        occasion=result.get("partner_occasion") or result.get("occasion"),
+        look_gender=result.get("partner_look_gender"),
+        budget_total_inr=result.get("partner_budget_total_inr"),
+        outfit_rationale=result.get("partner_outfit_rationale"),
+        cart_url=cart_url,
+        item_links=item_links,
+        suppressed_slots=result.get("partner_suppressed_slots") or None,
+        look_role="partner",
+        look_title=result.get("partner_look_title"),
+        coordinated_with=result.get("partner_coordinated_with"),
+    )
+
+
 def _extract_routing(tool_calls: list[dict]) -> dict:
     for tc in tool_calls:
         if "router_decision" in tc:
@@ -321,6 +392,7 @@ def post_chat(
         )
 
         _chips = result.get("suggestion_chips") or None
+        _partner_look = _partner_look_from_result(result, _brand)
 
         return ChatResponse(
             conversation_id=conversation_id,
@@ -341,9 +413,10 @@ def post_chat(
             item_links=_base_item_links,
             suggestion_chips=_chips,
             suppressed_slots=result.get("suppressed_slots") or None,
-            look_role=result.get("look_role"),
+            look_role=_normalize_look_role(result.get("look_role")),
             look_title=result.get("look_title"),
             coordinated_with=result.get("coordinated_with"),
+            partner_look=_partner_look,
         )
 
     finally:
@@ -670,6 +743,7 @@ async def ws_chat(websocket: WebSocket) -> None:
         _ws_brand = _resolve_brand()
         _ws_variants = _build_outfit_variants(result)
         _ws_base_cart_url, _ws_base_item_links = _build_base_cart_action(result, _ws_brand)
+        _ws_partner_look = _partner_look_from_result(result, _ws_brand)
         await websocket.send_text(
             WSDoneMessage(
                 final_state={
@@ -693,9 +767,14 @@ async def ws_chat(websocket: WebSocket) -> None:
                     ),
                     "suggestion_chips": result.get("suggestion_chips") or None,
                     "suppressed_slots": result.get("suppressed_slots") or None,
-                    "look_role": result.get("look_role"),
+                    "look_role": _normalize_look_role(result.get("look_role")),
                     "look_title": result.get("look_title"),
                     "coordinated_with": result.get("coordinated_with"),
+                    # Wave 7 — "couple-from-scratch" turn: a SECOND coordinated board
+                    # alongside the primary one above; None on every other turn.
+                    "partner_look": (
+                        _ws_partner_look.model_dump() if _ws_partner_look else None
+                    ),
                 },
                 message_id=last_message_id,
             ).model_dump_json()
