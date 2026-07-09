@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from src.agents.outfit import body_type as body_type_module
 from src.agents.outfit.occasions import EITHER, ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 
 # ── Anchor type detection — keyword sets keyed on product_type_name (lowercase) ──
@@ -573,7 +574,13 @@ def _default_bottom_query(occasion_slug: str) -> str:
     return "trousers jeans skirt"
 
 
-def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[SlotSpec]:
+def get_fill_slots(
+    anchor_class: str,
+    gender: str,
+    occasion_slug: str,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
+) -> list[SlotSpec]:
     """Return ordered list of SlotSpecs to fill for a given anchor + gender + occasion.
 
     Gender: "men" | "women" | "unisex" (treated as women for ethnic, men for men's brands).
@@ -582,9 +589,26 @@ def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[S
     tokens (see _occasion_register_tokens) to every slot's search_query so
     retrieval is occasion-aware (formal tailored / festive embroidered /
     casual), without touching the base per-anchor-class slot definitions.
+
+    P3: when body_type/body_modifiers are known, ALSO appends the body type's
+    query-augmentation tokens (src.agents.outfit.body_type.query_tokens) —
+    mirrors _occasion_register_tokens exactly. No-op (empty string appended)
+    when body_type is None and body_modifiers is empty, so this is fully
+    backward compatible with every existing call site.
     """
     slots = _get_fill_slots_base(anchor_class, gender, occasion_slug)
-    return _append_register(slots, occasion_slug)
+    slots = _append_register(slots, occasion_slug)
+    return _append_body_type_tokens(slots, body_type, body_modifiers)
+
+
+def _append_body_type_tokens(
+    slots: list[SlotSpec], body_type: str | None, body_modifiers: list[str] | None
+) -> list[SlotSpec]:
+    """Append body-type query-augmentation tokens to every slot's search_query."""
+    tokens = body_type_module.query_tokens(body_type, body_modifiers)
+    if not tokens:
+        return slots
+    return [SlotSpec(s.slot_name, f"{s.search_query} {tokens}", s.required) for s in slots]
 
 
 def _get_fill_slots_base(anchor_class: str, gender: str, occasion_slug: str) -> list[SlotSpec]:

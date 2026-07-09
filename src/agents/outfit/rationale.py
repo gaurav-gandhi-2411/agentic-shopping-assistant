@@ -18,6 +18,11 @@ import math
 from typing import TYPE_CHECKING
 
 from src.agents.grounding import validate_rationale
+from src.agents.outfit.body_type import (
+    BASE_SHAPES,
+    POSITIVE_TEMPLATES,
+    contains_banned_framing,
+)
 
 if TYPE_CHECKING:
     from src.llm.client import LLMClient
@@ -73,6 +78,13 @@ A fact-sheet may also include, ONLY when genuinely known:
     owns (uploaded by photo), not a catalogue item for sale — you may say
     something like "anchored on your own {seed_type}" instead of implying it
     can be bought.
+  - body_type / body_type_style_hint: the user volunteered a body shape (this
+    is OPT-IN — they asked for it). Use celebratory, body-positive language
+    only: "balances", "highlights", "flows", "frames", "celebrates", "draws
+    the eye", "creates one long line". NEVER use language that implies hiding,
+    fixing, correcting, concealing, or camouflaging any part of the body, and
+    never call any body shape or size "wrong" or "unflattering". Talk about
+    what the GARMENT's cut/line does, never about a body "needing" anything.
 
 Never state a fact that is not present in the fact-sheet.
 
@@ -105,6 +117,8 @@ def build_fact_sheet(
     user_context: str | None = None,
     budget_inr: float | None = None,
     anchor_is_owned: bool = False,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> dict:
     """Extract only real, grounded attributes from a look dict.
 
@@ -129,6 +143,9 @@ def build_fact_sheet(
         anchor_is_owned: True when this look's seed item is a garment the
             user already owns (uploaded by photo) rather than a catalogue
             item for sale. False omits the key.
+        body_type: P3 — one of src.agents.outfit.body_type.BASE_SHAPE_SLUGS,
+            volunteered by the user (opt-in). None omits both body_type keys.
+        body_modifiers: P3 — "petite"/"tall"/"plus_size", or None.
 
     Returns:
         A compact fact-sheet dict safe to include in an LLM prompt. Includes
@@ -188,6 +205,14 @@ def build_fact_sheet(
     if anchor_is_owned:
         fact_sheet["anchor_is_owned"] = True
 
+    if body_type and body_type in BASE_SHAPES:
+        fact_sheet["body_type"] = body_type.replace("_", " ")
+        style_hint = POSITIVE_TEMPLATES.get(body_type)
+        if style_hint:
+            fact_sheet["body_type_style_hint"] = style_hint
+    if body_modifiers:
+        fact_sheet["body_modifiers"] = [m.replace("_", " ") for m in body_modifiers]
+
     return fact_sheet
 
 
@@ -219,6 +244,8 @@ def generate_rationales(
     user_context: str | None = None,
     budget_inr: float | None = None,
     anchor_is_owned: bool = False,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> list[str]:
     """Generate a grounded stylist rationale for each look in a single LLM call.
 
@@ -244,6 +271,10 @@ def generate_rationales(
         budget_inr: see build_fact_sheet. Also exempts the "budget" keyword
             from the grounding gate's price scrub (see validate_rationale).
         anchor_is_owned: see build_fact_sheet.
+        body_type: see build_fact_sheet. Also selects the body-positive
+            template fallback (see _body_type_template_rationale) whenever the
+            LLM rationale is unavailable or fails the banned-framing gate.
+        body_modifiers: see build_fact_sheet.
 
     Returns:
         A list of rationale strings, one per look (same order, same length).
@@ -258,6 +289,8 @@ def generate_rationales(
             user_context=user_context,
             budget_inr=budget_inr,
             anchor_is_owned=anchor_is_owned,
+            body_type=body_type,
+            body_modifiers=body_modifiers,
         )
         for look in looks
     ]
@@ -291,6 +324,23 @@ def generate_rationales(
         occ = look.get("occasion") or occasion
 
         llm_text = llm_rationales[i]
+        # P3 HARD GUARDRAIL: this is the single choke point every generated
+        # rationale passes through. Any banned body-framing word (see
+        # body_type.BANNED_FRAMING_WORDS) discards the LLM text outright —
+        # checked BEFORE the grounding gate since a banned-word hit is a tone
+        # violation, not a grounding one, and must never reach the caller
+        # regardless of whether this specific look has a body_type set (an
+        # LLM can hallucinate this register even for a body-type-agnostic
+        # look).
+        if llm_text and contains_banned_framing(llm_text):
+            logger.warning(
+                "[rationale] banned body-framing language detected for look %d — "
+                "using body-positive template fallback",
+                i,
+            )
+            results.append(_body_type_template_rationale(look, body_type))
+            continue
+
         if llm_text:
             cleaned, flags = validate_rationale(
                 llm_text, all_items, occ, extra_whitelist_tokens, budget_inr=budget_inr
@@ -301,13 +351,27 @@ def generate_rationales(
                     "[rationale] grounding dropped all sentences for look %d — using template",
                     i,
                 )
-                results.append(template_rationale(look))
+                results.append(_body_type_template_rationale(look, body_type))
             else:
                 results.append(cleaned)
         else:
-            results.append(template_rationale(look))
+            results.append(_body_type_template_rationale(look, body_type))
 
     return results
+
+
+def _body_type_template_rationale(look: dict, body_type: str | None) -> str:
+    """Template fallback for a body-type turn — grounded template + POSITIVE_TEMPLATES.
+
+    Used whenever the LLM rationale is unavailable, fails grounding, or trips
+    the banned-framing guardrail. When body_type is None (or unknown), this is
+    identical to template_rationale(look) — fully backward compatible with
+    every non-body-type call site.
+    """
+    base = template_rationale(look)
+    if body_type and body_type in POSITIVE_TEMPLATES:
+        return f"{base} {POSITIVE_TEMPLATES[body_type]}"
+    return base
 
 
 def template_rationale(look: dict) -> str:

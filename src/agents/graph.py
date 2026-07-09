@@ -7,6 +7,7 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.grounding import validate_response
+from src.agents.outfit.body_type import body_type_clarify_message
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
@@ -184,6 +185,30 @@ def _reconstruct_occasion_from_history(messages: list[dict]) -> str | None:
         if occ:
             return occ
     return None
+
+
+def _reconstruct_body_type_from_history(
+    messages: list[dict],
+) -> tuple[str | None, list[str]]:
+    """Recover body-type context from conversation history for follow-up turns.
+
+    P3: mirrors _reconstruct_occasion_from_history exactly — body_type/
+    body_modifiers are NOT persisted in the session dict (only
+    retrieved_items/filters/messages survive — see that function's
+    docstring), so a "style this for a sangeet" follow-up turn after "I'm
+    pear-shaped" would otherwise silently lose the body type. Scans user
+    messages most-recent-first; the first message carrying EITHER a base
+    shape or a modifier wins (both taken from that same message).
+    """
+    from src.agents.intent_parser import parse_intent
+
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        intent = parse_intent(m.get("content", ""))
+        if intent.body_type or intent.body_modifiers:
+            return intent.body_type, intent.body_modifiers
+    return None, []
 
 
 def _resolve_session_gender(state: AgentState) -> str | None:
@@ -575,6 +600,28 @@ def build_graph(
                     "tool_calls": [{"router_decision": plan}],
                 }
 
+            # P3 body-type QUESTION short-circuit ("what suits my body type",
+            # "which styles suit me"): deterministic clarify, never product
+            # search and never the LLM router — §6 interaction rules require
+            # this to never gate results, so it only fires when NO body type
+            # is already known (this turn OR any prior turn). Once a body
+            # type is stated, this branch never fires again for the session.
+            from src.agents.intent_parser import parse_intent as _parse_intent_bt
+
+            _bt_intent = _parse_intent_bt(state["user_query"])
+            if _bt_intent.wants_body_type_guidance and not (
+                _bt_intent.body_type or _bt_intent.body_modifiers
+            ):
+                _hist_bt, _hist_bt_mods = _reconstruct_body_type_from_history(
+                    state.get("messages", [])
+                )
+                if not (_hist_bt or _hist_bt_mods):
+                    plan = {"action": "clarify", "question": body_type_clarify_message()}
+                    return {
+                        "current_plan": json.dumps(plan),
+                        "tool_calls": [{"router_decision": plan}],
+                    }
+
         # Agent-loop router fast-path: skip the LLM for transitions that are fully
         # determined by the graph rules already present in route_decision.
         # Reads env at call-time so it can be disabled without restart:
@@ -628,6 +675,17 @@ def build_graph(
         if _inherited_budget_inr is None:
             _inherited_budget_inr = (state.get("filters") or {}).get("price_max")
 
+        # P3: body-type carry-forward for the same OUTFIT-composition fast-path
+        # branches, same rationale as budget above — this turn's own mention wins,
+        # else fall back to the most recent body-type-bearing message in history
+        # (mirrors _reconstruct_occasion_from_history's usage pattern).
+        _inherited_body_type = intent.body_type
+        _inherited_body_modifiers = intent.body_modifiers
+        if not _inherited_body_type and not _inherited_body_modifiers:
+            _inherited_body_type, _inherited_body_modifiers = (
+                _reconstruct_body_type_from_history(state.get("messages", []))
+            )
+
         # RED 2b/3/B3c: explicit anchor reference ("Style this <item>",
         # "What goes with the/this <item>") — resolve deterministically against
         # session retrieved_items BEFORE any garment_type veto or LLM call.
@@ -662,6 +720,8 @@ def build_graph(
                     "occasion": _anchor_occasion,
                     "gender": _anchor_gender,
                     "budget_inr": _inherited_budget_inr,
+                    "body_type": _inherited_body_type,
+                    "body_modifiers": _inherited_body_modifiers,
                 }
                 logger.info(
                     "[router/style-anchor] resolved anchor=%s gender=%s occasion=%s | query=%r",
@@ -774,6 +834,8 @@ def build_graph(
                         "swap_exclude_id": (
                             _current_slot_item["article_id"] if _current_slot_item else None
                         ),
+                        "body_type": _inherited_body_type,
+                        "body_modifiers": _inherited_body_modifiers,
                     }
                     logger.info(
                         "[router/swap-slot] anchor=%s slot=%s | query=%r",
@@ -803,6 +865,8 @@ def build_graph(
                     "gender": _refine_gender,
                     "budget_inr": _inherited_budget_inr,
                     "variant_preference": _bias_mode,
+                    "body_type": _inherited_body_type,
+                    "body_modifiers": _inherited_body_modifiers,
                 }
                 logger.info(
                     "[router/look-refinement] anchor=%s occasion=%s bias=%s | query=%r",
@@ -835,6 +899,8 @@ def build_graph(
                 "occasion": _occ_slug,
                 "gender": _occ_gender,
                 "budget_inr": _inherited_budget_inr,
+                "body_type": _inherited_body_type,
+                "body_modifiers": _inherited_body_modifiers,
             }
             logger.info(
                 "[router/occasion-outfit] occasion=%s gender=%s budget=%s | query=%r",
@@ -1920,6 +1986,21 @@ def build_graph(
         )
         budget_inr = plan.get("budget_inr")
 
+        # P3: body_type/body_modifiers. Every deterministic router_node outfit
+        # branch already threads these through the plan dict (see router_node);
+        # this is the safety net for the one remaining branch that defers to
+        # the LLM router (router_backend.decide) — its JSON schema has no
+        # body_type key, so plan.get("body_type") is always None there.
+        # Reconstructing from conversation history directly here means a body
+        # type volunteered earlier in the conversation still reaches
+        # composition even via that branch.
+        body_type = plan.get("body_type")
+        body_modifiers = plan.get("body_modifiers") or []
+        if not body_type and not body_modifiers:
+            body_type, body_modifiers = _reconstruct_body_type_from_history(
+                state.get("messages", [])
+            )
+
         # "Owned anchor" feature: if the resolved seed IS the session's image-upload
         # anchor AND that anchor is owned by the user (not for sale), re-compose
         # must preserve ownership — otherwise a follow-up "Style this <item>" /
@@ -1970,6 +2051,8 @@ def build_graph(
                 gender=gender,
                 exclude_article_ids=_exclude_ids,
                 budget_inr=budget_inr,
+                body_type=body_type,
+                body_modifiers=body_modifiers,
             )
 
             if _new_look is None:
@@ -2017,6 +2100,8 @@ def build_graph(
                 "outfit_rationale": _new_look.get("outfit_rationale"),
                 "outfit_variants": None,
                 "budget_total_inr": _new_look.get("budget_total_inr"),
+                "body_type": body_type,
+                "body_modifiers": body_modifiers,
             }
             if streaming_mode:
                 update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
@@ -2038,6 +2123,8 @@ def build_graph(
             retriever=retriever,
             budget_inr=budget_inr,
             owned_anchor=owned_anchor,
+            body_type=body_type,
+            body_modifiers=body_modifiers,
         )
         if probe.get("seed_item") is None:
             answer = (
@@ -2067,6 +2154,8 @@ def build_graph(
                 pairing_stats=None,  # flywheel stats injected when F phase completes
                 brand_gender_default=_brand_cfg.gender_default,
                 owned_anchor=owned_anchor,
+                body_type=body_type,
+                body_modifiers=body_modifiers,
             )
         except Exception as _ve:
             logger.warning("[outfit] compose_outfit_variants failed (%s) — using probe", _ve)
@@ -2082,6 +2171,8 @@ def build_graph(
                 user_context=state.get("user_query"),
                 budget_inr=budget_inr,
                 anchor_is_owned=owned_anchor,
+                body_type=body_type,
+                body_modifiers=body_modifiers,
             )
         except Exception as _re:
             logger.warning("[outfit] generate_rationales failed (%s) — using templates", _re)
@@ -2114,6 +2205,8 @@ def build_graph(
                     brand_gender_default=_brand_cfg.gender_default,
                     bias_mode="ethnic_shift",
                     owned_anchor=owned_anchor,
+                    body_type=body_type,
+                    body_modifiers=body_modifiers,
                 )
             except Exception as _ee:
                 logger.warning("[outfit] compose_biased_look ethnic_shift failed (%s)", _ee)
@@ -2129,6 +2222,8 @@ def build_graph(
                         user_context=state.get("user_query"),
                         budget_inr=budget_inr,
                         anchor_is_owned=owned_anchor,
+                        body_type=body_type,
+                        body_modifiers=body_modifiers,
                     )[0]
                 except Exception as _re2:
                     logger.warning(
@@ -2183,6 +2278,8 @@ def build_graph(
             # Honest slot suppression (Phase B Part 1): [{"slot": ..., "reason": ...}]
             # for slots with no valid candidate — see composer.compose_outfit.
             "suppressed_slots": result.get("suppressed_slots"),
+            "body_type": body_type,
+            "body_modifiers": body_modifiers,
         }
         if streaming_mode:
             update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})

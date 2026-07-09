@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from src.agents.outfit.body_type import body_type_score_delta
+from src.agents.outfit.body_type import query_tokens as body_type_query_tokens
 from src.agents.outfit.coherence import (
     colour_score,
     is_coherent_candidate,
@@ -88,6 +90,8 @@ def compose_outfit(
     brand_gender_default: str = "women",
     owned_anchor: bool = False,
     exclude_ids: set[str] | None = None,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> dict:
     """Compose an outfit for a given occasion, optionally anchored to a seed item.
 
@@ -106,6 +110,13 @@ def compose_outfit(
             a visibly different look whenever the candidate pool has an
             alternative, instead of relying only on score nudges to change the
             winner (Phase B Part 1: "guaranteed-distinct variants").
+        body_type: P3 — one of src.agents.outfit.body_type.BASE_SHAPE_SLUGS, or
+            None. Opt-in bias only (never a filter): nudges complement scoring
+            via body_type_score_delta and augments slot/anchor retrieval
+            queries via body_type.query_tokens. None (default) is a full no-op.
+        body_modifiers: P3 — list of MODIFIER_SLUGS ("petite"/"tall"/
+            "plus_size"), or None. Composes with body_type (union of
+            recommend/deprioritize keyword sets — see body_type_score_delta).
 
     Returns a dict with: look_id, seed_item, complements, outfit_rationale,
     empty_slots, suppressed_slots, occasion, gender, budget_total_inr.
@@ -127,6 +138,9 @@ def compose_outfit(
         # gender_allowed() re-check right below is now belt-and-suspenders, not the
         # only gate.  Skipped for "unisex" (no single-gender filter makes sense).
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
+        _bt_tokens = body_type_query_tokens(body_type, body_modifiers)
+        if _bt_tokens:
+            anchor_query = f"{anchor_query} {_bt_tokens}"
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
         candidates = retriever.search(anchor_query, top_k=10, filters=anchor_filters)
         # Filter by occasion coherence AND gender compatibility. S5 fix: also
@@ -167,7 +181,9 @@ def compose_outfit(
     anchor_class = classify_anchor(anchor_product_type, anchor_name)
     anchor_colour = (seed_item.get("colour") or "").lower()
 
-    fill_slots = get_fill_slots(anchor_class, effective_gender, occasion_slug)
+    fill_slots = get_fill_slots(
+        anchor_class, effective_gender, occasion_slug, body_type, body_modifiers
+    )
 
     # ── Step 2: fill each slot ──────────────────────────────────────────────
     complements: list[dict] = []
@@ -204,6 +220,8 @@ def compose_outfit(
             pairing_stats=pairing_stats,
             anchor_class=anchor_class,
             seen_stores=seen_stores,
+            body_type=body_type,
+            body_modifiers=body_modifiers,
         )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
@@ -306,6 +324,8 @@ def compose_outfit_variants(
     pairing_stats: dict | None = None,
     brand_gender_default: str = "women",
     owned_anchor: bool = False,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> list[dict]:
     """Compose 2-3 look variants around the same seed and occasion.
 
@@ -340,6 +360,9 @@ def compose_outfit_variants(
         owned_anchor:        When True, the seed item in EVERY variant is stamped
             ``_owned=True`` (see ``compose_outfit`` docstring). Complements are
             never owned.
+        body_type:           P3 — see ``compose_outfit`` docstring. Applied to
+            every variant (base + biased).
+        body_modifiers:      P3 — see ``compose_outfit`` docstring.
 
     Returns:
         List of 1–3 look dicts.  Always non-empty (falls back to base-only).
@@ -355,6 +378,8 @@ def compose_outfit_variants(
         pairing_stats=pairing_stats,
         brand_gender_default=brand_gender_default,
         owned_anchor=owned_anchor,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
     )
     base["variant_label"] = "Base"
 
@@ -390,6 +415,8 @@ def compose_outfit_variants(
         bias_mode="alternate_colour",
         owned_anchor=owned_anchor,
         extra_exclude_ids=accumulated_ids,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
     )
     if alt_colour_look and _is_distinct_look(alt_colour_look, variants):
         alt_colour_look["variant_label"] = "Colour story"
@@ -411,6 +438,8 @@ def compose_outfit_variants(
         bias_mode="formality_shift",
         owned_anchor=owned_anchor,
         extra_exclude_ids=accumulated_ids,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
     )
     if formality_look and _is_distinct_look(formality_look, variants):
         # Label: ethnic/formal occasions get "Lighter"; western/casual get "Dressier"
@@ -457,6 +486,8 @@ def compose_biased_look(
     bias_mode: str,
     owned_anchor: bool = False,
     extra_exclude_ids: set[str] | None = None,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> dict | None:
     """Compose a variant look using a biased retriever wrapper.
 
@@ -528,6 +559,8 @@ def compose_biased_look(
             brand_gender_default=brand_gender_default,
             owned_anchor=owned_anchor,
             exclude_ids=exclude_ids,
+            body_type=body_type,
+            body_modifiers=body_modifiers,
         )
         if look.get("seed_item") is None:
             return None
@@ -754,6 +787,8 @@ def _score_candidates(
     anchor_class: str,
     seen_stores: set[str] | None,
     neutral_fallback_ids: set[str],
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> list[tuple[float, dict]]:
     """Run every hard gate + score every surviving candidate.
 
@@ -761,6 +796,11 @@ def _score_candidates(
     re-run, unchanged, against a second (narrowed) retrieval pass — see the
     pool-underflow fallback in _find_best_candidate below.  Returns the same
     (score, item) tuple list _find_best_candidate previously built inline.
+
+    body_type/body_modifiers: P3 — passed straight to body_type_score_delta,
+    added to the score alongside fabric_score_delta (never a gate — every
+    candidate that survives the hard gates above is still scored and
+    returned; body type only nudges which one wins).
     """
     scored: list[tuple[float, dict]] = []
     for item in candidates:
@@ -835,9 +875,12 @@ def _score_candidates(
         base_score = item.get("score") or 0.5
         c_score = colour_score(item.get("colour") or "", anchor_colour, occasion_slug)
         fab_delta = fabric_score_delta(item, occasion_slug)
+        bt_delta = body_type_score_delta(item, body_type, body_modifiers)
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
-        final_score = (base_score * 0.5 + c_score * 0.3 + 0.2) * (1.0 + fw_boost) + fab_delta
+        final_score = (
+            (base_score * 0.5 + c_score * 0.3 + 0.2) * (1.0 + fw_boost) + fab_delta + bt_delta
+        )
 
         # Soft store-diversity preference: penalise (not exclude) candidates whose store is
         # already represented in the current look, so a near-tied item from a new store wins.
@@ -863,6 +906,8 @@ def _find_best_candidate(
     pairing_stats: dict | None,
     anchor_class: str,
     seen_stores: set[str] | None = None,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> dict | None:
     # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
     # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
@@ -906,6 +951,8 @@ def _find_best_candidate(
         anchor_class=anchor_class,
         seen_stores=seen_stores,
         neutral_fallback_ids=neutral_fallback_ids,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
     )
 
     # Phase B pool-underflow fallback (live-proven: "office look for women"
@@ -953,6 +1000,8 @@ def _find_best_candidate(
                 anchor_class=anchor_class,
                 seen_stores=seen_stores,
                 neutral_fallback_ids=set(),
+                body_type=body_type,
+                body_modifiers=body_modifiers,
             )
 
     if not scored:
@@ -972,6 +1021,8 @@ def swap_slot_in_look(
     exclude_article_ids: set[str] | None = None,
     budget_inr: float | None = None,
     pairing_stats: dict | None = None,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> dict | None:
     """Replace ONLY the complement occupying ``slot_name``, keeping the seed and
     every other complement in the current session look unchanged.
@@ -1010,7 +1061,7 @@ def swap_slot_in_look(
     anchor_class = classify_anchor(anchor_product_type, anchor_name)
     anchor_colour = (seed_item.get("colour") or "").lower()
 
-    fill_slots = get_fill_slots(anchor_class, gender, occasion_slug)
+    fill_slots = get_fill_slots(anchor_class, gender, occasion_slug, body_type, body_modifiers)
     slot_spec = next((s for s in fill_slots if s.slot_name == slot_name), None)
     if slot_spec is None:
         return None
@@ -1059,6 +1110,8 @@ def swap_slot_in_look(
         pairing_stats=pairing_stats,
         anchor_class=anchor_class,
         seen_stores=seen_stores,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
     )
     if new_candidate is None:
         return None

@@ -66,3 +66,11 @@ class AgentState(TypedDict):
     # follow-up "Style this <item>" / re-compose never silently re-tags the user's
     # own garment as buyable. Defaults to False for text-only sessions.
     anchor_is_owned: bool
+
+    # P3 body-type-aware guidance — set by outfit_node ONLY when a body type/
+    # modifier was volunteered by the user (opt-in, never a gate on results).
+    # Like `occasion`, NOT auto-persisted across turns by the session dict
+    # (see graph.py's _reconstruct_body_type_from_history docstring); recovered
+    # each turn from conversation history the same way occasion is.
+    body_type: str | None
+    body_modifiers: list[str] | None

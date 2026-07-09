@@ -30,6 +30,14 @@ class IntentV1:
     store_filter: list[str] = field(default_factory=list)  # explicit store mentions
     raw_query: str = ""  # original text, NEVER modified
     is_product_query: bool = False  # True → product search path
+    # P3 body-type-aware guidance (see src/agents/outfit/body_type.py for the
+    # full registry). body_type is one of BASE_SHAPE_SLUGS there, or None.
+    body_type: str | None = None
+    body_modifiers: list[str] = field(default_factory=list)
+    # True when the user asked a body-type QUESTION with no shape stated
+    # ("what suits my body type") — routes to a deterministic clarify message
+    # rather than product search (see graph.py's router_node short-circuit).
+    wants_body_type_guidance: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +243,81 @@ _OCCASION_SORTED: list[tuple[str, str]] = sorted(
 )
 
 # ---------------------------------------------------------------------------
+# P3: body-type map — sorted longest-first (same algorithm as colour/occasion).
+#
+# Kept as a LOCAL copy rather than importing src.agents.outfit.body_type.
+# SYNONYMS, deliberately: this module's docstring states a zero-project-import
+# invariant so IntentParser stays testable/usable without loading the
+# catalogue/index/LLM layers. Keep this in sync with body_type.py's SYNONYMS
+# dict when either changes (same established pattern as _OCCASION_MAP here
+# duplicating occasions.py's OCCASIONS slugs).
+# ---------------------------------------------------------------------------
+
+_BODY_TYPE_MAP: dict[str, str] = {
+    # pear
+    "pear shaped": "pear",
+    "pear-shaped": "pear",
+    "pear shape": "pear",
+    "pear": "pear",
+    "triangle body": "pear",
+    "curvy hips": "pear",
+    "hip-forward": "pear",
+    "hip forward": "pear",
+    # apple
+    "apple shaped": "apple",
+    "apple-shaped": "apple",
+    "apple shape": "apple",
+    "apple": "apple",
+    "round shape": "apple",
+    "rounder middle": "apple",
+    "midsection-forward": "apple",
+    # hourglass
+    "hourglass shaped": "hourglass",
+    "hourglass-shaped": "hourglass",
+    "hourglass shape": "hourglass",
+    "hourglass": "hourglass",
+    "balanced curves": "hourglass",
+    # rectangle
+    "rectangle shaped": "rectangle",
+    "rectangle-shaped": "rectangle",
+    "rectangle shape": "rectangle",
+    "rectangle": "rectangle",
+    "straight frame": "rectangle",
+    "athletic frame": "rectangle",
+    "athletic build": "rectangle",
+    # inverted triangle
+    "inverted triangle": "inverted_triangle",
+    "inverted-triangle": "inverted_triangle",
+    "broad-shouldered": "inverted_triangle",
+    "broad shouldered": "inverted_triangle",
+    # modifiers
+    "plus size": "plus_size",
+    "plus-size": "plus_size",
+    "curvy": "plus_size",
+    "petite": "petite",
+    "tall": "tall",
+}
+
+_BASE_SHAPE_SLUGS: frozenset[str] = frozenset(
+    {"pear", "apple", "hourglass", "rectangle", "inverted_triangle"}
+)
+_MODIFIER_SLUGS: frozenset[str] = frozenset({"petite", "tall", "plus_size"})
+
+_BODY_TYPE_SORTED: list[tuple[str, str]] = sorted(
+    _BODY_TYPE_MAP.items(), key=lambda kv: len(kv[0]), reverse=True
+)
+
+# "What suits my body type" / "which styles suit me" / "what should I wear
+# for my body type" — a body-type QUESTION with no shape stated.
+_BODY_TYPE_QUESTION_RE = re.compile(
+    r"\bwhat\s+suits\s+my\s+body(?:\s+type)?\b"
+    r"|\bwhich\s+styles?\s+suit(?:s)?\s+me\b"
+    r"|\bwhat\s+should\s+i\s+wear\s+for\s+my\s+body(?:\s+type)?\b"
+    r"|\bwhat.?s\s+my\s+body\s+type\b",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
 # Store names
 # ---------------------------------------------------------------------------
 
@@ -354,6 +437,38 @@ def _extract_occasion(text_lower: str) -> str | None:
     return None
 
 
+def _extract_body_type(text_lower: str) -> tuple[str | None, list[str]]:
+    """Return (base_type, modifiers) via longest-first, non-overlapping matching.
+
+    Mirrors _extract_colour/_extract_occasion's longest-phrase-first algorithm,
+    but allows MULTIPLE non-overlapping matches (a message can carry both a
+    base shape and a modifier, e.g. "petite pear") rather than a single
+    winner. A longer phrase's matched span is never re-claimed by a shorter
+    phrase nested inside it (e.g. "curvy hips" wins over standalone "curvy").
+    """
+    consumed: list[tuple[int, int]] = []
+    ordered: list[tuple[int, str]] = []
+
+    for phrase, slug in _BODY_TYPE_SORTED:
+        pattern = r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])"
+        for m in re.finditer(pattern, text_lower):
+            span = (m.start(), m.end())
+            if any(not (span[1] <= c[0] or span[0] >= c[1]) for c in consumed):
+                continue
+            consumed.append(span)
+            ordered.append((span[0], slug))
+
+    ordered.sort(key=lambda t: t[0])
+    slugs_in_order = [slug for _, slug in ordered]
+
+    base = next((s for s in slugs_in_order if s in _BASE_SHAPE_SLUGS), None)
+    modifiers: list[str] = []
+    for s in slugs_in_order:
+        if s in _MODIFIER_SLUGS and s not in modifiers:
+            modifiers.append(s)
+    return base, modifiers
+
+
 def _extract_budget(raw_query: str) -> int | None:
     """Extract upper budget bound in INR.
 
@@ -432,6 +547,8 @@ def parse_intent(raw_query: str) -> IntentV1:
     budget_max_inr = _extract_budget(raw_query)
     store_filter = _extract_stores(text_lower)
     is_product = _is_product_query(text_lower, garment_type, occasion, store_filter)
+    body_type, body_modifiers = _extract_body_type(text_lower)
+    wants_body_type_guidance = bool(_BODY_TYPE_QUESTION_RE.search(text_lower))
 
     return IntentV1(
         garment_type=garment_type,
@@ -442,6 +559,9 @@ def parse_intent(raw_query: str) -> IntentV1:
         store_filter=store_filter,
         raw_query=raw_query,
         is_product_query=is_product,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
+        wants_body_type_guidance=wants_body_type_guidance,
     )
 
 
@@ -460,7 +580,8 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         The IntentV1 produced by parse_intent() for the current turn.
     session_context:
         Dict with keys "garment_type", "gender", "colour", "occasion",
-        "budget_max_inr" (all str | None, budget_max_inr is int | None) from
+        "budget_max_inr" (all str | None, budget_max_inr is int | None),
+        "body_type" (str | None), "body_modifiers" (list[str] | None) from
         the prior resolved intent.
 
     Returns
@@ -488,4 +609,11 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         store_filter=intent.store_filter,
         raw_query=intent.raw_query,
         is_product_query=intent.is_product_query,
+        body_type=intent.body_type
+        if intent.body_type is not None
+        else session_context.get("body_type"),
+        body_modifiers=intent.body_modifiers
+        if intent.body_modifiers
+        else (session_context.get("body_modifiers") or []),
+        wants_body_type_guidance=intent.wants_body_type_guidance,
     )
