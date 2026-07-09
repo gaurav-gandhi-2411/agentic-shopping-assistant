@@ -44,6 +44,36 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
      <=8 target; it is flagged in the implementer's report, not silently
      resolved by dropping either requirement.
 
+  9. (--wave-7 flow, W0-W6) Content assertions for the P1 wedding-occasion
+     hero features (2026-07-09 build): the unified-mode "StyleMitra" brand
+     config's 5 suggestion chips + display name (W0, must run BEFORE any
+     message — the chip row only renders while `messages.length === 0`), the
+     "Sangeet look under (rupee)8000" hero chip's click-to-send path plus
+     ethnic-occasion vocabulary and budget (W1), and the haldi/mehendi/
+     reception occasion palettes (W2-W4) each checked via an OR of a
+     colour/register-vocabulary card signal and an assistant-text signal.
+     W5 re-proves the pre-existing partner-styling gender split (S4's
+     property) still holds after three occasion turns in the SAME session,
+     since the new occasion slugs are new territory for the gender-
+     consistency code path. W6 is the shared zero-severe-console-errors
+     check `step_console_errors` already runs unconditionally in `main`'s
+     `finally` block for every flow — --wave-7 does not call it a second
+     time (that would just duplicate the same summary row).
+
+     IMPORTANT CAVEAT discovered while implementing this flow (read-before-
+     edit, not asserted from memory): as of this writing,
+     `frontend/components/chat/ChatPlaceholder.tsx` (the component the task
+     spec says renders the 5 chips + display name) is NOT imported by
+     ANY page in the frontend tree — `/demo/chat` and `/embed/[brand]`
+     both render `MessageList` directly, whose own `messages.length === 0`
+     branch is a fixed, brand-independent, chip-less placeholder. W0 will
+     legitimately FAIL until a frontend change (out of this script's scope)
+     wires `ChatPlaceholder` (or equivalent chip rendering) into one of
+     those pages. W0's assertions use `page.get_by_role("button", name=...)`
+     directly rather than depending on `ChatPlaceholder`'s specific
+     container class, so they will pass unmodified once the wiring lands
+     wherever it lands.
+
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
 
@@ -1709,6 +1739,364 @@ def step_pb_s6_distinct_variants(page: Page, state: ProofState) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Wave-7 (P1 wedding-occasion hero features) constants & steps.
+#
+# The exact 5 chip strings the unified "StyleMitra" brand config is expected
+# to return from GET /api/brand (`suggestion_chips`) — see
+# frontend/hooks/useBrandConfig.ts's BrandConfig interface and
+# frontend/components/chat/ChatPlaceholder.tsx's chip-button rendering (per
+# the module docstring's caveat, ChatPlaceholder is not wired into any page
+# as of this writing; W0 checks the chip TEXT via role selectors so it stays
+# correct regardless of which page eventually mounts it).
+# ---------------------------------------------------------------------------
+WAVE7_CHIPS = [
+    "Sangeet look under ₹8000",
+    "Haldi outfit — bright & daytime",
+    "Wedding-guest saree under ₹5000",
+    "Style my partner for a reception",
+    "Mehendi look in green",
+]
+
+# W1 ethnic-occasion vocabulary — a sangeet-register look's cards should read
+# as festive/ethnic wear, not casual western. `\w*` suffixes on the
+# embellish/embroider/sequin stems so inflected forms ("embellished",
+# "embroidered", "sequinned") still match, mirroring PB_CASUAL_WESTERN_RE's
+# plural-friendly style elsewhere in this file.
+W7_SANGEET_VOCAB_RE = re.compile(
+    r"\b(lehengas?|sarees?|anarkalis?|kurtas?|shararas?|cholis?|dupattas?|ethnic|"
+    r"embellish\w*|embroider\w*|sequins?|zari)\b",
+    re.IGNORECASE,
+)
+# W2 haldi: bright/marigold-yellow palette. `gold\w*` catches "golden" too.
+W7_HALDI_COLOUR_RE = re.compile(
+    r"\b(yellow|marigold|mustard|orange|amber|gold\w*)\b", re.IGNORECASE
+)
+W7_HALDI_TEXT_RE = re.compile(r"\b(haldi|bright|daytime|yellow|marigold)\b", re.IGNORECASE)
+# W3 mehendi: green/mint palette.
+W7_MEHENDI_COLOUR_RE = re.compile(r"\b(green|mint|olive|sage|emerald)\b", re.IGNORECASE)
+W7_MEHENDI_TEXT_RE = re.compile(r"\b(mehendi|green)\b", re.IGNORECASE)
+# W4 reception: glam/embellished evening register.
+W7_RECEPTION_GLAM_RE = re.compile(
+    r"\b(embellish\w*|sequins?|velvet\w*|silks?|satins?|zari|embroider\w*|gowns?|jewels?|"
+    r"wine|maroon|emerald|navy|metallic\w*)\b",
+    re.IGNORECASE,
+)
+W7_RECEPTION_TEXT_RE = re.compile(r"\b(reception|glam\w*|evening|embellish\w*)\b", re.IGNORECASE)
+# W5 partner regression: men's garment vocabulary, OR'd with PB_MEN_WORD_RE for
+# the positive "this is a men's look" signal (distinct from PB_WOMEN_WORD_RE,
+# which is the negative/violation check reused unchanged from Phase-B).
+W7_MEN_GARMENT_RE = re.compile(
+    r"\b(kurtas?|sherwanis?|bandhgalas?|blazers?|nehru)\b", re.IGNORECASE
+)
+
+# MessageBubble.tsx: both roles share `rounded-2xl px-4 py-2.5 text-sm
+# leading-relaxed`, layered with role-specific classes — assistant-only gets
+# `bg-muted text-foreground rounded-bl-sm` (user gets `bg-primary
+# text-primary-foreground rounded-br-sm` instead). `bg-muted`+`rounded-bl-sm`
+# alone is enough to select assistant bubbles only; `rounded-2xl` added for
+# extra specificity, matching this file's existing precise-selector style.
+ASSISTANT_BUBBLE_SELECTOR = "div.rounded-2xl.bg-muted.text-foreground.rounded-bl-sm"
+
+
+def last_assistant_text(page: Page) -> str:
+    """Return the innerText of the most recent assistant message bubble, or ''.
+
+    Assistant messages render top-to-bottom in arrival order (same reasoning
+    as `board_complement_cards`'s `.last` usage), so the last matched bubble
+    is always the newest assistant turn.
+    """
+    bubbles = page.locator(ASSISTANT_BUBBLE_SELECTOR)
+    if bubbles.count() == 0:
+        return ""
+    try:
+        return bubbles.last.inner_text().strip()
+    except Exception:  # noqa: BLE001 - best-effort evidence extraction
+        return ""
+
+
+def card_matches(card_locator, pattern: re.Pattern[str]) -> bool:
+    """True if `pattern` matches the card's title or any of its badge texts.
+
+    Badges are empty for OutfitBoard slot tiles (they don't render `<span>`
+    badges — see `card_all_badges`'s docstring), so this degrades gracefully
+    to a title-only check for board cards and a title-or-badge check for
+    ItemCard grid cards (which DO carry a colour badge span).
+    """
+    if pattern.search(card_title(card_locator)):
+        return True
+    return any(pattern.search(b) for b in card_all_badges(card_locator))
+
+
+def new_card_titles(page: Page, baseline: int, after: int) -> list[str]:
+    """Title text for every card newly rendered this turn, `CARD_SELECTOR`
+    indices [baseline, after). `CARD_SELECTOR` matches both ItemCard grid
+    tiles and OutfitBoard `<a>` slot tiles (see the module-level
+    `CARD_SELECTOR` docstring), so this works uniformly whether the turn
+    rendered a grid of cards or an outfit board.
+    """
+    return [card_title(page.locator(CARD_SELECTOR).nth(i)) for i in range(baseline, after)]
+
+
+def new_card_locators(page: Page, baseline: int, after: int) -> list:
+    """Locators for every card newly rendered this turn — see `new_card_titles`."""
+    return [page.locator(CARD_SELECTOR).nth(i) for i in range(baseline, after)]
+
+
+def step_w0_chips_and_brand(page: Page, state: ProofState) -> None:
+    """W0: BEFORE any message is sent, assert the unified-mode brand config
+    surfaced >=4 of the 5 exact WAVE7_CHIPS as clickable buttons (role-based,
+    exact text — the chip's `₹` rupee glyph must survive intact), and
+    the page shows "StyleMitra" somewhere but never "H&M" (regression check:
+    the header literally hardcodes the StyleMitra wordmark today — see
+    frontend/components/Logo.tsx — so this also guards against a future
+    regression that reintroduces a raw brand-name string).
+    """
+    hits = [
+        chip
+        for chip in WAVE7_CHIPS
+        if page.get_by_role("button", name=chip, exact=True).count() > 0
+    ]
+    rupee_chip_present = (
+        page.get_by_role("button", name="Sangeet look under ₹8000", exact=True).count() > 0
+    )
+    body_text = page.locator("body").inner_text()
+    has_stylemitra = "StyleMitra" in body_text
+    has_hm = "H&M" in body_text
+    shot(page, "w0_chips_and_brand")
+
+    passed = len(hits) >= 4 and rupee_chip_present and has_stylemitra and not has_hm
+    state.record(
+        "W0. >=4/5 WAVE7_CHIPS render as buttons (rupee glyph intact) and "
+        "page shows 'StyleMitra' not 'H&M'",
+        passed,
+        f"hits={len(hits)}/5 chips_found={hits} rupee_chip_present={rupee_chip_present} "
+        f"has_stylemitra={has_stylemitra} has_hm={has_hm}",
+    )
+
+
+def step_w1_sangeet_hero(page: Page, state: ProofState) -> None:
+    """W1: click the "Sangeet look under ₹8000" hero chip (falling back to
+    typing the identical text if the click doesn't register a user turn — the
+    chip button disappears once `messages.length > 0`, per ChatPlaceholder.tsx
+    / MessageList.tsx, so the button vanishing is the click-registered signal).
+
+    Asserts: (a) an outfit board OR >=3 new cards; (b) sangeet-register
+    vocabulary in >=1 new card title; (c) no new card title matches
+    PB_MEN_WORD_RE unless its own data-gender attr says "women" (women-
+    default gender consistency must survive the new occasion path); (d) a
+    budget check — sum of board slot prices, or each visible new card's
+    price where parseable — <= 8000.
+    """
+    chip_text = "Sangeet look under ₹8000"
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+
+    chip_button = page.get_by_role("button", name=chip_text, exact=True)
+    clicked = False
+    if chip_button.count() > 0:
+        try:
+            chip_button.first.click()
+            page.wait_for_timeout(1_000)
+            clicked = page.get_by_role("button", name=chip_text, exact=True).count() == 0
+        except Exception:  # noqa: BLE001 - fall through to the typed-text fallback
+            clicked = False
+    if not clicked:
+        send_text(page, chip_text)
+
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "w1_sangeet_hero")
+
+    render_ok = outfit_board_present or gained >= 3
+    state.record(
+        "W1a. sangeet hero chip renders an outfit board or >=3 new cards",
+        render_ok,
+        f"clicked_chip={clicked} cards {baseline}->{after} "
+        f"outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    titles = new_card_titles(page, baseline, after)
+    vocab_hits = [t for t in titles if W7_SANGEET_VOCAB_RE.search(t)]
+    state.record(
+        "W1b. >=1 new card title matches sangeet/ethnic-occasion vocabulary",
+        len(vocab_hits) >= 1,
+        f"vocab_hits={vocab_hits} titles={titles}",
+    )
+
+    new_cards = new_card_locators(page, baseline, after)
+    men_word_violations = []
+    for c in new_cards:
+        title = card_title(c)
+        if PB_MEN_WORD_RE.search(title):
+            gender_attr, _ = card_data_attrs(c)
+            if (gender_attr or "").lower() != "women":
+                men_word_violations.append(f"{title!r} (data-gender={gender_attr!r})")
+    state.record(
+        "W1c. no new card title matches PB_MEN_WORD_RE unless data-gender says 'women'",
+        not men_word_violations,
+        f"violations={men_word_violations} titles={titles}",
+    )
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        budget_ok = price_sum <= 8000
+        budget_detail = (
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}"
+        )
+    else:
+        prices = [_parse_rupee_amount(c.inner_text()) for c in new_cards]
+        parsed_prices = [p for p in prices if p is not None]
+        budget_ok = all(p <= 8000 for p in parsed_prices)
+        budget_detail = f"new_card_prices={prices}"
+    state.record("W1d. budget respected (<=8000)", budget_ok, budget_detail)
+
+
+def _step_w_occasion_palette(
+    page: Page,
+    state: ProofState,
+    query: str,
+    label_prefix: str,
+    colour_re: re.Pattern[str],
+    text_re: re.Pattern[str],
+    shot_name: str,
+) -> None:
+    """Shared W2/W3/W4 occasion-palette check: send `query`, assert >=1 new
+    card, then assert EITHER a colour/register-vocabulary card signal OR an
+    assistant-text signal — recording which one(s) matched as evidence.
+    """
+    baseline = card_count(page)
+    send_text(page, query)
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, shot_name)
+
+    render_ok = gained >= 1
+    state.record(
+        f"{label_prefix}a. '{query}' renders >=1 new card",
+        render_ok,
+        f"cards {baseline}->{after}",
+    )
+    if not render_ok:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    card_hits = [card_title(c) for c in new_cards if card_matches(c, colour_re)]
+    assistant_text = last_assistant_text(page)
+    text_hit = bool(text_re.search(assistant_text))
+    passed = bool(card_hits) or text_hit
+    state.record(
+        f"{label_prefix}b. colour/register signal: card title/badge OR assistant text",
+        passed,
+        f"card_hits={card_hits} text_hit={text_hit} "
+        f"assistant_text_snippet={assistant_text[:200]!r}",
+    )
+
+
+def step_w2_haldi_palette(page: Page, state: ProofState) -> None:
+    """W2: 'haldi outfit for a woman' — bright marigold-yellow palette check."""
+    _step_w_occasion_palette(
+        page,
+        state,
+        "haldi outfit for a woman",
+        "W2",
+        W7_HALDI_COLOUR_RE,
+        W7_HALDI_TEXT_RE,
+        "w2_haldi_palette",
+    )
+
+
+def step_w3_mehendi_palette(page: Page, state: ProofState) -> None:
+    """W3: 'mehendi look in green' — green/mint palette check."""
+    _step_w_occasion_palette(
+        page,
+        state,
+        "mehendi look in green",
+        "W3",
+        W7_MEHENDI_COLOUR_RE,
+        W7_MEHENDI_TEXT_RE,
+        "w3_mehendi_palette",
+    )
+
+
+def step_w4_reception_register(page: Page, state: ProofState) -> None:
+    """W4: 'reception look under 10000' — glam/embellished evening register check."""
+    _step_w_occasion_palette(
+        page,
+        state,
+        "reception look under 10000",
+        "W4",
+        W7_RECEPTION_GLAM_RE,
+        W7_RECEPTION_TEXT_RE,
+        "w4_reception_register",
+    )
+
+
+def step_w5_partner_regression(page: Page, state: ProofState) -> None:
+    """W5: after W2-W4's occasion turns, 'what should my husband wear' must
+    still produce a gender-consistent MEN's look — re-proving Phase-B's
+    partner-styling gender split (S4) holds on the new occasion code paths.
+
+    Copies the Phase-B approach: data-gender attr is authoritative when
+    present (hard FAIL on "women"), title-word fallback (PB_WOMEN_WORD_RE)
+    when absent. The positive signal (>=1 card reads as a men's look) uses
+    PB_MEN_WORD_RE OR'd with men's-garment vocabulary (W7_MEN_GARMENT_RE),
+    since a men's kurta/sherwani card may never say the literal word "men".
+    """
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, "what should my husband wear")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "w5_partner_regression")
+
+    render_ok = outfit_board_present or gained >= 1
+    state.record(
+        "W5a. 'what should my husband wear' produces a new board/cards",
+        render_ok,
+        f"cards {baseline}->{after} outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    titles = [card_title(c) for c in new_cards]
+    men_hits = [t for t in titles if PB_MEN_WORD_RE.search(t) or W7_MEN_GARMENT_RE.search(t)]
+
+    women_violations = []
+    for c, title in zip(new_cards, titles):
+        gender_attr, _ = card_data_attrs(c)
+        if gender_attr:
+            if gender_attr.lower() == "women":
+                women_violations.append(f"{title!r} (data-gender={gender_attr!r})")
+        elif PB_WOMEN_WORD_RE.search(title):
+            women_violations.append(title)
+
+    passed = len(men_hits) >= 1 and not women_violations
+    state.record(
+        "W5b. partner look: >=1 men's-vocab card AND no women-vocab card "
+        "(data-gender first, title fallback)",
+        passed,
+        f"men_hits={men_hits} women_violations={women_violations} titles={titles}",
+    )
+
+
 def print_summary(state: ProofState) -> bool:
     """Print the final PASS/FAIL table. Returns True if every check passed."""
     print("\n" + "=" * 78)
@@ -1763,6 +2151,19 @@ def main() -> int:
             "(S6)."
         ),
     )
+    parser.add_argument(
+        "--wave-7",
+        action="store_true",
+        help=(
+            "Run the Wave-7 wedding-occasion hero content-assertion steps (W0-W5): the "
+            "unified 'StyleMitra' brand config's 5 suggestion chips + display name (W0, "
+            "pre-message), the sangeet hero chip's click-to-send path with ethnic-occasion "
+            "vocabulary/gender/budget checks (W1), haldi/mehendi/reception occasion-palette "
+            "checks (W2-W4), and a partner-styling gender-consistency regression check "
+            "(W5). W6 (zero severe console errors) is covered by the shared finally-block "
+            "step_console_errors call, not a separate invocation."
+        ),
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -1803,6 +2204,13 @@ def main() -> int:
                     step_pb_s4_partner_styling(context, args.base_url, state)
                     step_pb_s5_occasion_register(page, state)
                     step_pb_s6_distinct_variants(page, state)
+                elif args.wave_7:
+                    step_w0_chips_and_brand(page, state)
+                    step_w1_sangeet_hero(page, state)
+                    step_w2_haldi_palette(page, state)
+                    step_w3_mehendi_palette(page, state)
+                    step_w4_reception_register(page, state)
+                    step_w5_partner_regression(page, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(
