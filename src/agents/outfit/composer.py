@@ -813,8 +813,8 @@ def _score_candidates(
         if is_kids_item(item_name):
             continue
         # Phase B: hard formality gate — for occasion.formality >= 3 (office,
-        # party_evening, haldi_mehendi, festive_puja, wedding_guest, sangeet,
-        # traditional_ethnic), reject any candidate carrying a casual/denim-
+        # haldi, mehendi, party_evening, festive_puja, wedding_guest, engagement,
+        # sangeet, traditional_ethnic, reception), reject any candidate carrying a casual/denim-
         # register marker regardless of slot_name. _default_bottom_query()
         # already drops "jeans"/"skirt" from the QUERY text for western
         # formal occasions, but that only shapes ranking — it does not stop a
@@ -1132,7 +1132,12 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
             if is_men
             else "sherwani kurta lehenga anarkali festive embellished"
         ),
-        "haldi_mehendi": "kurta kurti lehenga cotton floral yellow festive",
+        "haldi": "bright yellow marigold cotton kurta anarkali sharara lightweight floral daytime",
+        "mehendi": "green mint floral lehenga sharara kurta set playful daytime",
+        "reception": (
+            "embellished glam lehenga gown sherwani bandhgala indo-western evening jewel tone"
+        ),
+        "engagement": "elegant pastel anarkali saree gown kurta bandhgala semi-formal",
         "festive_puja": (
             "kurta festive ethnic nehru jacket" if is_men else "kurta kurti anarkali festive ethnic"
         ),

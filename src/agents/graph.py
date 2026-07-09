@@ -48,7 +48,8 @@ _OUTFIT_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 _OUTFIT_OCCASION_RE = re.compile(
-    r"\b(sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
+    r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
+    r"party|festive|puja|traditional|ethnic|"
     r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
     re.IGNORECASE,
 )
@@ -63,7 +64,8 @@ _OUTFIT_OCCASION_RE = re.compile(
 # "look for black dresses" / "looking for shirts" (no occasion word directly
 # before "look", and in fact no occasion word at all) never match.
 _OCCASION_LOOK_RE = re.compile(
-    r"\b(?:sangeet|haldi|mehendi|wedding|party|festive|puja|traditional|ethnic|"
+    r"\b(?:sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
+    r"party|festive|puja|traditional|ethnic|"
     r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)"
     r"\s+look\b",
     re.IGNORECASE,
@@ -331,8 +333,9 @@ STRICT RULES — follow in order:
        - "Build me a sangeet look under ₹5000" → {{"action": "outfit", "article_id": null, "occasion": "sangeet", "gender": "women", "budget_inr": 5000}}
        - "Create a festive kurta outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "festive_puja", "gender": "men", "budget_inr": null}}
        - "Put together a wedding guest look" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "women", "budget_inr": null}}
-   Always include "occasion" (one of: casual, smart_casual, office, haldi_mehendi, party_evening,
-   festive_puja, wedding_guest, sangeet, traditional_ethnic — default "casual"), "gender"
+   Always include "occasion" (one of: casual, smart_casual, office, haldi, mehendi,
+   party_evening, festive_puja, wedding_guest, engagement, sangeet, traditional_ethnic,
+   reception — default "casual"), "gender"
    (men/women/unisex — default from context), and "budget_inr" (float or null).
    EXCEPTION — bare requests with NO occasion signal still need search first:
    - "build me a complete outfit" (no occasion) → search

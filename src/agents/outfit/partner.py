@@ -240,12 +240,15 @@ _FORMALITY_LEVEL_LABELS: dict[str, str] = {
     "casual": "casual",
     "smart_casual": "smart-casual",
     "office": "office-formal",
-    "haldi_mehendi": "haldi-mehendi festive",
+    "haldi": "haldi festive",
+    "mehendi": "mehendi festive",
     "party_evening": "evening formal",
     "festive_puja": "festive",
     "wedding_guest": "wedding formal",
+    "engagement": "engagement festive",
     "sangeet": "sangeet festive",
     "traditional_ethnic": "traditional festive",
+    "reception": "reception formal",
 }
 
 

@@ -18,9 +18,9 @@ from src.agents.outfit.slots import (
 # strictly business/tailored-western.  "work"/"formal" free text both map to
 # the SAME "office" slug via intent_parser._OCCASION_MAP, so no other slug
 # needs this.  Deliberately EXCLUDES party_evening (also EITHER-lean but not
-# reported/asked for) and every ETHNIC_HEAVY/ETHNIC_ONLY occasion (haldi_
-# mehendi/festive_puja/wedding_guest/sangeet/traditional_ethnic) — those are
-# already correctly ethnic-leaning and must never be gated toward western.
+# reported/asked for) and every ETHNIC_HEAVY/ETHNIC_ONLY occasion (haldi/
+# mehendi/festive_puja/wedding_guest/sangeet/traditional_ethnic/reception) —
+# those are already correctly ethnic-leaning and must never be gated toward western.
 _WESTERN_REGISTER_OCCASIONS: frozenset[str] = frozenset({"office"})
 
 # Live-proven: an "office look for women" board's bottom slot filled with a
@@ -137,7 +137,8 @@ def is_coherent_candidate(
     0b. Per-item gender mismatch: unknown gender is excluded from gendered looks.
     1. Dupatta slot: reject for men (belt-and-suspenders, also caught by gate 0).
     2. ethnic_only occasion: reject western items in any slot.
-    3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's wedding_guest).
+    3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's
+       wedding_guest, and for either gender's reception — indo-western glam register).
     4. western_register occasion (office): reject ethnic items and festive/quirky markers.
 
     Args:
@@ -194,6 +195,17 @@ def is_coherent_candidate(
             )
             if is_formal_western:
                 return True  # allowed
+        # Reception is an indo-western glam evening register for EITHER gender
+        # (see _anchor_query_for_occasion's "reception" query) — a formal gown
+        # is also allowed alongside blazer/trousers/shirt/suit.
+        if occasion_slug == "reception":
+            combined = (pt + " " + name).lower()
+            is_formal_western = any(
+                kw in combined
+                for kw in ("blazer", "trousers", "shirt", "suit", "formal", "gown")
+            )
+            if is_formal_western:
+                return True  # allowed
         return False
 
     # Gate 4 (Phase B product gap 1): WESTERN_REGISTER occasions (currently
@@ -225,21 +237,51 @@ def colour_score(
     For western occasions: neutrals score 1.0 with anything; same-colour scores
     0.9; mismatched non-neutrals score 0.4.
 
-    Haldi palette override: if occasion is haldi_mehendi and candidate is yellow/
+    Haldi palette override: if occasion is haldi and candidate is yellow/
     orange/marigold palette, score 1.0; anything dark scores 0.2.
+
+    Mehendi palette override: green/mint/olive palette scores 1.0 (mirrors the
+    haldi override's shape); anything dark scores 0.2.
+
+    Reception palette override: jewel/dark-glam tones score highest (reuses
+    the ethnic_heavy _JEWEL_TONES tier below rather than inventing new scoring
+    machinery); pale/light casual tones score low — an evening indo-western
+    reception look should read glam, not light-daytime pastel.
     """
     occasion = get_occasion(occasion_slug)
     c_lower = candidate_colour.lower()
     a_lower = anchor_colour.lower()
 
     # Haldi override
-    if occasion_slug == "haldi_mehendi":
+    if occasion_slug == "haldi":
         _haldi_palette = {"yellow", "light yellow", "dark yellow", "orange", "light orange",
                           "dark orange", "gold"}
         if c_lower in _haldi_palette:
             return 1.0
         if c_lower in ("black", "dark grey", "dark blue", "dark red", "dark purple"):
             return 0.2
+        return 0.6
+
+    # Mehendi override
+    if occasion_slug == "mehendi":
+        _mehendi_palette = {"green", "dark green", "light green", "olive", "teal",
+                             "turquoise", "dark turquoise", "mint"}
+        if c_lower in _mehendi_palette:
+            return 1.0
+        if c_lower in ("black", "dark grey", "dark blue", "dark red", "dark purple"):
+            return 0.2
+        return 0.6
+
+    # Reception override
+    if occasion_slug == "reception":
+        _pale_casual = {"light pink", "light yellow", "light blue", "light grey",
+                         "light beige", "light orange", "beige", "off white"}
+        if c_lower in _JEWEL_TONES or c_lower in ("black", "dark grey", "charcoal"):
+            return 0.9
+        if c_lower in _pale_casual:
+            return 0.3
+        if c_lower == a_lower:
+            return 0.85
         return 0.6
 
     # Ethnic festive occasions: no clash penalty; jewel tones co-star

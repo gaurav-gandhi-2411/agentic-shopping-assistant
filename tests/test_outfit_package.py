@@ -34,11 +34,17 @@ class TestGetOccasion:
         occ = get_occasion("rave_party")
         assert occ.slug == "casual"
 
-    def test_all_9_occasions_present(self) -> None:
+    def test_haldi_mehendi_alias_resolves_to_haldi(self) -> None:
+        """Legacy combined slug (pre wedding-occasion-expansion) must still
+        resolve to a real Occasion rather than falling back to casual."""
+        occ = get_occasion("haldi_mehendi")
+        assert occ.slug == "haldi"
+
+    def test_all_12_occasions_present(self) -> None:
         expected = {
-            "casual", "smart_casual", "office", "haldi_mehendi",
-            "party_evening", "festive_puja", "wedding_guest", "sangeet",
-            "traditional_ethnic",
+            "casual", "smart_casual", "office", "haldi", "mehendi",
+            "party_evening", "festive_puja", "wedding_guest", "engagement",
+            "sangeet", "traditional_ethnic", "reception",
         }
         assert set(OCCASIONS.keys()) == expected
 
@@ -171,11 +177,11 @@ class TestFabricScoreDelta:
 
     def test_haldi_lightweight_positive(self) -> None:
         item = {"prod_name": "Floral Cotton Kurti", "detail_desc": ""}
-        assert fabric_score_delta(item, "haldi_mehendi") == pytest.approx(0.1)
+        assert fabric_score_delta(item, "haldi") == pytest.approx(0.1)
 
     def test_haldi_embellished_negative(self) -> None:
         item = {"prod_name": "Heavy Zari Embroidered Lehenga", "detail_desc": ""}
-        assert fabric_score_delta(item, "haldi_mehendi") == pytest.approx(-0.1)
+        assert fabric_score_delta(item, "haldi") == pytest.approx(-0.1)
 
     def test_neutral_occasion_zero(self) -> None:
         item = {"prod_name": "Embroidered Floral Dress", "detail_desc": ""}
@@ -221,10 +227,10 @@ class TestIsCoherentCandidate:
 
 class TestColourScore:
     def test_haldi_yellow_scores_1(self) -> None:
-        assert colour_score("yellow", "orange", "haldi_mehendi") == pytest.approx(1.0)
+        assert colour_score("yellow", "orange", "haldi") == pytest.approx(1.0)
 
     def test_haldi_dark_scores_low(self) -> None:
-        assert colour_score("dark grey", "yellow", "haldi_mehendi") == pytest.approx(0.2)
+        assert colour_score("dark grey", "yellow", "haldi") == pytest.approx(0.2)
 
     def test_ethnic_same_colour_high(self) -> None:
         score = colour_score("red", "red", "sangeet")

@@ -57,6 +57,11 @@ half of a couple — briefly mention how it coordinates with that anchor item
 (e.g. its colour), in addition to the usual rationale.
 
 A fact-sheet may also include, ONLY when genuinely known:
+  - occasion_register_hint: a short phrase describing the occasion's register
+    (e.g. "bright daytime ceremony", "glamorous evening event") — use it to
+    keep your wording occasion-correct (e.g. don't call a haldi look "moody"
+    or a reception look "casual"), but never state it as a new fact beyond
+    what the rest of the fact-sheet already grounds.
   - user_context: a short snippet of the user's own words from this
     conversation. You may echo their stated occasion/request back in your own
     phrasing (e.g. "for the sangeet you mentioned") — never introduce a new
@@ -74,6 +79,20 @@ Never state a fact that is not present in the fact-sheet.
 Respond with ONLY the JSON array and nothing else."""
 
 _RATIONALE_USER = "Fact-sheets:\n{fact_sheets_json}"
+
+# One-line occasion register hints (Wave 7 wedding-occasion expansion) — keeps
+# the LLM rationale's wording occasion-correct (e.g. never call a haldi look
+# "moody", never call a reception look "casual") without inventing new facts.
+# Only added for occasions where the generic wording is otherwise ambiguous;
+# every other occasion omits the key (backward compatible — no behaviour
+# change for existing call sites).
+_OCCASION_REGISTER_HINTS: dict[str, str] = {
+    "sangeet": "embellished evening event",
+    "haldi": "bright daytime ceremony",
+    "mehendi": "green-themed daytime ceremony",
+    "reception": "glamorous evening event",
+    "engagement": "elegant semi-formal ceremony",
+}
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -112,7 +131,9 @@ def build_fact_sheet(
             item for sale. False omits the key.
 
     Returns:
-        A compact fact-sheet dict safe to include in an LLM prompt.
+        A compact fact-sheet dict safe to include in an LLM prompt. Includes
+        "occasion_register_hint" when the look's occasion has a dedicated hint
+        in _OCCASION_REGISTER_HINTS (omitted otherwise).
     """
     seed = look.get("seed_item") or {}
     complements = look.get("complements") or []
@@ -146,6 +167,10 @@ def build_fact_sheet(
         "complement_pairs": complement_pairs,
         "colour_harmony": harmony,
     }
+    register_hint = _OCCASION_REGISTER_HINTS.get(occasion)
+    if register_hint:
+        fact_sheet["occasion_register_hint"] = register_hint
+
     if partner_context:
         anchor_colour = (partner_context.get("anchor_colour") or "").strip()
         anchor_type = (partner_context.get("anchor_type") or "").strip()

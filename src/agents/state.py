@@ -23,7 +23,7 @@ class AgentState(TypedDict):
     excluded_colours: list[str] | None  # Colours to exclude (parsed from negation queries)
 
     # Outfit composition context — set by outfit_node, persisted for flywheel event logging
-    occasion: str | None        # one of the 9 occasion slugs
+    occasion: str | None        # one of the 12 occasion slugs
     look_gender: str | None     # "men" | "women" | "unisex"
     look_id: str | None         # UUID of the current composed look
     outfit_rationale: str | None    # grounded rationale for the base variant
