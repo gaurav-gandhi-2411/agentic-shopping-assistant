@@ -74,3 +74,23 @@ class AgentState(TypedDict):
     # each turn from conversation history the same way occasion is.
     body_type: str | None
     body_modifiers: list[str] | None
+
+    # P2 couple-from-scratch (graph.py::_compose_couple_from_scratch) — set
+    # ONLY when a turn composes a SECOND, partner-gender look alongside the
+    # primary one (no session anchor existed yet, but an occasion was
+    # genuinely named — see router_node's "occasion_explicit" plan flag).
+    # These mirror the existing primary-look fields above (retrieved_items,
+    # look_id, occasion, look_gender, outfit_rationale, budget_total_inr,
+    # suppressed_slots, look_role, look_title, coordinated_with) one-for-one,
+    # for the SECOND board — downstream serialization (api/routes/chat.py /
+    # frontend) reads these to render it. None/omitted for every other turn.
+    partner_retrieved_items: list[dict] | None
+    partner_look_id: str | None
+    partner_occasion: str | None
+    partner_look_gender: str | None
+    partner_outfit_rationale: str | None
+    partner_budget_total_inr: float | None
+    partner_suppressed_slots: list[dict] | None
+    partner_look_role: str | None
+    partner_look_title: str | None
+    partner_coordinated_with: str | None

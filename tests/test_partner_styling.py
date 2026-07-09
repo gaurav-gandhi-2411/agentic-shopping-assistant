@@ -19,6 +19,14 @@ Covers:
          → men's coordinated look.
      (b) men's kurta sangeet anchor → "style my wife to match" → women's
          ethnic look, no western-marker items.
+     (c) "style us as a couple for a reception" with NO prior anchor — P2
+         couple-from-scratch — both looks compose.
+     (d) same, with a budget cap — P2 per-person budget-split assumption.
+  9. src.agents.outfit.partner.compose_partner_look — P2 budget gate (in-budget
+     seed preferred over an over-budget one; all-over-budget → honest empty
+     result mentioning the budget).
+  10. src.agents.outfit.partner.compose_couple_look — P2 from-scratch couple
+      orchestration (isolated unit tests with a fake retriever).
 """
 from __future__ import annotations
 
@@ -33,6 +41,7 @@ from src.agents.grounding import validate_rationale
 from src.agents.outfit.coherence import couple_harmony_palette
 from src.agents.outfit.partner import (
     build_coordinated_with_text,
+    compose_couple_look,
     compose_partner_look,
     detect_partner_intent,
     resolve_partner_gender,
@@ -376,6 +385,294 @@ class TestComposePartnerLook:
         )
         assert look["seed_item"] is None
         assert look["outfit_rationale"]
+
+
+# ---------------------------------------------------------------------------
+# 5b. compose_partner_look — P2 budget gate (mirrors
+#     TestOccasionDrivenAnchorBudgetGate in tests/test_outfit_package.py)
+# ---------------------------------------------------------------------------
+
+
+class _PartnerBudgetFakeRetriever:
+    """Returns a fixed, budget-relevant seed candidate list (rank 0 first) for
+    every men's-shirt query — grey (off-palette for a rust anchor) so
+    colour_rank never reorders the list, isolating the test to the budget
+    gate only."""
+
+    def __init__(self, candidates: list[dict]) -> None:
+        self._candidates = candidates
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None  # noqa: ARG002
+    ) -> list[dict]:
+        gender = (filters or {}).get("gender")
+        if "shirt" in query.lower() and gender == "men":
+            return list(self._candidates)
+        return []
+
+
+_PARTNER_OVER_BUDGET_SHIRT: dict = {
+    "article_id": "PARTNER_OVER",
+    "prod_name": "Grey Casual Shirt",
+    "display_name": "Grey Casual Shirt",
+    "store": "myntra",
+    "colour": "grey",
+    "product_type": "shirt",
+    "detail_desc": "",
+    "score": 0.95,
+    "price_inr": 4500.0,
+    "gender": "men",
+}
+
+_PARTNER_WITHIN_BUDGET_SHIRT: dict = {
+    "article_id": "PARTNER_OK",
+    "prod_name": "Grey Cotton Shirt",
+    "display_name": "Grey Cotton Shirt",
+    "store": "myntra",
+    "colour": "grey",
+    "product_type": "shirt",
+    "detail_desc": "",
+    "score": 0.7,
+    "price_inr": 1200.0,
+    "gender": "men",
+}
+
+
+def _partner_budget_catalogue_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "article_id": "PARTNER_OK",
+                "prod_name": "Grey Cotton Shirt",
+                "display_name": "Grey Cotton Shirt",
+                "colour_group_name": "grey",
+                "product_type_name": "shirt",
+                "department_name": "Men",
+                "index_group_name": "Menswear",
+                "detail_desc": "",
+                "image_url": None,
+                "price_inr": 1200.0,
+                "pdp_handle": "grey-shirt-ok",
+                "store": "myntra",
+                "gender": "men",
+                "facets": {
+                    "colour_group_name": "grey",
+                    "product_type_name": "shirt",
+                    "department_name": "Men",
+                },
+            }
+        ]
+    )
+
+
+class TestComposePartnerLookBudgetGate:
+    def test_over_budget_rank0_seed_skipped_for_within_budget_rank1(self) -> None:
+        """(a) rank-0 seed candidate is over budget, rank-1 is within — the
+        chosen seed must be the within-budget one and the board total must
+        not exceed the budget."""
+        anchor_item = {"colour": "rust", "product_type": "dress", "gender": "women"}
+        retriever = _PartnerBudgetFakeRetriever(
+            [_PARTNER_OVER_BUDGET_SHIRT, _PARTNER_WITHIN_BUDGET_SHIRT]
+        )
+        look = compose_partner_look(
+            _partner_budget_catalogue_df(),
+            retriever,
+            anchor_item=anchor_item,
+            occasion_slug="casual",
+            partner_gender="men",
+            budget_inr=2000,
+        )
+        assert look["seed_item"] is not None
+        assert look["seed_item"]["article_id"] == "PARTNER_OK"
+        assert (look["budget_total_inr"] or 0) <= 2000
+
+    def test_all_seed_candidates_over_budget_returns_honest_empty_result(self) -> None:
+        """(b) every occasion/gender-valid seed candidate is over budget — must
+        return an empty result (no seed) whose message mentions the budget,
+        never a silent fall-back to an over-budget seed."""
+        anchor_item = {"colour": "rust", "product_type": "dress", "gender": "women"}
+        retriever = _PartnerBudgetFakeRetriever([_PARTNER_OVER_BUDGET_SHIRT])
+        look = compose_partner_look(
+            _partner_budget_catalogue_df(),
+            retriever,
+            anchor_item=anchor_item,
+            occasion_slug="casual",
+            partner_gender="men",
+            budget_inr=2000,
+        )
+        assert look["seed_item"] is None
+        assert "2,000" in look["outfit_rationale"]
+        assert "budget" in look["outfit_rationale"].lower() or "₹" in look["outfit_rationale"]
+
+
+# ---------------------------------------------------------------------------
+# 10. compose_couple_look — P2 from-scratch couple orchestration
+# ---------------------------------------------------------------------------
+
+
+class _CoupleFakeRetriever:
+    """Deterministic fake retriever for compose_couple_look unit tests.
+
+    Returns a women's reception anchor (ethnic_one_piece "Lehenga", satisfies
+    the ETHNIC_HEAVY anchor gate) for the primary occasion-driven anchor
+    query, and a men's reception seed (men_formalwear "Sherwani", on the
+    couple_harmony_palette("rust") palette — navy blue) for
+    compose_partner_look's seed query. Everything else (complement fill
+    slots) returns [] — honest suppression, not under test here.
+    """
+
+    def __init__(self, *, primary_price: float, partner_price: float) -> None:
+        self._primary_price = primary_price
+        self._partner_price = partner_price
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None
+    ) -> list[dict]:
+        q = query.lower()
+        gender = (filters or {}).get("gender")
+        if "lehenga" in q and gender == "women":
+            return [
+                {
+                    "article_id": "COUPLE_PRIMARY_LEHENGA",
+                    "prod_name": "Rust Embellished Lehenga",
+                    "display_name": "Rust Embellished Lehenga",
+                    "product_type": "Lehenga",
+                    "colour": "rust",
+                    "gender": "women",
+                    "score": 0.9,
+                    "price_inr": self._primary_price,
+                    "store": "myntra",
+                    "detail_desc": "",
+                }
+            ]
+        if "sherwani" in q and gender == "men":
+            return [
+                {
+                    "article_id": "COUPLE_PARTNER_SHERWANI",
+                    "prod_name": "Navy Blue Sherwani",
+                    "display_name": "Navy Blue Sherwani",
+                    "product_type": "Sherwani",
+                    "colour": "navy blue",
+                    "gender": "men",
+                    "score": 0.85,
+                    "price_inr": self._partner_price,
+                    "store": "myntra",
+                    "detail_desc": "",
+                }
+            ]
+        return []
+
+
+def _couple_catalogue_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "article_id": "COUPLE_PRIMARY_LEHENGA",
+                "prod_name": "Rust Embellished Lehenga",
+                "display_name": "Rust Embellished Lehenga",
+                "colour_group_name": "rust",
+                "product_type_name": "Lehenga",
+                "department_name": "Women",
+                "index_group_name": "Ladieswear",
+                "detail_desc": "",
+                "image_url": None,
+                "price_inr": 11000.0,
+                "pdp_handle": "rust-lehenga",
+                "store": "myntra",
+                "gender": "women",
+                "facets": {
+                    "colour_group_name": "rust",
+                    "product_type_name": "Lehenga",
+                    "department_name": "Women",
+                },
+            },
+            {
+                "article_id": "COUPLE_PARTNER_SHERWANI",
+                "prod_name": "Navy Blue Sherwani",
+                "display_name": "Navy Blue Sherwani",
+                "colour_group_name": "navy blue",
+                "product_type_name": "Sherwani",
+                "department_name": "Men",
+                "index_group_name": "Menswear",
+                "detail_desc": "",
+                "image_url": None,
+                "price_inr": 9000.0,
+                "pdp_handle": "navy-sherwani",
+                "store": "myntra",
+                "gender": "men",
+                "facets": {
+                    "colour_group_name": "navy blue",
+                    "product_type_name": "Sherwani",
+                    "department_name": "Men",
+                },
+            },
+        ]
+    )
+
+
+class TestComposeCoupleLook:
+    def test_produces_opposite_gender_pair_with_harmony_palette_colour(self) -> None:
+        retriever = _CoupleFakeRetriever(primary_price=11000.0, partner_price=9000.0)
+        primary_look, partner_look = compose_couple_look(
+            _couple_catalogue_df(),
+            retriever,
+            occasion_slug="reception",
+            partner_gender="men",
+        )
+        assert primary_look["seed_item"] is not None
+        assert partner_look["seed_item"] is not None
+        assert primary_look["gender"] == "women"
+        assert partner_look["gender"] == "men"
+        # Navy blue IS in couple_harmony_palette("rust") — the primary look's
+        # own anchor colour.
+        palette = couple_harmony_palette(primary_look["seed_item"]["colour"])
+        assert partner_look["seed_item"]["colour"].lower() in palette
+        assert primary_look["occasion"] == "reception"
+        assert partner_look["occasion"] == "reception"
+
+    def test_budget_is_a_per_person_cap_not_a_combined_split(self) -> None:
+        """Documented assumption: budget_inr is applied INDEPENDENTLY to EACH
+        look, not split in half across the couple. Both looks individually
+        fit under 15000, but their COMBINED total (20000) would exceed it —
+        proving the cap is per-person, not a 50/50 combined split (which
+        would reject at least one of these prices)."""
+        retriever = _CoupleFakeRetriever(primary_price=11000.0, partner_price=9000.0)
+        primary_look, partner_look = compose_couple_look(
+            _couple_catalogue_df(),
+            retriever,
+            occasion_slug="reception",
+            partner_gender="men",
+            budget_inr=15000,
+        )
+        assert primary_look["seed_item"] is not None
+        assert partner_look["seed_item"] is not None
+        assert (primary_look["budget_total_inr"] or 0) <= 15000
+        assert (partner_look["budget_total_inr"] or 0) <= 15000
+        combined = (primary_look["budget_total_inr"] or 0) + (
+            partner_look["budget_total_inr"] or 0
+        )
+        assert combined > 15000, "test fixture must exercise the per-person, not combined, cap"
+
+    def test_primary_look_missing_returns_honest_empty_partner_too(self) -> None:
+        """If NOTHING satisfies the primary occasion-driven anchor query, the
+        partner look must be an honest empty result too — never composed
+        against a look that doesn't exist."""
+
+        class _EmptyRetriever:
+            def search(
+                self, query: str, top_k: int = 20, filters: dict | None = None
+            ) -> list[dict]:
+                return []
+
+        primary_look, partner_look = compose_couple_look(
+            pd.DataFrame(),
+            _EmptyRetriever(),
+            occasion_slug="reception",
+            partner_gender="men",
+        )
+        assert primary_look["seed_item"] is None
+        assert partner_look["seed_item"] is None
+        assert partner_look["outfit_rationale"]
 
 
 # ---------------------------------------------------------------------------
@@ -859,3 +1156,135 @@ def test_no_anchor_partner_request_gets_honest_prompt(_unified_index: tuple) -> 
     assert plan.get("action") == "pending_answer"
     assert "wearing" in plan.get("text", "").lower() or "show me" in plan.get("text", "").lower()
     assert result.get("look_role") is None
+
+
+# ---------------------------------------------------------------------------
+# 8(c)/(d). P2 couple-from-scratch — "style us as a couple for a reception"
+# with NO prior session anchor.  An occasion IS named ("reception"), so this
+# must NOT fall into the honest-refusal branch above (that branch only fires
+# when NEITHER an anchor NOR a real occasion signal is present).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_index
+def test_couple_from_scratch_no_anchor_no_budget_composes_both_looks(
+    _unified_index: tuple,
+) -> None:
+    """No session anchor, no budget, but "reception" is a real occasion signal
+    — must bootstrap a from-scratch couple pair (P2), not the honest-refusal
+    prompt used by test_no_anchor_partner_request_gets_honest_prompt above."""
+    from src.agents.graph import build_graph
+    from src.memory.conversation import ConversationMemory
+
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "reception outfit"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    query = "style us as a couple for a reception"
+    state = {
+        "messages": [{"role": "user", "content": query}],
+        "user_query": query,
+        "current_plan": None,
+        "tool_calls": [],
+        "retrieved_items": [],
+        "filters": {},
+        "final_answer": None,
+        "iteration": 0,
+        "new_items_this_turn": False,
+        "out_of_catalogue": False,
+        "excluded_colours": None,
+        "anchor_article_id": None,
+        "outfit_rationale": None,
+        "outfit_variants": None,
+        "_memory": memory,
+    }
+
+    result = agent.invoke(state)
+
+    print("\n=== couple-from-scratch (reception, no anchor, no budget) ===")
+    print("look_role:", result.get("look_role"),
+          "| partner_look_role:", result.get("partner_look_role"))
+    print("occasion:", result.get("occasion"), "| look_gender:", result.get("look_gender"))
+    print("partner_occasion:", result.get("partner_occasion"),
+          "| partner_look_gender:", result.get("partner_look_gender"))
+
+    assert result.get("look_role") == "couple_primary"
+    assert result.get("partner_look_role") == "couple_partner"
+    assert result.get("occasion") == "reception"
+    assert result.get("partner_occasion") == "reception"
+
+    primary_items = result.get("retrieved_items", [])
+    partner_items = result.get("partner_retrieved_items", [])
+    assert primary_items, "expected at least a primary seed item"
+    assert partner_items, "expected at least a partner seed item"
+
+    primary_gender = result.get("look_gender")
+    partner_gender = result.get("partner_look_gender")
+    assert primary_gender in ("men", "women")
+    assert partner_gender in ("men", "women")
+    assert primary_gender != partner_gender, "couple pair must be opposite genders"
+
+    for it in primary_items:
+        assert it.get("gender") == primary_gender
+    for it in partner_items:
+        assert it.get("gender") == partner_gender
+
+    seed = next((it for it in primary_items if it.get("_role") == "seed"), primary_items[0])
+    palette = couple_harmony_palette((seed.get("colour") or "").lower())
+    partner_seed = next(
+        (it for it in partner_items if it.get("_role") == "seed"), partner_items[0]
+    )
+    assert (partner_seed.get("colour") or "").lower() in palette or result.get(
+        "partner_coordinated_with"
+    ), "expected either an in-palette partner colour or a coordinated_with note"
+
+
+@pytest.mark.requires_index
+def test_couple_from_scratch_with_budget_respects_cap_per_person(
+    _unified_index: tuple,
+) -> None:
+    """Same as above, WITH a stated budget — per this module's documented
+    assumption (see compose_couple_look docstring), the cap applies
+    INDEPENDENTLY to EACH look, not a combined couple total."""
+    from src.agents.graph import build_graph
+    from src.memory.conversation import ConversationMemory
+
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "reception outfit under 15000"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    query = "style us as a couple for a reception under ₹15000"
+    state = {
+        "messages": [{"role": "user", "content": query}],
+        "user_query": query,
+        "current_plan": None,
+        "tool_calls": [],
+        "retrieved_items": [],
+        "filters": {},
+        "final_answer": None,
+        "iteration": 0,
+        "new_items_this_turn": False,
+        "out_of_catalogue": False,
+        "excluded_colours": None,
+        "anchor_article_id": None,
+        "outfit_rationale": None,
+        "outfit_variants": None,
+        "_memory": memory,
+    }
+
+    result = agent.invoke(state)
+
+    print("\n=== couple-from-scratch (reception, no anchor, budget 15000) ===")
+    print("budget_total_inr:", result.get("budget_total_inr"),
+          "| partner_budget_total_inr:", result.get("partner_budget_total_inr"))
+
+    assert result.get("look_role") == "couple_primary"
+    assert result.get("partner_look_role") == "couple_partner"
+    # Per-person cap assumption: EACH look's own total must respect 15000 —
+    # this is NOT a combined/split assertion (see compose_couple_look docstring).
+    if result.get("budget_total_inr") is not None:
+        assert result["budget_total_inr"] <= 15000
+    if result.get("partner_budget_total_inr") is not None:
+        assert result["partner_budget_total_inr"] <= 15000

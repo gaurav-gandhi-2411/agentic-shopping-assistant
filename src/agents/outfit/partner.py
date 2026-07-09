@@ -177,6 +177,7 @@ def compose_partner_look(
     anchor_item: dict,
     occasion_slug: str,
     partner_gender: str,
+    budget_inr: float | None = None,
 ) -> dict:
     """Compose a coordinated companion look in ``partner_gender`` that
     harmonises with ``anchor_item`` (the current session look/anchor).
@@ -190,12 +191,23 @@ def compose_partner_look(
          gates, coherence gates, honest suppression as the primary look) to
          fill the remaining slots.
 
+    Args:
+        budget_inr: optional total-look budget cap, in INR, for the PARTNER's
+            own look. Mirrors composer.compose_outfit's occasion-driven-anchor
+            budget gate (commit 85078b1 — "sangeet look under ₹8000" boarded a
+            ₹9,900 lehenga ANCHOR before this fix): the seed-candidate
+            selection below rejects over-budget candidates BEFORE any
+            complement is even considered, and the same cap is forwarded to
+            the internal compose_outfit call so complements are budget-
+            squeezed too. None (default) is a full no-op, same as before.
+
     Returns a dict in the same shape as compose_outfit's return value
     (look_id, seed_item, complements, outfit_rationale, empty_slots,
     suppressed_slots, occasion, gender, budget_total_inr). seed_item is None
-    when no partner-gender candidate exists for this occasion in the
-    catalogue — callers should respond honestly in that case (mirrors
-    compose_outfit's own occasion-driven-entry failure mode).
+    when no partner-gender candidate exists for this occasion (or none fits
+    ``budget_inr``) in the catalogue — callers should respond honestly in
+    that case (mirrors compose_outfit's own occasion-driven-entry failure
+    mode).
     """
     anchor_colour = (anchor_item.get("colour") or "").lower().strip()
     palette = couple_harmony_palette(anchor_colour)
@@ -208,15 +220,32 @@ def compose_partner_look(
         if _anchor_matches_occasion(c, occasion_slug)
         and gender_allowed((c.get("gender") or "unknown").lower(), partner_gender)
     ]
+    # Budget gate (mirrors compose_outfit's occasion-driven anchor path, commit
+    # 85078b1): reject over-budget seed candidates before any complement is
+    # considered, so the companion look never boards a seed that already
+    # blows the stated cap on its own.
+    _pre_budget_valid = valid
+    if budget_inr is not None:
+        valid = [c for c in valid if (c.get("price_inr") or 0.0) <= budget_inr]
     if not valid:
-        reason = (
-            f"No {partner_gender}'s items found in this catalogue for a "
-            f"{occasion_slug.replace('_', ' ')} companion look."
-        )
+        if budget_inr is not None and _pre_budget_valid:
+            # Occasion/gender-valid candidates existed but ALL were over
+            # budget — honest budget-specific message, never a silent
+            # fall-back to an over-budget seed.
+            reason = (
+                f"No {partner_gender}'s {occasion_slug.replace('_', ' ')} pieces within "
+                f"₹{budget_inr:,.0f} in our partner stores yet for a companion look — "
+                f"try a higher budget."
+            )
+        else:
+            reason = (
+                f"No {partner_gender}'s items found in this catalogue for a "
+                f"{occasion_slug.replace('_', ' ')} companion look."
+            )
         return _empty_partner_result(occasion_slug, partner_gender, reason)
 
     # Prefer a candidate whose colour is IN the harmony palette; fall back to
-    # the top-ranked candidate otherwise (still occasion/gender-valid).
+    # the top-ranked candidate otherwise (still occasion/gender/budget-valid).
     def _colour_rank(item: dict) -> int:
         return 0 if (item.get("colour") or "").lower() in palette else 1
 
@@ -229,7 +258,89 @@ def compose_partner_look(
         seed_article_id=seed_item["article_id"],
         occasion_slug=occasion_slug,
         gender=partner_gender,
+        budget_inr=budget_inr,
     )
+
+
+# ── Couple-from-scratch orchestration (P2) ──────────────────────────────────
+
+
+def compose_couple_look(
+    catalogue_df: pd.DataFrame,
+    retriever: HybridRetriever,
+    *,
+    occasion_slug: str,
+    partner_gender: str,
+    budget_inr: float | None = None,
+    brand_gender_default: str = "women",
+) -> tuple[dict, dict]:
+    """Compose a FROM-SCRATCH pair of coordinated looks when no session anchor
+    exists yet — e.g. "style us as a couple for a reception" with nothing
+    styled this session.
+
+    ``compose_partner_look`` always needs an existing ``anchor_item`` to
+    coordinate with; this function bootstraps one by composing a PRIMARY look
+    first (occasion-driven, no seed_article_id — compose_outfit picks its own
+    anchor) in the gender OPPOSITE ``partner_gender``, then feeds that look's
+    own seed_item into the existing ``compose_partner_look`` for
+    ``partner_gender``. This keeps the pair always mixed-gender regardless of
+    how ``partner_gender`` was resolved (concrete "husband"/"wife" hint, or
+    the "opposite" hint from "couple"/"his and hers" resolved against the
+    brand's gender default — see graph.py's router_node and
+    resolve_partner_gender) — no separate "always compose women's look first"
+    special case is needed.
+
+    Budget assumption (explicit, not silently chosen): ``budget_inr``, if
+    given, is treated as a PER-PERSON cap applied INDEPENDENTLY to EACH look,
+    not a combined couple total split in half. "under ₹15000" for a couple
+    look most naturally reads as "each of us has up to ₹15000" — a 50/50 split
+    has no principled basis (one look may legitimately need more slots filled
+    than the other, e.g. jewellery-heavy ethnic womenswear vs. a men's kurta).
+
+    Args:
+        occasion_slug: shared occasion for both looks.
+        partner_gender: the ALREADY-RESOLVED partner gender ("men"/"women") —
+            i.e. resolve_partner_gender's output, not a raw PartnerIntent hint.
+        budget_inr: optional PER-PERSON budget cap (see assumption above),
+            forwarded unchanged to both compose_outfit and compose_partner_look.
+        brand_gender_default: forwarded to the primary look's compose_outfit
+            call (used only if its own gender ever resolves to "unisex").
+
+    Returns:
+        (primary_look, partner_look) — each shaped exactly like
+        compose_outfit's return dict (look_id, seed_item, complements,
+        outfit_rationale, empty_slots, suppressed_slots, occasion, gender,
+        budget_total_inr). If the primary look's seed_item is None (no
+        catalogue anchor at all for this occasion/gender/budget), partner_look
+        is an honest empty result too — it is never composed against a look
+        that doesn't exist.
+    """
+    primary_gender = "women" if partner_gender == "men" else "men"
+
+    primary_look = compose_outfit(
+        catalogue_df,
+        retriever,
+        occasion_slug=occasion_slug,
+        gender=primary_gender,
+        budget_inr=budget_inr,
+        brand_gender_default=brand_gender_default,
+    )
+    if primary_look.get("seed_item") is None:
+        reason = (
+            f"No {primary_gender}'s items found in this catalogue for a "
+            f"{occasion_slug.replace('_', ' ')} couple look."
+        )
+        return primary_look, _empty_partner_result(occasion_slug, partner_gender, reason)
+
+    partner_look = compose_partner_look(
+        catalogue_df,
+        retriever,
+        anchor_item=primary_look["seed_item"],
+        occasion_slug=occasion_slug,
+        partner_gender=partner_gender,
+        budget_inr=budget_inr,
+    )
+    return primary_look, partner_look
 
 
 # ── Deterministic "coordinated_with" text ───────────────────────────────────

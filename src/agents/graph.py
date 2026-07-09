@@ -15,6 +15,7 @@ from src.agents.outfit.composer import (
 )
 from src.agents.outfit.partner import (
     build_coordinated_with_text,
+    compose_couple_look,
     compose_partner_look,
     detect_partner_intent,
     resolve_partner_gender,
@@ -223,6 +224,213 @@ def _resolve_session_gender(state: AgentState) -> str | None:
     if "ladieswear" in ign:
         return "women"
     return None
+
+
+def _gendered_look_title(gender: str) -> str:
+    """Return a short, honest board title for a composed look's gender.
+
+    Used for the P2 couple-from-scratch pair, where BOTH boards are freshly
+    composed (unlike the anchor-based partner branch, which always labels its
+    single companion board "Your partner's look").
+    """
+    if gender == "men":
+        return "His look"
+    if gender == "women":
+        return "Her look"
+    return "Their look"
+
+
+def _compose_couple_from_scratch(
+    state: AgentState,
+    *,
+    catalogue_df: pd.DataFrame,
+    retriever: HybridRetriever,
+    llm: LLMClient,
+    occasion_slug: str,
+    partner_gender: str,
+    budget_inr: float | None,
+    brand_gender_default: str,
+    streaming_mode: bool,
+) -> dict:
+    """Compose a P2 from-scratch couple look pair and shape outfit_node's update.
+
+    Called by outfit_node's partner branch ONLY when NO session anchor exists
+    yet but an occasion was GENUINELY named this turn/in history (see
+    router_node's ``occasion_explicit`` plan flag) — see
+    ``src.agents.outfit.partner.compose_couple_look`` for the composition
+    steps and the documented per-person budget-split assumption.
+
+    New parallel state fields (P2): this turn produces TWO boards, so on top
+    of the usual PRIMARY-look fields (retrieved_items, look_id, occasion,
+    look_gender, outfit_rationale, budget_total_inr, suppressed_slots,
+    look_role, look_title, coordinated_with — same names outfit_node's other
+    branches already populate) it also sets these NEW parallel fields for the
+    SECOND (partner) board, for downstream serialization (api/routes/chat.py /
+    frontend) to pick up:
+      - partner_retrieved_items: list[dict] — partner board's seed + complements
+      - partner_look_id / partner_occasion / partner_look_gender
+      - partner_outfit_rationale / partner_budget_total_inr / partner_suppressed_slots
+      - partner_look_role / partner_look_title / partner_coordinated_with
+    """
+    try:
+        primary_look, partner_look = compose_couple_look(
+            catalogue_df,
+            retriever,
+            occasion_slug=occasion_slug,
+            partner_gender=partner_gender,
+            budget_inr=budget_inr,
+            brand_gender_default=brand_gender_default,
+        )
+    except Exception as _ce:
+        logger.warning("[outfit/couple] compose_couple_look failed (%s)", _ce)
+        primary_look = None
+        partner_look = None
+
+    # partner_look is checked alongside primary_look here (not just
+    # primary_look) so mypy can narrow BOTH to non-None for the rest of this
+    # function — the compose_couple_look try/except above only ever sets them
+    # together (both real dicts, or both None on exception), but a guard on
+    # primary_look alone doesn't prove that to the type checker.
+    if primary_look is None or partner_look is None or primary_look.get("seed_item") is None:
+        answer = (
+            f"I couldn't find enough items in this catalogue to style a "
+            f"{occasion_slug.replace('_', ' ')} couple look yet — try a different occasion."
+        )
+        if streaming_mode:
+            return {
+                "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                "final_answer": None,
+                "messages": [],
+            }
+        return {
+            "final_answer": answer,
+            "messages": [{"role": "assistant", "content": answer}],
+        }
+
+    primary_gender = primary_look.get("gender") or (
+        "women" if partner_gender == "men" else "men"
+    )
+
+    try:
+        _primary_rationale = generate_rationales(
+            [primary_look],
+            llm,
+            occasion=occasion_slug,
+            gender=primary_gender,
+            user_context=state.get("user_query"),
+            budget_inr=budget_inr,
+        )[0]
+    except Exception as _re:
+        logger.warning("[outfit/couple] generate_rationales (primary) failed (%s)", _re)
+        _primary_rationale = template_rationale(primary_look)
+    primary_look["rationale"] = _primary_rationale
+
+    _anchor_colour = (primary_look["seed_item"].get("colour") or "").lower()
+    _anchor_type = (
+        primary_look["seed_item"].get("product_type")
+        or primary_look["seed_item"].get("prod_name")
+        or ""
+    ).lower()
+
+    if partner_look.get("seed_item") is not None:
+        try:
+            _partner_rationale = generate_rationales(
+                [partner_look],
+                llm,
+                occasion=occasion_slug,
+                gender=partner_gender,
+                partner_context={"anchor_colour": _anchor_colour, "anchor_type": _anchor_type},
+                user_context=state.get("user_query"),
+                budget_inr=budget_inr,
+            )[0]
+        except Exception as _pre:
+            logger.warning("[outfit/couple] generate_rationales (partner) failed (%s)", _pre)
+            _partner_rationale = template_rationale(partner_look)
+        _coordinated_with = build_coordinated_with_text(
+            primary_look["seed_item"], partner_look, occasion_slug
+        )
+    else:
+        # Honest whole-look suppression (requirement 4): the primary look
+        # composed fine but no partner-gender candidate exists (or none fit
+        # the budget) for this occasion — never cross-gender-fill or paper
+        # over it.  Surface the primary look alone; the partner rationale is
+        # just compose_couple_look's own honest empty-result reason.
+        _partner_rationale = partner_look.get("outfit_rationale") or (
+            f"No {partner_gender}'s items found for this occasion yet."
+        )
+        _coordinated_with = None
+
+    _p_seed = primary_look.get("seed_item")
+    _p_complements = primary_look.get("complements", [])
+    _primary_items_out = ([_p_seed] if _p_seed else []) + _p_complements
+    _primary_empty_slots = primary_look.get("empty_slots", [])
+
+    _pt_seed = partner_look.get("seed_item")
+    _pt_complements = partner_look.get("complements", [])
+    _partner_items_out = ([_pt_seed] if _pt_seed else []) + _pt_complements
+    _partner_empty_slots = partner_look.get("empty_slots", [])
+
+    answer = f"**{_gendered_look_title(primary_gender)}**\n\n{_primary_rationale}"
+    for _slot in _primary_empty_slots:
+        answer += (
+            f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+            f"this look in the current catalogue._"
+        )
+    if _pt_seed is not None:
+        answer += f"\n\n**{_gendered_look_title(partner_gender)}**\n\n{_partner_rationale}"
+        if _coordinated_with:
+            answer += f"\n\n_{_coordinated_with}_"
+        for _slot in _partner_empty_slots:
+            answer += (
+                f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+                f"this look in the current catalogue._"
+            )
+    else:
+        answer += f"\n\n_{_partner_rationale}_"
+
+    update: dict = {
+        "retrieved_items": _primary_items_out,
+        "new_items_this_turn": True,
+        "tool_calls": state.get("tool_calls", []) + [
+            {"outfit": {
+                "article_id": _p_seed.get("article_id") if _p_seed else None,
+                "occasion": occasion_slug,
+                "gender": primary_gender,
+                "couple_look": True,
+            }}
+        ],
+        "look_id": primary_look.get("look_id"),
+        "occasion": primary_look.get("occasion"),
+        "look_gender": primary_gender,
+        "outfit_rationale": _primary_rationale,
+        "outfit_variants": None,
+        "budget_total_inr": primary_look.get("budget_total_inr"),
+        "suppressed_slots": primary_look.get("suppressed_slots"),
+        "look_role": "couple_primary",
+        "look_title": _gendered_look_title(primary_gender),
+        "coordinated_with": None,
+        # P2 couple-from-scratch parallel state — see this function's
+        # docstring above for the full field list/purpose.
+        "partner_retrieved_items": _partner_items_out,
+        "partner_look_id": partner_look.get("look_id"),
+        "partner_occasion": partner_look.get("occasion"),
+        "partner_look_gender": partner_gender,
+        "partner_outfit_rationale": _partner_rationale,
+        "partner_budget_total_inr": partner_look.get("budget_total_inr"),
+        "partner_suppressed_slots": partner_look.get("suppressed_slots"),
+        "partner_look_role": "couple_partner",
+        "partner_look_title": _gendered_look_title(partner_gender),
+        "partner_coordinated_with": _coordinated_with,
+    }
+    if streaming_mode:
+        update["current_plan"] = json.dumps({"action": "pending_answer", "text": answer})
+        update["final_answer"] = None
+        update["messages"] = []
+    else:
+        update["final_answer"] = answer
+        update["messages"] = [{"role": "assistant", "content": answer}]
+    return update
+
 
 # Structured OOC category map: category label → list of trigger words.
 # Checked in search_node BEFORE any retrieval; fires a canned "not in catalogue" response.
@@ -763,9 +971,10 @@ def build_graph(
             if _anchor_gender not in ("men", "women"):
                 _anchor_gender = _resolve_session_gender(state) or _brand_cfg.gender_default
             _partner_gender = resolve_partner_gender(_partner_intent.gender_hint, _anchor_gender)
-            _partner_occ_slug = (
-                _reconstruct_occasion_from_history(state.get("messages", [])) or "casual"
+            _partner_occ_reconstructed = _reconstruct_occasion_from_history(
+                state.get("messages", [])
             )
+            _partner_occ_slug = _partner_occ_reconstructed or "casual"
             _partner_plan = {
                 "action": "outfit",
                 "article_id": None,
@@ -776,6 +985,15 @@ def build_graph(
                 "partner_anchor_article_id": (
                     _partner_anchor["article_id"] if _partner_anchor else None
                 ),
+                # P2 couple-from-scratch: True only when an occasion was
+                # GENUINELY named this turn or in history — NOT the "casual"
+                # default above. outfit_node's no-anchor branch uses this (not
+                # the plan's own occasion field, which always has a value) to
+                # decide whether it's safe to bootstrap a from-scratch couple
+                # look or whether it must fall back to the honest "share what
+                # you're wearing first" prompt (no anchor AND no real occasion
+                # signal — requirement 2: never guess).
+                "occasion_explicit": _partner_occ_reconstructed is not None,
             }
             logger.info(
                 "[router/partner-look] anchor=%s anchor_gender=%s partner_gender=%s "
@@ -1841,6 +2059,26 @@ def build_graph(
             _partner_occasion = plan.get("occasion") or "casual"
 
             if _partner_anchor_item is None:
+                # P2 couple-from-scratch: no session anchor exists yet, but if
+                # an occasion was GENUINELY named this turn/in history (never
+                # the router's own "casual" default — see
+                # _partner_plan["occasion_explicit"]'s docstring in
+                # router_node), bootstrap a from-scratch couple pair instead
+                # of refusing outright. "what should my husband wear with
+                # this?" (no occasion, no anchor) still falls through to the
+                # honest prompt below, unchanged.
+                if plan.get("occasion_explicit"):
+                    return _compose_couple_from_scratch(
+                        state,
+                        catalogue_df=catalogue_df,
+                        retriever=retriever,
+                        llm=llm,
+                        occasion_slug=_partner_occasion,
+                        partner_gender=_partner_gender,
+                        budget_inr=plan.get("budget_inr"),
+                        brand_gender_default=_brand_cfg.gender_default,
+                        streaming_mode=streaming_mode,
+                    )
                 # Anchor vanished from session state between router_node and
                 # outfit_node (shouldn't normally happen) — honest prompt, not a guess.
                 answer = (
@@ -1865,6 +2103,7 @@ def build_graph(
                     anchor_item=_partner_anchor_item,
                     occasion_slug=_partner_occasion,
                     partner_gender=_partner_gender,
+                    budget_inr=plan.get("budget_inr"),
                 )
             except Exception as _pe:
                 logger.warning("[outfit/partner] compose_partner_look failed (%s)", _pe)
