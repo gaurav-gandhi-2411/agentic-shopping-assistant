@@ -74,6 +74,38 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
      container class, so they will pass unmodified once the wiring lands
      wherever it lands.
 
+  10. (--p3 flow, P3-0..P3-4) Content assertions for the P3 "body type"
+      styling feature (deployed before this flow runs, per the task spec):
+      a 6th suggestion chip "What suits my body type?" appended to
+      brands/unified.yaml's suggestion_chips (tests/test_unified_brand.py
+      updated to the new 6-chip list) that must render BEFORE any message is
+      sent (P3-0, same messages.length === 0 precondition as W0 -- unlike
+      W0's caveat immediately above, by the time this flow was written
+      `frontend/components/chat/ChatPlaceholder.tsx` no longer exists as a
+      separate component; `MessageList.tsx` renders `brandConfig.
+      suggestion_chips` directly in its own `messages.length === 0` branch,
+      so P3-0 is expected to actually PASS rather than being merely
+      future-proofed). Clicking that chip with NO stated body type must
+      produce a clarify response naming >=2 distinct shape-vocabulary terms
+      and signalling optionality, with zero banned-framing-word hits (P3-1).
+      Stating a body type inline with an occasion+budget query ("I'm
+      pear-shaped, sangeet look under 8000") must bias the rendered look
+      toward pear-recommended silhouette vocabulary and add a supportive
+      why-note to the assistant text, all while still respecting the stated
+      budget (P3-2). A refinement turn afterward ("make it more festive")
+      must keep the banned-word count at zero while still rendering new
+      cards (P3-4). A session-wide sweep of EVERY assistant bubble's text
+      must show zero hits against the banned "body-shaming" framing word
+      list -- hide/conceal/camouflage/flaw/fix/flabby/minimise/slimming/
+      unflattering/"problem area"/"not for your body type" (P3-3). The task
+      spec lists P3-3 third and P3-4 fourth, but P3-3's own description says
+      "after all turns" -- taken literally, P3-3 must also see P3-4's turn,
+      so `main` runs P3-4 BEFORE P3-3 despite the numbering (P3-3 is the
+      session-wide net, not a fourth sequential step). Console-errors (the
+      shared `step_console_errors` call in `main`'s `finally` block) is
+      reused unchanged, same as --wave-7 -- --p3 does not call it a second
+      time.
+
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
 
@@ -2097,6 +2129,271 @@ def step_w5_partner_regression(page: Page, state: ProofState) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# P3 ("What suits my body type?" styling) constants & steps.
+#
+# The 6th suggestion chip appended to brands/unified.yaml's suggestion_chips
+# list (tests/test_unified_brand.py's _EXPECTED_CHIPS updated to 6 entries).
+# Reuses WAVE7_CHIPS for the first 5 rather than redefining them, so the two
+# lists can't silently drift apart.
+# ---------------------------------------------------------------------------
+P3_CHIP = "What suits my body type?"
+P3_ALL_CHIPS = [*WAVE7_CHIPS, P3_CHIP]
+
+# P3-1a/P3-2b: shape vocabulary a clarify or why-note response may name.
+# "inverted triangle" is a two-word phrase; `\b` still anchors correctly at
+# its outer edges since it's matched as one literal alternative.
+P3_SHAPE_WORD_RE = re.compile(
+    r"\b(pear|apple|hourglass|rectangle|inverted triangle|petite|plus)\b", re.IGNORECASE
+)
+# P3-1b: the clarify response must read as optional, not a requirement to
+# answer before the assistant will help at all. Both straight (') and
+# typographic (’) apostrophes covered for "if you'd like" since the LLM
+# response text isn't guaranteed to use one or the other consistently.
+P3_OPTIONALITY_RE = re.compile(
+    r"\b(optional|only if|if you’d like|if you'd like|no need|either way)\b",
+    re.IGNORECASE,
+)
+# P3-2b: pear-recommended silhouette vocabulary a rendered card's title/badge
+# should carry. "a.line"/"a-line" both kept literally per the task spec (the
+# "." also incidentally matches "a line" with a space or "a_line").
+P3_PEAR_SILHOUETTE_RE = re.compile(
+    r"\b(a.line|a-line|anarkali|flared|flare|empire|wrap|lehenga)\b", re.IGNORECASE
+)
+# P3-2c: supportive why-note vocabulary the assistant text should use when
+# explaining why a look suits a stated body type.
+P3_WHY_NOTE_RE = re.compile(
+    r"\b(pear|silhouette|balance|balances|flatter|celebrates|skims)\b", re.IGNORECASE
+)
+# P3-1c/P3-2c/P3-3/P3-4: banned body-shaming framing vocabulary -- the
+# framing guarantee this whole feature exists to enforce. "problem area(s)"
+# and "not for your body type" are multi-word phrases, so they get their own
+# \s+-tolerant alternatives instead of relying on a literal-with-internal-
+# space (which would work too, but \s+ also tolerates a stray double space
+# or line wrap in streamed text).
+P3_BANNED_RE = re.compile(
+    r"\b(hide|hides|hiding|conceal|conceals|camouflage|flaws?|fix|fixes|flabby|"
+    r"minimi[sz]e|slimming|unflattering)\b"
+    r"|\bproblem\s+areas?\b"
+    r"|\bnot\s+for\s+your\s+body\s+type\b",
+    re.IGNORECASE,
+)
+
+
+def wait_for_assistant_reply(page: Page, timeout_s: float = CARD_WAIT_TIMEOUT_S) -> None:
+    """Wait for a turn to fully complete when no card render is expected (e.g.
+    P3-1's clarify turn) -- `wait_for_more_cards` polls `card_count` and would
+    never succeed for a text-only response.
+
+    First waits (briefly, up to 5s) for the composer to show "Stop"
+    (isSending true), tolerating a turn that completes faster than we can
+    observe it, then waits for "Stop" to disappear again via
+    `wait_for_turn_idle`.
+    """
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if page.get_by_role("button", name="Stop").count() > 0:
+            break
+        page.wait_for_timeout(200)
+    wait_for_turn_idle(page, timeout_s=timeout_s)
+
+
+def step_p3_0_chip(page: Page, state: ProofState) -> None:
+    """P3-0: BEFORE any message is sent, assert the 6th suggestion chip
+    "What suits my body type?" renders as a clickable button (unified.yaml's
+    suggestion_chips list is 6 entries now -- see tests/test_unified_brand.py).
+
+    Evidence-only: also records how many of the other 5 WAVE7_CHIPS render
+    alongside it -- not a P3 assertion, W0 already covers that thoroughly.
+    """
+    chip_present = page.get_by_role("button", name=P3_CHIP, exact=True).count() > 0
+    other_hits = [
+        chip for chip in WAVE7_CHIPS if page.get_by_role("button", name=chip, exact=True).count() > 0
+    ]
+    shot(page, "p3_0_chip")
+    state.record(
+        "P3-0. 'What suits my body type?' chip renders as a button before any message",
+        chip_present,
+        f"chip_present={chip_present} other_wave7_chips_also_present={len(other_hits)}/5",
+    )
+
+
+def step_p3_1_clarify(page: Page, state: ProofState) -> None:
+    """P3-1: click the body-type chip with NO stated body type. This is a
+    clarify turn -- cards are not required (per the task spec). Asserts the
+    assistant's response text (a) mentions >=2 distinct shape-vocabulary
+    terms, (b) signals optionality (the user must never feel forced to
+    answer before search continues), and (c) carries zero P3_BANNED_RE hits.
+
+    Falls back to typing the identical chip text if the click doesn't
+    register a user turn, mirroring step_w1_sangeet_hero's chip-click
+    convention (the chip disappears once messages.length > 0, so button-
+    vanishing is the click-registered signal).
+    """
+    chip_button = page.get_by_role("button", name=P3_CHIP, exact=True)
+    clicked = False
+    if chip_button.count() > 0:
+        try:
+            chip_button.first.click()
+            page.wait_for_timeout(1_000)
+            clicked = page.get_by_role("button", name=P3_CHIP, exact=True).count() == 0
+        except Exception:  # noqa: BLE001 - fall through to the typed-text fallback
+            clicked = False
+    if not clicked:
+        send_text(page, P3_CHIP)
+
+    wait_for_assistant_reply(page)
+    text = last_assistant_text(page)
+    shot(page, "p3_1_clarify")
+
+    shape_hits = sorted(set(m.lower() for m in P3_SHAPE_WORD_RE.findall(text)))
+    state.record(
+        "P3-1a. clarify response mentions >=2 distinct shape-vocabulary terms",
+        len(shape_hits) >= 2,
+        f"clicked_chip={clicked} shape_hits={shape_hits} assistant_text_snippet={text[:300]!r}",
+    )
+
+    optionality_hit = bool(P3_OPTIONALITY_RE.search(text))
+    state.record(
+        "P3-1b. clarify response signals optionality (no forced answer)",
+        optionality_hit,
+        f"optionality_hit={optionality_hit} assistant_text_snippet={text[:300]!r}",
+    )
+
+    banned_hits = P3_BANNED_RE.findall(text)
+    state.record(
+        "P3-1c. clarify response carries zero P3_BANNED_RE hits",
+        not banned_hits,
+        f"banned_hits={banned_hits} assistant_text_snippet={text[:300]!r}",
+    )
+
+
+def step_p3_2_hero(page: Page, state: ProofState) -> None:
+    """P3-2: send "I'm pear-shaped, sangeet look under 8000" -- a body type
+    stated inline together with an occasion+budget query, same turn. Asserts:
+    (a) an outfit board OR >=2 new cards render; (b) >=1 new card title/badge
+    matches pear-recommended silhouette vocabulary (P3_PEAR_SILHOUETTE_RE) --
+    recorded as hits, evidence for the "biases outfit ranking toward
+    flattering silhouettes" half of the feature; (c) the assistant text
+    carries a supportive why-note (P3_WHY_NOTE_RE) with zero P3_BANNED_RE
+    hits -- the "supportive why-note" half; (d) the stated ₹8000 budget is
+    still respected when a board rendered (reuses `_parse_rupee_amount`, same
+    pattern as step_w1_sangeet_hero's W1d).
+    """
+    query = "I'm pear-shaped, sangeet look under 8000"
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, query)
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "p3_2_hero")
+
+    render_ok = outfit_board_present or gained >= 2
+    state.record(
+        "P3-2a. pear-shaped sangeet query renders an outfit board or >=2 new cards",
+        render_ok,
+        f"cards {baseline}->{after} outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    silhouette_hits = [card_title(c) for c in new_cards if card_matches(c, P3_PEAR_SILHOUETTE_RE)]
+    state.record(
+        "P3-2b. >=1 new card title/badge matches pear-recommended silhouette vocabulary",
+        len(silhouette_hits) >= 1,
+        f"silhouette_hits={silhouette_hits} titles={[card_title(c) for c in new_cards]}",
+    )
+
+    assistant_text = last_assistant_text(page)
+    why_note_hit = bool(P3_WHY_NOTE_RE.search(assistant_text))
+    banned_hits = P3_BANNED_RE.findall(assistant_text)
+    state.record(
+        "P3-2c. assistant text carries a supportive body-type why-note, zero banned words",
+        why_note_hit and not banned_hits,
+        f"why_note_hit={why_note_hit} banned_hits={banned_hits} "
+        f"assistant_text_snippet={assistant_text[:300]!r}",
+    )
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        state.record(
+            "P3-2d. board slot-price sum respects the stated ₹8000 budget",
+            price_sum <= 8000,
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}",
+        )
+    else:
+        state.record(
+            "P3-2d. board slot-price sum respects the stated ₹8000 budget",
+            True,
+            "N/A -- no outfit board rendered this turn (grid-card path has no board slot prices)",
+        )
+
+
+def step_p3_4_persistence(page: Page, state: ProofState) -> None:
+    """P3-4: 'make it more festive' -- a refinement turn after P3-2's
+    body-type-stated turn. Asserts >=1 new card AND the assistant text still
+    carries zero P3_BANNED_RE hits. If the assistant mentions the body type
+    again (P3_SHAPE_WORD_RE hit), that's recorded as bonus evidence -- the
+    task spec does not require the body-type mention itself to persist, only
+    that the banned-word guarantee holds.
+    """
+    baseline = card_count(page)
+    send_text(page, "make it more festive")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, "p3_4_persistence")
+
+    assistant_text = last_assistant_text(page)
+    banned_hits = P3_BANNED_RE.findall(assistant_text)
+    shape_mention = sorted(set(m.lower() for m in P3_SHAPE_WORD_RE.findall(assistant_text)))
+    state.record(
+        "P3-4. 'make it more festive' renders >=1 new card, zero banned words",
+        gained >= 1 and not banned_hits,
+        f"cards {baseline}->{after} banned_hits={banned_hits} "
+        f"body_type_mentioned_again(evidence only)={shape_mention} "
+        f"assistant_text_snippet={assistant_text[:300]!r}",
+    )
+
+
+def step_p3_3_ban_sweep(page: Page, state: ProofState) -> None:
+    """P3-3: the framing guarantee -- sweep EVERY assistant bubble rendered in
+    THIS session so far (not just the latest turn's) for P3_BANNED_RE hits.
+    A per-turn check (P3-1c, P3-2c, P3-4) could still miss a banned word an
+    earlier turn used but a later turn didn't repeat; this step is the
+    session-wide net. Run LAST in `main` (after P3-4's turn too) since the
+    task spec's own P3-3 description says "after all turns" -- see the
+    module docstring's note on this deliberate reordering.
+    """
+    bubbles = page.locator(ASSISTANT_BUBBLE_SELECTOR)
+    n_bubbles = bubbles.count()
+    all_hits: list[str] = []
+    for i in range(n_bubbles):
+        try:
+            text = bubbles.nth(i).inner_text()
+        except Exception:  # noqa: BLE001 - best-effort evidence extraction
+            continue
+        hits = P3_BANNED_RE.findall(text)
+        if hits:
+            all_hits.append(f"bubble[{i}]: {hits} in {text[:120]!r}")
+    state.record(
+        "P3-3. zero P3_BANNED_RE hits across EVERY assistant bubble in the session",
+        not all_hits,
+        f"n_bubbles_checked={n_bubbles} hits={all_hits}",
+    )
+
+
 def print_summary(state: ProofState) -> bool:
     """Print the final PASS/FAIL table. Returns True if every check passed."""
     print("\n" + "=" * 78)
@@ -2164,6 +2461,20 @@ def main() -> int:
             "step_console_errors call, not a separate invocation."
         ),
     )
+    parser.add_argument(
+        "--p3",
+        action="store_true",
+        help=(
+            "Run the P3 'body type' styling content-assertion steps (P3-0..P3-4): the 6th "
+            "'What suits my body type?' suggestion chip renders pre-message (P3-0), a "
+            "no-body-type clarify response's shape-vocabulary/optionality/banned-word checks "
+            "(P3-1), a stated body type biasing silhouette vocabulary + a supportive why-note "
+            "within budget (P3-2), a refinement turn ('make it more festive') that keeps the "
+            "banned list at zero (P3-4, run before P3-3), and a session-wide banned-framing-"
+            "word sweep across every assistant bubble (P3-3, run LAST since its own spec text "
+            "says 'after all turns' -- see the module docstring)."
+        ),
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -2211,6 +2522,12 @@ def main() -> int:
                     step_w3_mehendi_palette(page, state)
                     step_w4_reception_register(page, state)
                     step_w5_partner_regression(page, state)
+                elif args.p3:
+                    step_p3_0_chip(page, state)
+                    step_p3_1_clarify(page, state)
+                    step_p3_2_hero(page, state)
+                    step_p3_4_persistence(page, state)
+                    step_p3_3_ban_sweep(page, state)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(
