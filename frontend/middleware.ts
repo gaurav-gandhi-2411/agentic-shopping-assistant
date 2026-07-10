@@ -52,7 +52,11 @@ export async function middleware(request: NextRequest) {
     !pathname.startsWith("/demo") &&
     !pathname.startsWith("/embed") &&
     !pathname.startsWith("/pdp-demo") &&
-    !pathname.startsWith("/look")
+    !pathname.startsWith("/look") &&
+    // Site-wide OG card (app/opengraph-image.tsx): fetched by link-preview
+    // crawlers (WhatsApp/Twitter) with no session — gating it behind auth
+    // serves them the login page instead of the image.
+    !pathname.startsWith("/opengraph-image")
   ) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
