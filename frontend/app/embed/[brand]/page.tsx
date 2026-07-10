@@ -266,7 +266,7 @@ export default function EmbedPage() {
         <span className="text-[10px] text-muted-foreground">
           Powered by{" "}
           <a
-            href="https://asa-stylist.vercel.app"
+            href="https://stylemaitri.vercel.app"
             target="_blank"
             rel="noopener noreferrer"
             className="underline underline-offset-2"
