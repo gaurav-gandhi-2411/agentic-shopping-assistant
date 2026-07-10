@@ -303,6 +303,20 @@ gcloud storage cp -r data/processed/myntra    gs://${GCS_BUCKET}/myntra/
 gcloud storage cp -r data/processed/flipkart  gs://${GCS_BUCKET}/flipkart/
 ```
 
+### Relevance regression gate — mandatory before any backend deploy
+
+Run the deterministic eval gate (zero LLM calls, ~2-4 min) and deploy only on `ALL PASS`:
+
+```bash
+python scripts/eval_gate.py
+```
+
+Thresholds (baseline 2026-07-10: P@5 0.889, NDCG@10 0.914, intent 92.4%, gates 100%):
+precision@5 >= 0.80, NDCG@10 >= 0.85, intent all-exact >= 88%, correctness gates at 100%.
+A `REGRESSION - do not deploy` line means ranking/parser/composer quality silently dropped —
+fix before shipping. Not in ci.yml: `data/processed/unified` is gitignored and CI has no GCS
+credentials, so this gate runs locally as part of the deploy ritual.
+
 ### QA rule — proof must come from the live Cloud Run URL
 
 After any GCS upload + service restart, verify by hitting the **deployed Cloud Run URL**, not
