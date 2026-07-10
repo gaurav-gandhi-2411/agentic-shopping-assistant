@@ -151,7 +151,10 @@ export default async function SharedLookPage({
                 {lookGender}
               </span>
             )}
-            {variantLabel && (
+            {/* "Base" is the composer's internal tag for the primary look —
+                meaningless to a share-link visitor; real variant labels
+                ("Colour story", "Ethnic") still render. */}
+            {variantLabel && variantLabel !== "Base" && (
               <span className="inline-block rounded-full border text-xs px-2 py-0.5 text-muted-foreground">
                 {variantLabel}
               </span>
@@ -183,7 +186,7 @@ export default async function SharedLookPage({
                     {item.image_url ? (
                       <Image
                         src={item.image_url}
-                        alt={item.display_name ?? item.prod_name ?? "Item"}
+                        alt={item.prod_name ?? item.display_name ?? "Item"}
                         fill
                         sizes="(max-width: 640px) 50vw, 33vw"
                         unoptimized
@@ -200,7 +203,7 @@ export default async function SharedLookPage({
                   </div>
                   <div className="p-1.5">
                     <p className="text-xs font-medium leading-tight line-clamp-2">
-                      {item.display_name ?? item.prod_name ?? ""}
+                      {item.prod_name ?? item.display_name ?? ""}
                     </p>
                     {item.price_inr != null && (
                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -289,7 +292,10 @@ export default async function SharedLookPage({
           <p className="text-xs text-muted-foreground">
             {brand ? (
               <>
-                Styled with <span className="font-semibold capitalize">{brand}</span>
+                Styled with{" "}
+                <span className="font-semibold capitalize">
+                  {brand === "unified" ? "Style Maitri" : brand}
+                </span>
                 {" · "}
               </>
             ) : null}

@@ -18,8 +18,23 @@ const fraunces = Fraunces({
 })
 
 export const metadata: Metadata = {
+  // Explicit canonical base: without it Next falls back to the Vercel project
+  // URL, which still resolved to the pre-rename asa-stylist.vercel.app alias —
+  // og:image URLs on /look/[id] pointed at the old domain (sweep 2026-07-10, P1-8).
+  metadataBase: new URL("https://stylemaitri.vercel.app"),
   title: "Style Maitri",
   description: "Style Maitri — your AI stylist for fashion discovery.",
+  openGraph: {
+    siteName: "Style Maitri",
+    title: "Style Maitri",
+    description: "Your AI stylist for weddings, sangeets & every day.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Style Maitri",
+    description: "Your AI stylist for weddings, sangeets & every day.",
+  },
 }
 
 export default function RootLayout({
