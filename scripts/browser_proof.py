@@ -137,6 +137,37 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
       the shared `step_console_errors` call in `main`'s `finally` block,
       same as --wave-7/--p3 -- --p2 does not call it a second time.
 
+  12. (--item2 flow, I2-0..I2-3) Content assertions for the NEW "photo ->
+      body-shape suggestion" upload affordance (backend unchanged; frontend
+      built locally in `frontend/components/chat/BodyShapeUpload.tsx` +
+      `frontend/lib/poseShape.ts` / `poseLandmarker.ts`, to be deployed
+      before this flow runs) -- distinct from the pre-existing garment/
+      inspiration-photo upload (`ImagePlus` icon, `aria-label="Style what
+      you own"`). This flow deliberately does NOT re-prove the TEXT-based
+      body-type path --p3 already covers end-to-end (clarify message,
+      ban-list sweep, guardrailed why-notes); it only proves the NEW
+      photo-upload-affordance-specific behaviour: the affordance itself is
+      present and visually/accessibly distinct from the garment upload
+      (I2-0), the on-device privacy copy is visible BEFORE any file is
+      picked (I2-1, regex built from the component's actual copy --
+      "processed entirely in your browser, never uploaded or stored"),
+      uploading a photo lands on EITHER the CONFIDENT suggestion panel
+      (confirm + pick-a-different-one controls, shape-word text, zero
+      banned-framing hits) OR the NOT-CONFIDENT fallback panel (all 5 shape
+      buttons, zero banned-framing hits, zero raw error/exception text) --
+      both are valid pass outcomes since a non-person test image
+      (DEFAULT_IMAGE, t-shirt.webp) will almost certainly fail MediaPipe's
+      pose-detection confidence gate (I2-2), and completing whichever
+      branch appeared (clicking confirm, or deterministically tapping
+      "Pear" on the fallback panel so the downstream vocabulary check is
+      exercised) sends the existing chat-send natural-language message and
+      correctly flows into the SAME downstream P3 pipeline already proven
+      by --p3: cards/board render, the stated budget is respected, and zero
+      P3_BANNED_RE hits appear in the assistant's reply (I2-3). Console-
+      errors reuses the shared `step_console_errors` call in `main`'s
+      `finally` block, same as every other flow -- --item2 does not call it
+      a second time.
+
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
 
@@ -2685,6 +2716,341 @@ def step_p2_couple_from_scratch(context, base_url: str, state: ProofState) -> No
         fresh_page.close()
 
 
+# ---------------------------------------------------------------------------
+# --item2 ("photo -> body-shape suggestion" upload affordance) constants.
+#
+# Every selector/copy string below was grepped verbatim from
+# frontend/components/chat/BodyShapeUpload.tsx and frontend/lib/poseShape.ts
+# (read before writing any assertion here, per repo convention) -- none of
+# it is invented/assumed.
+# ---------------------------------------------------------------------------
+
+# Trigger button: `aria-label="Body shape suggestion (optional)"` (title
+# matches). Distinct from the pre-existing garment/inspiration-photo upload
+# button (`ChatInput.tsx`, `aria-label="Style what you own"`) -- different
+# icon (PersonStanding vs ImagePlus) and different accessible name.
+I2_TRIGGER_NAME = "Body shape suggestion (optional)"
+I2_GARMENT_UPLOAD_NAME = "Style what you own"
+
+# The body-shape affordance's OWN hidden file input's aria-label -- distinct
+# from ChatInput.tsx's garment file input (`aria-label="Upload garment or
+# inspiration photo"`), so the two same-type `input[type=file]` elements now
+# on the page can be addressed unambiguously.
+I2_FILE_INPUT_LABEL = "Upload a photo for a body-shape suggestion"
+
+# Floating panel's root div -- verified unique across the whole frontend tree
+# (grep for "bottom-full" hits only this one file) via its distinctive
+# Tailwind class combination, which `cn()` keeps as the outer wrapper
+# regardless of which stage (intro/loading/confident/picking/fallback) is
+# showing inside it.
+I2_PANEL_SELECTOR = "div.absolute.bottom-full.right-0.mb-2.w-72"
+
+# I2-1: privacy copy, verbatim from the component's "intro" stage: "For a
+# body-shape suggestion: processed entirely in your browser, never uploaded
+# or stored." Regex built from the ACTUAL copy, not invented boilerplate.
+I2_PRIVACY_RE = re.compile(
+    r"processed entirely in your browser|never uploaded|never leaves|on your device",
+    re.IGNORECASE,
+)
+
+# I2-2: raw error/exception strings that must NEVER be user-visible for this
+# silently-degrading, optional feature. Word-boundary for real-word tokens
+# (avoids false hits inside unrelated larger words); "failed to load" is
+# matched as the literal phrase.
+I2_ERRORISH_RE = re.compile(r"\berror\b|\bundefined\b|\bnan\b|failed to load", re.IGNORECASE)
+
+# I2-2/I2-3: the 5 SHAPE_OPTIONS button labels, verbatim from the component.
+I2_SHAPE_BUTTON_LABELS = ["Pear", "Apple", "Hourglass", "Rectangle", "Inverted triangle"]
+
+# I2-2: confident-branch controls, verbatim from the component's "confident"
+# stage JSX. The confirm button's apostrophe is React's `&apos;` entity,
+# which renders as a straight `'` -- `.` in the regex tolerates either.
+I2_CONFIRM_BUTTON_RE = re.compile(r"Yes,\s*that.s right", re.IGNORECASE)
+I2_PICK_DIFFERENT_NAME = "Pick a different one"
+
+# I2-2: fallback-branch heading, verbatim -- distinct from the "picking"
+# stage's own heading ("A few shapes people mention...") so this text alone
+# disambiguates fallback from picking.
+I2_FALLBACK_HEADING = "Prefer to just tell me? Tap a shape below or type it."
+
+# I2-3: `bodyShapeMessage()` in poseShape.ts (grepped verbatim) -- the exact
+# natural-language string the frontend sends for each shape slug. Used here
+# only to recognize/log which message went out as evidence; the frontend,
+# not this script, is responsible for producing it.
+I2_SHAPE_MESSAGES = {
+    "pear": "I have a pear silhouette",
+    "apple": "I have an apple silhouette",
+    "hourglass": "I have an hourglass silhouette",
+    "rectangle": "I have a rectangle silhouette",
+    "inverted_triangle": "I have an inverted triangle silhouette",
+}
+
+
+def step_i2_0_affordance_present(page: Page, state: ProofState) -> None:
+    """I2-0: the body-shape upload affordance renders as a button distinct
+    from the pre-existing garment-photo upload button -- different
+    accessible name (`I2_TRIGGER_NAME` vs `I2_GARMENT_UPLOAD_NAME`) and,
+    per the component source, a different icon (PersonStanding vs
+    ImagePlus).
+    """
+    trigger = page.get_by_role("button", name=I2_TRIGGER_NAME, exact=True)
+    garment_upload = page.get_by_role("button", name=I2_GARMENT_UPLOAD_NAME, exact=True)
+    trigger_present = trigger.count() > 0
+    garment_present = garment_upload.count() > 0
+    shot(page, "i2_0_affordance_present")
+    state.record(
+        "I2-0. body-shape upload affordance renders, distinct from the garment-photo upload",
+        trigger_present and garment_present and I2_TRIGGER_NAME != I2_GARMENT_UPLOAD_NAME,
+        f"trigger_present={trigger_present} garment_upload_present={garment_present} "
+        f"trigger_name={I2_TRIGGER_NAME!r} garment_upload_name={I2_GARMENT_UPLOAD_NAME!r}",
+    )
+
+
+def step_i2_1_privacy_copy(page: Page, state: ProofState) -> None:
+    """I2-1: open the affordance (WITHOUT picking a file yet) and assert the
+    privacy copy is visible, matching `I2_PRIVACY_RE` (built from the actual
+    "processed entirely in your browser, never uploaded or stored" text in
+    BodyShapeUpload.tsx's "intro" stage).
+    """
+    trigger = page.get_by_role("button", name=I2_TRIGGER_NAME, exact=True)
+    if trigger.count() == 0:
+        state.record(
+            "I2-1. privacy copy visible before upload", False, "trigger button not found"
+        )
+        return
+    trigger.first.click()
+    try:
+        page.wait_for_selector(I2_PANEL_SELECTOR, timeout=5_000)
+    except Exception as exc:  # noqa: BLE001
+        shot(page, "i2_1_privacy_copy_FAIL")
+        state.record(
+            "I2-1. privacy copy visible before upload", False, f"panel did not open: {exc}"
+        )
+        return
+    panel_text = page.locator(I2_PANEL_SELECTOR).first.inner_text()
+    shot(page, "i2_1_privacy_copy")
+    privacy_hit = bool(I2_PRIVACY_RE.search(panel_text))
+    state.record(
+        "I2-1. privacy copy visible before upload (matches I2_PRIVACY_RE)",
+        privacy_hit,
+        f"panel_text={panel_text!r}",
+    )
+
+
+def step_i2_2_upload_outcome(page: Page, state: ProofState, image_path: Path) -> str | None:
+    """I2-2: pick `image_path` via the body-shape affordance's OWN hidden
+    file input (`I2_FILE_INPUT_LABEL`, distinct from the garment upload's
+    file input) and poll for either the CONFIDENT suggestion panel or the
+    NOT-CONFIDENT fallback panel to appear.
+
+    `image_path` is DEFAULT_IMAGE (t-shirt.webp) by default in `main` -- a
+    non-person photo will almost certainly fail MediaPipe's pose-detection
+    confidence gate and land on the fallback branch. EITHER branch is an
+    acceptable proof outcome here (we don't control what MediaPipe detects
+    in a non-person test image); this only fails if NEITHER panel appears
+    within the timeout, or a branch's own content checks fail.
+
+    Returns "confident", "fallback", or None (timeout/no branch appeared).
+    """
+    if not image_path.exists():
+        state.record(
+            "I2-2. upload produces a confident or fallback outcome",
+            False,
+            f"image file not found: {image_path}",
+        )
+        return None
+
+    file_input = page.get_by_label(I2_FILE_INPUT_LABEL)
+    if file_input.count() == 0:
+        state.record(
+            "I2-2. upload produces a confident or fallback outcome",
+            False,
+            "body-shape file input not found",
+        )
+        return None
+    file_input.set_input_files(str(image_path))
+
+    # WASM model load + first-run inference can take a few seconds -- generous
+    # 60s polling window per the task spec.
+    deadline = time.time() + 60.0
+    outcome: str | None = None
+    while time.time() < deadline:
+        if page.get_by_text(I2_FALLBACK_HEADING, exact=False).count() > 0:
+            outcome = "fallback"
+            break
+        if page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).count() > 0:
+            outcome = "confident"
+            break
+        page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+
+    shot(page, f"i2_2_outcome_{outcome or 'timeout'}")
+    if outcome is None:
+        state.record(
+            "I2-2. upload produces a confident or fallback outcome",
+            False,
+            "neither the confident suggestion panel nor the fallback panel appeared within 60s",
+        )
+        return None
+
+    panel_text = ""
+    if page.locator(I2_PANEL_SELECTOR).count() > 0:
+        try:
+            panel_text = page.locator(I2_PANEL_SELECTOR).first.inner_text()
+        except Exception:  # noqa: BLE001 - best-effort evidence extraction
+            panel_text = ""
+
+    banned_hits = P3_BANNED_RE.findall(panel_text)
+    errorish_hits = I2_ERRORISH_RE.findall(panel_text)
+
+    if outcome == "fallback":
+        shape_button_hits = [
+            label
+            for label in I2_SHAPE_BUTTON_LABELS
+            if page.get_by_role("button", name=label, exact=True).count() > 0
+        ]
+        passed = (
+            len(shape_button_hits) == len(I2_SHAPE_BUTTON_LABELS)
+            and not banned_hits
+            and not errorish_hits
+        )
+        state.record(
+            "I2-2. NOT-CONFIDENT fallback: all 5 shape buttons present, zero banned/error text",
+            passed,
+            f"shape_buttons_found={shape_button_hits} banned_hits={banned_hits} "
+            f"errorish_hits={errorish_hits} panel_text={panel_text!r}",
+        )
+    else:  # confident
+        confirm_present = page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).count() > 0
+        pick_different_present = (
+            page.get_by_role("button", name=I2_PICK_DIFFERENT_NAME, exact=True).count() > 0
+        )
+        shape_hit = bool(P3_SHAPE_WORD_RE.search(panel_text))
+        passed = confirm_present and pick_different_present and not banned_hits and shape_hit
+        state.record(
+            "I2-2. CONFIDENT branch: confirm+pick-different controls present, zero banned "
+            "hits, suggestion text matches a shape-word pattern",
+            passed,
+            f"confirm_present={confirm_present} pick_different_present={pick_different_present} "
+            f"banned_hits={banned_hits} shape_hit={shape_hit} panel_text={panel_text!r}",
+        )
+
+    return outcome
+
+
+def step_i2_3_flow_through(page: Page, state: ProofState, outcome: str | None) -> None:
+    """I2-3: complete whichever branch I2-2 observed -- click the confirm
+    button if CONFIDENT (whatever shape MediaPipe actually suggested), or
+    deterministically tap "Pear" if NOT-CONFIDENT (fallback, so the
+    pear-vocabulary bonus check below has a deterministic shape to look
+    for) -- then wait for the resulting natural-language chat message's
+    assistant reply, and prove it flows into the SAME downstream pipeline
+    --p3 already proves: send "sangeet look under 8000" and assert
+    cards/board render, the budget is respected, and zero P3_BANNED_RE hits.
+
+    Bonus (not a hard requirement -- recorded as evidence only, since the
+    confident branch's shape is nondeterministic on MediaPipe's actual
+    output): pear-silhouette vocabulary, only checked when the shape
+    actually used was pear.
+    """
+    if outcome is None:
+        state.record(
+            "I2-3. confirmed/picked shape flows into the P3 pipeline",
+            False,
+            "skipped -- I2-2 produced neither branch",
+        )
+        return
+
+    used_shape: str | None
+    if outcome == "fallback":
+        used_shape = "pear"
+        page.get_by_role("button", name="Pear", exact=True).first.click()
+    else:
+        panel_text = ""
+        if page.locator(I2_PANEL_SELECTOR).count() > 0:
+            try:
+                panel_text = page.locator(I2_PANEL_SELECTOR).first.inner_text()
+            except Exception:  # noqa: BLE001
+                panel_text = ""
+        shape_match = P3_SHAPE_WORD_RE.search(panel_text)
+        used_shape = None
+        if shape_match:
+            normalized = shape_match.group(0).lower()
+            used_shape = "inverted_triangle" if normalized == "inverted triangle" else normalized
+        page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).first.click()
+
+    expected_message = I2_SHAPE_MESSAGES.get(used_shape or "", "")
+    wait_for_assistant_reply(page)
+    if expected_message:
+        message_echoed = page.get_by_text(expected_message, exact=False).count() > 0
+        print(
+            f"[EVIDENCE] I2-3 user message echo: used_shape={used_shape!r} "
+            f"expected={expected_message!r} echoed={message_echoed}"
+        )
+    shot(page, "i2_3_after_confirm")
+
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, "sangeet look under 8000")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "i2_3_sangeet_result")
+
+    render_ok = outfit_board_present or gained >= 1
+    state.record(
+        "I2-3a. 'sangeet look under 8000' renders an outfit board or >=1 new card "
+        "after the body-shape message",
+        render_ok,
+        f"used_shape={used_shape} cards {baseline}->{after} "
+        f"outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        budget_ok = price_sum <= 8000
+        budget_detail = (
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}"
+        )
+    else:
+        new_cards = new_card_locators(page, baseline, after)
+        prices = [_parse_rupee_amount(c.inner_text()) for c in new_cards]
+        parsed_prices = [p for p in prices if p is not None]
+        budget_ok = all(p <= 8000 for p in parsed_prices)
+        budget_detail = f"new_card_prices={prices}"
+    state.record("I2-3b. budget respected (<=8000)", budget_ok, budget_detail)
+
+    assistant_text = last_assistant_text(page)
+    banned_hits = P3_BANNED_RE.findall(assistant_text)
+    state.record(
+        "I2-3c. zero P3_BANNED_RE hits in the assistant's text",
+        not banned_hits,
+        f"banned_hits={banned_hits} assistant_text_snippet={assistant_text[:300]!r}",
+    )
+
+    if used_shape == "pear":
+        new_cards = new_card_locators(page, baseline, after)
+        silhouette_hits = [
+            card_title(c) for c in new_cards if card_matches(c, P3_PEAR_SILHOUETTE_RE)
+        ]
+        why_note_hit = bool(P3_WHY_NOTE_RE.search(assistant_text))
+        print(
+            "[EVIDENCE] I2-3d (bonus, pear only, not a hard requirement) -- "
+            f"silhouette_hits={silhouette_hits} why_note_hit={why_note_hit}"
+        )
+    else:
+        print(f"[EVIDENCE] I2-3d (bonus, pear only) skipped -- used_shape={used_shape!r}")
+
+
 def print_summary(state: ProofState) -> bool:
     """Print the final PASS/FAIL table. Returns True if every check passed."""
     print("\n" + "=" * 78)
@@ -2782,6 +3148,22 @@ def main() -> int:
             "reuse of the --phase-b PB-S4 step in a brand-new fresh session (P2-5)."
         ),
     )
+    parser.add_argument(
+        "--item2",
+        action="store_true",
+        help=(
+            "Run the 'photo -> body-shape suggestion' upload affordance content-"
+            "assertion steps (I2-0..I2-3): the new PersonStanding-icon affordance "
+            "renders distinct from the existing garment-photo upload (I2-0), on-device "
+            "privacy copy is visible before any file is picked (I2-1), uploading a "
+            "photo lands on the confident-suggestion panel or the not-confident "
+            "fallback panel with zero banned/error text (I2-2, either branch is a "
+            "valid pass), and completing that branch flows the resulting message into "
+            "the SAME downstream P3 pipeline --p3 already proves (I2-3). NOT deployed "
+            "at the time this flag was added -- do not run --item2 live until the "
+            "frontend change ships."
+        ),
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -2842,6 +3224,11 @@ def main() -> int:
                     # single-partner flow is unchanged, without touching or
                     # duplicating PB-S4's own checks (see the module docstring).
                     step_pb_s4_partner_styling(context, args.base_url, state)
+                elif args.item2:
+                    step_i2_0_affordance_present(page, state)
+                    step_i2_1_privacy_copy(page, state)
+                    outcome = step_i2_2_upload_outcome(page, state, Path(args.image))
+                    step_i2_3_flow_through(page, state, outcome)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(
