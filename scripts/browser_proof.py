@@ -44,6 +44,130 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
      <=8 target; it is flagged in the implementer's report, not silently
      resolved by dropping either requirement.
 
+  9. (--wave-7 flow, W0-W6) Content assertions for the P1 wedding-occasion
+     hero features (2026-07-09 build): the unified-mode "Style Maitri" brand
+     config's 5 suggestion chips + display name (W0, must run BEFORE any
+     message — the chip row only renders while `messages.length === 0`), the
+     "Sangeet look under (rupee)8000" hero chip's click-to-send path plus
+     ethnic-occasion vocabulary and budget (W1), and the haldi/mehendi/
+     reception occasion palettes (W2-W4) each checked via an OR of a
+     colour/register-vocabulary card signal and an assistant-text signal.
+     W5 re-proves the pre-existing partner-styling gender split (S4's
+     property) still holds after three occasion turns in the SAME session,
+     since the new occasion slugs are new territory for the gender-
+     consistency code path. W6 is the shared zero-severe-console-errors
+     check `step_console_errors` already runs unconditionally in `main`'s
+     `finally` block for every flow — --wave-7 does not call it a second
+     time (that would just duplicate the same summary row).
+
+     IMPORTANT CAVEAT discovered while implementing this flow (read-before-
+     edit, not asserted from memory): as of this writing,
+     `frontend/components/chat/ChatPlaceholder.tsx` (the component the task
+     spec says renders the 5 chips + display name) is NOT imported by
+     ANY page in the frontend tree — `/demo/chat` and `/embed/[brand]`
+     both render `MessageList` directly, whose own `messages.length === 0`
+     branch is a fixed, brand-independent, chip-less placeholder. W0 will
+     legitimately FAIL until a frontend change (out of this script's scope)
+     wires `ChatPlaceholder` (or equivalent chip rendering) into one of
+     those pages. W0's assertions use `page.get_by_role("button", name=...)`
+     directly rather than depending on `ChatPlaceholder`'s specific
+     container class, so they will pass unmodified once the wiring lands
+     wherever it lands.
+
+  10. (--p3 flow, P3-0..P3-4) Content assertions for the P3 "body type"
+      styling feature (deployed before this flow runs, per the task spec):
+      a 6th suggestion chip "What suits my body type?" appended to
+      brands/unified.yaml's suggestion_chips (tests/test_unified_brand.py
+      updated to the new 6-chip list) that must render BEFORE any message is
+      sent (P3-0, same messages.length === 0 precondition as W0 -- unlike
+      W0's caveat immediately above, by the time this flow was written
+      `frontend/components/chat/ChatPlaceholder.tsx` no longer exists as a
+      separate component; `MessageList.tsx` renders `brandConfig.
+      suggestion_chips` directly in its own `messages.length === 0` branch,
+      so P3-0 is expected to actually PASS rather than being merely
+      future-proofed). Clicking that chip with NO stated body type must
+      produce a clarify response naming >=2 distinct shape-vocabulary terms
+      and signalling optionality, with zero banned-framing-word hits (P3-1).
+      Stating a body type inline with an occasion+budget query ("I'm
+      pear-shaped, sangeet look under 8000") must bias the rendered look
+      toward pear-recommended silhouette vocabulary and add a supportive
+      why-note to the assistant text, all while still respecting the stated
+      budget (P3-2). A refinement turn afterward ("make it more festive")
+      must keep the banned-word count at zero while still rendering new
+      cards (P3-4). A session-wide sweep of EVERY assistant bubble's text
+      must show zero hits against the banned "body-shaming" framing word
+      list -- hide/conceal/camouflage/flaw/fix/flabby/minimise/slimming/
+      unflattering/"problem area"/"not for your body type" (P3-3). The task
+      spec lists P3-3 third and P3-4 fourth, but P3-3's own description says
+      "after all turns" -- taken literally, P3-3 must also see P3-4's turn,
+      so `main` runs P3-4 BEFORE P3-3 despite the numbering (P3-3 is the
+      session-wide net, not a fourth sequential step). Console-errors (the
+      shared `step_console_errors` call in `main`'s `finally` block) is
+      reused unchanged, same as --wave-7 -- --p3 does not call it a second
+      time.
+
+  11. (--p2 flow, P2-1..P2-5) Content assertions for the P2 couple-
+      coordination deepening feature (backend+frontend built locally, to be
+      deployed before this flow runs): a FRESH session's FIRST turn --
+      "style us as a couple for a reception under 15000" with NO prior
+      anchor/search -- must render TWO back-to-back outfit boards in the
+      SAME assistant turn (P2-1): board 0 her primary look, board 1 his
+      partner look (`lookRole == "partner"`, same `OutfitBoard.tsx` rendering
+      the pre-existing single-partner path already uses -- verified against
+      the source at this writing, ~line 481-495 `isPartnerLook = lookRole
+      === "partner"`). Each board is checked for gender purity scoped to
+      ITS OWN complement cards via `complement_cards_of_board` (P2-2), a
+      PER-PERSON (not combined) budget cap independently on each board's own
+      slot-price sum (P2-3), and board 1's partner badge/heading +
+      "Coordinated with..." subtext while board 0 shows neither (P2-4,
+      honest-thinness on board 1 recorded as evidence, not a failure). P2-5
+      re-proves the PRE-EXISTING single-partner flow ("black dress for
+      women" -> "Style this" -> "what should my husband wear with this?")
+      still produces its original one-board shape by directly reusing
+      `step_pb_s4_partner_styling` in a brand-new fresh session -- this is
+      additive proof, not a re-assertion that touches/duplicates PB-S4's own
+      checks. Verified against `OutfitBoard.tsx` before writing P2-1..P2-4:
+      there is NO `data-look-role` (or any other) DOM attribute
+      distinguishing a partner board from a primary one -- the "Partner
+      look" badge text is the only signal that exists today -- so
+      index-based board selection (`.nth(0)`/`.nth(1)`) is the only
+      addressing scheme available, and it is safe specifically because P2-1
+      runs in a fresh session's very first turn (see the P2 constants-block
+      comment in the source for the full reasoning). Console-errors reuses
+      the shared `step_console_errors` call in `main`'s `finally` block,
+      same as --wave-7/--p3 -- --p2 does not call it a second time.
+
+  12. (--item2 flow, I2-0..I2-3) Content assertions for the NEW "photo ->
+      body-shape suggestion" upload affordance (backend unchanged; frontend
+      built locally in `frontend/components/chat/BodyShapeUpload.tsx` +
+      `frontend/lib/poseShape.ts` / `poseLandmarker.ts`, to be deployed
+      before this flow runs) -- distinct from the pre-existing garment/
+      inspiration-photo upload (`ImagePlus` icon, `aria-label="Style what
+      you own"`). This flow deliberately does NOT re-prove the TEXT-based
+      body-type path --p3 already covers end-to-end (clarify message,
+      ban-list sweep, guardrailed why-notes); it only proves the NEW
+      photo-upload-affordance-specific behaviour: the affordance itself is
+      present and visually/accessibly distinct from the garment upload
+      (I2-0), the on-device privacy copy is visible BEFORE any file is
+      picked (I2-1, regex built from the component's actual copy --
+      "processed entirely in your browser, never uploaded or stored"),
+      uploading a photo lands on EITHER the CONFIDENT suggestion panel
+      (confirm + pick-a-different-one controls, shape-word text, zero
+      banned-framing hits) OR the NOT-CONFIDENT fallback panel (all 5 shape
+      buttons, zero banned-framing hits, zero raw error/exception text) --
+      both are valid pass outcomes since a non-person test image
+      (DEFAULT_IMAGE, t-shirt.webp) will almost certainly fail MediaPipe's
+      pose-detection confidence gate (I2-2), and completing whichever
+      branch appeared (clicking confirm, or deterministically tapping
+      "Pear" on the fallback panel so the downstream vocabulary check is
+      exercised) sends the existing chat-send natural-language message and
+      correctly flows into the SAME downstream P3 pipeline already proven
+      by --p3: cards/board render, the stated budget is respected, and zero
+      P3_BANNED_RE hits appear in the assistant's reply (I2-3). Console-
+      errors reuses the shared `step_console_errors` call in `main`'s
+      `finally` block, same as every other flow -- --item2 does not call it
+      a second time.
+
 Usage:
     python scripts/browser_proof.py [--base-url URL] [--image PATH] [--headed]
 
@@ -71,7 +195,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-DEFAULT_BASE_URL = "https://asa-stylist.vercel.app/demo"
+DEFAULT_BASE_URL = "https://stylemaitri.vercel.app/demo"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = REPO_ROOT / "t-shirt.webp"
 SCRATCHPAD = Path(
@@ -1162,10 +1286,16 @@ def card_data_attrs(card_locator) -> tuple[str | None, str | None]:
     return gender, slot
 
 
-def board_complement_cards(page: Page) -> list:
-    """Return locators for every COMPLEMENT slot card in the LATEST outfit board
-    on the page (assistant turns render top-to-bottom, so `.last` is always the
-    most recent board — same reasoning as B4/B5's docstrings).
+def complement_cards_of_board(board_locator) -> list:
+    """Return locators for every COMPLEMENT slot card on a SPECIFIC board
+    locator (as opposed to always the latest board on the page).
+
+    Factored out of `board_complement_cards` (which still delegates to this
+    for its own `.last`-board behaviour, unchanged for every existing caller)
+    so the --p2 couple-from-scratch flow can inspect a caller-chosen board by
+    INDEX (board 0 = her look, board 1 = his look — both known up front,
+    since a fresh session's first turn renders them in a fixed, deterministic
+    order) rather than only ever the most-recently-rendered board.
 
     Complement identification is defensive per the task spec: prefer a
     `data-slot` attribute if a later frontend fix adds one (`data-slot != "seed"`
@@ -1176,11 +1306,7 @@ def board_complement_cards(page: Page) -> list:
     cross-gender-leak check. The owned-anchor card (no buy link) is already
     excluded by OUTFIT_BOARD_SLOT_SELECTOR, which only matches `<a>` tiles.
     """
-    board = page.locator(OUTFIT_BOARD_SELECTOR)
-    if board.count() == 0:
-        return []
-    board0 = board.last
-    slot_cards = board0.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+    slot_cards = board_locator.locator(OUTFIT_BOARD_SLOT_SELECTOR)
     complements = []
     for i in range(slot_cards.count()):
         card = slot_cards.nth(i)
@@ -1196,6 +1322,20 @@ def board_complement_cards(page: Page) -> list:
         if badge_text.lower() != "hero":
             complements.append(card)
     return complements
+
+
+def board_complement_cards(page: Page) -> list:
+    """Return locators for every COMPLEMENT slot card in the LATEST outfit board
+    on the page (assistant turns render top-to-bottom, so `.last` is always the
+    most recent board — same reasoning as B4/B5's docstrings).
+
+    See `complement_cards_of_board` for the per-board extraction logic and the
+    P2 flow's reason for factoring it out.
+    """
+    board = page.locator(OUTFIT_BOARD_SELECTOR)
+    if board.count() == 0:
+        return []
+    return complement_cards_of_board(board.last)
 
 
 def _send_and_style_first(page: Page, state: ProofState, query: str, label_prefix: str) -> bool:
@@ -1709,6 +1849,1219 @@ def step_pb_s6_distinct_variants(page: Page, state: ProofState) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Wave-7 (P1 wedding-occasion hero features) constants & steps.
+#
+# The exact 5 chip strings the unified "Style Maitri" brand config is expected
+# to return from GET /api/brand (`suggestion_chips`) — see
+# frontend/hooks/useBrandConfig.ts's BrandConfig interface and
+# frontend/components/chat/ChatPlaceholder.tsx's chip-button rendering (per
+# the module docstring's caveat, ChatPlaceholder is not wired into any page
+# as of this writing; W0 checks the chip TEXT via role selectors so it stays
+# correct regardless of which page eventually mounts it).
+# ---------------------------------------------------------------------------
+WAVE7_CHIPS = [
+    "Sangeet look under ₹8000",
+    "Haldi outfit — bright & daytime",
+    "Wedding-guest saree under ₹5000",
+    "Style my partner for a reception",
+    "Mehendi look in green",
+]
+
+# W1 ethnic-occasion vocabulary — a sangeet-register look's cards should read
+# as festive/ethnic wear, not casual western. `\w*` suffixes on the
+# embellish/embroider/sequin stems so inflected forms ("embellished",
+# "embroidered", "sequinned") still match, mirroring PB_CASUAL_WESTERN_RE's
+# plural-friendly style elsewhere in this file.
+W7_SANGEET_VOCAB_RE = re.compile(
+    r"\b(lehengas?|sarees?|anarkalis?|kurtas?|shararas?|cholis?|dupattas?|ethnic|"
+    r"embellish\w*|embroider\w*|sequins?|zari)\b",
+    re.IGNORECASE,
+)
+# W2 haldi: bright/marigold-yellow palette. `gold\w*` catches "golden" too.
+W7_HALDI_COLOUR_RE = re.compile(
+    r"\b(yellow|marigold|mustard|orange|amber|gold\w*)\b", re.IGNORECASE
+)
+W7_HALDI_TEXT_RE = re.compile(r"\b(haldi|bright|daytime|yellow|marigold)\b", re.IGNORECASE)
+# W3 mehendi: green/mint palette.
+W7_MEHENDI_COLOUR_RE = re.compile(r"\b(green|mint|olive|sage|emerald)\b", re.IGNORECASE)
+W7_MEHENDI_TEXT_RE = re.compile(r"\b(mehendi|green)\b", re.IGNORECASE)
+# W4 reception: glam/embellished evening register.
+W7_RECEPTION_GLAM_RE = re.compile(
+    r"\b(embellish\w*|sequins?|velvet\w*|silks?|satins?|zari|embroider\w*|gowns?|jewels?|"
+    r"wine|maroon|emerald|navy|metallic\w*)\b",
+    re.IGNORECASE,
+)
+W7_RECEPTION_TEXT_RE = re.compile(r"\b(reception|glam\w*|evening|embellish\w*)\b", re.IGNORECASE)
+# W5 partner regression: men's garment vocabulary, OR'd with PB_MEN_WORD_RE for
+# the positive "this is a men's look" signal (distinct from PB_WOMEN_WORD_RE,
+# which is the negative/violation check reused unchanged from Phase-B).
+W7_MEN_GARMENT_RE = re.compile(
+    r"\b(kurtas?|sherwanis?|bandhgalas?|blazers?|nehru)\b", re.IGNORECASE
+)
+
+# MessageBubble.tsx: both roles share `rounded-2xl px-4 py-2.5 text-sm
+# leading-relaxed`, layered with role-specific classes — assistant-only gets
+# `bg-muted text-foreground rounded-bl-sm` (user gets `bg-primary
+# text-primary-foreground rounded-br-sm` instead). `bg-muted`+`rounded-bl-sm`
+# alone is enough to select assistant bubbles only; `rounded-2xl` added for
+# extra specificity, matching this file's existing precise-selector style.
+ASSISTANT_BUBBLE_SELECTOR = "div.rounded-2xl.bg-muted.text-foreground.rounded-bl-sm"
+
+
+def last_assistant_text(page: Page) -> str:
+    """Return the innerText of the most recent assistant message bubble, or ''.
+
+    Assistant messages render top-to-bottom in arrival order (same reasoning
+    as `board_complement_cards`'s `.last` usage), so the last matched bubble
+    is always the newest assistant turn.
+    """
+    bubbles = page.locator(ASSISTANT_BUBBLE_SELECTOR)
+    if bubbles.count() == 0:
+        return ""
+    try:
+        return bubbles.last.inner_text().strip()
+    except Exception:  # noqa: BLE001 - best-effort evidence extraction
+        return ""
+
+
+def card_matches(card_locator, pattern: re.Pattern[str]) -> bool:
+    """True if `pattern` matches the card's title or any of its badge texts.
+
+    Badges are empty for OutfitBoard slot tiles (they don't render `<span>`
+    badges — see `card_all_badges`'s docstring), so this degrades gracefully
+    to a title-only check for board cards and a title-or-badge check for
+    ItemCard grid cards (which DO carry a colour badge span).
+    """
+    if pattern.search(card_title(card_locator)):
+        return True
+    return any(pattern.search(b) for b in card_all_badges(card_locator))
+
+
+def new_card_titles(page: Page, baseline: int, after: int) -> list[str]:
+    """Title text for every card newly rendered this turn, `CARD_SELECTOR`
+    indices [baseline, after). `CARD_SELECTOR` matches both ItemCard grid
+    tiles and OutfitBoard `<a>` slot tiles (see the module-level
+    `CARD_SELECTOR` docstring), so this works uniformly whether the turn
+    rendered a grid of cards or an outfit board.
+    """
+    return [card_title(page.locator(CARD_SELECTOR).nth(i)) for i in range(baseline, after)]
+
+
+def new_card_locators(page: Page, baseline: int, after: int) -> list:
+    """Locators for every card newly rendered this turn — see `new_card_titles`."""
+    return [page.locator(CARD_SELECTOR).nth(i) for i in range(baseline, after)]
+
+
+def step_w0_chips_and_brand(page: Page, state: ProofState) -> None:
+    """W0: BEFORE any message is sent, assert the unified-mode brand config
+    surfaced >=4 of the 5 exact WAVE7_CHIPS as clickable buttons (role-based,
+    exact text — the chip's `₹` rupee glyph must survive intact), and
+    the page shows "Style Maitri" somewhere but never "H&M" (regression check:
+    the header literally hardcodes the Style Maitri wordmark today — see
+    frontend/components/Logo.tsx — so this also guards against a future
+    regression that reintroduces a raw brand-name string).
+    """
+    hits = [
+        chip
+        for chip in WAVE7_CHIPS
+        if page.get_by_role("button", name=chip, exact=True).count() > 0
+    ]
+    rupee_chip_present = (
+        page.get_by_role("button", name="Sangeet look under ₹8000", exact=True).count() > 0
+    )
+    body_text = page.locator("body").inner_text()
+    has_stylemitra = "Style Maitri" in body_text
+    has_hm = "H&M" in body_text
+    shot(page, "w0_chips_and_brand")
+
+    passed = len(hits) >= 4 and rupee_chip_present and has_stylemitra and not has_hm
+    state.record(
+        "W0. >=4/5 WAVE7_CHIPS render as buttons (rupee glyph intact) and "
+        "page shows 'Style Maitri' not 'H&M'",
+        passed,
+        f"hits={len(hits)}/5 chips_found={hits} rupee_chip_present={rupee_chip_present} "
+        f"has_stylemitra={has_stylemitra} has_hm={has_hm}",
+    )
+
+
+def step_w1_sangeet_hero(page: Page, state: ProofState) -> None:
+    """W1: click the "Sangeet look under ₹8000" hero chip (falling back to
+    typing the identical text if the click doesn't register a user turn — the
+    chip button disappears once `messages.length > 0`, per ChatPlaceholder.tsx
+    / MessageList.tsx, so the button vanishing is the click-registered signal).
+
+    Asserts: (a) an outfit board OR >=3 new cards; (b) sangeet-register
+    vocabulary in >=1 new card title; (c) no new card title matches
+    PB_MEN_WORD_RE unless its own data-gender attr says "women" (women-
+    default gender consistency must survive the new occasion path); (d) a
+    budget check — sum of board slot prices, or each visible new card's
+    price where parseable — <= 8000.
+    """
+    chip_text = "Sangeet look under ₹8000"
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+
+    chip_button = page.get_by_role("button", name=chip_text, exact=True)
+    clicked = False
+    if chip_button.count() > 0:
+        try:
+            chip_button.first.click()
+            page.wait_for_timeout(1_000)
+            clicked = page.get_by_role("button", name=chip_text, exact=True).count() == 0
+        except Exception:  # noqa: BLE001 - fall through to the typed-text fallback
+            clicked = False
+    if not clicked:
+        send_text(page, chip_text)
+
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "w1_sangeet_hero")
+
+    render_ok = outfit_board_present or gained >= 3
+    state.record(
+        "W1a. sangeet hero chip renders an outfit board or >=3 new cards",
+        render_ok,
+        f"clicked_chip={clicked} cards {baseline}->{after} "
+        f"outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    titles = new_card_titles(page, baseline, after)
+    vocab_hits = [t for t in titles if W7_SANGEET_VOCAB_RE.search(t)]
+    state.record(
+        "W1b. >=1 new card title matches sangeet/ethnic-occasion vocabulary",
+        len(vocab_hits) >= 1,
+        f"vocab_hits={vocab_hits} titles={titles}",
+    )
+
+    new_cards = new_card_locators(page, baseline, after)
+    men_word_violations = []
+    for c in new_cards:
+        title = card_title(c)
+        if PB_MEN_WORD_RE.search(title):
+            gender_attr, _ = card_data_attrs(c)
+            if (gender_attr or "").lower() != "women":
+                men_word_violations.append(f"{title!r} (data-gender={gender_attr!r})")
+    state.record(
+        "W1c. no new card title matches PB_MEN_WORD_RE unless data-gender says 'women'",
+        not men_word_violations,
+        f"violations={men_word_violations} titles={titles}",
+    )
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        budget_ok = price_sum <= 8000
+        budget_detail = (
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}"
+        )
+    else:
+        prices = [_parse_rupee_amount(c.inner_text()) for c in new_cards]
+        parsed_prices = [p for p in prices if p is not None]
+        budget_ok = all(p <= 8000 for p in parsed_prices)
+        budget_detail = f"new_card_prices={prices}"
+    state.record("W1d. budget respected (<=8000)", budget_ok, budget_detail)
+
+
+def _step_w_occasion_palette(
+    page: Page,
+    state: ProofState,
+    query: str,
+    label_prefix: str,
+    colour_re: re.Pattern[str],
+    text_re: re.Pattern[str],
+    shot_name: str,
+) -> None:
+    """Shared W2/W3/W4 occasion-palette check: send `query`, assert >=1 new
+    card, then assert EITHER a colour/register-vocabulary card signal OR an
+    assistant-text signal — recording which one(s) matched as evidence.
+    """
+    baseline = card_count(page)
+    send_text(page, query)
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    shot(page, shot_name)
+
+    render_ok = gained >= 1
+    state.record(
+        f"{label_prefix}a. '{query}' renders >=1 new card",
+        render_ok,
+        f"cards {baseline}->{after}",
+    )
+    if not render_ok:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    card_hits = [card_title(c) for c in new_cards if card_matches(c, colour_re)]
+    assistant_text = last_assistant_text(page)
+    text_hit = bool(text_re.search(assistant_text))
+    passed = bool(card_hits) or text_hit
+    state.record(
+        f"{label_prefix}b. colour/register signal: card title/badge OR assistant text",
+        passed,
+        f"card_hits={card_hits} text_hit={text_hit} "
+        f"assistant_text_snippet={assistant_text[:200]!r}",
+    )
+
+
+def step_w2_haldi_palette(page: Page, state: ProofState) -> None:
+    """W2: 'haldi outfit for a woman' — bright marigold-yellow palette check."""
+    _step_w_occasion_palette(
+        page,
+        state,
+        "haldi outfit for a woman",
+        "W2",
+        W7_HALDI_COLOUR_RE,
+        W7_HALDI_TEXT_RE,
+        "w2_haldi_palette",
+    )
+
+
+def step_w3_mehendi_palette(page: Page, state: ProofState) -> None:
+    """W3: 'mehendi look in green' — green/mint palette check."""
+    _step_w_occasion_palette(
+        page,
+        state,
+        "mehendi look in green",
+        "W3",
+        W7_MEHENDI_COLOUR_RE,
+        W7_MEHENDI_TEXT_RE,
+        "w3_mehendi_palette",
+    )
+
+
+def step_w4_reception_register(page: Page, state: ProofState) -> None:
+    """W4: 'reception look under 10000' — glam/embellished evening register check."""
+    _step_w_occasion_palette(
+        page,
+        state,
+        "reception look under 10000",
+        "W4",
+        W7_RECEPTION_GLAM_RE,
+        W7_RECEPTION_TEXT_RE,
+        "w4_reception_register",
+    )
+
+
+def step_w5_partner_regression(page: Page, state: ProofState) -> None:
+    """W5: after W2-W4's occasion turns, 'what should my husband wear' must
+    still produce a gender-consistent MEN's look — re-proving Phase-B's
+    partner-styling gender split (S4) holds on the new occasion code paths.
+
+    Copies the Phase-B approach: data-gender attr is authoritative when
+    present (hard FAIL on "women"), title-word fallback (PB_WOMEN_WORD_RE)
+    when absent. The positive signal (>=1 card reads as a men's look) uses
+    PB_MEN_WORD_RE OR'd with men's-garment vocabulary (W7_MEN_GARMENT_RE),
+    since a men's kurta/sherwani card may never say the literal word "men".
+    """
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, "what should my husband wear")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "w5_partner_regression")
+
+    render_ok = outfit_board_present or gained >= 1
+    state.record(
+        "W5a. 'what should my husband wear' produces a new board/cards",
+        render_ok,
+        f"cards {baseline}->{after} outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    titles = [card_title(c) for c in new_cards]
+    men_hits = [t for t in titles if PB_MEN_WORD_RE.search(t) or W7_MEN_GARMENT_RE.search(t)]
+
+    women_violations = []
+    for c, title in zip(new_cards, titles):
+        gender_attr, _ = card_data_attrs(c)
+        if gender_attr:
+            if gender_attr.lower() == "women":
+                women_violations.append(f"{title!r} (data-gender={gender_attr!r})")
+        elif PB_WOMEN_WORD_RE.search(title):
+            women_violations.append(title)
+
+    passed = len(men_hits) >= 1 and not women_violations
+    state.record(
+        "W5b. partner look: >=1 men's-vocab card AND no women-vocab card "
+        "(data-gender first, title fallback)",
+        passed,
+        f"men_hits={men_hits} women_violations={women_violations} titles={titles}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# P3 ("What suits my body type?" styling) constants & steps.
+#
+# The 6th suggestion chip appended to brands/unified.yaml's suggestion_chips
+# list (tests/test_unified_brand.py's _EXPECTED_CHIPS updated to 6 entries).
+# Reuses WAVE7_CHIPS for the first 5 rather than redefining them, so the two
+# lists can't silently drift apart.
+# ---------------------------------------------------------------------------
+P3_CHIP = "What suits my body type?"
+P3_ALL_CHIPS = [*WAVE7_CHIPS, P3_CHIP]
+
+# P3-1a/P3-2b: shape vocabulary a clarify or why-note response may name.
+# "inverted triangle" is a two-word phrase; `\b` still anchors correctly at
+# its outer edges since it's matched as one literal alternative.
+P3_SHAPE_WORD_RE = re.compile(
+    r"\b(pear|apple|hourglass|rectangle|inverted triangle|petite|plus)\b", re.IGNORECASE
+)
+# P3-1b: the clarify response must read as optional, not a requirement to
+# answer before the assistant will help at all. Both straight (') and
+# typographic (’) apostrophes covered for "if you'd like" since the LLM
+# response text isn't guaranteed to use one or the other consistently.
+P3_OPTIONALITY_RE = re.compile(
+    r"\b(optional|only if|if you’d like|if you'd like|no need|either way)\b",
+    re.IGNORECASE,
+)
+# P3-2b: pear-recommended silhouette vocabulary a rendered card's title/badge
+# should carry. "a.line"/"a-line" both kept literally per the task spec (the
+# "." also incidentally matches "a line" with a space or "a_line").
+P3_PEAR_SILHOUETTE_RE = re.compile(
+    r"\b(a.line|a-line|anarkali|flared|flare|empire|wrap|lehenga)\b", re.IGNORECASE
+)
+# P3-2c: supportive why-note vocabulary the assistant text should use when
+# explaining why a look suits a stated body type.
+P3_WHY_NOTE_RE = re.compile(
+    r"\b(pear|silhouette|balance|balances|flatter|celebrates|skims)\b", re.IGNORECASE
+)
+# P3-1c/P3-2c/P3-3/P3-4: banned body-shaming framing vocabulary -- the
+# framing guarantee this whole feature exists to enforce. "problem area(s)"
+# and "not for your body type" are multi-word phrases, so they get their own
+# \s+-tolerant alternatives instead of relying on a literal-with-internal-
+# space (which would work too, but \s+ also tolerates a stray double space
+# or line wrap in streamed text).
+P3_BANNED_RE = re.compile(
+    r"\b(hide|hides|hiding|conceal|conceals|camouflage|flaws?|fix|fixes|flabby|"
+    r"minimi[sz]e|slimming|unflattering)\b"
+    r"|\bproblem\s+areas?\b"
+    r"|\bnot\s+for\s+your\s+body\s+type\b",
+    re.IGNORECASE,
+)
+
+
+def wait_for_assistant_reply(page: Page, timeout_s: float = CARD_WAIT_TIMEOUT_S) -> None:
+    """Wait for a turn to fully complete when no card render is expected (e.g.
+    P3-1's clarify turn) -- `wait_for_more_cards` polls `card_count` and would
+    never succeed for a text-only response.
+
+    First waits (briefly, up to 5s) for the composer to show "Stop"
+    (isSending true), tolerating a turn that completes faster than we can
+    observe it, then waits for "Stop" to disappear again via
+    `wait_for_turn_idle`.
+    """
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if page.get_by_role("button", name="Stop").count() > 0:
+            break
+        page.wait_for_timeout(200)
+    wait_for_turn_idle(page, timeout_s=timeout_s)
+
+
+def step_p3_0_chip(page: Page, state: ProofState) -> None:
+    """P3-0: BEFORE any message is sent, assert the 6th suggestion chip
+    "What suits my body type?" renders as a clickable button (unified.yaml's
+    suggestion_chips list is 6 entries now -- see tests/test_unified_brand.py).
+
+    Evidence-only: also records how many of the other 5 WAVE7_CHIPS render
+    alongside it -- not a P3 assertion, W0 already covers that thoroughly.
+    """
+    chip_present = page.get_by_role("button", name=P3_CHIP, exact=True).count() > 0
+    other_hits = [
+        chip for chip in WAVE7_CHIPS if page.get_by_role("button", name=chip, exact=True).count() > 0
+    ]
+    shot(page, "p3_0_chip")
+    state.record(
+        "P3-0. 'What suits my body type?' chip renders as a button before any message",
+        chip_present,
+        f"chip_present={chip_present} other_wave7_chips_also_present={len(other_hits)}/5",
+    )
+
+
+def step_p3_1_clarify(page: Page, state: ProofState) -> None:
+    """P3-1: click the body-type chip with NO stated body type. This is a
+    clarify turn -- cards are not required (per the task spec). Asserts the
+    assistant's response text (a) mentions >=2 distinct shape-vocabulary
+    terms, (b) signals optionality (the user must never feel forced to
+    answer before search continues), and (c) carries zero P3_BANNED_RE hits.
+
+    Falls back to typing the identical chip text if the click doesn't
+    register a user turn, mirroring step_w1_sangeet_hero's chip-click
+    convention (the chip disappears once messages.length > 0, so button-
+    vanishing is the click-registered signal).
+    """
+    chip_button = page.get_by_role("button", name=P3_CHIP, exact=True)
+    clicked = False
+    if chip_button.count() > 0:
+        try:
+            chip_button.first.click()
+            page.wait_for_timeout(1_000)
+            clicked = page.get_by_role("button", name=P3_CHIP, exact=True).count() == 0
+        except Exception:  # noqa: BLE001 - fall through to the typed-text fallback
+            clicked = False
+    if not clicked:
+        send_text(page, P3_CHIP)
+
+    wait_for_assistant_reply(page)
+    text = last_assistant_text(page)
+    shot(page, "p3_1_clarify")
+
+    shape_hits = sorted(set(m.lower() for m in P3_SHAPE_WORD_RE.findall(text)))
+    state.record(
+        "P3-1a. clarify response mentions >=2 distinct shape-vocabulary terms",
+        len(shape_hits) >= 2,
+        f"clicked_chip={clicked} shape_hits={shape_hits} assistant_text_snippet={text[:300]!r}",
+    )
+
+    optionality_hit = bool(P3_OPTIONALITY_RE.search(text))
+    state.record(
+        "P3-1b. clarify response signals optionality (no forced answer)",
+        optionality_hit,
+        f"optionality_hit={optionality_hit} assistant_text_snippet={text[:300]!r}",
+    )
+
+    banned_hits = P3_BANNED_RE.findall(text)
+    state.record(
+        "P3-1c. clarify response carries zero P3_BANNED_RE hits",
+        not banned_hits,
+        f"banned_hits={banned_hits} assistant_text_snippet={text[:300]!r}",
+    )
+
+
+def step_p3_2_hero(page: Page, state: ProofState) -> None:
+    """P3-2: send "I'm pear-shaped, sangeet look under 8000" -- a body type
+    stated inline together with an occasion+budget query, same turn. Asserts:
+    (a) an outfit board OR >=2 new cards render; (b) >=1 new card title/badge
+    matches pear-recommended silhouette vocabulary (P3_PEAR_SILHOUETTE_RE) --
+    recorded as hits, evidence for the "biases outfit ranking toward
+    flattering silhouettes" half of the feature; (c) the assistant text
+    carries a supportive why-note (P3_WHY_NOTE_RE) with zero P3_BANNED_RE
+    hits -- the "supportive why-note" half; (d) the stated ₹8000 budget is
+    still respected when a board rendered (reuses `_parse_rupee_amount`, same
+    pattern as step_w1_sangeet_hero's W1d).
+    """
+    query = "I'm pear-shaped, sangeet look under 8000"
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, query)
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "p3_2_hero")
+
+    render_ok = outfit_board_present or gained >= 2
+    state.record(
+        "P3-2a. pear-shaped sangeet query renders an outfit board or >=2 new cards",
+        render_ok,
+        f"cards {baseline}->{after} outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    silhouette_hits = [card_title(c) for c in new_cards if card_matches(c, P3_PEAR_SILHOUETTE_RE)]
+    state.record(
+        "P3-2b. >=1 new card title/badge matches pear-recommended silhouette vocabulary",
+        len(silhouette_hits) >= 1,
+        f"silhouette_hits={silhouette_hits} titles={[card_title(c) for c in new_cards]}",
+    )
+
+    assistant_text = last_assistant_text(page)
+    why_note_hit = bool(P3_WHY_NOTE_RE.search(assistant_text))
+    banned_hits = P3_BANNED_RE.findall(assistant_text)
+    state.record(
+        "P3-2c. assistant text carries a supportive body-type why-note, zero banned words",
+        why_note_hit and not banned_hits,
+        f"why_note_hit={why_note_hit} banned_hits={banned_hits} "
+        f"assistant_text_snippet={assistant_text[:300]!r}",
+    )
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        state.record(
+            "P3-2d. board slot-price sum respects the stated ₹8000 budget",
+            price_sum <= 8000,
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}",
+        )
+    else:
+        state.record(
+            "P3-2d. board slot-price sum respects the stated ₹8000 budget",
+            True,
+            "N/A -- no outfit board rendered this turn (grid-card path has no board slot prices)",
+        )
+
+
+def step_p3_4_persistence(page: Page, state: ProofState) -> None:
+    """P3-4: 'make it more festive' -- a refinement turn after P3-2's
+    body-type-stated turn. Asserts >=1 new card AND the assistant text still
+    carries zero P3_BANNED_RE hits. If the assistant mentions the body type
+    again (P3_SHAPE_WORD_RE hit), that's recorded as bonus evidence -- the
+    task spec does not require the body-type mention itself to persist, only
+    that the banned-word guarantee holds.
+
+    P3-4b/P3-4c (added after a live-proof bug catch, 2026-07-09): this turn
+    used to render a MEN'S card into the women's-only sangeet conversation
+    and separately let the stated ₹8000 budget silently stop applying --
+    both fixed in graph.py's session_context gender/budget reconstruction
+    (`_reconstruct_budget_from_history`, the `_ctx_gender` fallback near
+    `_prior_filters`). P3-4b reuses `assert_complement_gender` (same
+    data-gender-first, PB_MEN_WORD_RE title-fallback precedent as W1c/
+    PB-S1c) to prove gender purity survived on this turn's new cards.
+    P3-4c reuses `_parse_rupee_amount`: this turn renders as a raw card grid,
+    not an outfit board (checked via `outfit_board_present` below, same
+    signal as P3-2/W1), so there's no board-slot-sum to check -- instead it
+    asserts each new card's own visible price (ItemCard renders
+    `₹{item.price_inr}` inline when `price_inr` is not null, same
+    grid-path precedent already used by W1d's else-branch) against the
+    ₹8000 cap stated in P3-2's query. Cards with no parseable price are
+    excluded rather than treated as violations, consistent with W1d.
+    """
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, "make it more festive")
+    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "p3_4_persistence")
+
+    assistant_text = last_assistant_text(page)
+    banned_hits = P3_BANNED_RE.findall(assistant_text)
+    shape_mention = sorted(set(m.lower() for m in P3_SHAPE_WORD_RE.findall(assistant_text)))
+    state.record(
+        "P3-4. 'make it more festive' renders >=1 new card, zero banned words",
+        gained >= 1 and not banned_hits,
+        f"cards {baseline}->{after} banned_hits={banned_hits} "
+        f"body_type_mentioned_again(evidence only)={shape_mention} "
+        f"assistant_text_snippet={assistant_text[:300]!r}",
+    )
+    if gained < 1:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    assert_complement_gender(
+        new_cards,
+        "women",
+        PB_MEN_WORD_RE,
+        state,
+        "P3-4b. 'make it more festive' new cards: every card is gender-consistent "
+        "(data-gender, title fallback) -- no MEN's card leaking into the sangeet look",
+    )
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        state.record(
+            "P3-4c. budget still respected (<=8000) -- board slot-price sum",
+            price_sum <= 8000,
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}",
+        )
+    else:
+        prices = [_parse_rupee_amount(c.inner_text()) for c in new_cards]
+        parsed_prices = [p for p in prices if p is not None]
+        budget_ok = all(p <= 8000 for p in parsed_prices)
+        state.record(
+            "P3-4c. budget still respected (<=8000) -- per-card price, no outfit board "
+            "rendered this turn (raw grid-search path has no board slot prices)",
+            budget_ok,
+            f"new_card_prices={prices} n_prices_parsed={len(parsed_prices)}/{len(new_cards)}",
+        )
+
+
+def step_p3_3_ban_sweep(page: Page, state: ProofState) -> None:
+    """P3-3: the framing guarantee -- sweep EVERY assistant bubble rendered in
+    THIS session so far (not just the latest turn's) for P3_BANNED_RE hits.
+    A per-turn check (P3-1c, P3-2c, P3-4) could still miss a banned word an
+    earlier turn used but a later turn didn't repeat; this step is the
+    session-wide net. Run LAST in `main` (after P3-4's turn too) since the
+    task spec's own P3-3 description says "after all turns" -- see the
+    module docstring's note on this deliberate reordering.
+    """
+    bubbles = page.locator(ASSISTANT_BUBBLE_SELECTOR)
+    n_bubbles = bubbles.count()
+    all_hits: list[str] = []
+    for i in range(n_bubbles):
+        try:
+            text = bubbles.nth(i).inner_text()
+        except Exception:  # noqa: BLE001 - best-effort evidence extraction
+            continue
+        hits = P3_BANNED_RE.findall(text)
+        if hits:
+            all_hits.append(f"bubble[{i}]: {hits} in {text[:120]!r}")
+    state.record(
+        "P3-3. zero P3_BANNED_RE hits across EVERY assistant bubble in the session",
+        not all_hits,
+        f"n_bubbles_checked={n_bubbles} hits={all_hits}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# P2 (couple-coordination deepening) constants & steps.
+#
+# Verified against frontend/components/chat/OutfitBoard.tsx before writing
+# these checks (read-before-edit): the ONLY DOM signal that distinguishes a
+# "partner" board from a "primary" board is the conditionally-rendered
+# "Partner look" badge span + "Your partner's look" (or `lookTitle`) heading
+# + optional `coordinatedWith` paragraph (lines ~477-495) — there is NO
+# `data-look-role` (or any other) attribute on the board's root div
+# (`OUTFIT_BOARD_SELECTOR`'s `div.rounded-xl.border.bg-card.p-4`) or anywhere
+# else in the component. `isPartnerLook = lookRole === "partner"` (line 211)
+# only ever gates that text block. This means index-based board selection
+# (`.nth(0)` / `.nth(1)`) is the ONLY way to address "her" vs "his" board at
+# all right now, not a shortcut taken for convenience. It is SAFE here
+# specifically because P2-1 runs in a FRESH session's very first turn: no
+# other board can already be on the page, assistant messages (and the boards
+# inside them) render top-to-bottom in arrival order (same reasoning
+# `board_complement_cards`'s `.last` usage relies on elsewhere in this file),
+# and the feature spec's own ordering ("the first a primary board ... the
+# second a partner board") fixes board 0 = her/primary, board 1 = his/partner
+# deterministically. P2-4 additionally cross-checks this assumption directly
+# (asserts board 0 does NOT carry the partner badge while board 1 does),
+# so an index-vs-role mismatch would surface as an explicit FAIL rather than
+# silently mis-attributing gender/budget checks to the wrong board.
+#
+# Turn budget: P2-1 (couple-from-scratch) is ONE send in its own fresh
+# session (the single query renders both boards in the same assistant turn).
+# P2-5 is a full SEPARATE fresh session reusing `step_pb_s4_partner_styling`
+# unchanged (3 sends: query, "Style this" click, partner follow-up — see
+# that function's own docstring). Total for --p2: 1 + 3 = 4 sends across two
+# sessions, comfortably under the <=8-turn target the Phase-B docstring's
+# turn-budget note discusses for a much busier flow.
+# ---------------------------------------------------------------------------
+
+P2_QUERY = "style us as a couple for a reception under 15000"
+# Per-person cap, not a combined-total cap: the feature spec states the
+# budget as "under 15000" for styling "us as a couple", but a couple is two
+# independent people each shopping their own look — a shared pool that added
+# up to 15000 across BOTH boards would silently halve what either partner
+# could actually spend on themselves once split, and nothing in the query
+# says "for both of us combined". Each board's own slot-price sum is checked
+# against the FULL 15000 independently (P2-3), not their sum against 15000.
+P2_BUDGET_INR = 15000
+
+
+def step_p2_couple_from_scratch(context, base_url: str, state: ProofState) -> None:
+    """P2-1..P2-4: a FRESH session's FIRST turn — "style us as a couple for a
+    reception under 15000" with no prior anchor/search — must render TWO
+    back-to-back outfit boards (her primary look, then his partner look) in
+    the SAME assistant turn.
+
+    Runs in its own Playwright page (own `sessionStorage`/`demo_session_token`,
+    same isolation reasoning as `step_pb_s4_partner_styling`), since "no prior
+    anchor/search" is only true in a session that has sent nothing yet.
+    """
+    fresh_page = context.new_page()
+    try:
+        if not step_load_chat(fresh_page, base_url, state):
+            return
+
+        board_baseline = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count()
+        send_text(fresh_page, P2_QUERY)
+        deadline = time.time() + CARD_WAIT_TIMEOUT_S
+        while time.time() < deadline:
+            if fresh_page.locator(OUTFIT_BOARD_SELECTOR).count() >= board_baseline + 2:
+                break
+            fresh_page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+        wait_for_turn_idle(fresh_page)
+        shot(fresh_page, "p2_1_couple_from_scratch")
+
+        n_boards = fresh_page.locator(OUTFIT_BOARD_SELECTOR).count()
+        passed = n_boards >= 2
+        extra_note = (
+            f" (NOTE: n_boards={n_boards} > 2 -- more boards than the expected "
+            "primary+partner pair; recorded as evidence, not a hard failure, since "
+            "the spec doesn't preclude it, but board 0/1 are still checked as her/his)"
+            if n_boards > 2
+            else ""
+        )
+        state.record(
+            "P2-1. couple-from-scratch query renders >=2 outfit boards in ONE turn",
+            passed,
+            f"boards_on_page={n_boards} (baseline was {board_baseline}){extra_note}",
+        )
+        if not passed:
+            return
+
+        her_board = fresh_page.locator(OUTFIT_BOARD_SELECTOR).nth(0)
+        his_board = fresh_page.locator(OUTFIT_BOARD_SELECTOR).nth(1)
+
+        # -- P2-2: gender purity, scoped to each board individually --------
+        her_complements = complement_cards_of_board(her_board)
+        his_complements = complement_cards_of_board(his_board)
+
+        assert_complement_gender(
+            her_complements,
+            "women",
+            PB_MEN_WORD_RE,
+            state,
+            "P2-2a. board 0 (her look): every complement is gender-consistent "
+            "(data-gender, title fallback)",
+        )
+        assert_complement_gender(
+            his_complements,
+            "men",
+            PB_WOMEN_WORD_RE,
+            state,
+            "P2-2b. board 1 (his look): every complement is gender-consistent "
+            "(data-gender, title fallback)",
+        )
+
+        # -- P2-3: budget is a PER-PERSON cap, not a combined total --------
+        her_slot_cards = her_board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        her_prices = [
+            _parse_rupee_amount(her_slot_cards.nth(i).inner_text())
+            for i in range(her_slot_cards.count())
+        ]
+        her_prices = [p for p in her_prices if p is not None]
+        her_sum = sum(her_prices)
+
+        his_slot_cards = his_board.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        his_prices = [
+            _parse_rupee_amount(his_slot_cards.nth(i).inner_text())
+            for i in range(his_slot_cards.count())
+        ]
+        his_prices = [p for p in his_prices if p is not None]
+        his_sum = sum(his_prices)
+
+        state.record(
+            "P2-3. EACH board's own slot-price sum independently respects "
+            f"the per-person ₹{P2_BUDGET_INR} cap (not their combined total)",
+            her_sum <= P2_BUDGET_INR and his_sum <= P2_BUDGET_INR,
+            f"her_slot_price_sum={her_sum} (n_prices_parsed={len(her_prices)}/"
+            f"{her_slot_cards.count()}) his_slot_price_sum={his_sum} "
+            f"(n_prices_parsed={len(his_prices)}/{his_slot_cards.count()}) "
+            f"combined={her_sum + his_sum} cap={P2_BUDGET_INR}",
+        )
+
+        # -- P2-4: partner labeling + honesty ------------------------------
+        # Same text-matching precedent `step_pb_s4_partner_styling` already
+        # uses (PB-S4b/c) -- copied rather than abstracted into a shared
+        # helper since this is only the SECOND use of the pattern (see the
+        # "duplicate twice, abstract on the third occurrence" rule), and P2's
+        # "mentions_anchor" equivalent has no anchor phrase to match against
+        # (couple-from-scratch has no prior "black dress"-style anchor query
+        # the way PB-S4 does) -- so here it's simplified to "a non-empty
+        # coordinated_with line exists", not an anchor-name substring match.
+        try:
+            his_board_text = his_board.inner_text()
+        except Exception:  # noqa: BLE001
+            his_board_text = ""
+        try:
+            her_board_text = her_board.inner_text()
+        except Exception:  # noqa: BLE001
+            her_board_text = ""
+
+        his_has_partner_marker = (
+            "Partner look" in his_board_text or "Your partner's look" in his_board_text
+        )
+        her_has_partner_marker = (
+            "Partner look" in her_board_text or "Your partner's look" in her_board_text
+        )
+        coordinated_line = next(
+            (line for line in his_board_text.splitlines() if "coordinated" in line.lower()),
+            "",
+        )
+        passed_p2_4 = his_has_partner_marker and not her_has_partner_marker
+        state.record(
+            "P2-4. board 1 (his) shows the partner badge/heading + a "
+            "'Coordinated with...' subtext; board 0 (her) does NOT",
+            passed_p2_4,
+            f"his_has_partner_marker={his_has_partner_marker} "
+            f"her_has_partner_marker={her_has_partner_marker} "
+            f"coordinated_line={coordinated_line!r} "
+            f"n_her_complements={len(her_complements)} n_his_complements={len(his_complements)}",
+        )
+
+        # Honest-thinness evidence (not an assertion): a thinner his-board is
+        # fine per spec as long as P2-2b (no cross-gender leak) already
+        # passed above -- recorded here purely as context for that result.
+        print(
+            "[EVIDENCE] P2 board sizes -- her_complements="
+            f"{len(her_complements)} his_complements={len(his_complements)} "
+            f"(a thinner his-board is honest, not a failure, on its own)"
+        )
+    finally:
+        fresh_page.close()
+
+
+# ---------------------------------------------------------------------------
+# --item2 ("photo -> body-shape suggestion" upload affordance) constants.
+#
+# Every selector/copy string below was grepped verbatim from
+# frontend/components/chat/BodyShapeUpload.tsx and frontend/lib/poseShape.ts
+# (read before writing any assertion here, per repo convention) -- none of
+# it is invented/assumed.
+# ---------------------------------------------------------------------------
+
+# Trigger button: `aria-label="Body shape suggestion (optional)"` (title
+# matches). Distinct from the pre-existing garment/inspiration-photo upload
+# button (`ChatInput.tsx`, `aria-label="Style what you own"`) -- different
+# icon (PersonStanding vs ImagePlus) and different accessible name.
+I2_TRIGGER_NAME = "Body shape suggestion (optional)"
+I2_GARMENT_UPLOAD_NAME = "Style what you own"
+
+# The body-shape affordance's OWN hidden file input's aria-label -- distinct
+# from ChatInput.tsx's garment file input (`aria-label="Upload garment or
+# inspiration photo"`), so the two same-type `input[type=file]` elements now
+# on the page can be addressed unambiguously.
+I2_FILE_INPUT_LABEL = "Upload a photo for a body-shape suggestion"
+
+# Floating panel's root div -- verified unique across the whole frontend tree
+# (grep for "bottom-full" hits only this one file) via its distinctive
+# Tailwind class combination, which `cn()` keeps as the outer wrapper
+# regardless of which stage (intro/loading/confident/picking/fallback) is
+# showing inside it.
+I2_PANEL_SELECTOR = "div.absolute.bottom-full.right-0.mb-2.w-72"
+
+# I2-1: privacy copy, verbatim from the component's "intro" stage: "For a
+# body-shape suggestion: processed entirely in your browser, never uploaded
+# or stored." Regex built from the ACTUAL copy, not invented boilerplate.
+I2_PRIVACY_RE = re.compile(
+    r"processed entirely in your browser|never uploaded|never leaves|on your device",
+    re.IGNORECASE,
+)
+
+# I2-2: raw error/exception strings that must NEVER be user-visible for this
+# silently-degrading, optional feature. Word-boundary for real-word tokens
+# (avoids false hits inside unrelated larger words); "failed to load" is
+# matched as the literal phrase.
+I2_ERRORISH_RE = re.compile(r"\berror\b|\bundefined\b|\bnan\b|failed to load", re.IGNORECASE)
+
+# I2-2/I2-3: the 5 SHAPE_OPTIONS button labels, verbatim from the component.
+I2_SHAPE_BUTTON_LABELS = ["Pear", "Apple", "Hourglass", "Rectangle", "Inverted triangle"]
+
+# I2-2: confident-branch controls, verbatim from the component's "confident"
+# stage JSX. The confirm button's apostrophe is React's `&apos;` entity,
+# which renders as a straight `'` -- `.` in the regex tolerates either.
+I2_CONFIRM_BUTTON_RE = re.compile(r"Yes,\s*that.s right", re.IGNORECASE)
+I2_PICK_DIFFERENT_NAME = "Pick a different one"
+
+# I2-2: fallback-branch heading, verbatim -- distinct from the "picking"
+# stage's own heading ("A few shapes people mention...") so this text alone
+# disambiguates fallback from picking.
+I2_FALLBACK_HEADING = "Prefer to just tell me? Tap a shape below or type it."
+
+# I2-3: `bodyShapeMessage()` in poseShape.ts (grepped verbatim) -- the exact
+# natural-language string the frontend sends for each shape slug. Used here
+# only to recognize/log which message went out as evidence; the frontend,
+# not this script, is responsible for producing it.
+I2_SHAPE_MESSAGES = {
+    "pear": "I have a pear silhouette",
+    "apple": "I have an apple silhouette",
+    "hourglass": "I have an hourglass silhouette",
+    "rectangle": "I have a rectangle silhouette",
+    "inverted_triangle": "I have an inverted triangle silhouette",
+}
+
+
+def step_i2_0_affordance_present(page: Page, state: ProofState) -> None:
+    """I2-0: the body-shape upload affordance renders as a button distinct
+    from the pre-existing garment-photo upload button -- different
+    accessible name (`I2_TRIGGER_NAME` vs `I2_GARMENT_UPLOAD_NAME`) and,
+    per the component source, a different icon (PersonStanding vs
+    ImagePlus).
+    """
+    trigger = page.get_by_role("button", name=I2_TRIGGER_NAME, exact=True)
+    garment_upload = page.get_by_role("button", name=I2_GARMENT_UPLOAD_NAME, exact=True)
+    trigger_present = trigger.count() > 0
+    garment_present = garment_upload.count() > 0
+    shot(page, "i2_0_affordance_present")
+    state.record(
+        "I2-0. body-shape upload affordance renders, distinct from the garment-photo upload",
+        trigger_present and garment_present and I2_TRIGGER_NAME != I2_GARMENT_UPLOAD_NAME,
+        f"trigger_present={trigger_present} garment_upload_present={garment_present} "
+        f"trigger_name={I2_TRIGGER_NAME!r} garment_upload_name={I2_GARMENT_UPLOAD_NAME!r}",
+    )
+
+
+def step_i2_1_privacy_copy(page: Page, state: ProofState) -> None:
+    """I2-1: open the affordance (WITHOUT picking a file yet) and assert the
+    privacy copy is visible, matching `I2_PRIVACY_RE` (built from the actual
+    "processed entirely in your browser, never uploaded or stored" text in
+    BodyShapeUpload.tsx's "intro" stage).
+    """
+    trigger = page.get_by_role("button", name=I2_TRIGGER_NAME, exact=True)
+    if trigger.count() == 0:
+        state.record(
+            "I2-1. privacy copy visible before upload", False, "trigger button not found"
+        )
+        return
+    trigger.first.click()
+    try:
+        page.wait_for_selector(I2_PANEL_SELECTOR, timeout=5_000)
+    except Exception as exc:  # noqa: BLE001
+        shot(page, "i2_1_privacy_copy_FAIL")
+        state.record(
+            "I2-1. privacy copy visible before upload", False, f"panel did not open: {exc}"
+        )
+        return
+    panel_text = page.locator(I2_PANEL_SELECTOR).first.inner_text()
+    shot(page, "i2_1_privacy_copy")
+    privacy_hit = bool(I2_PRIVACY_RE.search(panel_text))
+    state.record(
+        "I2-1. privacy copy visible before upload (matches I2_PRIVACY_RE)",
+        privacy_hit,
+        f"panel_text={panel_text!r}",
+    )
+
+
+def step_i2_2_upload_outcome(page: Page, state: ProofState, image_path: Path) -> str | None:
+    """I2-2: pick `image_path` via the body-shape affordance's OWN hidden
+    file input (`I2_FILE_INPUT_LABEL`, distinct from the garment upload's
+    file input) and poll for either the CONFIDENT suggestion panel or the
+    NOT-CONFIDENT fallback panel to appear.
+
+    `image_path` is DEFAULT_IMAGE (t-shirt.webp) by default in `main` -- a
+    non-person photo will almost certainly fail MediaPipe's pose-detection
+    confidence gate and land on the fallback branch. EITHER branch is an
+    acceptable proof outcome here (we don't control what MediaPipe detects
+    in a non-person test image); this only fails if NEITHER panel appears
+    within the timeout, or a branch's own content checks fail.
+
+    Returns "confident", "fallback", or None (timeout/no branch appeared).
+    """
+    if not image_path.exists():
+        state.record(
+            "I2-2. upload produces a confident or fallback outcome",
+            False,
+            f"image file not found: {image_path}",
+        )
+        return None
+
+    file_input = page.get_by_label(I2_FILE_INPUT_LABEL)
+    if file_input.count() == 0:
+        state.record(
+            "I2-2. upload produces a confident or fallback outcome",
+            False,
+            "body-shape file input not found",
+        )
+        return None
+    file_input.set_input_files(str(image_path))
+
+    # WASM model load + first-run inference can take a few seconds -- generous
+    # 60s polling window per the task spec.
+    deadline = time.time() + 60.0
+    outcome: str | None = None
+    while time.time() < deadline:
+        if page.get_by_text(I2_FALLBACK_HEADING, exact=False).count() > 0:
+            outcome = "fallback"
+            break
+        if page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).count() > 0:
+            outcome = "confident"
+            break
+        page.wait_for_timeout(int(POLL_INTERVAL_S * 1000))
+
+    shot(page, f"i2_2_outcome_{outcome or 'timeout'}")
+    if outcome is None:
+        state.record(
+            "I2-2. upload produces a confident or fallback outcome",
+            False,
+            "neither the confident suggestion panel nor the fallback panel appeared within 60s",
+        )
+        return None
+
+    panel_text = ""
+    if page.locator(I2_PANEL_SELECTOR).count() > 0:
+        try:
+            panel_text = page.locator(I2_PANEL_SELECTOR).first.inner_text()
+        except Exception:  # noqa: BLE001 - best-effort evidence extraction
+            panel_text = ""
+
+    banned_hits = P3_BANNED_RE.findall(panel_text)
+    errorish_hits = I2_ERRORISH_RE.findall(panel_text)
+
+    if outcome == "fallback":
+        shape_button_hits = [
+            label
+            for label in I2_SHAPE_BUTTON_LABELS
+            if page.get_by_role("button", name=label, exact=True).count() > 0
+        ]
+        passed = (
+            len(shape_button_hits) == len(I2_SHAPE_BUTTON_LABELS)
+            and not banned_hits
+            and not errorish_hits
+        )
+        state.record(
+            "I2-2. NOT-CONFIDENT fallback: all 5 shape buttons present, zero banned/error text",
+            passed,
+            f"shape_buttons_found={shape_button_hits} banned_hits={banned_hits} "
+            f"errorish_hits={errorish_hits} panel_text={panel_text!r}",
+        )
+    else:  # confident
+        confirm_present = page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).count() > 0
+        pick_different_present = (
+            page.get_by_role("button", name=I2_PICK_DIFFERENT_NAME, exact=True).count() > 0
+        )
+        shape_hit = bool(P3_SHAPE_WORD_RE.search(panel_text))
+        passed = confirm_present and pick_different_present and not banned_hits and shape_hit
+        state.record(
+            "I2-2. CONFIDENT branch: confirm+pick-different controls present, zero banned "
+            "hits, suggestion text matches a shape-word pattern",
+            passed,
+            f"confirm_present={confirm_present} pick_different_present={pick_different_present} "
+            f"banned_hits={banned_hits} shape_hit={shape_hit} panel_text={panel_text!r}",
+        )
+
+    return outcome
+
+
+def step_i2_3_flow_through(page: Page, state: ProofState, outcome: str | None) -> None:
+    """I2-3: complete whichever branch I2-2 observed -- click the confirm
+    button if CONFIDENT (whatever shape MediaPipe actually suggested), or
+    deterministically tap "Pear" if NOT-CONFIDENT (fallback, so the
+    pear-vocabulary bonus check below has a deterministic shape to look
+    for) -- then wait for the resulting natural-language chat message's
+    assistant reply, and prove it flows into the SAME downstream pipeline
+    --p3 already proves: send "sangeet look under 8000" and assert
+    cards/board render, the budget is respected, and zero P3_BANNED_RE hits.
+
+    Bonus (not a hard requirement -- recorded as evidence only, since the
+    confident branch's shape is nondeterministic on MediaPipe's actual
+    output): pear-silhouette vocabulary, only checked when the shape
+    actually used was pear.
+    """
+    if outcome is None:
+        state.record(
+            "I2-3. confirmed/picked shape flows into the P3 pipeline",
+            False,
+            "skipped -- I2-2 produced neither branch",
+        )
+        return
+
+    used_shape: str | None
+    if outcome == "fallback":
+        used_shape = "pear"
+        page.get_by_role("button", name="Pear", exact=True).first.click()
+    else:
+        panel_text = ""
+        if page.locator(I2_PANEL_SELECTOR).count() > 0:
+            try:
+                panel_text = page.locator(I2_PANEL_SELECTOR).first.inner_text()
+            except Exception:  # noqa: BLE001
+                panel_text = ""
+        shape_match = P3_SHAPE_WORD_RE.search(panel_text)
+        used_shape = None
+        if shape_match:
+            normalized = shape_match.group(0).lower()
+            used_shape = "inverted_triangle" if normalized == "inverted triangle" else normalized
+        page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).first.click()
+
+    expected_message = I2_SHAPE_MESSAGES.get(used_shape or "", "")
+    # This is the FIRST chat turn of this flow's session -- if the Cloud Run
+    # backend has scaled to zero since the previous flow ran, a cold start
+    # (documented elsewhere in this file as 15-30s) stacks with the LLM
+    # round-trip for a bare body-type acknowledgement (no occasion/garment
+    # intent to short-circuit on). The default CARD_WAIT_TIMEOUT_S (60s) was
+    # observed live to be too tight for that combination -- use the same
+    # generous window IMAGE_WAIT_TIMEOUT_S (90s) affords the image-upload
+    # flow for an analogous reason.
+    wait_for_assistant_reply(page, timeout_s=IMAGE_WAIT_TIMEOUT_S)
+    if expected_message:
+        message_echoed = page.get_by_text(expected_message, exact=False).count() > 0
+        print(
+            f"[EVIDENCE] I2-3 user message echo: used_shape={used_shape!r} "
+            f"expected={expected_message!r} echoed={message_echoed}"
+        )
+    shot(page, "i2_3_after_confirm")
+
+    baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
+    send_text(page, "sangeet look under 8000")
+    # Same rationale as the wait_for_assistant_reply bump above -- observed
+    # live at 51s for this exact turn (occasion-driven compose + rationale),
+    # cutting the default 60s window too close. Use the same 90s convention.
+    wait_for_more_cards(page, baseline, IMAGE_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page, timeout_s=IMAGE_WAIT_TIMEOUT_S)
+    after = card_count(page)
+    gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
+    shot(page, "i2_3_sangeet_result")
+
+    render_ok = outfit_board_present or gained >= 1
+    state.record(
+        "I2-3a. 'sangeet look under 8000' renders an outfit board or >=1 new card "
+        "after the body-shape message",
+        render_ok,
+        f"used_shape={used_shape} cards {baseline}->{after} "
+        f"outfit_board_present={outfit_board_present}",
+    )
+    if not render_ok:
+        return
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        budget_ok = price_sum <= 8000
+        budget_detail = (
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}"
+        )
+    else:
+        new_cards = new_card_locators(page, baseline, after)
+        prices = [_parse_rupee_amount(c.inner_text()) for c in new_cards]
+        parsed_prices = [p for p in prices if p is not None]
+        budget_ok = all(p <= 8000 for p in parsed_prices)
+        budget_detail = f"new_card_prices={prices}"
+    state.record("I2-3b. budget respected (<=8000)", budget_ok, budget_detail)
+
+    assistant_text = last_assistant_text(page)
+    banned_hits = P3_BANNED_RE.findall(assistant_text)
+    state.record(
+        "I2-3c. zero P3_BANNED_RE hits in the assistant's text",
+        not banned_hits,
+        f"banned_hits={banned_hits} assistant_text_snippet={assistant_text[:300]!r}",
+    )
+
+    if used_shape == "pear":
+        new_cards = new_card_locators(page, baseline, after)
+        silhouette_hits = [
+            card_title(c) for c in new_cards if card_matches(c, P3_PEAR_SILHOUETTE_RE)
+        ]
+        why_note_hit = bool(P3_WHY_NOTE_RE.search(assistant_text))
+        print(
+            "[EVIDENCE] I2-3d (bonus, pear only, not a hard requirement) -- "
+            f"silhouette_hits={silhouette_hits} why_note_hit={why_note_hit}"
+        )
+    else:
+        print(f"[EVIDENCE] I2-3d (bonus, pear only) skipped -- used_shape={used_shape!r}")
+
+
 def print_summary(state: ProofState) -> bool:
     """Print the final PASS/FAIL table. Returns True if every check passed."""
     print("\n" + "=" * 78)
@@ -1763,6 +3116,65 @@ def main() -> int:
             "(S6)."
         ),
     )
+    parser.add_argument(
+        "--wave-7",
+        action="store_true",
+        help=(
+            "Run the Wave-7 wedding-occasion hero content-assertion steps (W0-W5): the "
+            "unified 'Style Maitri' brand config's 5 suggestion chips + display name (W0, "
+            "pre-message), the sangeet hero chip's click-to-send path with ethnic-occasion "
+            "vocabulary/gender/budget checks (W1), haldi/mehendi/reception occasion-palette "
+            "checks (W2-W4), and a partner-styling gender-consistency regression check "
+            "(W5). W6 (zero severe console errors) is covered by the shared finally-block "
+            "step_console_errors call, not a separate invocation."
+        ),
+    )
+    parser.add_argument(
+        "--p3",
+        action="store_true",
+        help=(
+            "Run the P3 'body type' styling content-assertion steps (P3-0..P3-4): the 6th "
+            "'What suits my body type?' suggestion chip renders pre-message (P3-0), a "
+            "no-body-type clarify response's shape-vocabulary/optionality/banned-word checks "
+            "(P3-1), a stated body type biasing silhouette vocabulary + a supportive why-note "
+            "within budget (P3-2), a refinement turn ('make it more festive') that keeps the "
+            "banned list at zero (P3-4, run before P3-3), and a session-wide banned-framing-"
+            "word sweep across every assistant bubble (P3-3, run LAST since its own spec text "
+            "says 'after all turns' -- see the module docstring)."
+        ),
+    )
+    parser.add_argument(
+        "--p2",
+        action="store_true",
+        help=(
+            "Run the P2 couple-coordination-deepening content-assertion steps "
+            "(P2-1..P2-5): a fresh session's first turn ('style us as a couple for "
+            "a reception under 15000', no prior anchor) renders TWO back-to-back "
+            "outfit boards in one turn (P2-1), each board's own gender purity "
+            "(P2-2) and per-person (not combined) budget cap (P2-3), board 1's "
+            "partner badge/'Coordinated with...' subtext while board 0 shows "
+            "neither (P2-4), and a regression re-check that the pre-existing "
+            "single-partner flow ('black dress for women' -> 'Style this' -> "
+            "'what should my husband wear with this?') still works via a direct "
+            "reuse of the --phase-b PB-S4 step in a brand-new fresh session (P2-5)."
+        ),
+    )
+    parser.add_argument(
+        "--item2",
+        action="store_true",
+        help=(
+            "Run the 'photo -> body-shape suggestion' upload affordance content-"
+            "assertion steps (I2-0..I2-3): the new PersonStanding-icon affordance "
+            "renders distinct from the existing garment-photo upload (I2-0), on-device "
+            "privacy copy is visible before any file is picked (I2-1), uploading a "
+            "photo lands on the confident-suggestion panel or the not-confident "
+            "fallback panel with zero banned/error text (I2-2, either branch is a "
+            "valid pass), and completing that branch flows the resulting message into "
+            "the SAME downstream P3 pipeline --p3 already proves (I2-3). NOT deployed "
+            "at the time this flag was added -- do not run --item2 live until the "
+            "frontend change ships."
+        ),
+    )
     args = parser.parse_args()
 
     state = ProofState()
@@ -1803,6 +3215,31 @@ def main() -> int:
                     step_pb_s4_partner_styling(context, args.base_url, state)
                     step_pb_s5_occasion_register(page, state)
                     step_pb_s6_distinct_variants(page, state)
+                elif args.wave_7:
+                    step_w0_chips_and_brand(page, state)
+                    step_w1_sangeet_hero(page, state)
+                    step_w2_haldi_palette(page, state)
+                    step_w3_mehendi_palette(page, state)
+                    step_w4_reception_register(page, state)
+                    step_w5_partner_regression(page, state)
+                elif args.p3:
+                    step_p3_0_chip(page, state)
+                    step_p3_1_clarify(page, state)
+                    step_p3_2_hero(page, state)
+                    step_p3_4_persistence(page, state)
+                    step_p3_3_ban_sweep(page, state)
+                elif args.p2:
+                    step_p2_couple_from_scratch(context, args.base_url, state)
+                    # P2-5: direct reuse of the existing --phase-b PB-S4 step in
+                    # its own brand-new fresh session -- proves the pre-existing
+                    # single-partner flow is unchanged, without touching or
+                    # duplicating PB-S4's own checks (see the module docstring).
+                    step_pb_s4_partner_styling(context, args.base_url, state)
+                elif args.item2:
+                    step_i2_0_affordance_present(page, state)
+                    step_i2_1_privacy_copy(page, state)
+                    outcome = step_i2_2_upload_outcome(page, state, Path(args.image))
+                    step_i2_3_flow_through(page, state, outcome)
                 else:
                     step_query(page, state, "b. 'saree' query", "saree", "b_saree")
                     step_query(

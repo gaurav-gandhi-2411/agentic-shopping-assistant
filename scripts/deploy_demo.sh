@@ -21,7 +21,7 @@ GROQ_API_KEY="${GROQ_API_KEY:-}"
 DEMO_JWT_SECRET="${DEMO_JWT_SECRET:-}"
 DATABASE_URL="${DATABASE_URL:-}"
 SUPABASE_URL="https://zwvvuvaasbotamxbixny.supabase.co"
-VERCEL_URL="${VERCEL_URL:-https://asa-stylist.vercel.app}"  # Canonical production URL; override via export if needed
+VERCEL_URL="${VERCEL_URL:-https://stylemaitri.vercel.app}"  # Canonical production URL; override via export if needed
 SENTRY_DSN="${SENTRY_DSN:-}"      # Optional
 
 # ---------------------------------------------------------------------------

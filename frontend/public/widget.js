@@ -4,11 +4,11 @@
  *
  * USAGE — paste exactly this one line anywhere on your product page:
  *
- *   <script src="https://asa-stylist.vercel.app/widget.js" data-brand="snitch" async></script>
+ *   <script src="https://stylemaitri.vercel.app/widget.js" data-brand="snitch" async></script>
  *
  * Optional attributes:
  *   data-brand="snitch"          — brand id (snitch | myntra | flipkart)
- *   data-origin="https://asa-stylist.vercel.app"  — override embed origin (default: script host)
+ *   data-origin="https://stylemaitri.vercel.app"  — override embed origin (default: script host)
  *   data-label="Complete the Look"               — button label
  *   data-accent="#E8A33D"        — button accent colour (hex)
  *

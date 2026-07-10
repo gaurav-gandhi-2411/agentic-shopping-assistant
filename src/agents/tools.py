@@ -219,6 +219,8 @@ def compose_outfit_tool(
     retriever: HybridRetriever,
     budget_inr: float | None = None,
     owned_anchor: bool = False,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
 ) -> dict:
     """Occasion-aware outfit composition. Delegates to src.agents.outfit.composer."""
     return compose_outfit(
@@ -230,4 +232,6 @@ def compose_outfit_tool(
         budget_inr=budget_inr,
         pairing_stats=None,  # flywheel stats injected later when F phase is complete
         owned_anchor=owned_anchor,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
     )

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from src.agents.outfit import body_type as body_type_module
 from src.agents.outfit.occasions import EITHER, ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 
 # ── Anchor type detection — keyword sets keyed on product_type_name (lowercase) ──
@@ -431,7 +432,8 @@ def resolve_look_gender(
 
 # Occasions where footwear is required (formality >= 3, ethnic)
 _FORMAL_ETHNIC_OCCASIONS: frozenset[str] = frozenset({
-    "sangeet", "haldi_mehendi", "festive_puja", "wedding_guest", "traditional_ethnic",
+    "sangeet", "haldi", "mehendi", "festive_puja", "wedding_guest",
+    "traditional_ethnic", "reception", "engagement",
 })
 
 # Women-only ethnic categories — hard reject for men's looks regardless of gender field
@@ -439,7 +441,7 @@ WOMEN_ONLY_ETHNIC_KEYWORDS: frozenset[str] = frozenset({
     "dupatta", "saree", "lehenga",
 })
 
-# Fabric/embellishment keywords for haldi_mehendi vs sangeet scoring
+# Fabric/embellishment keywords for haldi/mehendi vs sangeet/reception scoring
 SANGEET_EMBELLISHMENT_KEYWORDS: frozenset[str] = frozenset({
     "embroidered", "embroidery", "sequin", "zari", "embellished",
     "heavy work", "bridal", "mirror work", "thread work", "beaded",
@@ -517,13 +519,20 @@ def _occasion_register_tokens(occasion_slug: str) -> str:
     retrieval favours occasion-appropriate garments — e.g. an office bottom
     slot should surface tailored trousers, not a denim skirt.
 
-    haldi_mehendi keeps its own "cotton floral" register rather than the
-    generic ethnic-festive one, since it already has a dedicated lightweight/
-    floral colour+fabric bias (colour_score, fabric_score_delta) that would
-    conflict with "embroidered" (haldi favours light, undone-up looks).
+    haldi/mehendi keep their own dedicated registers rather than the generic
+    ethnic-festive one, since they already have a dedicated lightweight/floral
+    colour+fabric bias (colour_score, fabric_score_delta) that would conflict
+    with "embroidered" (haldi/mehendi favour light, undone-up looks). reception
+    gets its own embellished-evening register, mirroring sangeet's bias.
     """
-    if occasion_slug == "haldi_mehendi":
+    if occasion_slug == "haldi":
         return "cotton floral"
+    if occasion_slug == "mehendi":
+        return "green floral festive"
+    if occasion_slug == "reception":
+        return "embellished formal evening"
+    if occasion_slug == "engagement":
+        return "elegant festive"
     occ = get_occasion(occasion_slug)
     if occ.ethnic_lean in (ETHNIC_HEAVY, ETHNIC_ONLY):
         return "festive embroidered"
@@ -565,7 +574,13 @@ def _default_bottom_query(occasion_slug: str) -> str:
     return "trousers jeans skirt"
 
 
-def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[SlotSpec]:
+def get_fill_slots(
+    anchor_class: str,
+    gender: str,
+    occasion_slug: str,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
+) -> list[SlotSpec]:
     """Return ordered list of SlotSpecs to fill for a given anchor + gender + occasion.
 
     Gender: "men" | "women" | "unisex" (treated as women for ethnic, men for men's brands).
@@ -574,9 +589,26 @@ def get_fill_slots(anchor_class: str, gender: str, occasion_slug: str) -> list[S
     tokens (see _occasion_register_tokens) to every slot's search_query so
     retrieval is occasion-aware (formal tailored / festive embroidered /
     casual), without touching the base per-anchor-class slot definitions.
+
+    P3: when body_type/body_modifiers are known, ALSO appends the body type's
+    query-augmentation tokens (src.agents.outfit.body_type.query_tokens) —
+    mirrors _occasion_register_tokens exactly. No-op (empty string appended)
+    when body_type is None and body_modifiers is empty, so this is fully
+    backward compatible with every existing call site.
     """
     slots = _get_fill_slots_base(anchor_class, gender, occasion_slug)
-    return _append_register(slots, occasion_slug)
+    slots = _append_register(slots, occasion_slug)
+    return _append_body_type_tokens(slots, body_type, body_modifiers)
+
+
+def _append_body_type_tokens(
+    slots: list[SlotSpec], body_type: str | None, body_modifiers: list[str] | None
+) -> list[SlotSpec]:
+    """Append body-type query-augmentation tokens to every slot's search_query."""
+    tokens = body_type_module.query_tokens(body_type, body_modifiers)
+    if not tokens:
+        return slots
+    return [SlotSpec(s.slot_name, f"{s.search_query} {tokens}", s.required) for s in slots]
 
 
 def _get_fill_slots_base(anchor_class: str, gender: str, occasion_slug: str) -> list[SlotSpec]:
@@ -684,13 +716,13 @@ def _get_fill_slots_base(anchor_class: str, gender: str, occasion_slug: str) -> 
 def fabric_score_delta(item: dict, occasion_slug: str) -> float:
     """Return a score adjustment based on fabric/embellishment keywords for haldi vs sangeet.
 
-    For sangeet: embellished items score +0.1; lightweight items score -0.1.
-    For haldi_mehendi: lightweight/floral items score +0.1; embellished items score -0.1.
+    For sangeet/reception: embellished items score +0.1; lightweight items score -0.1.
+    For haldi/mehendi: lightweight/floral items score +0.1; embellished items score -0.1.
     For all other occasions: 0.0.
 
     Keyword check is heuristic — searches prod_name + detail_desc.
     """
-    if occasion_slug not in ("sangeet", "haldi_mehendi"):
+    if occasion_slug not in ("sangeet", "haldi", "mehendi", "reception"):
         return 0.0
 
     text = (
@@ -700,12 +732,12 @@ def fabric_score_delta(item: dict, occasion_slug: str) -> float:
     has_embellishment = any(kw in text for kw in SANGEET_EMBELLISHMENT_KEYWORDS)
     has_lightweight = any(kw in text for kw in HALDI_LIGHTWEIGHT_KEYWORDS)
 
-    if occasion_slug == "sangeet":
+    if occasion_slug in ("sangeet", "reception"):
         if has_embellishment:
             return 0.1
         if has_lightweight:
             return -0.1
-    else:  # haldi_mehendi
+    else:  # haldi, mehendi
         if has_lightweight:
             return 0.1
         if has_embellishment:

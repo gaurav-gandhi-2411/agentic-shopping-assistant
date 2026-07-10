@@ -42,9 +42,13 @@ class OpenRouterClient:
         self.model = llm_cfg.get("openrouter_model", "google/gemma-3-27b-it:free")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
+        # Explicit per-request HTTP timeout — see GroqClient's identical comment
+        # in src/llm/client.py. The openai SDK's own default (600s) is already
+        # bounded but not aligned with this app's timeout_seconds convention.
         self._client = OpenAI(
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
+            timeout=llm_cfg.get("timeout_seconds", 60),
         )
 
     def chat(

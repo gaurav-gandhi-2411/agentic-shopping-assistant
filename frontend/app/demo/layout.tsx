@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import DemoBanner from "@/components/DemoBanner"
 
 export const metadata = {
-  title: "StyleMitra — Live Demo",
+  title: "Style Maitri — Live Demo",
 }
 
 export default function DemoLayout({ children }: { children: ReactNode }) {

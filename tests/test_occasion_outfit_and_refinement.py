@@ -240,3 +240,212 @@ def test_office_look_for_women_direct_phrasing_composes_board(
 
     assert result.get("look_id"), f"expected look_id, tool_calls={result.get('tool_calls')}"
     assert result.get("look_gender") == "women"
+
+
+# ---------------------------------------------------------------------------
+# Cross-gender leak: a free-text refinement ("make it more festive") that
+# follows none of _LOOK_REFINEMENT_RE/_OUTFIT_INTENT_RE/_OCCASION_LOOK_RE falls
+# all the way through to the plain-search branch of router_node. outfit_node
+# never populates state["filters"] (see api/routes/chat.py::_persist_result),
+# so that branch's session_context previously had no gender signal to inherit
+# after an OUTFIT-COMPOSE turn and could return cross-gender items — live-
+# proven: a women's pear-shaped sangeet look, "make it more festive" surfaced
+# a men's kurta among 4 correctly-gendered women's items.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_index
+def test_make_it_more_festive_after_womens_outfit_look_stays_single_gender(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Reproduces the live cross-gender-leak bug: "I'm pear-shaped, sangeet
+    look under 8000" composes a women's look; "make it more festive" (no
+    _LOOK_REFINEMENT_RE/_OUTFIT_INTENT_RE/_OCCASION_LOOK_RE match — falls
+    through to plain search) must stay all-women's, never mixing in a men's
+    item.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "festive top"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    turn1_state = _blank_state("I'm pear-shaped, sangeet look under 8000", memory)
+    turn1_result = agent.invoke(turn1_state)
+    assert turn1_result.get("look_id"), "precondition: turn 1 must compose a look"
+    assert turn1_result.get("look_gender") == "women", "precondition: turn 1 must be women's"
+    turn1_genders = [
+        (it.get("gender") or "").lower() for it in turn1_result.get("retrieved_items", [])
+    ]
+    assert turn1_genders and all(g == "women" for g in turn1_genders), (
+        f"precondition failed: turn 1 items should all be women's, got {turn1_genders}"
+    )
+
+    turn2_state = _next_turn_state(turn1_result, "make it more festive", memory)
+    turn2_result = agent.invoke(turn2_state)
+
+    turn2_items = turn2_result.get("retrieved_items", [])
+    turn2_genders = [(it.get("gender") or "").lower() for it in turn2_items]
+    assert turn2_genders, "expected turn 2 to return items"
+    assert all(g == "women" for g in turn2_genders), (
+        f"Expected turn 2 items to stay women's-only, got {turn2_genders} "
+        f"(display_names={[it.get('display_name') for it in turn2_items]})"
+    )
+    assert turn2_result.get("filters", {}).get("gender") == "women", (
+        f"Expected gender inherited from the prior outfit-look turn's items into the "
+        f"search filter, got filters={turn2_result.get('filters')}"
+    )
+
+
+@pytest.mark.requires_index
+def test_make_it_more_festive_after_mens_search_stays_single_gender(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Regression guard: a men's-context SEARCH turn ("white shirt men")
+    followed by "make it more festive" must stay men's-only — the existing
+    state["filters"]["gender"] carry-forward (populated by search_node on a
+    plain search turn) must continue to work unchanged.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "festive shirt"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    turn1_state = _blank_state("white shirt men", memory)
+    turn1_result = agent.invoke(turn1_state)
+    turn1_genders = [
+        (it.get("gender") or "").lower() for it in turn1_result.get("retrieved_items", [])
+    ]
+    assert turn1_genders and all(g == "men" for g in turn1_genders), (
+        f"precondition failed: turn 1 items should all be men's, got {turn1_genders}"
+    )
+
+    turn2_state = _next_turn_state(turn1_result, "make it more festive", memory)
+    turn2_result = agent.invoke(turn2_state)
+
+    turn2_items = turn2_result.get("retrieved_items", [])
+    turn2_genders = [(it.get("gender") or "").lower() for it in turn2_items]
+    assert turn2_genders, "expected turn 2 to return items"
+    assert all(g == "men" for g in turn2_genders), (
+        f"Expected turn 2 items to stay men's-only, got {turn2_genders} "
+        f"(display_names={[it.get('display_name') for it in turn2_items]})"
+    )
+
+
+@pytest.mark.requires_index
+def test_make_it_more_festive_with_no_established_gender_does_not_force_filter(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Regression guard: when the prior turn's items carry no single
+    established gender (mixed men/women, or all-unknown), the new gender
+    fallback must NOT fire — session_context["gender"] stays None and no
+    "gender" filter key is injected, preserving today's first-turn/no-signal
+    behaviour for genuinely unisex/mixed conversations.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "festive accessory"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    # Synthetic prior turn with no "filters" gender signal (mirrors an
+    # outfit-compose turn's session state) AND a mixed-gender item set — no
+    # single established gender for the fallback to latch onto.
+    synthetic_prior_result: dict = {
+        "messages": [
+            {"role": "user", "content": "show me festive accessories"},
+            {"role": "assistant", "content": "Here you go."},
+        ],
+        "retrieved_items": [
+            {"article_id": "1", "product_type": "bag", "gender": "women"},
+            {"article_id": "2", "product_type": "bag", "gender": "men"},
+        ],
+        "filters": {},
+        "excluded_colours": None,
+        "anchor_article_id": None,
+    }
+
+    turn2_state = _next_turn_state(synthetic_prior_result, "make it more festive", memory)
+    turn2_result = agent.invoke(turn2_state)
+
+    assert "gender" not in (turn2_result.get("filters") or {}), (
+        f"Expected no gender filter forced from a mixed-gender prior context, "
+        f"got filters={turn2_result.get('filters')}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Budget-inheritance gap: same root cause as the gender leak above — outfit_node
+# never populates state["filters"] (see api/routes/chat.py::_persist_result), so
+# a search-path refinement following an OUTFIT-COMPOSE turn also silently lost
+# the user's stated price cap. Fixed via _reconstruct_budget_from_history
+# (mirrors _reconstruct_occasion_from_history's message-history-scan pattern),
+# NOT by deriving a cap from the composed look's own item prices.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_index
+def test_make_it_more_festive_after_budgeted_outfit_look_keeps_price_ceiling(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """"I'm pear-shaped, sangeet look under 8000" composes a budgeted women's
+    look; "make it more festive" (falls through to plain search — see the
+    gender test above) must carry the ₹8000 ceiling into the search filter,
+    not silently drop it because outfit_node never wrote state["filters"].
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "festive top"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    turn1_state = _blank_state("I'm pear-shaped, sangeet look under 8000", memory)
+    turn1_result = agent.invoke(turn1_state)
+    assert turn1_result.get("look_id"), "precondition: turn 1 must compose a look"
+    assert not (turn1_result.get("filters") or {}).get("price_max"), (
+        "precondition failed: outfit_node must NOT write state['filters'] "
+        f"(this test proves the history-based fallback, not the filter-dict "
+        f"carry-forward), got filters={turn1_result.get('filters')}"
+    )
+
+    turn2_state = _next_turn_state(turn1_result, "make it more festive", memory)
+    turn2_result = agent.invoke(turn2_state)
+
+    assert turn2_result.get("filters", {}).get("price_max") == 8000, (
+        f"Expected the ₹8000 ceiling reconstructed from turn 1's message history "
+        f"into turn 2's search filters, got filters={turn2_result.get('filters')}"
+    )
+    turn2_items = turn2_result.get("retrieved_items", [])
+    assert turn2_items, "expected turn 2 to return items"
+    over_budget = [it for it in turn2_items if (it.get("price_inr") or 0) > 8000]
+    assert not over_budget, (
+        f"Expected all turn 2 items within the ₹8000 ceiling, got over-budget "
+        f"items={over_budget}"
+    )
+
+
+@pytest.mark.requires_index
+def test_make_it_more_festive_with_no_prior_budget_does_not_invent_cap(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Regression guard: when NO prior turn (this turn or history) ever stated
+    a budget, the new history-based fallback must NOT invent one — e.g. from
+    the composed look's own item prices (budget_total_inr/price_inr), which
+    reflect what was FOUND, not what the user asked for.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM([json.dumps({"action": "search", "query": "festive top"})])
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    turn1_state = _blank_state("put together a sangeet look for women", memory)
+    turn1_result = agent.invoke(turn1_state)
+    assert turn1_result.get("look_id"), "precondition: turn 1 must compose a look"
+    assert not (turn1_result.get("filters") or {}).get("price_max"), (
+        "precondition failed: turn 1 must have no price_max in filters"
+    )
+
+    turn2_state = _next_turn_state(turn1_result, "make it more festive", memory)
+    turn2_result = agent.invoke(turn2_state)
+
+    assert "price_max" not in (turn2_result.get("filters") or {}), (
+        f"Expected no price cap invented from a budget-free prior context, "
+        f"got filters={turn2_result.get('filters')}"
+    )

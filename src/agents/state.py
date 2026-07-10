@@ -23,7 +23,7 @@ class AgentState(TypedDict):
     excluded_colours: list[str] | None  # Colours to exclude (parsed from negation queries)
 
     # Outfit composition context — set by outfit_node, persisted for flywheel event logging
-    occasion: str | None        # one of the 9 occasion slugs
+    occasion: str | None        # one of the 12 occasion slugs
     look_gender: str | None     # "men" | "women" | "unisex"
     look_id: str | None         # UUID of the current composed look
     outfit_rationale: str | None    # grounded rationale for the base variant
@@ -66,3 +66,31 @@ class AgentState(TypedDict):
     # follow-up "Style this <item>" / re-compose never silently re-tags the user's
     # own garment as buyable. Defaults to False for text-only sessions.
     anchor_is_owned: bool
+
+    # P3 body-type-aware guidance — set by outfit_node ONLY when a body type/
+    # modifier was volunteered by the user (opt-in, never a gate on results).
+    # Like `occasion`, NOT auto-persisted across turns by the session dict
+    # (see graph.py's _reconstruct_body_type_from_history docstring); recovered
+    # each turn from conversation history the same way occasion is.
+    body_type: str | None
+    body_modifiers: list[str] | None
+
+    # P2 couple-from-scratch (graph.py::_compose_couple_from_scratch) — set
+    # ONLY when a turn composes a SECOND, partner-gender look alongside the
+    # primary one (no session anchor existed yet, but an occasion was
+    # genuinely named — see router_node's "occasion_explicit" plan flag).
+    # These mirror the existing primary-look fields above (retrieved_items,
+    # look_id, occasion, look_gender, outfit_rationale, budget_total_inr,
+    # suppressed_slots, look_role, look_title, coordinated_with) one-for-one,
+    # for the SECOND board — downstream serialization (api/routes/chat.py /
+    # frontend) reads these to render it. None/omitted for every other turn.
+    partner_retrieved_items: list[dict] | None
+    partner_look_id: str | None
+    partner_occasion: str | None
+    partner_look_gender: str | None
+    partner_outfit_rationale: str | None
+    partner_budget_total_inr: float | None
+    partner_suppressed_slots: list[dict] | None
+    partner_look_role: str | None
+    partner_look_title: str | None
+    partner_coordinated_with: str | None

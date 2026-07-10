@@ -34,11 +34,17 @@ class TestGetOccasion:
         occ = get_occasion("rave_party")
         assert occ.slug == "casual"
 
-    def test_all_9_occasions_present(self) -> None:
+    def test_haldi_mehendi_alias_resolves_to_haldi(self) -> None:
+        """Legacy combined slug (pre wedding-occasion-expansion) must still
+        resolve to a real Occasion rather than falling back to casual."""
+        occ = get_occasion("haldi_mehendi")
+        assert occ.slug == "haldi"
+
+    def test_all_12_occasions_present(self) -> None:
         expected = {
-            "casual", "smart_casual", "office", "haldi_mehendi",
-            "party_evening", "festive_puja", "wedding_guest", "sangeet",
-            "traditional_ethnic",
+            "casual", "smart_casual", "office", "haldi", "mehendi",
+            "party_evening", "festive_puja", "wedding_guest", "engagement",
+            "sangeet", "traditional_ethnic", "reception",
         }
         assert set(OCCASIONS.keys()) == expected
 
@@ -171,11 +177,11 @@ class TestFabricScoreDelta:
 
     def test_haldi_lightweight_positive(self) -> None:
         item = {"prod_name": "Floral Cotton Kurti", "detail_desc": ""}
-        assert fabric_score_delta(item, "haldi_mehendi") == pytest.approx(0.1)
+        assert fabric_score_delta(item, "haldi") == pytest.approx(0.1)
 
     def test_haldi_embellished_negative(self) -> None:
         item = {"prod_name": "Heavy Zari Embroidered Lehenga", "detail_desc": ""}
-        assert fabric_score_delta(item, "haldi_mehendi") == pytest.approx(-0.1)
+        assert fabric_score_delta(item, "haldi") == pytest.approx(-0.1)
 
     def test_neutral_occasion_zero(self) -> None:
         item = {"prod_name": "Embroidered Floral Dress", "detail_desc": ""}
@@ -221,10 +227,10 @@ class TestIsCoherentCandidate:
 
 class TestColourScore:
     def test_haldi_yellow_scores_1(self) -> None:
-        assert colour_score("yellow", "orange", "haldi_mehendi") == pytest.approx(1.0)
+        assert colour_score("yellow", "orange", "haldi") == pytest.approx(1.0)
 
     def test_haldi_dark_scores_low(self) -> None:
-        assert colour_score("dark grey", "yellow", "haldi_mehendi") == pytest.approx(0.2)
+        assert colour_score("dark grey", "yellow", "haldi") == pytest.approx(0.2)
 
     def test_ethnic_same_colour_high(self) -> None:
         score = colour_score("red", "red", "sangeet")
@@ -499,3 +505,135 @@ class TestComposeOutfitComplementRoleStamping:
         for complement in look["complements"]:
             summary = ItemSummary.from_agent_item(complement)
             assert summary.slot_role == "complement"
+
+
+# ── occasion-driven anchor budget gate (live-proven bug) ─────────────────────
+# "I'm pear-shaped, sangeet look under ₹8000" boarded a ₹9,900 lehenga as the
+# ANCHOR — compose_outfit's occasion-driven `valid` comprehension gated
+# occasion/gender/kids but never price, so `valid[0]` could pick an
+# over-budget item before a single complement was even considered. Fixed in
+# compose_outfit's occasion-driven branch only (see composer.py comment); the
+# explicit seed_article_id path — a user's own "Style this <item>" choice —
+# must never be budget-rejected (test c below).
+
+_OVER_BUDGET_LEHENGA: dict = {
+    "article_id": "ANCHOR_OVER",
+    "prod_name": "Bridal Red Embellished Lehenga",
+    "display_name": "Bridal Red Embellished Lehenga",
+    "store": "myntra",
+    "colour": "red",
+    "product_type": "Lehenga",
+    "detail_desc": "",
+    "score": 0.95,
+    "price_inr": 9900.0,
+    "gender": "women",
+}
+
+_WITHIN_BUDGET_LEHENGA: dict = {
+    "article_id": "ANCHOR_OK",
+    "prod_name": "Maroon Embellished Lehenga",
+    "display_name": "Maroon Embellished Lehenga",
+    "store": "myntra",
+    "colour": "maroon",
+    "product_type": "Lehenga",
+    "detail_desc": "",
+    "score": 0.85,
+    "price_inr": 6500.0,
+    "gender": "women",
+}
+
+
+class _OccasionAnchorFakeRetriever:
+    """Returns a fixed anchor candidate list (rank 0 first) for every query —
+    a "Lehenga" (ethnic_one_piece) item never satisfies any complement slot's
+    is_slot_type_allowed gate, so returning it unconditionally never
+    accidentally fills a complement slot too; this isolates the test to
+    anchor selection only.
+    """
+
+    def __init__(self, candidates: list[dict]) -> None:
+        self._candidates = candidates
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None
+    ) -> list[dict]:
+        return list(self._candidates)
+
+
+class TestOccasionDrivenAnchorBudgetGate:
+    def test_over_budget_rank0_anchor_skipped_for_within_budget_rank1(self) -> None:
+        """(a) rank-0 anchor is over budget, rank-1 is within — the chosen
+        anchor must be the within-budget one and the board total must not
+        exceed the budget."""
+        retriever = _OccasionAnchorFakeRetriever(
+            [_OVER_BUDGET_LEHENGA, _WITHIN_BUDGET_LEHENGA]
+        )
+        look = compose_outfit(
+            pd.DataFrame(),
+            retriever,
+            seed_article_id=None,
+            occasion_slug="sangeet",
+            gender="women",
+            budget_inr=8000,
+        )
+        assert look["seed_item"] is not None
+        assert look["seed_item"]["article_id"] == "ANCHOR_OK"
+        assert (look["budget_total_inr"] or 0) <= 8000
+
+    def test_all_anchors_over_budget_returns_honest_empty_result(self) -> None:
+        """(b) every occasion/gender-valid anchor is over budget — must return
+        an empty result (no seed) whose message mentions the budget, never a
+        silent fall-back to an over-budget anchor."""
+        retriever = _OccasionAnchorFakeRetriever([_OVER_BUDGET_LEHENGA])
+        look = compose_outfit(
+            pd.DataFrame(),
+            retriever,
+            seed_article_id=None,
+            occasion_slug="sangeet",
+            gender="women",
+            budget_inr=8000,
+        )
+        assert look["seed_item"] is None
+        assert "8,000" in look["outfit_rationale"]
+        assert "budget" in look["outfit_rationale"].lower() or "₹" in look["outfit_rationale"]
+
+    def test_explicit_seed_article_id_over_budget_still_composes(self) -> None:
+        """(c) an explicit seed_article_id (the user's own "Style this <item>"
+        choice) must NEVER be budget-rejected — only complements are
+        budget-squeezed, exactly as before this fix."""
+        catalogue_df = pd.DataFrame(
+            [
+                {
+                    "article_id": "USER_CHOSEN",
+                    "prod_name": "Bridal Red Embellished Lehenga",
+                    "display_name": "Bridal Red Embellished Lehenga",
+                    "colour_group_name": "red",
+                    "product_type_name": "Lehenga",
+                    "department_name": "Women",
+                    "index_group_name": "Ladieswear",
+                    "detail_desc": "",
+                    "image_url": None,
+                    "price_inr": 9900.0,
+                    "pdp_handle": "bridal-lehenga",
+                    "store": "myntra",
+                    "gender": "women",
+                    "facets": {
+                        "colour_group_name": "red",
+                        "product_type_name": "Lehenga",
+                        "department_name": "Women",
+                    },
+                }
+            ]
+        )
+        retriever = _OccasionAnchorFakeRetriever([])  # no complement candidates; irrelevant here
+        look = compose_outfit(
+            catalogue_df,
+            retriever,
+            seed_article_id="USER_CHOSEN",
+            occasion_slug="sangeet",
+            gender="women",
+            budget_inr=8000,
+        )
+        assert look["seed_item"] is not None
+        assert look["seed_item"]["article_id"] == "USER_CHOSEN"
+        assert look["seed_item"]["price_inr"] == 9900.0

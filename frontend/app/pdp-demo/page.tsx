@@ -95,7 +95,7 @@ export default function PdpDemoIndexPage() {
             Each demo page embeds the widget with:
           </p>
           <code className="block bg-gray-100 rounded-lg px-4 py-3 text-xs text-left overflow-x-auto text-gray-700">
-            {`<script src="https://asa-stylist.vercel.app/widget.js" data-brand="snitch" async></script>`}
+            {`<script src="https://stylemaitri.vercel.app/widget.js" data-brand="snitch" async></script>`}
           </code>
           <p className="text-xs text-gray-400 mt-3">
             One line. No CORS changes. No iframe config. The stylist experience loads instantly.

@@ -56,7 +56,7 @@ spec:
         - name: LLM_PROVIDER
           value: groq
         - name: CORS_ORIGINS
-          value: https://asa-stylist.vercel.app
+          value: https://stylemaitri.vercel.app
         - name: INDEX_STORE_URI
           value: gs://asa-demo-indices/unified/
         - name: GROQ_API_KEY

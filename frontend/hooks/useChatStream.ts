@@ -221,8 +221,16 @@ export function useChatStream({
               const lookRole = frame.final_state.look_role ?? null
               const lookTitle = frame.final_state.look_title ?? null
               const coordinatedWith = frame.final_state.coordinated_with ?? null
-              setMessages((prev) =>
-                prev.map((m) =>
+              // "Couple-from-scratch" turn: a SECOND coordinated board arrives
+              // bundled in the same "done" frame (see PartnerLook in
+              // lib/api/types.ts). Rendered as its OWN assistant message/bubble,
+              // appended right after the primary one — never merged into it.
+              // Absent on every other turn, including the pre-existing
+              // single-partner-turn flow ("what should my husband wear with
+              // this?"), which still uses the singleton fields above unchanged.
+              const partnerLook = frame.final_state.partner_look ?? null
+              setMessages((prev) => {
+                const updated = prev.map((m) =>
                   m.id === assistantId
                     ? {
                         ...m,
@@ -245,7 +253,35 @@ export function useChatStream({
                       }
                     : m
                 )
-              )
+                if (partnerLook && partnerLook.items.length > 0) {
+                  const partnerMessage: ChatMessage = {
+                    id: crypto.randomUUID(),
+                    dbId: null,
+                    role: "assistant",
+                    content: `**${partnerLook.look_title || "Your partner's look"}**`,
+                    items: partnerLook.items,
+                    isStreaming: false,
+                    lookId: partnerLook.look_id ?? null,
+                    occasion: partnerLook.occasion ?? null,
+                    lookGender: partnerLook.look_gender ?? null,
+                    budgetTotalInr: partnerLook.budget_total_inr ?? null,
+                    outfitRationale: partnerLook.outfit_rationale ?? null,
+                    outfitVariants: null,
+                    cartUrl: partnerLook.cart_url ?? null,
+                    itemLinks: partnerLook.item_links ?? null,
+                    // Shared with the primary board — chips describe refinement of
+                    // the whole turn, not one specific board; the partner message
+                    // is the LAST assistant message so it's where chips render.
+                    suggestionChips,
+                    suppressedSlots: partnerLook.suppressed_slots ?? null,
+                    lookRole: partnerLook.look_role ?? "partner",
+                    lookTitle: partnerLook.look_title ?? null,
+                    coordinatedWith: partnerLook.coordinated_with ?? null,
+                  }
+                  return [...updated, partnerMessage]
+                }
+                return updated
+              })
               setIsSending(false)
               ws.close()
               onDone?.()

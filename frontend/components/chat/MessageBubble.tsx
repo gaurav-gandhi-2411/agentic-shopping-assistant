@@ -97,7 +97,7 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
       {/* Text bubble */}
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+          "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
           isUser
             ? "bg-primary text-primary-foreground rounded-br-sm"
             : "bg-muted text-foreground rounded-bl-sm"
@@ -185,7 +185,7 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
           )
         }
         return (
-          <div className="w-full max-w-[80%] grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="w-full max-w-[80%] grid grid-cols-1 sm:grid-cols-2 gap-4">
             {message.items.map((item) => (
               <ItemCard key={item.article_id} item={item} onSend={onSend} />
             ))}
@@ -206,7 +206,7 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
               <button
                 key={`${chip}-${i}`}
                 onClick={() => onSend(chip)}
-                className="rounded-full border text-xs px-3 py-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                className="rounded-full border border-champagne/40 bg-background text-xs px-3 py-1 text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
               >
                 {chip}
               </button>

@@ -19,8 +19,9 @@ budget or price preference. Never invent a price or description detail that isn'
 if a candidate has no snippet, judge it on name/colour/type alone.
 
 Ranking rules:
-- Occasion context: "date night" / "evening out" / "wedding" / "cocktail" → formal \
-or elegant wear; never sleepwear, underwear, or swimwear
+- Occasion context: "date night" / "evening out" / "wedding" / "cocktail" / "sangeet" / \
+"haldi" / "mehendi" / "reception" / "engagement" → formal or elegant wear; never sleepwear, \
+underwear, or swimwear
 - Date night / evening / cocktail / wedding queries — apply ALL of these:
   * Prefer rich, elegant colours: black, red, dark blue, dark red, burgundy, emerald, dark green, wine
   * DIVERSITY REQUIRED: your 5 picks MUST include AT LEAST 2 distinct colour values. \

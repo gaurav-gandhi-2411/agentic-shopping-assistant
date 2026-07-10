@@ -64,18 +64,18 @@ export async function generateMetadata({
 
   if (!look) {
     return {
-      title: "StyleMitra look",
-      description: "A saved outfit look from StyleMitra — your AI stylist for fashion discovery.",
+      title: "Style Maitri look",
+      description: "A saved outfit look from Style Maitri — your AI stylist for fashion discovery.",
     }
   }
 
   const occasion = look.snapshot?.occasion ?? look.occasion
   const itemCount = look.snapshot?.items?.length ?? 0
   const titlePrefix = occasion ? formatOccasion(occasion) : "Saved Look"
-  const description = `A ${itemCount}-item ${occasion ? formatOccasion(occasion).toLowerCase() + " " : ""}look styled with StyleMitra.`
+  const description = `A ${itemCount}-item ${occasion ? formatOccasion(occasion).toLowerCase() + " " : ""}look styled with Style Maitri.`
 
   return {
-    title: `${titlePrefix} — StyleMitra look`,
+    title: `${titlePrefix} — Style Maitri look`,
     description,
   }
 }

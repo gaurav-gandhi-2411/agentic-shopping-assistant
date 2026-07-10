@@ -211,7 +211,7 @@ export default function EmbedPage() {
         <div className="flex items-center gap-2">
           <Logo showWordmark={false} iconClassName="h-4 w-4 text-primary shrink-0" />
           <span className="text-sm font-semibold leading-none">
-            StyleMitra <span className="text-muted-foreground font-normal">x</span> {brandName}
+            Style Maitri <span className="text-muted-foreground font-normal">x</span> {brandName}
           </span>
           {/* Brand accent dot */}
           <span
@@ -236,6 +236,7 @@ export default function EmbedPage() {
         isSending={isSending}
         onSend={handleSend}
         brand={brandId}
+        onSendSuggestion={handleSend}
       />
 
       {/* Connection lost banner */}
@@ -265,12 +266,12 @@ export default function EmbedPage() {
         <span className="text-[10px] text-muted-foreground">
           Powered by{" "}
           <a
-            href="https://asa-stylist.vercel.app"
+            href="https://stylemaitri.vercel.app"
             target="_blank"
             rel="noopener noreferrer"
             className="underline underline-offset-2"
           >
-            StyleMitra
+            Style Maitri
           </a>
         </span>
       </div>

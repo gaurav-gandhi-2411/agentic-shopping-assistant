@@ -233,6 +233,31 @@ export interface ChatMessage {
   coordinatedWith?: string | null
 }
 
+/**
+ * A SECOND, coordinated companion board for a "couple-from-scratch" turn.
+ * Mirrors the WS "done" frame's own top-level look fields (same names, same
+ * shapes) so the frontend can feed it through the identical OutfitBoard prop
+ * contract used for the primary look. Present only when the backend composed
+ * both a primary AND a partner look in the same turn — the pre-existing
+ * single-partner-turn flow (e.g. "what should my husband wear with this?")
+ * never populates this; it continues to use the top-level look_role/
+ * look_title/coordinated_with fields on the SAME message, unchanged.
+ */
+export interface PartnerLook {
+  items: ItemSummary[]
+  look_id?: string | null
+  occasion?: string | null
+  look_gender?: string | null
+  budget_total_inr?: number | null
+  outfit_rationale?: string | null
+  cart_url?: string | null
+  item_links?: ItemLink[] | null
+  suppressed_slots?: SuppressedSlot[] | null
+  look_role?: "primary" | "partner" | null
+  look_title?: string | null
+  coordinated_with?: string | null
+}
+
 // Discriminated union of every frame the WS server can send.
 export type WsFrame =
   | { type: "session"; conversation_id: string }
@@ -268,6 +293,12 @@ export type WsFrame =
         look_title?: string | null
         /** Short explanatory text for how a partner look was coordinated with the primary look. */
         coordinated_with?: string | null
+        /**
+         * "Couple-from-scratch" turn: a SECOND coordinated board alongside the
+         * primary one above. Absent/null on every other turn — including the
+         * pre-existing single-partner-turn flow, which uses the fields above.
+         */
+        partner_look?: PartnerLook | null
       }
     }
   | { type: "cancelled" }

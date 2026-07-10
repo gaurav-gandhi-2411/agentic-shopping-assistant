@@ -121,7 +121,7 @@ gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
   --region="${GAR_REGION}" \
   --no-traffic \
-  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://asa-stylist.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/,DEMO_PER_IP_HOUR_LIMIT=1000,DEMO_DAILY_REQUEST_CAP=5000" \
+  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://stylemaitri.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/,DEMO_PER_IP_HOUR_LIMIT=1000,DEMO_DAILY_REQUEST_CAP=5000" \
   --set-secrets="${SECRETS}" \
   --memory=4Gi \
   --cpu=1 \
@@ -196,7 +196,7 @@ if [[ -n "${PREV_REVISION}" && "${PREV_REVISION}" != "${NEW_REVISION}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 10: Redeploy Vercel frontend so asa-stylist.vercel.app alias stays live.
+# Step 10: Redeploy Vercel frontend so stylemaitri.vercel.app alias stays live.
 #   Without this step, the alias can point to a deleted/orphaned deployment
 #   after a backend redeploy that forces a project re-creation on Vercel.
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ FRONTEND_DIR="${SCRIPT_DIR}/../frontend"
 
 if command -v vercel &>/dev/null && [[ -f "${FRONTEND_DIR}/.vercel/project.json" ]]; then
   (cd "${FRONTEND_DIR}" && vercel --prod --yes)
-  echo "  Frontend redeployed and asa-stylist.vercel.app re-aliased"
+  echo "  Frontend redeployed and stylemaitri.vercel.app re-aliased"
 else
   echo "  WARN: vercel CLI not found or frontend not linked — skipping frontend redeploy"
   echo "  Run manually: cd frontend && vercel --prod --yes"
