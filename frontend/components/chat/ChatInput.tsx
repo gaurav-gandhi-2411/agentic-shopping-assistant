@@ -138,7 +138,7 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t bg-background px-4 py-3 flex flex-col gap-2 shrink-0"
+      className="border-t bg-background px-4 py-4 flex flex-col gap-2 shrink-0"
     >
       {/* Pending image chip */}
       {pendingImage && (
@@ -161,7 +161,7 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             disabled={disabled}
             rows={1}
             className={cn(
-              "w-full resize-none rounded-xl border bg-background px-3 py-2 text-sm",
+              "w-full resize-none rounded-xl border bg-background px-3.5 py-2.5 text-sm shadow-sm",
               "ring-offset-background placeholder:text-muted-foreground",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "disabled:cursor-not-allowed disabled:opacity-50 leading-relaxed overflow-hidden",
@@ -229,9 +229,11 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
         )}
       </div>
 
-      {/* Privacy microcopy — only shown when image upload is available */}
+      {/* Privacy microcopy — only shown when image upload is available. text-xs
+          (not text-[10px]) deliberately: at 10px, subpixel anti-aliasing on
+          this pale-on-cream text reads as per-word colour fringing. */}
       {onSendImage && (
-        <p className="text-[10px] text-muted-foreground text-center px-1">
+        <p className="text-xs text-muted-foreground text-center px-1 mt-1">
           Your photo is used once to find a match and is not stored.
         </p>
       )}

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import type { ChatMessage } from "@/lib/api/types"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
+import { LogoMark } from "@/components/Logo"
 import { MessageBubble } from "./MessageBubble"
 
 interface Props {
@@ -34,21 +35,23 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
     const chips = brandConfig?.suggestion_chips ?? []
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-8 select-none">
-        <span className="text-5xl" aria-hidden>
-          🛍️
+        <span aria-hidden>
+          <LogoMark className="h-14 w-14 text-champagne" />
         </span>
-        <p className="text-lg font-semibold">What can I help you find?</p>
-        <p className="text-sm text-muted-foreground max-w-xs">
+        <p className="font-serif font-semibold text-xl tracking-tight text-foreground">
+          What can I help you find?
+        </p>
+        <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
           Try &ldquo;show me red summer dresses&rdquo; or &ldquo;casual blue
           jeans under ₹2,000&rdquo;
         </p>
         {onSendSuggestion && chips.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-2 max-w-sm mt-2">
+          <div className="flex flex-wrap justify-center gap-2 max-w-sm mt-3">
             {chips.map((chip) => (
               <button
                 key={chip}
                 onClick={() => onSendSuggestion(chip)}
-                className="text-xs px-3 py-1.5 rounded-full border border-border bg-background hover:bg-accent transition-colors"
+                className="text-xs px-3 py-1.5 rounded-full border border-champagne/40 bg-background text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
               >
                 {chip}
               </button>
@@ -71,7 +74,7 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
       {messages.map((message, index) => (
         <MessageBubble
           key={message.id}

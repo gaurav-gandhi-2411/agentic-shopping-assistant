@@ -2,50 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Style Maitri design tokens — wedding-luxe palette (Phase 1 visual rebrand).
+ * Elegant/premium, soft pastel, airy-editorial. Product imagery is the hero;
+ * washes stay at low visual weight. All shadcn/ui CSS vars below map onto this
+ * exact palette so most component restyling flows through token values rather
+ * than per-component overrides.
+ *
+ * Palette reference (hex -> HSL used below):
+ *   cream        #FAF6F1  (background)
+ *   ink          #3B3230  (foreground — all body text)
+ *   blush-50     #FBF1EF  (assistant-bubble wash)
+ *   sage-50      #F0F4EF  (hover/accent wash)
+ *   blush-200    #EFD5D0  (deeper blush accent)
+ *   sage-200     #D6E0D4  (deeper sage accent)
+ *   champagne    #B99A5F  (hairline borders, small accents, "Maitri" wordmark)
+ *   champagne-deep #A3854B
+ *   plum         #7A4A63  (primary CTA — buy/send/focus rings)
+ *   plum-hover   #64394F
+ *   sage-text    #7C9082  (large text only, never body copy)
+ *   hairline     #E9DFD2  (warm gold-tinted border/input)
+ */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --background: 33.3 47.4% 96.3%; /* cream #FAF6F1 */
+    --foreground: 10.9 10.3% 21.0%; /* ink #3B3230 */
+
+    --card: 0 0% 100%; /* crisp white card so product photography reads clean on cream */
+    --card-foreground: 10.9 10.3% 21.0%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --popover-foreground: 10.9 10.3% 21.0%;
+
+    --primary: 328.8 24.5% 38.4%; /* plum #7A4A63 — CTAs, send, focus rings */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 108.0 18.5% 94.7%; /* sage-50 wash — quiet secondary chrome */
+    --secondary-foreground: 10.9 10.3% 21.0%;
+
+    --muted: 10.0 60.0% 96.1%; /* blush-50 wash — assistant bubble */
+    --muted-foreground: 20.0 9.5% 49.4%; /* warm taupe, legible on cream/white */
+
+    --accent: 108.0 18.5% 94.7%; /* sage-50 wash — hover states */
+    --accent-foreground: 10.9 10.3% 21.0%;
+
+    --destructive: 3.5 51.1% 46.5%; /* warm brick red, in-palette (not a cold red) */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 33.9 34.3% 86.9%; /* warm gold-tinted hairline #E9DFD2 */
+    --input: 33.9 34.3% 86.9%;
+    --ring: 328.8 24.5% 38.4%; /* plum — focus rings read plum, not default blue */
+
+    --radius: 0.65rem; /* slightly softer than the previous 0.5rem */
+
+    /* Palette tokens beyond the shadcn set — direct use where a named utility
+       reads more clearly than a raw hex (Logo wordmark, hairline CTA accents). */
+    --champagne: 39.3 39.1% 54.9%; /* #B99A5F */
+    --champagne-deep: 39.5 37.0% 46.7%; /* #A3854B */
+    --plum-hover: 329.3 27.4% 30.8%; /* #64394F */
+    --sage-text: 138.0 8.3% 52.5%; /* #7C9082 — large text only */
+    --blush-200: 9.7 49.2% 87.6%; /* #EFD5D0 */
+    --sage-200: 110.0 16.2% 85.5%; /* #D6E0D4 */
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    /* Not currently toggled anywhere in the app (no dark: usage, no theme
+       switch) — kept coherent with the wedding-luxe palette rather than left
+       as stale cold-navy/zinc values, in case a future phase wires a toggle. */
+    --background: 340.0 10.8% 16.3%; /* plum-charcoal #2E2528 */
+    --foreground: 33.3 47.4% 96.3%; /* cream */
+
+    --card: 338.2 10.5% 20.6%;
+    --card-foreground: 33.3 47.4% 96.3%;
+
+    --popover: 338.2 10.5% 20.6%;
+    --popover-foreground: 33.3 47.4% 96.3%;
+
+    --primary: 39.3 39.1% 54.9%; /* champagne reads as the accent on dark bg */
+    --primary-foreground: 340.0 10.8% 16.3%;
+
+    --secondary: 323.1 10.4% 24.5%;
+    --secondary-foreground: 33.3 47.4% 96.3%;
+
+    --muted: 323.1 10.4% 24.5%;
+    --muted-foreground: 33.9 20.0% 74.0%;
+
+    --accent: 323.1 10.4% 24.5%;
+    --accent-foreground: 33.3 47.4% 96.3%;
+
+    --destructive: 3.5 51.1% 46.5%;
+    --destructive-foreground: 33.3 47.4% 96.3%;
+
+    --border: 323.1 10.4% 30.0%;
+    --input: 323.1 10.4% 30.0%;
+    --ring: 39.3 39.1% 54.9%;
   }
 }
 
@@ -54,6 +104,6 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
   }
 }

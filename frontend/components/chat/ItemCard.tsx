@@ -8,7 +8,6 @@ import { api } from "@/lib/api/client"
 import type { ItemSummary, PriceMatch } from "@/lib/api/types"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
-import { cn } from "@/lib/utils"
 
 interface Props {
   item: ItemSummary
@@ -32,82 +31,87 @@ export function ItemCard({ item, onSend }: Props) {
     item.store_display ?? getStoreDisplayName(item.store) ?? brand?.display_name ?? null
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden" data-gender={item.gender}>
-      <div className="flex gap-3 p-3 hover:bg-accent/30 transition-colors">
-        {/* Image or placeholder */}
-        <div className="w-16 h-20 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
-          {item.image_url ? (
-            <Image
-              src={item.image_url}
-              alt={item.prod_name}
-              width={64}
-              height={80}
-              sizes="64px"
-              unoptimized
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-2xl select-none" aria-hidden>
+    <div
+      className="rounded-lg border bg-card overflow-hidden flex flex-col transition-shadow hover:shadow-md"
+      data-gender={item.gender}
+    >
+      {/* Image — the hero. Tall editorial aspect ratio, subtly rounded top
+          (inherited from the card's own overflow-hidden + rounded-lg). */}
+      <div className="relative w-full aspect-[4/5] shrink-0 bg-muted">
+        {item.image_url ? (
+          <Image
+            src={item.image_url}
+            alt={item.prod_name}
+            fill
+            sizes="(max-width: 640px) 50vw, 320px"
+            unoptimized
+            className="object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <span className="text-4xl select-none" aria-hidden>
               👗
             </span>
+          </div>
+        )}
+      </div>
+
+      {/* Minimal chrome below the image */}
+      <div className="flex flex-col gap-1 p-3">
+        <p className="text-sm font-medium leading-tight line-clamp-2 text-foreground">
+          {item.prod_name}
+        </p>
+        <p className="text-xs text-muted-foreground truncate">
+          {storeDisplay && (
+            <>
+              <Store className="inline h-3 w-3 mr-1 -mt-0.5" aria-hidden />
+              {storeDisplay}
+              {" · "}
+            </>
+          )}
+          {item.product_type}
+          {item.colour ? ` · ${item.colour}` : ""}
+        </p>
+
+        <div className="flex items-center justify-between gap-2 mt-0.5">
+          {item.price_inr != null ? (
+            <p className="text-sm font-semibold text-foreground">
+              ₹{item.price_inr.toLocaleString("en-IN")}
+            </p>
+          ) : (
+            <span />
+          )}
+          {score !== null && (
+            <p className="text-[11px] text-muted-foreground">{score}% match</p>
           )}
         </div>
 
-        {/* Info */}
-        <div className="flex flex-col justify-between min-w-0 flex-1">
-          <div>
-            <p className="text-sm font-medium leading-tight line-clamp-2">
-              {item.prod_name}
-            </p>
-            <div className="flex flex-wrap gap-1 mt-1">
-              <Badge>{item.product_type}</Badge>
-              {item.colour && <Badge>{item.colour}</Badge>}
-              {/* Store badge — always shown when store info is available */}
-              {storeDisplay && (
-                <Badge variant="store">
-                  <Store className="inline h-2.5 w-2.5 mr-0.5 -mt-px" aria-hidden />
-                  {storeDisplay}
-                </Badge>
-              )}
-            </div>
-            {item.price_inr != null && (
-              <p className="text-xs font-semibold text-foreground mt-1">
-                ₹{item.price_inr.toLocaleString("en-IN")}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-between mt-1 gap-1 flex-wrap">
-            {score !== null && (
-              <p className="text-xs text-muted-foreground">{score}% match</p>
-            )}
-            <div className={cn("flex gap-2 items-center flex-wrap", score === null && "ml-auto")}>
-              {onSend && (
-                <button
-                  className="text-[10px] text-primary hover:text-primary/80 underline underline-offset-2 transition-colors"
-                  onClick={() => onSend(`Style this ${item.prod_name}`)}
-                >
-                  Style this
-                </button>
-              )}
-              <button
-                className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-                onClick={() => setShowSimilar((v) => !v)}
-                aria-expanded={showSimilar}
-              >
-                {showSimilar ? "Hide similar" : "More like this"}
-              </button>
-              {buyUrl && (
-                <a
-                  href={buyUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-[10px] font-medium px-2 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0"
-                >
-                  Buy at {storeDisplay ?? "Shop"}
-                </a>
-              )}
-            </div>
-          </div>
+        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+          {onSend && (
+            <button
+              className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              onClick={() => onSend(`Style this ${item.prod_name}`)}
+            >
+              Style this
+            </button>
+          )}
+          <button
+            className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            onClick={() => setShowSimilar((v) => !v)}
+            aria-expanded={showSimilar}
+          >
+            {showSimilar ? "Hide similar" : "More like this"}
+          </button>
+          {buyUrl && (
+            <a
+              href={buyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-xs font-medium px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 ml-auto"
+            >
+              Buy at {storeDisplay ?? "Shop"}
+            </a>
+          )}
         </div>
       </div>
 
@@ -253,25 +257,5 @@ function PriceMatchPanel({ matches }: { matches: PriceMatch[] }) {
         ))}
       </div>
     </div>
-  )
-}
-
-interface BadgeProps {
-  children: React.ReactNode
-  variant?: "default" | "store"
-}
-
-function Badge({ children, variant = "default" }: BadgeProps) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10px] font-medium leading-none",
-        variant === "store"
-          ? "bg-primary/10 text-primary"
-          : "bg-secondary text-secondary-foreground",
-      )}
-    >
-      {children}
-    </span>
   )
 }

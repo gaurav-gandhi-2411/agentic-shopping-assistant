@@ -5,7 +5,7 @@ interface LogoMarkProps {
 interface LogoProps {
   /** Wrapper className — controls layout/gap of icon + wordmark. */
   className?: string
-  /** className applied to the icon svg (size, color). */
+  /** className applied to the icon svg (size, color via `currentColor`). */
   iconClassName?: string
   /** className applied to the wordmark text. */
   wordmarkClassName?: string
@@ -14,59 +14,50 @@ interface LogoProps {
 }
 
 /**
- * Style Maitri brand mark — the "Smiling Hanger": a clothes hanger whose bar
- * reads as a smile, evoking a friendly style companion (Style Maitri = Style +
- * Maitri/friend). Rendered with `currentColor` so it inherits whatever text
- * color utility is applied (defaults to `text-primary`, which adapts
- * automatically between light and dark themes via the shadcn/ui CSS
- * variables).
+ * Style Maitri brand mark — the "Marigold Knot": two interlocking petal-loops
+ * forming a knot, evoking both a marigold (the flower strung through Indian
+ * wedding decor) and a bond/friendship knot (Maitri = friend). Inlined from
+ * `public/brand/mark.svg`. Rendered with `currentColor` so callers can still
+ * override color via `iconClassName` (defaults to the champagne-gold brand
+ * accent, matching the static mark.svg/favicon assets).
  */
 export function LogoMark({ className }: LogoMarkProps) {
   return (
     <svg
-      viewBox="0 0 32 32"
+      viewBox="0 0 48 48"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
       aria-label="Style Maitri"
     >
-      {/* Shoulders */}
-      <path
-        d="M5.5 18.2L16 9.4l10.5 8.8"
+      <g
+        transform="translate(24,24)"
         stroke="currentColor"
-        strokeWidth="2.4"
+        strokeWidth="3.8"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      {/* Smile bar */}
-      <path
-        d="M5.5 18.2c3.2 4.6 17.8 4.6 21 0"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Hook */}
-      <path
-        d="M16 9.4V8.1c0-1.15.9-2.05 2.05-2.05"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      >
+        <path d="M14.50,0.00 C14.50,6.60 4.30,7.30 0.00,3.00 C-4.30,7.30 -14.50,6.60 -14.50,0.00 C-14.50,-6.60 -4.30,-7.30 0.00,-3.00 C4.30,-7.30 14.50,-6.60 14.50,0.00 Z" />
+        <path
+          d="M14.50,0.00 C14.50,6.60 4.30,7.30 0.00,3.00 C-4.30,7.30 -14.50,6.60 -14.50,0.00 C-14.50,-6.60 -4.30,-7.30 0.00,-3.00 C4.30,-7.30 14.50,-6.60 14.50,0.00 Z"
+          transform="rotate(90)"
+        />
+      </g>
     </svg>
   )
 }
 
-/** Full lockup: icon + "Style Maitri" wordmark (marigold accent on "Maitri"). */
+/** Full lockup: icon + "Style Maitri" wordmark ("Style" in ink, "Maitri" in champagne gold). */
 export function Logo({ className, iconClassName, wordmarkClassName, showWordmark = true }: LogoProps) {
   return (
-    <span className={`inline-flex items-center gap-1.5 ${className ?? ""}`}>
-      <LogoMark className={iconClassName ?? "h-5 w-5 text-primary shrink-0"} />
+    <span className={`inline-flex items-center gap-2 ${className ?? ""}`}>
+      <LogoMark className={iconClassName ?? "h-6 w-6 text-champagne shrink-0"} />
       {showWordmark && (
-        <span className={`font-semibold tracking-tight text-sm leading-none ${wordmarkClassName ?? ""}`}>
-          Style <span className="text-[#E8A33D]">Maitri</span>
+        <span
+          className={`font-serif font-semibold tracking-tight text-base leading-none text-foreground ${wordmarkClassName ?? ""}`}
+        >
+          Style <span className="text-champagne">Maitri</span>
         </span>
       )}
     </span>

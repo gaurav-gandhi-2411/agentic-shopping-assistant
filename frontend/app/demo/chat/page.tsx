@@ -50,13 +50,14 @@ export default function DemoChatPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header — Style Maitri alone in unified mode, "Style Maitri x <Brand>" for a
-          brand-specific demo (brandId is only set in the shelved per-brand path). */}
-      <header className="border-b-2 border-primary/15 bg-background px-6 py-3 flex items-center shrink-0">
+          brand-specific demo (brandId is only set in the shelved per-brand path).
+          Airy premium treatment: cream bg, hairline gold bottom border, generous height. */}
+      <header className="border-b border-border bg-background px-6 py-4 flex items-center shrink-0">
         {brandId ? (
-          <span className="inline-flex items-center gap-1.5">
-            <Logo showWordmark={false} iconClassName="h-5 w-5 text-primary shrink-0" />
-            <span className="font-semibold text-sm tracking-tight">
-              Style Maitri <span className="text-muted-foreground font-normal">x</span> {brandName}
+          <span className="inline-flex items-center gap-2">
+            <Logo showWordmark={false} iconClassName="h-6 w-6 text-champagne shrink-0" />
+            <span className="font-serif font-semibold text-base tracking-tight text-foreground">
+              Style Maitri <span className="text-muted-foreground font-sans font-normal">x</span> {brandName}
             </span>
           </span>
         ) : (
