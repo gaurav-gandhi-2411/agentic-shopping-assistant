@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 import { ImagePlus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { BodyShapeUpload } from "./BodyShapeUpload"
 
 const MAX_LENGTH = 2000
 const WARN_LENGTH = 1500
@@ -199,6 +200,12 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             <ImagePlus className="h-4 w-4" />
           </Button>
         )}
+
+        {/* Body-shape suggestion upload — a distinct, always-available affordance
+            (different photo, different purpose, different icon from the garment
+            upload above: this one's photo is processed on-device and never
+            uploaded, unlike the garment upload's POST /style/from-image). */}
+        {!isSending && <BodyShapeUpload onSend={onSend} disabled={disabled} />}
 
         {isSending ? (
           <Button
