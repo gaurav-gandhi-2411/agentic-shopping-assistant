@@ -76,6 +76,21 @@ class SparseRetriever:
             if scores[i] > 0
         ]
 
+    def has_any_known_token(self, query: str) -> bool:
+        """True if ANY query token appears in the indexed catalogue vocabulary.
+
+        Ground truth for the gibberish guard: a query sharing zero tokens with
+        60k+ products' search text ("asdfgh qwerty zxcvb") cannot be answered by
+        lexical or semantic search — dense similarity over noise still ranks
+        SOMETHING first, which is how a keyboard-mash got a confident product
+        recommendation live (defect sweep 2026-07-10, P0-4). Returns True when
+        no index is loaded — never block search on a missing vocabulary.
+        """
+        if self.bm25 is None:
+            return True
+        idf: dict = getattr(self.bm25, "idf", {}) or {}
+        return any(t in idf for t in self._tokenize(query))
+
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         tokens = re.findall(r"[a-z0-9]+", text.lower())

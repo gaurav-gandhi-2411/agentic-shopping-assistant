@@ -498,6 +498,34 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
 }
 
 
+# Intent verbs and shopping glue words that legitimately carry a first message
+# even when no catalogue token is present ("show me something nice"). Garment,
+# colour, and occasion words need no listing here — they all occur in the
+# catalogue search text, so has_any_known_token() already recognises them.
+_SHOPPING_INTENT_WORDS: frozenset[str] = frozenset({
+    "show", "find", "want", "need", "looking", "something", "anything", "nice",
+    "cheap", "cheaper", "budget", "outfit", "outfits", "clothes", "clothing",
+    "wear", "style", "buy", "shopping", "help", "suggest", "recommend",
+    "options", "ideas", "pastel", "bright", "dark", "light",
+})
+
+
+def _is_unrecognized_query(query: str, retriever: "HybridRetriever") -> bool:
+    """True when NO token of a query is recognisable — not in the catalogue's
+    BM25 vocabulary and not a known shopping-intent word. Tokens under 3 chars
+    are ignored (glue like "a"/"of"); a query with no >=3-char alpha token at
+    all is NOT flagged (emoji/short inputs follow the normal path)."""
+    tokens = [t for t in re.findall(r"[a-z]+", query.lower()) if len(t) >= 3]
+    if not tokens:
+        return False
+    if any(t in _SHOPPING_INTENT_WORDS for t in tokens):
+        return False
+    sparse = getattr(retriever, "sparse", None)
+    if sparse is None or not hasattr(sparse, "has_any_known_token"):
+        return False
+    return not sparse.has_any_known_token(" ".join(tokens))
+
+
 def _detect_ooc(query: str) -> str | None:
     """Return the OOC category label if query contains a known non-clothing keyword, else None.
 
@@ -1593,6 +1621,27 @@ def build_graph(
                     {"search_ooc": {"query": raw_query, "category": ooc_category}}
                 ],
             }
+
+        # Gibberish guard (live defect 2026-07-10, P0-4): a keyboard-mash first
+        # message ("asdfgh qwerty zxcvb") got a confident product rec — dense
+        # similarity over noise still ranks something first. Context-free turns
+        # only (no accumulated filters, no prior search): refinement words like
+        # "cheaper" are legitimately absent from catalogue vocabulary, and a
+        # mid-conversation turn always has context that makes results defensible.
+        is_first_search = not state.get("filters") and not any(
+            "search" in tc or "search_ooc" in tc for tc in state.get("tool_calls", [])
+        )
+        if is_first_search and _is_unrecognized_query(raw_query, retriever):
+            logger.info("[search] unrecognized query -> clarify: %r", raw_query)
+            return {
+                "retrieved_items": [],
+                "new_items_this_turn": False,
+                "out_of_catalogue": True,  # reuses the router's certain fast-path to respond
+                "iteration": state.get("iteration", 0) + 1,
+                "tool_calls": state.get("tool_calls", []) + [
+                    {"search_unrecognized": {"query": raw_query}}
+                ],
+            }
         # Merge accumulated state filters with any new filters the router specified.
         # S3a fix: router_node sets plan["reset_filters"]=True on a genuine
         # garment-type pivot (e.g. "white shirt for men" -> "kurta for sangeet
@@ -2655,7 +2704,15 @@ def build_graph(
                  if "search_ooc" in tc),
                 "",
             )
-            if ooc_cat:
+            unrecognized = any("search_unrecognized" in tc for tc in state.get("tool_calls", []))
+            if unrecognized:
+                # Gibberish guard: clarify, never a confident recommendation.
+                answer = (
+                    "I didn't quite catch that. Tell me what you're shopping for — "
+                    "a garment, occasion, or budget works (e.g. “saree for a wedding "
+                    "under ₹5000”) — and I'll pull up options."
+                )
+            elif ooc_cat:
                 answer = (
                     f"I don't carry {ooc_cat} products — this catalogue is clothing only. "
                     f"I can help with dresses, tops, trousers, jackets, knitwear, and accessories."
