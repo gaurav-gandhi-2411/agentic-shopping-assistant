@@ -16,7 +16,6 @@ interface Props {
 
 export function ItemCard({ item, onSend }: Props) {
   const [showSimilar, setShowSimilar] = useState(false)
-  const score = item.score !== null ? Math.round(item.score * 100) : null
   const { data: brand } = useBrandConfig()
 
   // Cross-store buy URL: prefer server-built pdp_url; fall back to legacy template expansion.
@@ -73,18 +72,15 @@ export function ItemCard({ item, onSend }: Props) {
           {item.colour ? ` · ${item.colour}` : ""}
         </p>
 
-        <div className="flex items-center justify-between gap-2 mt-0.5">
-          {item.price_inr != null ? (
-            <p className="text-sm font-semibold text-foreground">
-              ₹{item.price_inr.toLocaleString("en-IN")}
-            </p>
-          ) : (
-            <span />
-          )}
-          {score !== null && (
-            <p className="text-[11px] text-muted-foreground">{score}% match</p>
-          )}
-        </div>
+        {/* item.score is a raw hybrid/RRF ranking value (~0.01-0.03 by construction),
+            not a 0-1 relevance probability — rendering it as "N% match" showed "1%
+            match" on good results and made healthy retrieval look broken. Ranking
+            scores are for ordering, never for display. */}
+        {item.price_inr != null && (
+          <p className="text-sm font-semibold text-foreground mt-0.5">
+            ₹{item.price_inr.toLocaleString("en-IN")}
+          </p>
+        )}
 
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           {onSend && (
@@ -173,7 +169,6 @@ function SimilarItemRow({
   item: ItemSummary
   onSend?: (text: string) => void
 }) {
-  const score = item.score !== null ? Math.round(item.score * 100) : null
   return (
     <div className="flex items-center gap-2">
       <div className="w-8 h-10 shrink-0 rounded overflow-hidden bg-muted flex items-center justify-center">
@@ -201,7 +196,6 @@ function SimilarItemRow({
           {item.product_type}
           {item.colour ? ` · ${item.colour}` : ""}
           {item.store_display ?? (item.store ? ` · ${item.store}` : "")}
-          {score !== null ? ` · ${score}%` : ""}
         </p>
       </div>
       {onSend && (
