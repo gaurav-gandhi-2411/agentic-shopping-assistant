@@ -613,14 +613,52 @@ async def ws_chat(websocket: WebSocket) -> None:
         agent_task = asyncio.create_task(asyncio.to_thread(agent.invoke, state))
         cancel_task = asyncio.create_task(_watch_cancel())
 
+        # Wave 7 hang fix (turn 2 of the body-type-then-occasion sequence): bound
+        # total agent-turn wall-clock time so a downstream dependency stall (an
+        # LLM provider's rate-limit retry loop looping for minutes with zero
+        # feedback — see GroqClient.chat's TPD branch in src/llm/client.py,
+        # which has no ceiling on its own total retry time — or any other slow
+        # dependency) can never leave the WS connection open indefinitely with
+        # no response and no error, which is exactly the live symptom ("Stop"
+        # forever, 180s+, nothing surfaced). Direct agent.invoke() reproduction
+        # of this exact 2-turn sequence with a mocked LLM completes in under 5s
+        # with a correct result (see tests/test_body_type_bare_statement.py),
+        # ruling out a graph-logic hang — the deadline below is the actual fix,
+        # not a longer proof timeout, because it converts an unbounded silent
+        # stall into a bounded, honest error response for the live user.
+        # 90s mirrors the app's existing most-generous legitimate turn-latency
+        # convention (scripts/browser_proof.py's IMAGE_WAIT_TIMEOUT_S=90).
+        # agent_task itself cannot be forcibly killed — it wraps a blocking
+        # sync call in a worker thread — so on timeout we only stop WAITING
+        # for it; the thread runs to completion in the background and its
+        # result is discarded.
+        _turn_deadline_s = float(os.environ.get("WS_TURN_DEADLINE_SECONDS", "90"))
         done, _ = await asyncio.wait(
             {agent_task, cancel_task},
+            timeout=_turn_deadline_s,
             return_when=asyncio.FIRST_COMPLETED,
         )
 
         if cancel_event.is_set():
             agent_task.cancel()
             await websocket.send_text(WSCancelledMessage().model_dump_json())
+            return
+
+        if not done:
+            # Deadline elapsed before the agent (or a cancel) finished.
+            cancel_task.cancel()
+            agent_task.cancel()
+            logger.error(
+                "[ws_chat] turn exceeded %.0fs deadline with no response — "
+                "surfacing timeout error (agent thread abandoned, not killed)",
+                _turn_deadline_s,
+            )
+            await websocket.send_text(
+                WSErrorMessage(
+                    message="This is taking longer than expected — please try again.",
+                    code="turn_timeout",
+                ).model_dump_json()
+            )
             return
 
         # Agent finished first — stop the cancel watcher.

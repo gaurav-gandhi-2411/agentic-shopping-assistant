@@ -150,7 +150,17 @@ class GroqClient:
         self.model = llm_cfg.get("groq_model", "llama-3.1-8b-instant")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
-        self._client = _groq_lib.Groq(api_key=api_key)
+        # Explicit per-request HTTP timeout, matching OllamaClient's existing
+        # timeout_seconds convention above — the groq SDK already defaults to a
+        # bounded ~60s read timeout, but making it explicit here closes the audit
+        # gap (every LLMClient should have a documented, config-driven timeout)
+        # and keeps all four providers consistent. This is NOT the fix for the
+        # Wave 7 hang (that was an unbounded application-level retry loop, fixed
+        # at the WS turn-deadline in api/routes/chat.py::ws_chat) — a single HTTP
+        # call here was already bounded.
+        self._client = _groq_lib.Groq(
+            api_key=api_key, timeout=llm_cfg.get("timeout_seconds", 60)
+        )
         self.cost_reporter: Callable[[float], None] | None = None
 
     def chat(
