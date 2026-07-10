@@ -2393,13 +2393,32 @@ def step_p3_4_persistence(page: Page, state: ProofState) -> None:
     again (P3_SHAPE_WORD_RE hit), that's recorded as bonus evidence -- the
     task spec does not require the body-type mention itself to persist, only
     that the banned-word guarantee holds.
+
+    P3-4b/P3-4c (added after a live-proof bug catch, 2026-07-09): this turn
+    used to render a MEN'S card into the women's-only sangeet conversation
+    and separately let the stated ₹8000 budget silently stop applying --
+    both fixed in graph.py's session_context gender/budget reconstruction
+    (`_reconstruct_budget_from_history`, the `_ctx_gender` fallback near
+    `_prior_filters`). P3-4b reuses `assert_complement_gender` (same
+    data-gender-first, PB_MEN_WORD_RE title-fallback precedent as W1c/
+    PB-S1c) to prove gender purity survived on this turn's new cards.
+    P3-4c reuses `_parse_rupee_amount`: this turn renders as a raw card grid,
+    not an outfit board (checked via `outfit_board_present` below, same
+    signal as P3-2/W1), so there's no board-slot-sum to check -- instead it
+    asserts each new card's own visible price (ItemCard renders
+    `₹{item.price_inr}` inline when `price_inr` is not null, same
+    grid-path precedent already used by W1d's else-branch) against the
+    ₹8000 cap stated in P3-2's query. Cards with no parseable price are
+    excluded rather than treated as violations, consistent with W1d.
     """
     baseline = card_count(page)
+    board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
     send_text(page, "make it more festive")
     wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
     wait_for_turn_idle(page)
     after = card_count(page)
     gained = after - baseline
+    outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
     shot(page, "p3_4_persistence")
 
     assistant_text = last_assistant_text(page)
@@ -2412,6 +2431,42 @@ def step_p3_4_persistence(page: Page, state: ProofState) -> None:
         f"body_type_mentioned_again(evidence only)={shape_mention} "
         f"assistant_text_snippet={assistant_text[:300]!r}",
     )
+    if gained < 1:
+        return
+
+    new_cards = new_card_locators(page, baseline, after)
+    assert_complement_gender(
+        new_cards,
+        "women",
+        PB_MEN_WORD_RE,
+        state,
+        "P3-4b. 'make it more festive' new cards: every card is gender-consistent "
+        "(data-gender, title fallback) -- no MEN's card leaking into the sangeet look",
+    )
+
+    if outfit_board_present:
+        slot_cards = page.locator(OUTFIT_BOARD_SELECTOR).last.locator(OUTFIT_BOARD_SLOT_SELECTOR)
+        slot_prices = [
+            _parse_rupee_amount(slot_cards.nth(i).inner_text()) for i in range(slot_cards.count())
+        ]
+        parsed_prices = [p for p in slot_prices if p is not None]
+        price_sum = sum(parsed_prices)
+        state.record(
+            "P3-4c. budget still respected (<=8000) -- board slot-price sum",
+            price_sum <= 8000,
+            f"board_slot_price_sum={price_sum} n_prices_parsed={len(parsed_prices)}/"
+            f"{slot_cards.count()}",
+        )
+    else:
+        prices = [_parse_rupee_amount(c.inner_text()) for c in new_cards]
+        parsed_prices = [p for p in prices if p is not None]
+        budget_ok = all(p <= 8000 for p in parsed_prices)
+        state.record(
+            "P3-4c. budget still respected (<=8000) -- per-card price, no outfit board "
+            "rendered this turn (raw grid-search path has no board slot prices)",
+            budget_ok,
+            f"new_card_prices={prices} n_prices_parsed={len(parsed_prices)}/{len(new_cards)}",
+        )
 
 
 def step_p3_3_ban_sweep(page: Page, state: ProofState) -> None:
