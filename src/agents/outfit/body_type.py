@@ -459,6 +459,35 @@ POSITIVE_TEMPLATES: dict[str, str] = {
 }
 
 
+def body_type_ack_message(body_type: str | None, modifiers: list[str] | None = None) -> str:
+    """Deterministic acknowledgement for a bare body-type STATEMENT with nothing
+    else to act on (no occasion, no garment, no product query, no prior look) —
+    e.g. "I have an inverted triangle silhouette" said as the first and only
+    message in a session (this is exactly what the photo body-shape confirm
+    button sends — see frontend/lib/poseShape.ts's bodyShapeMessage()).
+
+    Never an LLM call — mirrors body_type_clarify_message's determinism.
+    graph.py's router short-circuits to this template BEFORE the
+    conversational/product-search branching so the turn always completes with
+    a real reply instead of silently degrading into an irrelevant product
+    search (root cause: a shape statement alone is not a product query, so the
+    deterministic router correctly picked action="respond", but a downstream
+    guard in route_decision — designed to catch the LLM router hallucinating
+    "respond" — force-converted it to "search" on any fresh-session turn with
+    no retrieved_items yet, regardless of why "respond" was chosen).
+    """
+    labels = [m.replace("_", " ") for m in (modifiers or [])]
+    if body_type:
+        labels.append(body_type.replace("_", " "))
+    shape_desc = " ".join(labels) if labels else "shape"
+    why = POSITIVE_TEMPLATES.get(body_type or "", "")
+    ack = f"Got it — I'll keep your {shape_desc} silhouette in mind!"
+    if why:
+        ack += f" {why}"
+    ack += " What are you shopping for — a sangeet look, office wear, or something else?"
+    return ack
+
+
 def body_type_clarify_message() -> str:
     """Warm, judgment-free, opt-in prompt listing shape options.
 

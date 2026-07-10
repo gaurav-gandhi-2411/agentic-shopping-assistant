@@ -32,6 +32,7 @@ from src.agents.outfit.body_type import (
     MODIFIER_SLUGS,
     MODIFIERS,
     POSITIVE_TEMPLATES,
+    body_type_ack_message,
     body_type_clarify_message,
     body_type_score_delta,
     contains_banned_framing,
@@ -620,6 +621,42 @@ class TestClarifyMessage:
 
     def test_no_banned_words(self) -> None:
         assert not contains_banned_framing(body_type_clarify_message())
+
+
+# ---------------------------------------------------------------------------
+# Bare body-type STATEMENT acknowledgement (Wave 7 hang fix)
+# ---------------------------------------------------------------------------
+
+
+class TestBodyTypeAckMessage:
+    """body_type_ack_message — the deterministic reply for a bare shape
+    statement (e.g. "I have an inverted triangle silhouette") with no
+    occasion/garment named. See graph.py's router_node short-circuit.
+    """
+
+    @pytest.mark.parametrize("slug", list(BASE_SHAPE_SLUGS))
+    def test_every_base_shape_mentions_shape_and_positive_template(self, slug: str) -> None:
+        msg = body_type_ack_message(slug, [])
+        assert slug.replace("_", " ") in msg.lower()
+        assert POSITIVE_TEMPLATES[slug] in msg
+
+    def test_modifier_prefixes_base_shape(self) -> None:
+        msg = body_type_ack_message("pear", ["petite"])
+        assert "petite pear" in msg.lower()
+
+    def test_modifier_only_no_base_shape(self) -> None:
+        msg = body_type_ack_message(None, ["petite"])
+        assert "petite silhouette" in msg.lower()
+        # No POSITIVE_TEMPLATES entry exists for a bare modifier — must not crash.
+        assert "none" not in msg.lower()
+
+    def test_asks_what_shopping_for(self) -> None:
+        msg = body_type_ack_message("inverted_triangle", []).lower()
+        assert "shopping for" in msg
+
+    @pytest.mark.parametrize("slug", list(BASE_SHAPE_SLUGS))
+    def test_no_banned_words(self, slug: str) -> None:
+        assert not contains_banned_framing(body_type_ack_message(slug, []))
 
 
 # ---------------------------------------------------------------------------

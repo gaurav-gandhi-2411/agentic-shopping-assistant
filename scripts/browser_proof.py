@@ -2979,7 +2979,15 @@ def step_i2_3_flow_through(page: Page, state: ProofState, outcome: str | None) -
         page.get_by_role("button", name=I2_CONFIRM_BUTTON_RE).first.click()
 
     expected_message = I2_SHAPE_MESSAGES.get(used_shape or "", "")
-    wait_for_assistant_reply(page)
+    # This is the FIRST chat turn of this flow's session -- if the Cloud Run
+    # backend has scaled to zero since the previous flow ran, a cold start
+    # (documented elsewhere in this file as 15-30s) stacks with the LLM
+    # round-trip for a bare body-type acknowledgement (no occasion/garment
+    # intent to short-circuit on). The default CARD_WAIT_TIMEOUT_S (60s) was
+    # observed live to be too tight for that combination -- use the same
+    # generous window IMAGE_WAIT_TIMEOUT_S (90s) affords the image-upload
+    # flow for an analogous reason.
+    wait_for_assistant_reply(page, timeout_s=IMAGE_WAIT_TIMEOUT_S)
     if expected_message:
         message_echoed = page.get_by_text(expected_message, exact=False).count() > 0
         print(

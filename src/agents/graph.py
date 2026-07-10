@@ -7,7 +7,7 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.grounding import validate_response
-from src.agents.outfit.body_type import body_type_clarify_message
+from src.agents.outfit.body_type import body_type_ack_message, body_type_clarify_message
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
@@ -857,6 +857,50 @@ def build_graph(
                         "current_plan": json.dumps(plan),
                         "tool_calls": [{"router_decision": plan}],
                     }
+
+            # Wave 7 hang fix: a bare body-type STATEMENT ("I have an inverted
+            # triangle silhouette") with no occasion/garment/buy signal and no
+            # prior session items — exactly what the photo body-shape confirm
+            # button sends (frontend/lib/poseShape.ts's bodyShapeMessage()) as
+            # the FIRST and ONLY message of a session. _bt_intent.is_product_query
+            # is correctly False here (parse_intent finds no garment/occasion/buy
+            # signal), so the deterministic "conversational → respond" branch
+            # further down would pick action="respond" — but route_decision's
+            # LLM-hallucination guard (see route_decision's "never let the LLM
+            # router return respond on the first call" comment) then
+            # force-converts ANY first-call "respond" with no retrieved_items
+            # into "search", regardless of why "respond" was chosen. That sends
+            # this pure conversational statement through search_node, which
+            # retrieves semantically-unrelated items (no filters at all) and
+            # asks the LLM to describe them as if relevant — never a genuine
+            # infinite loop in the graph itself (confirmed via direct
+            # agent.invoke repro), but a broken, confusing turn. Short-circuit
+            # to the same deterministic clarify-template style already used for
+            # the body-type QUESTION case above, skipping search/respond/the
+            # guard entirely. Scoped to fresh turns only (no retrieved_items
+            # yet) — once a look exists in the session, a restated body type
+            # with no other signal correctly falls through to respond_node's
+            # LLM prose, which can use conversation history intelligently.
+            if (
+                (_bt_intent.body_type or _bt_intent.body_modifiers)
+                and not _bt_intent.wants_body_type_guidance
+                and not _bt_intent.is_product_query
+                and not state.get("retrieved_items")
+            ):
+                plan = {
+                    "action": "clarify",
+                    "question": body_type_ack_message(
+                        _bt_intent.body_type, _bt_intent.body_modifiers
+                    ),
+                }
+                logger.info(
+                    "[router/body-type-ack] body_type=%s modifiers=%s | query=%r",
+                    _bt_intent.body_type, _bt_intent.body_modifiers, state["user_query"][:60],
+                )
+                return {
+                    "current_plan": json.dumps(plan),
+                    "tool_calls": [{"router_decision": plan}],
+                }
 
         # Agent-loop router fast-path: skip the LLM for transitions that are fully
         # determined by the graph rules already present in route_decision.
