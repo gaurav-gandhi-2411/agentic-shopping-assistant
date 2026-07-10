@@ -9,7 +9,11 @@ import { ChatInput } from "@/components/chat/ChatInput"
 import { Logo } from "@/components/Logo"
 
 // ---------------------------------------------------------------------------
-// Known brand definitions — must match NEXT_PUBLIC_{BRAND}_BACKEND_URL vars.
+// Known brand definitions. Per-brand backends were collapsed into the unified
+// service (2026-06); the NEXT_PUBLIC_{BRAND}_BACKEND_URL vars are optional
+// overrides kept for a future re-split — every brand falls back to the unified
+// NEXT_PUBLIC_BACKEND_URL. Without this fallback the embed rendered "Brand not
+// found" for every brand on production (defect sweep 2026-07-10, P0-3).
 // If a brand is unknown we show a friendly fallback rather than crashing.
 // ---------------------------------------------------------------------------
 interface KnownBrand {
@@ -19,23 +23,25 @@ interface KnownBrand {
   accentHex: string
 }
 
+const UNIFIED_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? ""
+
 const KNOWN_BRANDS: Record<string, KnownBrand> = {
   snitch: {
     id: "snitch",
     name: "Snitch",
-    backendUrl: process.env.NEXT_PUBLIC_SNITCH_BACKEND_URL ?? "",
+    backendUrl: process.env.NEXT_PUBLIC_SNITCH_BACKEND_URL ?? UNIFIED_BACKEND_URL,
     accentHex: "#1a1a2e",
   },
   myntra: {
     id: "myntra",
     name: "Myntra",
-    backendUrl: process.env.NEXT_PUBLIC_MYNTRA_BACKEND_URL ?? "",
+    backendUrl: process.env.NEXT_PUBLIC_MYNTRA_BACKEND_URL ?? UNIFIED_BACKEND_URL,
     accentHex: "#ff3f6c",
   },
   flipkart: {
     id: "flipkart",
     name: "Flipkart Fashion",
-    backendUrl: process.env.NEXT_PUBLIC_FLIPKART_BACKEND_URL ?? "",
+    backendUrl: process.env.NEXT_PUBLIC_FLIPKART_BACKEND_URL ?? UNIFIED_BACKEND_URL,
     accentHex: "#2874f0",
   },
 }
