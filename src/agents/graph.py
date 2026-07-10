@@ -499,11 +499,17 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
 
 
 def _detect_ooc(query: str) -> str | None:
-    """Return the OOC category label if query contains a known non-clothing keyword, else None."""
+    """Return the OOC category label if query contains a known non-clothing keyword, else None.
+
+    Word-boundary matching, NOT substring: live defect 2026-07-10 — plain `in`
+    matched "tea" inside "ins-tea-d", so the colour refinement "show me pastel
+    colours instead" was refused as a food-and-drink query mid-conversation.
+    """
     q = query.lower()
     for category, words in _OOC_CATEGORIES.items():
-        if any(w in q for w in words):
-            return category
+        for w in words:
+            if re.search(rf"\b{re.escape(w.strip())}\b", q):
+                return category
     return None
 
 _LAST_N_RE = re.compile(r"\blast\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
