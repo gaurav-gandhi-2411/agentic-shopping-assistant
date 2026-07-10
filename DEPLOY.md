@@ -46,7 +46,7 @@ The Next.js frontend is deployed to Vercel and talks to each backend service dir
 | `DEMO_JWT_SECRET` | Yes | Random 32-byte hex secret for demo session tokens |
 | `DATABASE_URL` | Yes | Supabase Postgres connection string (`postgresql://...`) |
 | `SUPABASE_URL` | Yes | `https://<ref>.supabase.co` |
-| `CORS_ORIGINS` | Yes | Single comma-free allowed origin (the Vercel URL). gcloud `--set-env-vars` treats every comma as a separator — a multi-origin value silently corrupts the env block. Use `https://asa-stylist.vercel.app`. |
+| `CORS_ORIGINS` | Yes | Single comma-free allowed origin (the Vercel URL). gcloud `--set-env-vars` treats every comma as a separator — a multi-origin value silently corrupts the env block. Use `https://stylemaitri.vercel.app`. |
 | `INDEX_STORE_URI` | Yes | `gs://<bucket>/<brand>/` — GCS path to FAISS index + catalogue parquet |
 | `LLM_PROVIDER` | Yes | `groq` |
 | `SENTRY_DSN` | No | Sentry project DSN; omit to disable error reporting |
@@ -208,7 +208,7 @@ the "warming up…" spinner in the frontend.
 ```bash
 # CORS_ORIGINS must be a single comma-free origin. gcloud --set-env-vars treats every comma
 # as an env-var separator; adding ",http://localhost:3000" silently corrupts the env block.
-CORS_ORIGINS="https://asa-stylist.vercel.app"
+CORS_ORIGINS="https://stylemaitri.vercel.app"
 GCS_BUCKET="your-gcs-bucket-name"
 
 # Shared flags
@@ -350,13 +350,13 @@ vercel env add NEXT_PUBLIC_BACKEND_URL          production
 ## CORS configuration
 
 Each Cloud Run service's `CORS_ORIGINS` env var must be set to the canonical Vercel URL:
-`https://asa-stylist.vercel.app`. **Keep the value comma-free** — gcloud's `--set-env-vars`
+`https://stylemaitri.vercel.app`. **Keep the value comma-free** — gcloud's `--set-env-vars`
 treats every comma as an env-var separator, so a multi-origin string (e.g.
-`https://asa-stylist.vercel.app,http://localhost:3000`) silently splits into two env vars
+`https://stylemaitri.vercel.app,http://localhost:3000`) silently splits into two env vars
 and corrupts the env block.
 
 ```bash
-VERCEL_URL="https://asa-stylist.vercel.app"
+VERCEL_URL="https://stylemaitri.vercel.app"
 
 for svc in snitch myntra flipkart; do
   gcloud run services update asa-${svc} \

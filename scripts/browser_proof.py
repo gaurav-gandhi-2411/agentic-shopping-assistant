@@ -195,7 +195,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-DEFAULT_BASE_URL = "https://asa-stylist.vercel.app/demo"
+DEFAULT_BASE_URL = "https://stylemaitri.vercel.app/demo"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = REPO_ROOT / "t-shirt.webp"
 SCRATCHPAD = Path(
