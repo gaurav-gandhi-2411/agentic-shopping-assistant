@@ -212,6 +212,34 @@ def _reconstruct_body_type_from_history(
     return None, []
 
 
+def _reconstruct_budget_from_history(messages: list[dict]) -> int | None:
+    """Recover the user's STATED budget ceiling from conversation history.
+
+    Mirrors _reconstruct_occasion_from_history exactly, for the same reason:
+    outfit_node never populates state["filters"] (see api/routes/chat.py::
+    _persist_result — its return dict has no "filters" key), so a free-text
+    search-path refinement following an OUTFIT-COMPOSE turn ("make it more
+    festive" after "sangeet look under 8000") had no price_max to inherit —
+    the session's price_max stayed at whatever it was before the outfit turn
+    (typically None). Deliberately reconstructs the ORIGINAL stated cap
+    (IntentV1.budget_max_inr, the same deterministic extractor used for
+    first-turn routing) rather than deriving one from the composed look's
+    item prices (budget_total_inr/price_inr) — those reflect what was FOUND,
+    not what the user asked for, and would silently invent a cap on a turn
+    where the user never stated one. Scans user messages most-recent-first
+    so a later, updated budget always wins over an earlier one.
+    """
+    from src.agents.intent_parser import parse_intent
+
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        budget = parse_intent(m.get("content", "")).budget_max_inr
+        if budget is not None:
+            return budget
+    return None
+
+
 def _resolve_session_gender(state: AgentState) -> str | None:
     """Reconstruct "men"/"women" gender context from accumulated session filters."""
     filters = state.get("filters") or {}
@@ -1188,6 +1216,43 @@ def build_graph(
             elif "menswear" in _ign:
                 _ctx_gender = "men"
 
+        # Hard-rule fix: a prior OUTFIT-COMPOSE turn (outfit_node) never populates
+        # state["filters"] (see api/routes/chat.py::_persist_result — outfit_node's
+        # return dict has no "filters" key, so the session dict's filters stay at
+        # whatever they were before the outfit turn, typically {}). A free-text
+        # refinement that follows an outfit look ("make it more festive" — matches
+        # none of _LOOK_REFINEMENT_RE/_OUTFIT_INTENT_RE/_OCCASION_LOOK_RE, so it
+        # falls all the way through to this plain-search branch) therefore lost
+        # gender entirely and could return cross-gender items — live-proven: a
+        # women's pear-shaped sangeet look, "make it more festive" surfaced a
+        # men's kurta among the results. Reconstruct gender from the prior turn's
+        # own retrieved_items (each item carries its own "gender" field — see
+        # composer.py) instead, but ONLY when every item with a known gender
+        # agrees on a single value. This mirrors _ctx_garment's item-based
+        # reconstruction above and never fires on a genuinely unisex/no-established
+        # -gender prior turn (mixed or all-unknown genders leave _ctx_gender at
+        # None, preserving today's first-turn/no-signal behaviour unchanged).
+        if _ctx_gender is None and _prior_items_for_ctx:
+            _known_item_genders = {
+                (it.get("gender") or "").strip().lower() for it in _prior_items_for_ctx
+            } & {"men", "women"}
+            if len(_known_item_genders) == 1:
+                _ctx_gender = next(iter(_known_item_genders))
+
+        # Same root cause as the gender fallback directly above: a prior
+        # OUTFIT-COMPOSE turn never writes state["filters"]["price_max"] either
+        # (outfit_node's return dict has no "filters" key at all), so
+        # "make it more festive" after "sangeet look under 8000" silently lost
+        # the ₹8000 cap along with gender. Reconstruct the user's ORIGINAL
+        # stated budget from conversation history (same deterministic
+        # extractor/pattern as _reconstruct_occasion_from_history) rather than
+        # deriving one from the composed look's item prices — see
+        # _reconstruct_budget_from_history's docstring for why the item-price
+        # signal is deliberately rejected.
+        _ctx_budget_max_inr = _prior_filters.get("price_max")
+        if _ctx_budget_max_inr is None:
+            _ctx_budget_max_inr = _reconstruct_budget_from_history(state.get("messages", []))
+
         session_context = {
             "garment_type": _ctx_garment,
             "gender": _ctx_gender,
@@ -1214,7 +1279,10 @@ def build_graph(
             # zero-result retry that drops price_max along with other facets). Feeding
             # it through merge_with_context as well gives budget the same durable,
             # intent-level inheritance garment_type/gender/occasion already get.
-            "budget_max_inr": _prior_filters.get("price_max"),
+            # _ctx_budget_max_inr additionally falls back to conversation-history
+            # reconstruction (see above) when the filter dict itself has no
+            # price_max — the prior-OUTFIT-TURN gap this task closes.
+            "budget_max_inr": _ctx_budget_max_inr,
         }
 
         # Merge new intent with session context (carries forward unspecified fields)
