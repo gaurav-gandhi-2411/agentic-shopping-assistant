@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from typing import TYPE_CHECKING
 
 from src.agents.grounding import validate_rationale
@@ -38,6 +39,76 @@ def _safe_str(val: object) -> str:
         return ""
     s = str(val)
     return "" if s.lower() == "nan" else s
+
+
+# ── Display-attribute grounding (live defect #6, 2026-07-10 sweep) ─────────────
+# Some stores' product_type is a raw multi-garment CATEGORY string ("Blue
+# Blazers, Waistcoats and Suits", "Kurtas, Ethnic Sets and Bottoms") — read
+# verbatim into a stylist note it produces prose like "the blue blazers,
+# waistcoats and suits and black footwear keeps the focus" (wrong items, wrong
+# colour, broken grammar). These helpers ground the note in the words the USER
+# actually sees: the garment noun and colour word from the product's own name,
+# falling back to product_type only when it is a clean single noun.
+
+# Scanned in order — multi-word and more-specific nouns first so "kurta set"
+# wins over "kurta" and "nehru jacket" over "jacket".
+_NOTE_GARMENT_NOUNS: tuple[str, ...] = (
+    "nehru jacket", "kurta set", "co-ord set", "t-shirt", "sherwani", "waistcoat",
+    "anarkali", "lehenga", "saree", "dupatta", "palazzo", "churidar", "dhoti",
+    "kurti", "kurta", "blazer", "trousers", "jeans", "chinos", "shorts", "skirt",
+    "gown", "dress", "shirt", "jacket", "coat", "sweater", "cardigan", "shrug",
+    "heels", "sandals", "loafers", "oxfords", "boots", "sneakers", "juttis",
+    "mojaris", "shoes", "belt", "watch", "clutch", "necklace", "earrings", "top",
+)
+
+# Nouns that take a plural verb ("the trousers keep…", not "keeps").
+_PLURAL_NOUNS: frozenset[str] = frozenset({
+    "trousers", "jeans", "chinos", "shorts", "heels", "sandals", "loafers",
+    "oxfords", "boots", "sneakers", "juttis", "mojaris", "shoes", "earrings",
+})
+
+# Colour words as they appear in real product names — multi-word first.
+_NOTE_COLOUR_WORDS: tuple[str, ...] = (
+    "navy blue", "off white", "sea green", "dark red", "dark green", "dark blue",
+    "light beige", "light pink", "wine", "maroon", "burgundy", "rust", "teal",
+    "olive", "mustard", "lavender", "peach", "cream", "beige", "khaki",
+    "charcoal", "turquoise", "navy", "black", "white", "grey", "gold", "silver",
+    "red", "blue", "green", "purple", "pink", "orange", "yellow", "brown",
+)
+
+
+def _first_vocab_match(text: str, vocab: tuple[str, ...]) -> str | None:
+    """Return the vocab entry appearing EARLIEST in text (longest wins ties)."""
+    best: tuple[int, int, str] | None = None
+    low = text.lower()
+    for word in vocab:
+        m = re.search(rf"\b{re.escape(word)}\b", low)
+        if m and (best is None or (m.start(), -len(word)) < (best[0], best[1])):
+            best = (m.start(), -len(word), word)
+    return best[2] if best else None
+
+
+def _display_noun(product_type: object, prod_name: object) -> str:
+    """A short garment noun safe to put in prose. Prefers the product NAME's own
+    garment word; falls back to a clean (<=2 words, no comma) product_type."""
+    name_noun = _first_vocab_match(_safe_str(prod_name), _NOTE_GARMENT_NOUNS)
+    if name_noun:
+        return name_noun
+    pt = _safe_str(product_type).strip().lower()
+    if pt and "," not in pt and len(pt.split()) <= 2:
+        return pt
+    pt_noun = _first_vocab_match(pt, _NOTE_GARMENT_NOUNS)
+    return pt_noun or "piece"
+
+
+def _display_colour(colour: object, prod_name: object) -> str:
+    """The colour word shown to the user. Prefers the colour named in the product
+    NAME (a "Wine … Kurta" must not be narrated as "purple" just because its
+    catalogue colour-group is Purple); falls back to the colour attribute."""
+    name_colour = _first_vocab_match(_safe_str(prod_name), _NOTE_COLOUR_WORDS)
+    if name_colour:
+        return name_colour
+    return _safe_str(colour).lower().strip()
 
 # ── Prompt template ────────────────────────────────────────────────────────────
 
@@ -157,14 +228,16 @@ def build_fact_sheet(
     occasion = look.get("occasion") or "casual"
     gender = look.get("gender") or "women"
 
-    seed_colour = _safe_str(seed.get("colour")).lower().strip()
-    seed_type = _safe_str(seed.get("product_type")).lower().strip()
+    seed_name = seed.get("prod_name") or seed.get("display_name")
+    seed_colour = _display_colour(seed.get("colour"), seed_name)
+    seed_type = _display_noun(seed.get("product_type"), seed_name)
 
     complement_pairs = []
     for comp in complements:
         slot = comp.get("_slot") or ""
-        colour = _safe_str(comp.get("colour")).lower().strip()
-        pt = _safe_str(comp.get("product_type")).lower().strip()
+        comp_name = comp.get("prod_name") or comp.get("display_name")
+        colour = _display_colour(comp.get("colour"), comp_name)
+        pt = _display_noun(comp.get("product_type"), comp_name)
         if slot or colour or pt:
             complement_pairs.append({"slot": slot, "colour": colour, "type": pt})
 
@@ -342,8 +415,21 @@ def generate_rationales(
             continue
 
         if llm_text:
+            # The prompt only ever saw the fact-sheet's cleaned nouns/colours
+            # (_display_noun/_display_colour), which may not be raw item
+            # attribute tokens — whitelist them so the grounding gate doesn't
+            # drop sentences that reference the prompt's own facts.
+            fact_tokens = {
+                t for pair in fact_sheets[i].get("complement_pairs", [])
+                for t in (pair.get("colour", ""), pair.get("type", "")) if t
+            }
+            fact_tokens.update(
+                t for t in (fact_sheets[i].get("seed_colour"), fact_sheets[i].get("seed_type"))
+                if t
+            )
+            look_whitelist = (extra_whitelist_tokens or set()) | fact_tokens
             cleaned, flags = validate_rationale(
-                llm_text, all_items, occ, extra_whitelist_tokens, budget_inr=budget_inr
+                llm_text, all_items, occ, look_whitelist, budget_inr=budget_inr
             )
             grounding_flags = [f for f in flags if f.startswith("rationale:all_dropped")]
             if grounding_flags:
@@ -390,23 +476,28 @@ def template_rationale(look: dict) -> str:
     complements = look.get("complements") or []
     occasion = (look.get("occasion") or "casual").replace("_", " ")
 
-    seed_colour = _safe_str(seed.get("colour")).lower() or "classic"
-    seed_type = _safe_str(seed.get("product_type")).lower() or "piece"
+    seed_name = seed.get("prod_name") or seed.get("display_name")
+    seed_colour = _display_colour(seed.get("colour"), seed_name) or "classic"
+    seed_type = _display_noun(seed.get("product_type"), seed_name)
 
     if complements:
         comp_names = []
+        last_noun = ""
         for c in complements[:2]:  # mention at most 2
-            ct = (_safe_str(c.get("product_type")) or _safe_str(c.get("display_name"))).lower()
-            cc = _safe_str(c.get("colour")).lower()
-            if ct and cc:
-                comp_names.append(f"{cc} {ct}")
-            elif ct:
-                comp_names.append(ct)
+            c_name = c.get("prod_name") or c.get("display_name")
+            ct = _display_noun(c.get("product_type"), c_name)
+            cc = _display_colour(c.get("colour"), c_name)
+            if ct == "piece":  # no recognisable garment noun — skip, don't babble
+                continue
+            comp_names.append(f"{cc} {ct}" if cc else ct)
+            last_noun = ct
         if comp_names:
             complement_str = " and ".join(comp_names)
+            # "the trousers keep…" vs "the waistcoat keeps…" — plural agreement
+            verb = "keep" if (len(comp_names) > 1 or last_noun in _PLURAL_NOUNS) else "keeps"
             return (
                 f"The {seed_colour} {seed_type} anchors this {occasion} look; "
-                f"the {complement_str} keeps the focus on the hero piece."
+                f"the {complement_str} {verb} the focus on the hero piece."
             )
 
     return (
