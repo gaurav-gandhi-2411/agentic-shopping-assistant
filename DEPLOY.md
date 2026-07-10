@@ -159,6 +159,45 @@ for the reference names already in use), not via plain env-var GitHub secrets �
 avoids both the CI-secrets bootstrap problem that stalled the old workflow and the
 env-block-replacement gotcha above.
 
+### LLM provider secrets and switching providers
+
+All LLM provider API keys on `asa-stylist-api` are Secret Manager references, never plain
+env vars: `GROQ_API_KEY` → `asa-groq-api-key`, `OPENROUTER_API_KEY` → `asa-openrouter-api-key`
+(added 2026-07-10 — Groq's free-tier daily token quota has been exhausted by heavy testing
+more than once; OpenRouter is the manual fallback, see `project_eval_providers` memory note).
+`LLM_PROVIDER` itself is a plain env var (not a secret) that selects which key is read.
+
+**To switch providers** (e.g. Groq's daily quota is exhausted):
+
+```bash
+gcloud run services update asa-stylist-api --region=asia-south1 \
+  --project=iconic-reactor-496423-m4 \
+  --update-env-vars="LLM_PROVIDER=openrouter"
+# ... and back, once Groq's quota resets:
+gcloud run services update asa-stylist-api --region=asia-south1 \
+  --project=iconic-reactor-496423-m4 \
+  --update-env-vars="LLM_PROVIDER=groq"
+```
+
+**Critical gotcha, learned the hard way (2026-07-10): `--set-secrets` REPLACES the entire
+secrets block, exactly like `--set-env-vars` replaces the entire env block** — running it
+with only one secret named wiped `GROQ_API_KEY`/`DEMO_JWT_SECRET`/`DATABASE_URL`/
+`SUPABASE_URL` from the revision, which then crashed on startup (`ValueError: GROQ_API_KEY
+environment variable is not set`) because the container couldn't construct its LLM client.
+Worse: `gcloud run services update`'s next incremental call bases its diff on the **last
+requested revision template, not the last successfully serving one** — so a second
+`--update-secrets` call issued on top of the broken state still didn't recover the missing
+secrets, because it was merging into an already-incomplete base. Recovery required reading
+every secret's exact `name:key` pair off the **actually-serving** revision (`gcloud run
+revisions describe <serving-revision> --format=json | grep -A2 secretKeyRef`, not the
+latest/failed one) and re-specifying the full set explicitly in one `--update-secrets` call.
+**Always use `--update-secrets`, never `--set-secrets`, for anything short of an intentional
+full reset** — and if a revision ever fails to start, immediately confirm which revision is
+actually serving traffic (`status.traffic`, not `status.latestReadyRevisionName`) before
+touching anything further; Cloud Run does not cut traffic to a revision that fails its
+startup health check, so the live service stays safe, but the *next* incremental update's
+base can still be silently wrong.
+
 ---
 
 ## Deploy Cloud Run services (legacy — per-brand)
