@@ -244,6 +244,29 @@ def compose_outfit(
             body_type=body_type,
             body_modifiers=body_modifiers,
         )
+        if candidate is None and slot_spec.slot_name == "bottom" and effective_gender == "men":
+            # Live defect 2026-07-10: the men's ethnic bottom query (churidar/
+            # pyjama/dhoti) has almost no clean survivors in this catalogue, so
+            # every men's ethnic board shipped bottomless with a false "no men's
+            # bottoms" note — while 4,668 men's trousers/jeans exist. Tailored
+            # trousers are a legitimate bottom under a kurta or sherwani; retry
+            # once with a western-formal query before suppressing the slot.
+            candidate = _find_best_candidate(
+                query="tailored trousers formal dark trousers",
+                slot_name=slot_spec.slot_name,
+                occasion_slug=occasion_slug,
+                gender=effective_gender,
+                anchor_colour=anchor_colour,
+                seen_ids=seen_ids,
+                seen_prod_colour=seen_prod_colour,
+                retriever=retriever,
+                budget_remaining=budget_inr - running_total if budget_inr is not None else None,
+                pairing_stats=pairing_stats,
+                anchor_class=anchor_class,
+                seen_stores=seen_stores,
+                body_type=body_type,
+                body_modifiers=body_modifiers,
+            )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
             # RED 1a/1e/B4a/B4b: without this, ItemSummary.slot_role is None for every
@@ -331,7 +354,10 @@ def _suppression_reason(slot_name: str, gender: str) -> str:
         "top": "tops",
     }
     label = labels.get(slot_name, slot_name)
-    return f"No {gender}'s {label} in our partner stores yet"
+    # "that match this look" — the honest claim. A bare "No men's bottoms in our
+    # partner stores yet" was live-proven FALSE (4,668 exist); suppression only
+    # means no candidate survived THIS look's gates, never an inventory absence.
+    return f"No {gender}'s {label} that match this look in our partner stores yet"
 
 
 def compose_outfit_variants(
