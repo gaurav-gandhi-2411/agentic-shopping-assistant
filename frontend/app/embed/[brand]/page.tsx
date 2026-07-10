@@ -211,7 +211,7 @@ export default function EmbedPage() {
         <div className="flex items-center gap-2">
           <Logo showWordmark={false} iconClassName="h-4 w-4 text-primary shrink-0" />
           <span className="text-sm font-semibold leading-none">
-            StyleMitra <span className="text-muted-foreground font-normal">x</span> {brandName}
+            Style Maitri <span className="text-muted-foreground font-normal">x</span> {brandName}
           </span>
           {/* Brand accent dot */}
           <span
@@ -271,7 +271,7 @@ export default function EmbedPage() {
             rel="noopener noreferrer"
             className="underline underline-offset-2"
           >
-            StyleMitra
+            Style Maitri
           </a>
         </span>
       </div>

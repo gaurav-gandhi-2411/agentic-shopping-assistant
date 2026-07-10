@@ -45,7 +45,7 @@ Verifies, against a *real* headless Chromium session (not WS-frame introspection
      resolved by dropping either requirement.
 
   9. (--wave-7 flow, W0-W6) Content assertions for the P1 wedding-occasion
-     hero features (2026-07-09 build): the unified-mode "StyleMitra" brand
+     hero features (2026-07-09 build): the unified-mode "Style Maitri" brand
      config's 5 suggestion chips + display name (W0, must run BEFORE any
      message — the chip row only renders while `messages.length === 0`), the
      "Sangeet look under (rupee)8000" hero chip's click-to-send path plus
@@ -1821,7 +1821,7 @@ def step_pb_s6_distinct_variants(page: Page, state: ProofState) -> None:
 # ---------------------------------------------------------------------------
 # Wave-7 (P1 wedding-occasion hero features) constants & steps.
 #
-# The exact 5 chip strings the unified "StyleMitra" brand config is expected
+# The exact 5 chip strings the unified "Style Maitri" brand config is expected
 # to return from GET /api/brand (`suggestion_chips`) — see
 # frontend/hooks/useBrandConfig.ts's BrandConfig interface and
 # frontend/components/chat/ChatPlaceholder.tsx's chip-button rendering (per
@@ -1926,8 +1926,8 @@ def step_w0_chips_and_brand(page: Page, state: ProofState) -> None:
     """W0: BEFORE any message is sent, assert the unified-mode brand config
     surfaced >=4 of the 5 exact WAVE7_CHIPS as clickable buttons (role-based,
     exact text — the chip's `₹` rupee glyph must survive intact), and
-    the page shows "StyleMitra" somewhere but never "H&M" (regression check:
-    the header literally hardcodes the StyleMitra wordmark today — see
+    the page shows "Style Maitri" somewhere but never "H&M" (regression check:
+    the header literally hardcodes the Style Maitri wordmark today — see
     frontend/components/Logo.tsx — so this also guards against a future
     regression that reintroduces a raw brand-name string).
     """
@@ -1940,14 +1940,14 @@ def step_w0_chips_and_brand(page: Page, state: ProofState) -> None:
         page.get_by_role("button", name="Sangeet look under ₹8000", exact=True).count() > 0
     )
     body_text = page.locator("body").inner_text()
-    has_stylemitra = "StyleMitra" in body_text
+    has_stylemitra = "Style Maitri" in body_text
     has_hm = "H&M" in body_text
     shot(page, "w0_chips_and_brand")
 
     passed = len(hits) >= 4 and rupee_chip_present and has_stylemitra and not has_hm
     state.record(
         "W0. >=4/5 WAVE7_CHIPS render as buttons (rupee glyph intact) and "
-        "page shows 'StyleMitra' not 'H&M'",
+        "page shows 'Style Maitri' not 'H&M'",
         passed,
         f"hits={len(hits)}/5 chips_found={hits} rupee_chip_present={rupee_chip_present} "
         f"has_stylemitra={has_stylemitra} has_hm={has_hm}",
@@ -2744,7 +2744,7 @@ def main() -> int:
         action="store_true",
         help=(
             "Run the Wave-7 wedding-occasion hero content-assertion steps (W0-W5): the "
-            "unified 'StyleMitra' brand config's 5 suggestion chips + display name (W0, "
+            "unified 'Style Maitri' brand config's 5 suggestion chips + display name (W0, "
             "pre-message), the sangeet hero chip's click-to-send path with ethnic-occasion "
             "vocabulary/gender/budget checks (W1), haldi/mehendi/reception occasion-palette "
             "checks (W2-W4), and a partner-styling gender-consistency regression check "

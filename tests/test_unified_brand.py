@@ -1,4 +1,4 @@
-"""Tests for the unified (cross-store B2C) brand config — StyleMitra.
+"""Tests for the unified (cross-store B2C) brand config — Style Maitri.
 
 Guards against api/main.py's unified-mode detection (BRAND unset ==
 unified mode) silently diverging from src.config.brand.get_brand_config's
@@ -36,14 +36,14 @@ def clear_brand_cache() -> None:  # type: ignore[return]
 
 
 def test_brand_unset_defaults_to_unified_stylemitra(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With BRAND unset, get_brand_config() must load StyleMitra (unified.yaml),
+    """With BRAND unset, get_brand_config() must load Style Maitri (unified.yaml),
     not silently fall back to H&M — this is the production deploy's actual env.
     """
     monkeypatch.delenv("BRAND", raising=False)
 
     cfg = get_brand_config()
 
-    assert cfg.display_name == "StyleMitra"
+    assert cfg.display_name == "Style Maitri"
     assert cfg.suggestion_chips == _EXPECTED_CHIPS
     assert cfg.gender_default == "women"
     assert cfg.currency == "INR"
@@ -67,7 +67,7 @@ def test_brand_fashor_still_loads_fashor(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_api_brand_endpoint_serves_stylemitra_when_brand_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """GET /api/brand with BRAND unset must serve StyleMitra's display name and
+    """GET /api/brand with BRAND unset must serve Style Maitri's display name and
     suggestion chips — the end-to-end symptom of the production bug this task fixes.
     """
     monkeypatch.delenv("BRAND", raising=False)
@@ -77,5 +77,5 @@ def test_api_brand_endpoint_serves_stylemitra_when_brand_unset(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["display_name"] == "StyleMitra"
+    assert body["display_name"] == "Style Maitri"
     assert body["suggestion_chips"] == _EXPECTED_CHIPS

@@ -39,7 +39,7 @@ def get_brand_config() -> BrandConfig:
     """Load and cache the active brand config.
 
     BRAND env var selects the brand (default: "unified", the cross-store B2C
-    deployment — StyleMitra). This matches api/main.py's unified-mode
+    deployment — Style Maitri). This matches api/main.py's unified-mode
     detection, where an unset BRAND also means unified mode.
     """
     brand = os.environ.get("BRAND", "unified")

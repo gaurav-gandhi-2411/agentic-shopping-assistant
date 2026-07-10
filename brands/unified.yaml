@@ -1,7 +1,7 @@
-display_name: "StyleMitra"
+display_name: "Style Maitri"
 logo_url: null
 # Deep plum + marigold gold pairing. Marigold (#E8A33D) is the existing
-# StyleMitra brand accent already hardcoded in frontend/components/Logo.tsx
+# Style Maitri brand accent already hardcoded in frontend/components/Logo.tsx
 # and frontend/components/chat/OutfitBoard.tsx; plum is new and chosen to
 # complement it (no existing "brand primary" token found in the frontend).
 primary_colour: "#5B2333"

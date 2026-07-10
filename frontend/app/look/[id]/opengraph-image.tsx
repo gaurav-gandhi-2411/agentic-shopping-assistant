@@ -11,7 +11,7 @@ import { ImageResponse } from "next/og"
 import type { SharedLook } from "@/lib/api/types"
 
 export const runtime = "edge"
-export const alt = "StyleMitra look"
+export const alt = "Style Maitri look"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -92,7 +92,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
             letterSpacing: "-0.02em",
           }}
         >
-          Style<span style={{ color: "#E8A33D" }}>Mitra</span>
+          Style <span style={{ color: "#E8A33D" }}>Maitri</span>
         </div>
 
         {occasion ? (

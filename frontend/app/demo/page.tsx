@@ -98,7 +98,7 @@ export default function DemoPickerPage() {
       sessionStorage.setItem("demo_backend_url", UNIFIED_BACKEND_URL)
       // Use a generic "unified" brand id so the chat page doesn't redirect back.
       sessionStorage.setItem("demo_brand_id", "unified")
-      sessionStorage.setItem("demo_brand_name", "StyleMitra")
+      sessionStorage.setItem("demo_brand_name", "Style Maitri")
       router.push("/demo/chat")
     } catch {
       setError("Could not reach the assistant — please try again in a moment.")

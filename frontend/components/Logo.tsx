@@ -14,9 +14,9 @@ interface LogoProps {
 }
 
 /**
- * StyleMitra brand mark — the "Smiling Hanger": a clothes hanger whose bar
- * reads as a smile, evoking a friendly style companion (StyleMitra = Style +
- * Mitra/friend). Rendered with `currentColor` so it inherits whatever text
+ * Style Maitri brand mark — the "Smiling Hanger": a clothes hanger whose bar
+ * reads as a smile, evoking a friendly style companion (Style Maitri = Style +
+ * Maitri/friend). Rendered with `currentColor` so it inherits whatever text
  * color utility is applied (defaults to `text-primary`, which adapts
  * automatically between light and dark themes via the shadcn/ui CSS
  * variables).
@@ -29,7 +29,7 @@ export function LogoMark({ className }: LogoMarkProps) {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
-      aria-label="StyleMitra"
+      aria-label="Style Maitri"
     >
       {/* Shoulders */}
       <path
@@ -59,14 +59,14 @@ export function LogoMark({ className }: LogoMarkProps) {
   )
 }
 
-/** Full lockup: icon + "StyleMitra" wordmark (marigold accent on "Mitra"). */
+/** Full lockup: icon + "Style Maitri" wordmark (marigold accent on "Maitri"). */
 export function Logo({ className, iconClassName, wordmarkClassName, showWordmark = true }: LogoProps) {
   return (
     <span className={`inline-flex items-center gap-1.5 ${className ?? ""}`}>
       <LogoMark className={iconClassName ?? "h-5 w-5 text-primary shrink-0"} />
       {showWordmark && (
         <span className={`font-semibold tracking-tight text-sm leading-none ${wordmarkClassName ?? ""}`}>
-          Style<span className="text-[#E8A33D]">Mitra</span>
+          Style <span className="text-[#E8A33D]">Maitri</span>
         </span>
       )}
     </span>
