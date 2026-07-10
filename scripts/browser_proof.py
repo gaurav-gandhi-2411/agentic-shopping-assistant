@@ -2999,8 +2999,11 @@ def step_i2_3_flow_through(page: Page, state: ProofState, outcome: str | None) -
     baseline = card_count(page)
     board_baseline = page.locator(OUTFIT_BOARD_SELECTOR).count()
     send_text(page, "sangeet look under 8000")
-    wait_for_more_cards(page, baseline, CARD_WAIT_TIMEOUT_S)
-    wait_for_turn_idle(page)
+    # Same rationale as the wait_for_assistant_reply bump above -- observed
+    # live at 51s for this exact turn (occasion-driven compose + rationale),
+    # cutting the default 60s window too close. Use the same 90s convention.
+    wait_for_more_cards(page, baseline, IMAGE_WAIT_TIMEOUT_S)
+    wait_for_turn_idle(page, timeout_s=IMAGE_WAIT_TIMEOUT_S)
     after = card_count(page)
     gained = after - baseline
     outfit_board_present = page.locator(OUTFIT_BOARD_SELECTOR).count() > board_baseline
