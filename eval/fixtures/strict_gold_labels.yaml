@@ -482,3 +482,40 @@ labels:
      note: "listed colour Black, not wine (no-occasion-gate ranking surfaces this variant)"}
   - {article_id: "11636314", relevant: false, reason: colour-family,
      note: "listed colour Blue, not wine (no-occasion-gate ranking surfaces this variant)"}
+
+# ── Batch 4 (2026-07-11): colour-family filter fix delta items — items surfaced
+# by src.agents.tools.search_catalogue now widening a known-fragmented colour
+# bucket (navy/mustard/burgundy/maroon/charcoal/peach/olive/teal/cream) to its
+# real catalogue-family isin match instead of an approximate single neighbour
+# value. Confirms the multi_003 "red embellished lehenga" 0/5 finding (session
+# note: this was root-caused as an EVAL-HARNESS gap, not a production bug —
+# production already returned red lehengas live; multi_003's 0/5 was because
+# eval_strict.py's pipeline mode never applied a colour filter at all before
+# this fix). retrieval_snapshot: commit (colour-family fix), same catalogue.
+- query_id: gold_022
+  items:
+  - {article_id: "8029162438878", relevant: true}
+  - {article_id: "2bbfffc2-e7c2-5a6f-ae77-d411464a0338", relevant: true}
+  - {article_id: "8457243263138", relevant: true}
+  - {article_id: "1291572e-139d-5910-ae82-75a2e9d3c518", relevant: true}
+- query_id: multi_001
+  items:
+  - {article_id: "9563769241897", relevant: true,
+     note: "desc explicitly 'Black Ruffled Maxi Bodycon Dress' — bodycon claimed despite maxi in title"}
+- query_id: multi_003
+  items:
+  - {article_id: "16896028", relevant: true}
+  - {article_id: "14122722", relevant: true, note: "explicitly 'embellished'"}
+  - {article_id: "15293570", relevant: true}
+  - {article_id: "14976120", relevant: true, note: "embroidered mirror work = embellished"}
+  - {article_id: "14210976", relevant: true}
+- query_id: multi_006
+  items:
+  - {article_id: "8452034691234", relevant: true, note: "silhouette unstated, not contradicted"}
+  - {article_id: "1a27f559-be6b-59f5-93e8-6ec42fc6c991", relevant: true, note: "'Straight' explicit"}
+- query_id: multi_008
+  items:
+  - {article_id: "7542310600790", relevant: false, reason: set-not-single, note: "'with Palazzo & Dupatta'"}
+  - {article_id: "9099862311134", relevant: false, reason: set-not-single, note: "'Ethnic Set'"}
+  - {article_id: "7607224041558", relevant: false, reason: attribute-contradiction,
+     note: "'Straight Fit' contradicts 'anarkali'; also 'with Palazzo and Dupatta' set"}

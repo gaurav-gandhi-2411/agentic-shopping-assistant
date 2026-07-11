@@ -167,8 +167,8 @@ _COLOUR_MAP: dict[str, str] = {
     "blue": "Blue",
     "dark blue": "Dark Blue",
     "light blue": "Light Blue",
-    "navy": "Dark Blue",
-    "navy blue": "Dark Blue",
+    "navy": "Navy Blue",
+    "navy blue": "Navy Blue",
     "grey": "Grey",
     "gray": "Grey",
     "dark grey": "Dark Grey",
@@ -181,7 +181,7 @@ _COLOUR_MAP: dict[str, str] = {
     "orange": "Orange",
     "purple": "Purple",
     "beige": "Beige",
-    "cream": "Light Beige",
+    "cream": "Cream",
     "off white": "Off White",
     "brown": "Brown",
     "khaki": "Khaki",
@@ -189,21 +189,62 @@ _COLOUR_MAP: dict[str, str] = {
     # Phase A colour-backfill extension (2026-07-06) — common catalogue colours that
     # were missing from the base map, added so query-side colour parsing and the
     # catalogue-side colour backfill (src/catalogue/cleaning.py) share one vocabulary.
-    "mustard": "Yellow",
-    "burgundy": "Dark Red",
-    "maroon": "Dark Red",
-    "wine": "Dark Red",
-    "lavender": "Purple",
-    "charcoal": "Dark Grey",
-    "peach": "Light Pink",
-    "olive": "Khaki",
-    "teal": "Turquoise",
+    #
+    # 2026-07-11 correction: these nine synonyms (mustard/burgundy/maroon/charcoal/
+    # peach/olive/teal/cream/lavender) were originally collapsed onto an approximate
+    # NEIGHBOURING catalogue value (e.g. mustard -> Yellow) instead of the catalogue's
+    # own distinct value — live-proven: the catalogue has 58 distinct colour_group_name
+    # values, and each of these nine has its OWN well-populated bucket (Navy Blue=770,
+    # Mustard=295, Burgundy=136, Maroon=478, Charcoal=83, Peach=244, Olive=239, Teal=179,
+    # Cream=131, Lavender=91 items) that a query naming that colour was silently never
+    # matching. Now maps to the catalogue's own exact value; _COLOUR_FAMILY below
+    # additionally widens the RETRIEVAL FILTER (not this display/scoring value) to the
+    # near-synonym neighbours so genuinely mistagged items aren't newly excluded.
+    "mustard": "Mustard",
+    "burgundy": "Burgundy",
+    "maroon": "Maroon",
+    "wine": "Dark Red",  # no exact catalogue value for "wine" — Dark Red remains closest
+    "lavender": "Lavender",
+    "charcoal": "Charcoal",
+    "peach": "Peach",
+    "olive": "Olive",
+    "teal": "Teal",
     "rust": "Rust",
 }
 
 _COLOUR_SORTED: list[tuple[str, str]] = sorted(
     _COLOUR_MAP.items(), key=lambda kv: len(kv[0]), reverse=True
 )
+
+# Colour-family groups for RETRIEVAL FILTERING only (see 2026-07-11 correction above) —
+# when a query's colour resolves to one of these keys, the filter widens to the whole
+# tuple (isin match, see hybrid_search._facet_value_matches) instead of the single exact
+# value, so "navy blue blazer" also catches items the catalogue tagged plain "Dark Blue".
+# Deliberately NOT used for display/scoring (intent.colour, colour_score) — a rationale
+# should still say "navy", not "navy or dark blue".
+_COLOUR_FAMILY: dict[str, tuple[str, ...]] = {
+    "Navy Blue": ("Navy Blue", "Dark Blue"),
+    "Mustard": ("Mustard", "Yellow"),
+    "Burgundy": ("Burgundy", "Dark Red", "Maroon"),
+    "Maroon": ("Maroon", "Dark Red", "Burgundy"),
+    "Dark Red": ("Dark Red", "Maroon", "Burgundy"),
+    "Charcoal": ("Charcoal", "Dark Grey"),
+    "Peach": ("Peach", "Light Pink"),
+    "Olive": ("Olive", "Khaki"),
+    "Teal": ("Teal", "Turquoise", "Turquoise Blue"),
+    "Cream": ("Cream", "Light Beige"),
+    "Lavender": ("Lavender", "Purple"),
+}
+
+
+def colour_filter_values(colour: str | None) -> tuple[str, ...] | str | None:
+    """Return the retrieval-filter value for a canonical colour: the family
+    tuple if `colour` is a known-fragmented catalogue bucket (see
+    _COLOUR_FAMILY), else the colour unchanged. None passes through as None.
+    """
+    if not colour:
+        return colour
+    return _COLOUR_FAMILY.get(colour, colour)
 
 # ---------------------------------------------------------------------------
 # Occasion map — sorted longest-first

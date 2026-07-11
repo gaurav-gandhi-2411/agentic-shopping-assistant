@@ -33,7 +33,23 @@ def search_catalogue(
     retriever: HybridRetriever,
     top_k: int,
 ) -> dict:
-    """Runs hybrid retrieval. Returns {items: [...], query: ..., n_results: int}."""
+    """Runs hybrid retrieval. Returns {items: [...], query: ..., n_results: int}.
+
+    Widens a known-fragmented colour_group_name value (navy/mustard/burgundy/...
+    — see intent_parser._COLOUR_FAMILY) to its family isin-match ONLY for this
+    retrieval call — via a local copy, never mutating the caller's `filters`
+    dict, so every other consumer of that dict (persisted session state,
+    colour-refinement chips, excluded-colour detection) keeps seeing the
+    single canonical string it always has. Live-proven root cause (2026-07-11):
+    the catalogue distinguishes "Navy Blue" (770 items) from "Dark Blue"
+    (2369) as separate colour_group_name values, but the query-side synonym
+    map previously collapsed "navy" onto "Dark Blue" alone, silently
+    excluding every Navy-Blue-tagged item from a "navy" query.
+    """
+    if filters and filters.get("colour_group_name"):
+        from src.agents.intent_parser import colour_filter_values
+
+        filters = {**filters, "colour_group_name": colour_filter_values(filters["colour_group_name"])}
     items = retriever.search(query, top_k=top_k, filters=filters or None)
     return {"items": items, "query": query, "n_results": len(items)}
 

@@ -785,7 +785,9 @@ queries:
   expected_intent:
     garment_type: dress
     gender: null
-    colour: Dark Blue
+    # 2026-07-11: navy maps to its own catalogue-exact "Navy Blue" value now,
+    # not the approximate neighbour "Dark Blue" — see intent_parser._COLOUR_MAP.
+    colour: Navy Blue
     occasion: null
     budget_max_inr: null
     body_type: null
@@ -796,7 +798,11 @@ queries:
       product_type_contains:
       - dress
     graded:
+      # Both values: colour_filter_values() widens "Navy Blue" retrieval to
+      # this exact family (see intent_parser._COLOUR_FAMILY) — either is a
+      # genuine match now, not just the canonical value.
       colour_in:
+      - Navy Blue
       - Dark Blue
 - id: search_042
   category: search
@@ -869,7 +875,9 @@ queries:
   expected_intent:
     garment_type: jeans
     gender: null
-    colour: Dark Blue
+    # 2026-07-11: navy maps to its own catalogue-exact "Navy Blue" value now,
+    # not the approximate neighbour "Dark Blue" — see intent_parser._COLOUR_MAP.
+    colour: Navy Blue
     occasion: null
     budget_max_inr: null
     body_type: null
@@ -881,7 +889,11 @@ queries:
       - jeans
       - denim
     graded:
+      # Both values: colour_filter_values() widens "Navy Blue" retrieval to
+      # this exact family (see intent_parser._COLOUR_FAMILY) — either is a
+      # genuine match now, not just the canonical value.
       colour_in:
+      - Navy Blue
       - Dark Blue
 - id: search_046
   category: search
@@ -4359,7 +4371,8 @@ queries:
   expected_intent:
     garment_type: null
     gender: men
-    colour: Dark Blue
+    # 2026-07-11: navy -> "Navy Blue" (its own catalogue-exact value now).
+    colour: Navy Blue
     occasion: reception
     budget_max_inr: null
     body_type: null
@@ -4757,7 +4770,8 @@ queries:
   expected_intent:
     garment_type: null
     gender: men
-    colour: Dark Blue
+    # 2026-07-11: navy blue -> "Navy Blue" (its own catalogue-exact value now).
+    colour: Navy Blue
     occasion: wedding_guest
     budget_max_inr: null
     body_type: null

@@ -76,13 +76,20 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
     from src.agents.intent_parser import parse_intent
     from src.agents.outfit.coherence import is_coherent_candidate
     from src.agents.outfit.slots import fabric_score_delta, is_kids_item
+    from src.agents.tools import search_catalogue
 
     intent = parse_intent(query)
     filters: dict = {"gender": gender}
     if intent.garment_type:
         filters["product_type_name"] = intent.garment_type
+    if intent.colour:
+        filters["colour_group_name"] = intent.colour
 
-    items = retriever.search(query, top_k=50, filters=filters)
+    # search_catalogue (not retriever.search directly) — it's the actual
+    # production retrieval boundary and applies the colour-family widening
+    # (colour_filter_values) internally, so this mirror can never silently
+    # drift from what search_node does.
+    items = search_catalogue(query, filters, retriever, 50)["items"]
 
     occasion_slug = intent.occasion
     if occasion_gate and occasion_slug and occasion_slug != "casual":

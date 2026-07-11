@@ -303,6 +303,21 @@ def apply_per_store_cap(
     return kept
 
 
+def _facet_value_matches(facets: dict, key: str, value: object) -> bool:
+    """True if `facets[key]` matches `value`.
+
+    `value` may be a list/tuple/set — matches ANY member (isin semantics),
+    e.g. colour_group_name=["Navy Blue", "Dark Blue"] for a "navy" query, so a
+    colour-family query isn't silently narrowed to only ONE of several
+    catalogue-distinct near-synonym buckets (see intent_parser._COLOUR_FAMILY).
+    Plain string values keep exact-equality semantics, unchanged.
+    """
+    item_val = str(facets.get(key, "")).lower()
+    if isinstance(value, (list, tuple, set)):
+        return item_val in {str(v).lower() for v in value}
+    return item_val == str(value).lower()
+
+
 class HybridRetriever:
     def __init__(
         self,
@@ -486,8 +501,7 @@ class HybridRetriever:
                 }
 
                 if facet_filters and not all(
-                    str(facets.get(k, "")).lower() == str(v).lower()
-                    for k, v in facet_filters.items()
+                    _facet_value_matches(facets, k, v) for k, v in facet_filters.items()
                 ):
                     continue
 

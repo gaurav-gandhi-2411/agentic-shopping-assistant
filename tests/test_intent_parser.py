@@ -116,11 +116,11 @@ class TestColourGarmentCombos:
             ("red kurti", "Red", "kurti"),
             ("dark blue blazer", "Dark Blue", "blazer"),
             ("white shirt", "White", "shirt"),
-            ("navy dress", "Dark Blue", "dress"),
+            ("navy dress", "Navy Blue", "dress"),
             ("grey trousers", "Grey", "trousers"),
             ("pink blouse", "Pink", "blouse"),
             ("green top", "Green", "top"),
-            ("navy blue jeans", "Dark Blue", "jeans"),
+            ("navy blue jeans", "Navy Blue", "jeans"),
         ],
     )
     def test_colour_and_garment(
@@ -141,7 +141,7 @@ class TestColourGarmentCombos:
 
     def test_navy_canonical(self) -> None:
         intent = parse_intent("navy jacket")
-        assert intent.colour == "Dark Blue"
+        assert intent.colour == "Navy Blue"
 
 
 # ---------------------------------------------------------------------------
@@ -419,4 +419,4 @@ class TestRawQueryPreservation:
         q = "Navy BLUE Kurti"
         intent = parse_intent(q)
         assert intent.raw_query == "Navy BLUE Kurti"
-        assert intent.colour == "Dark Blue"  # canonical form used internally
+        assert intent.colour == "Navy Blue"  # canonical form used internally

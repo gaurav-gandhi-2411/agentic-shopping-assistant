@@ -148,7 +148,9 @@ class TestExtractColour:
 
     def test_trailing_parenthetical_takes_first_colour(self) -> None:
         name = "Men Solid Cotton Satin Blend Straight Kurta  (Maroon, Dark Blue, Black, Pink)"
-        assert extract_colour(name) == "Dark Red"  # maroon -> Dark Red
+        # 2026-07-11: maroon now maps to its own catalogue-exact "Maroon" value,
+        # not the approximate neighbour "Dark Red" — see intent_parser._COLOUR_MAP.
+        assert extract_colour(name) == "Maroon"
 
     def test_falls_back_to_detail_desc(self) -> None:
         assert extract_colour("Plain Kurta", "This black kurta is festive") == "Black"
@@ -157,7 +159,9 @@ class TestExtractColour:
         assert extract_colour("Square Neck Blouson Top with Tie-Knot at Back") is None
 
     def test_extended_vocab_burgundy_and_rust(self) -> None:
-        assert extract_colour("Burgundy Wrap Dress") == "Dark Red"
+        # 2026-07-11: burgundy now maps to its own catalogue-exact "Burgundy"
+        # value, not the approximate neighbour "Dark Red".
+        assert extract_colour("Burgundy Wrap Dress") == "Burgundy"
         assert extract_colour("Rust Corduroy Jacket") == "Rust"
 
 
