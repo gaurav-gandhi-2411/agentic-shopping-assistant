@@ -171,7 +171,11 @@ def main() -> None:
                              "(consumed by scripts/eval_gate.py)")
     parser.add_argument("--cross-encoder", action="store_true",
                         help="pipeline mode only: rerank the post-gate candidate pool with "
-                             f"{_CROSS_ENCODER_MODEL} (Part 1b A/B, reordering only)")
+                             f"--cross-encoder-model (default {_CROSS_ENCODER_MODEL}), "
+                             "reordering only")
+    parser.add_argument("--cross-encoder-model", default=_CROSS_ENCODER_MODEL,
+                        help="sentence-transformers CrossEncoder model name to use "
+                             "when --cross-encoder is set (swap candidates without code changes)")
     args = parser.parse_args()
 
     from eval_model import _build_components  # heavy import deferred past --help
@@ -190,8 +194,8 @@ def main() -> None:
     cross_encoder = None
     if args.cross_encoder:
         from sentence_transformers import CrossEncoder
-        print(f"loading cross-encoder {_CROSS_ENCODER_MODEL}...")
-        cross_encoder = CrossEncoder(_CROSS_ENCODER_MODEL, device="cpu")
+        print(f"loading cross-encoder {args.cross_encoder_model}...")
+        cross_encoder = CrossEncoder(args.cross_encoder_model, device="cpu")
 
     n_scored = n_relevant = n_unlabeled = 0
     reasons: Counter[str] = Counter()
