@@ -1477,7 +1477,7 @@ def build_graph(
         r"\bwife\b": "Ladieswear", r"\bwives\b": "Ladieswear",
         r"\bgirlfriend\b": "Ladieswear", r"\bher\b": "Ladieswear",
         r"\bhusband\b": "Menswear", r"\bboyfriend\b": "Menswear",
-        r"\bhim\b": "Menswear",
+        r"\bhim\b": "Menswear", r"\bgroom\b": "Menswear", r"\bbride\b": "Ladieswear",
         r"\bkid\b": "Baby/Children", r"\bkids\b": "Baby/Children",
         r"\bchild\b": "Baby/Children", r"\bchildren\b": "Baby/Children",
         r"\bbaby\b": "Baby/Children",
@@ -2033,6 +2033,7 @@ def build_graph(
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
+        from src.agents.outfit.slots import is_kids_item as _occ_is_kids_item
 
         _occ_slug = _occ_parse_intent(raw_query).occasion or _reconstruct_occasion_from_history(
             state.get("messages", [])
@@ -2044,9 +2045,14 @@ def build_graph(
                     else "women" if merged.get("index_group_name") == "ladieswear"
                     else "unisex")
             )
+            # Live-proven 2026-07-11: "sangeet lehenga for women" still surfaced a
+            # "Campana GIRLS ..." kids item — is_coherent_candidate covers ethnic/
+            # western register only, not the kids-leak class the composer already
+            # guards against per-slot. Same discipline applies here.
             _occ_gated = [
                 it for it in items_out
                 if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
+                and not _occ_is_kids_item(it.get("prod_name") or it.get("display_name") or "")
             ]
             if _occ_gated:
                 items_out = _occ_gated
