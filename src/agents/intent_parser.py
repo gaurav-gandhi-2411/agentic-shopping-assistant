@@ -126,11 +126,20 @@ _COMPILED_GARMENT_RULES: list[tuple[re.Pattern[str], str]] = [
 _BARRIER_RE = re.compile(r"\b(for|under|with|to)\b", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
-# Gender rules — scan in order; women checked before men
+# Gender rules — scan in order. EXPLICIT gender words/relations (either gender)
+# always win over garment-implied heuristics: "kurta" is unisex in this
+# catalogue (it stocks men's kurtas), so "kurta for men" must not fall through
+# to a garment-based "women" guess before the explicit "men" word is checked.
+# Garment-implied rules only fire as a fallback when no explicit word matched
+# (2026-07-11: found live via a post-deploy proof — "printed kurta for men"
+# was resolving to gender=women in production because the old ordering
+# checked "kurta" as a women-marker before the explicit "men" rule).
 # ---------------------------------------------------------------------------
 
 _GENDER_MAP: list[tuple[str, str]] = [
-    # Women signals — checked before men to avoid "women" containing "men" substring
+    # Explicit women signals — checked before men to avoid "women" containing
+    # "men" substring (moot under \b word-boundary regex, but kept as belt-
+    # and-braces since it costs nothing).
     (
         r"\bwomen\b|\bwoman\b|\bwomens\b|\bwomen's\b|\bwoman's\b"
         r"|\bladies\b|\bfemale\b|\bgirl\b|\bher\b|\bshe\b",
@@ -141,13 +150,7 @@ _GENDER_MAP: list[tuple[str, str]] = [
         r"|\bfor\s+(?:my\s+)?mum\b|\bfor\s+(?:my\s+)?mom\b|\bfor\s+(?:my\s+)?daughter\b",
         "women",
     ),
-    # Ethnic women markers
-    (
-        r"\bsarees?\b|\bkurti\b|\bkurtas?\b|\blehenga\b|\bdupatta\b"
-        r"|\banarkali\b|\bsharara\b|\bpalazzo\b",
-        "women",
-    ),
-    # Men signals
+    # Explicit men signals
     (r"\bmen\b|\bman\b|\bmens\b|\bmen's\b|\bmale\b|\bhim\b|\bhe\b", "men"),
     (
         r"\bfor\s+(?:my\s+)?husband\b|\bfor\s+(?:my\s+)?boyfriend\b"
@@ -155,8 +158,17 @@ _GENDER_MAP: list[tuple[str, str]] = [
         r"|\bfor\s+(?:my\s+)?son\b|\bfor\s+(?:my\s+)?brother\b",
         "men",
     ),
-    # Indian ethnic men markers
+    # Garment-implied fallback (only reached when no explicit gender word
+    # matched above). "kurta" is deliberately excluded — this catalogue
+    # stocks men's kurtas (see gold_020/gold_028 in the strict gold set), so
+    # it is NOT a reliable gender signal; "kurti" is a genuinely women-
+    # specific term and stays.
     (r"\bsherwani\b|\bbandhgala\b", "men"),
+    (
+        r"\bsarees?\b|\bkurti\b|\blehenga\b|\bdupatta\b"
+        r"|\banarkali\b|\bsharara\b|\bpalazzo\b",
+        "women",
+    ),
 ]
 
 _COMPILED_GENDER: list[tuple[re.Pattern[str], str]] = [
