@@ -1,0 +1,49 @@
+Loading retrieval indices from C:\Users\gaura\ml-projects\agentic-shopping-assistant\data\processed\unified...
+
+STRICT GOLD EVAL [pipeline-occasion-gated] — hand-audited relevance (rubric: strict_gold_queries.yaml)
+queries=40  scored_items=195  unlabeled_items=0
+
+strict precision@5 (overall): 0.764  (149/195)
+
+per-category precision@5:
+  literal          0.920  (23/25)
+  multi_attribute  0.410  (16/39)
+  occasion         0.736  (53/72)
+  style            0.966  (57/59)
+
+miss taxonomy:
+   11  colour-family            [CODE-FIXABLE]
+    9  set-not-single           [CODE-FIXABLE]
+    5  occasion-register        [CODE-FIXABLE]
+    5  type-confusion           [CODE-FIXABLE]
+    4  budget                   [CODE-FIXABLE]
+    4  data-ceiling             [DATA]
+    4  attribute-contradiction  [CODE-FIXABLE]
+    3  kids-leak                [CODE-FIXABLE]
+    1  data-mislabel            [DATA]
+
+if every CODE-FIXABLE miss were fixed: 0.974 (remaining gap = 5 data-capped items)
+
+weakest queries:
+  multi_003      [multi_attribute ] 0/5  'red embellished lehenga for sangeet under 15000'
+  gold_024       [occasion        ] 1/5  'sherwani for groom'
+  occ_adv_002    [occasion        ] 1/4  'bright haldi look for women'
+  occ_adv_005    [occasion        ] 1/4  'mehendi outfit for women'
+  multi_005      [multi_attribute ] 1/4  'navy blue slim fit blazer for office under 5000'
+  multi_007      [multi_attribute ] 1/5  'peach a-line kurta for women under 2500'
+  multi_008      [multi_attribute ] 1/5  'wine anarkali kurta for reception under 8000'
+  occ_adv_001    [occasion        ] 2/5  'haldi outfit for women'
+  multi_001      [multi_attribute ] 3/5  'black bodycon dress for office under 3000'
+  multi_004      [multi_attribute ] 3/5  'yellow cotton kurta for haldi under 1500'
+  multi_006      [multi_attribute ] 3/5  'white straight fit kurta for men under 2000'
+  gold_004       [style           ] 4/5  'straight fit kurta for women'
+  gold_005       [style           ] 4/5  'anarkali kurta for women'
+  gold_016       [literal         ] 4/5  'kurti under 1500'
+  gold_022       [literal         ] 4/5  'blue jeans under 2000 for men'
+  gold_017       [occasion        ] 4/5  'lehenga for sangeet'
+  gold_018       [occasion        ] 4/5  'bright yellow kurta for haldi'
+  gold_019       [occasion        ] 4/5  'green outfit for mehendi'
+  gold_020       [occasion        ] 4/5  "men's kurta for a reception"
+  occ_adv_004    [occasion        ] 4/5  'sangeet lehenga for women'
+  occ_adv_007    [occasion        ] 4/5  'wedding guest saree for women'
+  multi_002      [multi_attribute ] 4/5  'green floral kurta for mehendi under 2000'

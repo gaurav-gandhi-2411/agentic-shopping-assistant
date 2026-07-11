@@ -205,3 +205,278 @@ labels:
   - {article_id: "8843021549818", relevant: false, reason: data-ceiling, note: striped shirt; see above}
   - {article_id: "3519bc25-ef6a-50e8-842a-3f232d44c36d", relevant: false, reason: data-ceiling, note: boxer; see above}
   - {article_id: "b83f0047-a2e0-5bdd-81c2-345f1e2781bd", relevant: false, reason: data-ceiling, note: sweatshirt; see above}
+
+# ── Batch 2 (2026-07-11): occ_adv_* + multi_* — occasion-adversarial register
+# probes and multi-attribute stacked queries, added to test the occasion-filter
+# and type-confusion fixes honestly, before/after. New miss reason added:
+#   colour-family    listed colour attribute doesn't match the query's stated
+#                     colour family (a "green & red" item for a "red" query)
+# retrieval_snapshot: commit cdd6491 (PRE-FIX baseline, before the occasion-
+# filter / groom-bride / gate_gate changes in this session), data/processed/
+# unified, HybridRetriever.search(query, top_k=50, filters={gender})[:5].
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8428296569054", relevant: false, reason: occasion-register,
+     note: "western co-ord set — haldi is ethnic_only register"}
+  - {article_id: "14949676", relevant: true,
+     note: "ethnic, mustard/yellow, gota-patti is a light festive haldi-appropriate embellishment"}
+  - {article_id: "8928866468062", relevant: false, reason: type-confusion,
+     note: "standalone western trouser, not an outfit, not ethnic"}
+  - {article_id: "19049798", relevant: false, reason: occasion-register,
+     note: "black — haldi's palette is bright/daytime, black reads as evening"}
+  - {article_id: "625fe2bd-cac1-51f7-bc01-7b83661d01aa", relevant: false, reason: type-confusion,
+     note: "a baseball cap is not an outfit"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "15447990", relevant: false, reason: occasion-register,
+     note: "western top+skirt set — haldi is ethnic_only"}
+  - {article_id: "10041108857129", relevant: false, reason: occasion-register,
+     note: "western top — haldi is ethnic_only"}
+  - {article_id: "14949676", relevant: true, note: "ethnic, bright mustard, festive-light"}
+  - {article_id: "17511746", relevant: false, reason: occasion-register,
+     note: "western cargo trousers — streetwear register, ethnic_only violation"}
+  - {article_id: "8517252874462", relevant: false, reason: occasion-register,
+     note: "dark maroon WOOLEN (winter fabric) — contradicts 'bright' + haldi's light daytime register"}
+- query_id: occ_adv_003
+  items:
+  - {article_id: "7553271169246", relevant: true, note: "western shirt, office-plausible"}
+  - {article_id: "6883946496157", relevant: true, note: "western floral dress, business-casual plausible"}
+  - {article_id: "7553271234782", relevant: true, note: "western shirt, office-plausible"}
+  - {article_id: "7599231402206", relevant: true, note: "western floral dress, business-casual plausible"}
+  - {article_id: "18205646", relevant: true, note: "branded OFFICE, western shrug layer"}
+- query_id: occ_adv_004
+  items:
+  - {article_id: "18242972", relevant: true, note: "solid lehenga choli — legitimate sangeet garment"}
+  - {article_id: "15028766", relevant: false, reason: kids-leak, note: "'Campana GIRLS'"}
+  - {article_id: "14769612", relevant: true, note: "printed lehenga choli — legitimate sangeet garment"}
+  - {article_id: "14064978", relevant: true,
+     note: "velvet sequinned — matches sangeet's embellished register strongly"}
+  - {article_id: "8607018582166", relevant: true, note: "bandhani chiffon lehenga set"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "8428296569054", relevant: false, reason: occasion-register,
+     note: "western co-ord — mehendi is ethnic_only"}
+  - {article_id: "19129450", relevant: true, note: "ethnic kurta-with-trousers set, occasion-plausible"}
+  - {article_id: "8928866468062", relevant: false, reason: type-confusion,
+     note: "standalone western trouser, not an outfit"}
+  - {article_id: "19190904", relevant: false, reason: occasion-register,
+     note: "western co-ord (top+trouser) — mehendi is ethnic_only"}
+  - {article_id: "9761870512425", relevant: false, reason: occasion-register,
+     note: "western denim bodycon mini dress — hard ethnic_only violation"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "8609194836118", relevant: true, note: "gown with dupatta, embroidered — indo-western glam"}
+  - {article_id: "7599231402206", relevant: false, reason: type-confusion,
+     note: "plain floral dress, not a gown; too casual for reception register"}
+  - {article_id: "9993618620713", relevant: true, note: "genuine formal evening gown"}
+  - {article_id: "8609194901654", relevant: true, note: "gown with dupatta, embroidered — indo-western glam"}
+  - {article_id: "6883946496157", relevant: false, reason: type-confusion,
+     note: "plain floral dress, not a gown; too casual for reception register"}
+- query_id: occ_adv_007
+  items:
+  - {article_id: "18484800", relevant: true}
+  - {article_id: "8649834102934", relevant: true}
+  - {article_id: "18296248", relevant: true, note: "desc explicitly markets it as wedding-guest wear"}
+  - {article_id: "8649834135702", relevant: true}
+  - {article_id: "8574022910102", relevant: false, reason: type-confusion,
+     note: "a shawl, not a saree"}
+- query_id: occ_adv_008
+  items:
+  - {article_id: "57b0d2c1-8a57-5d7a-a4b0-3927ac4b26ed", relevant: true}
+  - {article_id: "1b828ddc-e125-5a63-91e1-e62f06fd8527", relevant: true}
+  - {article_id: "d5c96b03-b875-5552-bd7c-d33cfa55019b", relevant: true}
+  - {article_id: "3cee13ee-17b2-53fa-979f-9ab5c6c0c865", relevant: true, note: "desc explicitly 'formal trousers'"}
+  - {article_id: "8852952252578", relevant: true, note: "no explicit casual marker despite elastane stretch"}
+- query_id: multi_001
+  items:
+  - {article_id: "7599231598814", relevant: true}
+  - {article_id: "9485863354665", relevant: true}
+  - {article_id: "8225722171614", relevant: false, reason: budget, note: "₹3149 > ₹3000 cap"}
+  - {article_id: "7810754937054", relevant: true}
+  - {article_id: "8760230117673", relevant: false, reason: attribute-contradiction,
+     note: "described 'bright'/floral, colour attribute None — not black"}
+- query_id: multi_002
+  items:
+  - {article_id: "8654826176662", relevant: true}
+  - {article_id: "8654826668182", relevant: true}
+  - {article_id: "7602969182294", relevant: false, reason: budget, note: "₹3499 > ₹2000 cap"}
+  - {article_id: "8663535485078", relevant: false, reason: budget, note: "₹5499 > ₹2000 cap"}
+  - {article_id: "7851298390102", relevant: false, reason: budget, note: "₹2299 > ₹2000 cap"}
+- query_id: multi_003
+  items:
+  - {article_id: "18069514", relevant: false, reason: colour-family,
+     note: "listed colour Green — red is a secondary accent only, not the primary colour"}
+  - {article_id: "16778356", relevant: false, reason: kids-leak, note: "'SKY HEIGHTS Girls'"}
+  - {article_id: "16628320", relevant: false, reason: colour-family,
+     note: "listed colour Grey — red is secondary, not primary"}
+  - {article_id: "16630012", relevant: false, reason: kids-leak, note: "'A T U N Girls'"}
+  - {article_id: "8661206335638", relevant: false, reason: type-confusion,
+     note: "saree, not lehenga"}
+- query_id: multi_004
+  items:
+  - {article_id: "8482607300758", relevant: true}
+  - {article_id: "8389028675806", relevant: false, reason: set-not-single, note: "'Kurta Set'"}
+  - {article_id: "8438473031830", relevant: true}
+  - {article_id: "8513893073046", relevant: true, note: "mustard = yellow colour-family"}
+  - {article_id: "8438474375318", relevant: false, reason: set-not-single, note: "3-piece suit set"}
+- query_id: multi_005
+  items:
+  - {article_id: "8461915127970", relevant: false, reason: type-confusion, note: trousers}
+  - {article_id: "8533627928738", relevant: false, reason: type-confusion, note: trousers}
+  - {article_id: "8549062017186", relevant: false, reason: type-confusion, note: trousers}
+  - {article_id: "d1f26e1d-188f-5f06-8a2d-51a0ef339417", relevant: true,
+     note: "genuine blazer, colour Blue (navy-family), office-formal, within budget"}
+  - {article_id: "8564768112802", relevant: false, reason: type-confusion, note: trousers}
+- query_id: multi_006
+  items:
+  - {article_id: "7606024470750", relevant: false, reason: type-confusion,
+     note: "'Kurta Style' SHIRT — type facet is shirt, not kurta"}
+  - {article_id: "384bcfe0-0cf2-51b1-80cd-4aacd4b7f593", relevant: false, reason: type-confusion,
+     note: "badminton shoes — embedding noise"}
+  - {article_id: "8063137087710", relevant: true, note: "off-white ~= white, unstated silhouette not contradicted"}
+  - {article_id: "8550645399714", relevant: false, reason: attribute-contradiction,
+     note: "'Slim Fit' explicitly stated — contradicts 'straight fit'"}
+  - {article_id: "6e517401-6333-56a4-82ce-df30197670bd", relevant: true, note: "'Straight' explicit in name"}
+- query_id: multi_007
+  items:
+  - {article_id: "8646581977238", relevant: false, reason: set-not-single, note: "2-piece set"}
+  - {article_id: "11862408", relevant: false, reason: budget, note: "₹2999 > ₹2500 cap"}
+  - {article_id: "7620183228502", relevant: false, reason: set-not-single, note: "'with Pant'"}
+  - {article_id: "11369410", relevant: true, note: "single kurta, peach, a-line, ₹2499 within cap"}
+  - {article_id: "8657578262678", relevant: false, reason: budget, note: "₹2999 > ₹2500 cap; also a set"}
+- query_id: multi_008
+  items:
+  - {article_id: "16186448", relevant: true, note: "wine anarkali, embellished belt, within budget"}
+  - {article_id: "7712173621334", relevant: false, reason: set-not-single, note: "'with Pant & Dupatta'"}
+  - {article_id: "8285322969238", relevant: false, reason: set-not-single, note: "3-piece suit"}
+  - {article_id: "12104560", relevant: false, reason: set-not-single, note: "'with Palazzos'"}
+  - {article_id: "9099862474974", relevant: false, reason: attribute-contradiction,
+     note: "plain kurta, no anarkali/flared silhouette signal — style mismatch"}
+
+# ── Batch 3 (2026-07-11): pipeline-mode delta items — items surfaced ONLY when
+# the garment_type facet filter (existing production mechanism) is applied on
+# top of the same gender filter, not present in the raw-mode top-5 already
+# labeled above. Same rubric, same PRE-FIX snapshot commit cdd6491.
+- query_id: gold_002
+  items:
+  - {article_id: "9886579228969", relevant: true}
+- query_id: gold_005
+  items:
+  - {article_id: "11636314", relevant: true}
+  - {article_id: "7579620966486", relevant: true}
+  - {article_id: "12766966", relevant: true}
+- query_id: gold_007
+  items:
+  - {article_id: "d1f26e1d-188f-5f06-8a2d-51a0ef339417", relevant: true,
+     note: "fit unstated, not contradicted"}
+  - {article_id: "9051530461406", relevant: true, note: "fit unstated, not contradicted"}
+  - {article_id: "8780668174498", relevant: true, note: "fit unstated, not contradicted"}
+- query_id: gold_008
+  items:
+  - {article_id: "8844910133410", relevant: true}
+- query_id: gold_009
+  items:
+  - {article_id: "18696830", relevant: true, note: "high-rise = high-waisted"}
+  - {article_id: "7891347177694", relevant: true, note: "high-rise = high-waisted"}
+- query_id: gold_016
+  items:
+  - {article_id: "8611662463126", relevant: true}
+- query_id: gold_021
+  items:
+  - {article_id: "7482d19e-e59e-5635-8a4a-4a925cefe979", relevant: true}
+  - {article_id: "8161917370590", relevant: true}
+  - {article_id: "8712072757470", relevant: true}
+- query_id: gold_022
+  items:
+  - {article_id: "a154577c-b55a-5d63-bc7c-062fe011d870", relevant: true}
+- query_id: gold_023
+  items:
+  - {article_id: "8663530700950", relevant: true}
+  - {article_id: "8663532929174", relevant: true}
+  - {article_id: "8663529554070", relevant: true}
+  - {article_id: "8660402176150", relevant: true}
+- query_id: gold_015
+  items:
+  - {article_id: "8780668174498", relevant: true}
+  - {article_id: "8907901534370", relevant: true}
+- query_id: gold_017
+  items:
+  - {article_id: "16896040", relevant: true}
+  - {article_id: "8607018582166", relevant: true}
+- query_id: gold_019
+  items:
+  - {article_id: "7602969182294", relevant: true, note: "'outfit' query legitimizes a coordinated set"}
+  - {article_id: "13754380", relevant: true}
+  - {article_id: "7851298390102", relevant: true, note: "'outfit' query legitimizes a coordinated set"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "6669758005405", relevant: false, reason: occasion-register,
+     note: "western shrug, not ethnic, not a full outfit"}
+  - {article_id: "19223998", relevant: true, note: "ethnic yellow set, 'outfit' query legitimizes set"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "8483092037854", relevant: false, reason: occasion-register,
+     note: "skin-tone (not bright), standalone western bottom, not an outfit"}
+  - {article_id: "8591687418006", relevant: false, reason: type-confusion,
+     note: "a perfume, not clothing"}
+- query_id: occ_adv_004
+  items:
+  - {article_id: "14769502", relevant: true}
+  - {article_id: "8607018614934", relevant: true}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "625fe2bd-cac1-51f7-bc01-7b83661d01aa", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+  - {article_id: "f300aea0-406a-5336-be08-c5b99971a039", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+  - {article_id: "9b20ed7d-f8fc-530a-aa20-ba270d38b8f7", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "8609195425942", relevant: true}
+  - {article_id: "8609195262102", relevant: true}
+  - {article_id: "14890982", relevant: true, note: "sequins embroidery party-wear gown — strong glam match"}
+- query_id: occ_adv_007
+  items:
+  - {article_id: "8663530012822", relevant: false, reason: occasion-register,
+     note: "everyday cotton block-print — too casual for wedding-guest formality"}
+- query_id: multi_002
+  items:
+  - {article_id: "7700919844950", relevant: true}
+  - {article_id: "7713536901206", relevant: true}
+  - {article_id: "8616942272662", relevant: false, reason: budget, note: "₹2399 > ₹2000 cap"}
+- query_id: multi_003
+  items:
+  - {article_id: "18838938", relevant: false, reason: colour-family, note: "listed colour Pink, not red"}
+  - {article_id: "15312982", relevant: false, reason: colour-family, note: "listed colour Black, not red"}
+  - {article_id: "17616732", relevant: false, reason: colour-family,
+     note: "listed colour Blue; red is the blouse accent only, not primary"}
+  - {article_id: "15647302", relevant: false, reason: colour-family, note: "listed colour Black, not red"}
+  - {article_id: "8607018614934", relevant: false, reason: colour-family,
+     note: "listed colour Purple; also bandhani print, not embellished"}
+- query_id: multi_005
+  items:
+  - {article_id: "8907901534370", relevant: false, reason: colour-family, note: "listed colour Black, not navy"}
+  - {article_id: "9051530461406", relevant: false, reason: colour-family, note: "listed colour Off White, not navy"}
+  - {article_id: "8780668174498", relevant: false, reason: colour-family,
+     note: "colour unstated, no navy signal in desc"}
+- query_id: multi_006
+  items:
+  - {article_id: "8510921638050", relevant: false, reason: colour-family,
+     note: "listed colour Black, not white; also 'Slim Fit' contradicts 'straight fit'"}
+  - {article_id: "f6efd59e-7fce-5d9c-a7a8-d61cd8f167e5", relevant: true,
+     note: "'Straight' explicit, white, within budget"}
+- query_id: multi_007
+  items:
+  - {article_id: "8428296011998", relevant: false, reason: attribute-contradiction,
+     note: "'Regular Fit' contradicts 'a-line'; also a kurta set"}
+- query_id: multi_008
+  items:
+  - {article_id: "7549439213654", relevant: false, reason: colour-family,
+     note: "listed colour Pink, not wine; also a set (with Palazzo & Dupatta)"}
+  - {article_id: "7544235065430", relevant: false, reason: colour-family,
+     note: "listed colour Purple/Lavender, not wine; also a set"}
+  - {article_id: "7579620966486", relevant: false, reason: colour-family,
+     note: "listed colour Black, not wine (no-occasion-gate ranking surfaces this variant)"}
+  - {article_id: "11636314", relevant: false, reason: colour-family,
+     note: "listed colour Blue, not wine (no-occasion-gate ranking surfaces this variant)"}

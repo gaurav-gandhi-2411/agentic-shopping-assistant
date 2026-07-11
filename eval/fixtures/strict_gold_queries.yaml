@@ -19,89 +19,203 @@
 #     3. GENDER matches (unisex acceptable for unisex-plausible garments).
 #     4. COLOUR matches when the query names one (colour-family tolerance:
 #        wine/maroon/burgundy are one family; black is not navy).
-#     5. OCCASION REGISTER is plausible when the query names an occasion
-#        (a thermal pyjama is never sangeet-wear regardless of type match).
+#     5. OCCASION REGISTER is plausible when the query names an occasion —
+#        NOT just "is it ethnic/western" but does its FORMALITY/EMBELLISHMENT
+#        match: a heavy embellished/velvet/bridal-weight item is a MISS for
+#        haldi/mehendi (want light/floral/cotton) even though it's correctly
+#        ethnic; a plain cotton item is a MISS for sangeet/reception (want
+#        embellished) even though it's correctly ethnic. A thermal pyjama is
+#        never sangeet-wear regardless of type match.
+#     6. BUDGET respected when the query names one (price_inr <= stated cap).
 #   Anything else — including "close but different silhouette" — is a MISS.
+#
+# CATEGORIES (added 2026-07-11 for per-category before/after reporting):
+#   literal          — plain garment+colour(+budget), no occasion/style nuance
+#   style            — silhouette/style word is the crux (bodycon vs maxi etc.)
+#   occasion         — occasion register must be respected (includes the
+#                       ADVERSARIAL register probes occ_adv_* added 2026-07-11,
+#                       which specifically test formality/embellishment
+#                       mismatches — see rubric point 5 — not just ethnic/
+#                       western gender-of-garment).
+#   multi_attribute  — colour + style/type + occasion + budget stacked in one
+#                       query (added 2026-07-11); tests whether constraints
+#                       dilute each other instead of jointly narrowing.
+#   (couple/body_type composition-quality categories are NOT covered by this
+#   single-item strict eval — they're measured by eval_model.py's gates/judge
+#   stages against the main fixture; see reports/model_eval_*.md.)
 #
 # Labels live in eval/fixtures/strict_gold_labels.yaml keyed by
 # (query_id, article_id). Labeled by Claude (Fable 5) reading product names,
-# types, colours and descriptions on 2026-07-11 — auditable line-by-line, and
-# GG can overturn any label; the label file records the retrieval snapshot it
-# graded. Scored by scripts/eval_strict.py, which FAILS on unlabeled items
-# rather than guessing (the checker must never grade itself).
+# types, colours and descriptions — auditable line-by-line, and GG can
+# overturn any label; the label file records the retrieval snapshot + commit
+# SHA it graded. Scored by scripts/eval_strict.py, which FAILS on unlabeled
+# items rather than guessing (the checker must never grade itself).
 version: 1
 queries:
 # ── silhouette / style-nuanced (the class property-checks cannot grade) ──────
 - id: gold_001
+  category: style
   query: bodycon dress for women
   gender: women
 - id: gold_002
+  category: style
   query: maxi dress for women
   gender: women
 - id: gold_003
+  category: style
   query: a-line kurta for women
   gender: women
 - id: gold_004
+  category: style
   query: straight fit kurta for women
   gender: women
 - id: gold_005
+  category: style
   query: anarkali kurta for women
   gender: women
 - id: gold_006
+  category: style
   query: flared palazzo for women
   gender: women
 - id: gold_007
+  category: style
   query: slim fit blazer for men
   gender: men
 - id: gold_008
+  category: style
   query: oversized t-shirt for men
   gender: men
 - id: gold_009
+  category: style
   query: high waisted jeans for women
   gender: women
 - id: gold_010
+  category: style
   query: wrap dress for women
   gender: women
 - id: gold_011
+  category: style
   query: pencil skirt for women
   gender: women
 - id: gold_012
+  category: style
   query: bootcut jeans for women
   gender: women
-# ── realistic search / occasion queries (fixture-style) ──────────────────────
+# ── literal search (plain garment + colour/budget, no occasion nuance) ───────
 - id: gold_013
+  category: literal
   query: black dress for my wife
   gender: women
-- id: gold_014
-  query: red saree for a wedding
-  gender: women
-- id: gold_015
-  query: men's blazer for the office
-  gender: men
 - id: gold_016
+  category: literal
   query: kurti under 1500
   gender: women
-- id: gold_017
-  query: lehenga for sangeet
-  gender: women
-- id: gold_018
-  query: bright yellow kurta for haldi
-  gender: women
-- id: gold_019
-  query: green outfit for mehendi
-  gender: women
-- id: gold_020
-  query: men's kurta for a reception
-  gender: men
 - id: gold_021
+  category: literal
   query: white shirt for men
   gender: men
 - id: gold_022
+  category: literal
   query: blue jeans under 2000 for men
   gender: men
 - id: gold_023
+  category: literal
   query: cotton saree for daily wear
   gender: women
+# ── occasion (register must be respected) ────────────────────────────────────
+- id: gold_014
+  category: occasion
+  query: red saree for a wedding
+  gender: women
+- id: gold_015
+  category: occasion
+  query: men's blazer for the office
+  gender: men
+- id: gold_017
+  category: occasion
+  query: lehenga for sangeet
+  gender: women
+- id: gold_018
+  category: occasion
+  query: bright yellow kurta for haldi
+  gender: women
+- id: gold_019
+  category: occasion
+  query: green outfit for mehendi
+  gender: women
+- id: gold_020
+  category: occasion
+  query: men's kurta for a reception
+  gender: men
 - id: gold_024
+  category: occasion
   query: sherwani for groom
   gender: men
+# ── occasion, ADVERSARIAL register probes (added 2026-07-11) ─────────────────
+# Specifically test formality/embellishment register, not just ethnic-vs-western
+# gender-of-garment (which the existing composer-side hard gates already cover).
+- id: occ_adv_001
+  category: occasion
+  query: haldi outfit for women
+  gender: women
+- id: occ_adv_002
+  category: occasion
+  query: bright haldi look for women
+  gender: women
+- id: occ_adv_003
+  category: occasion
+  query: office wear for women
+  gender: women
+- id: occ_adv_004
+  category: occasion
+  query: sangeet lehenga for women
+  gender: women
+- id: occ_adv_005
+  category: occasion
+  query: mehendi outfit for women
+  gender: women
+- id: occ_adv_006
+  category: occasion
+  query: reception gown for women
+  gender: women
+- id: occ_adv_007
+  category: occasion
+  query: wedding guest saree for women
+  gender: women
+- id: occ_adv_008
+  category: occasion
+  query: formal office trousers for men
+  gender: men
+# ── multi-attribute stacked queries (added 2026-07-11) ───────────────────────
+- id: multi_001
+  category: multi_attribute
+  query: black bodycon dress for office under 3000
+  gender: women
+- id: multi_002
+  category: multi_attribute
+  query: green floral kurta for mehendi under 2000
+  gender: women
+- id: multi_003
+  category: multi_attribute
+  query: red embellished lehenga for sangeet under 15000
+  gender: women
+- id: multi_004
+  category: multi_attribute
+  query: yellow cotton kurta for haldi under 1500
+  gender: women
+- id: multi_005
+  category: multi_attribute
+  query: navy blue slim fit blazer for office under 5000
+  gender: men
+- id: multi_006
+  category: multi_attribute
+  query: white straight fit kurta for men under 2000
+  gender: men
+- id: multi_007
+  category: multi_attribute
+  query: peach a-line kurta for women under 2500
+  gender: women
+- id: multi_008
+  category: multi_attribute
+  query: wine anarkali kurta for reception under 8000
+  gender: women

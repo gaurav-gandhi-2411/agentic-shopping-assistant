@@ -1,10 +1,24 @@
 #!/usr/bin/env python
 """Strict gold-relevance eval — human-audited precision@5, no self-grading.
 
-Re-runs retrieval for eval/fixtures/strict_gold_queries.yaml (mirroring
-eval_model.py's R1 stage call exactly), scores the top-5 against the
-HAND labels in strict_gold_labels.yaml, and prints strict precision@5 plus a
-miss taxonomy split into CODE-FIXABLE vs DATA-CEILING/DATA-QUALITY causes.
+Re-runs retrieval for eval/fixtures/strict_gold_queries.yaml and scores the
+top-5 against the HAND labels in strict_gold_labels.yaml, printing strict
+precision@5 (overall + per-category) plus a miss taxonomy split into
+CODE-FIXABLE vs DATA-CEILING/DATA-QUALITY causes.
+
+TWO MODES, both label-compatible (relevance is about the ITEM, not the query
+pipeline that surfaced it):
+  --mode raw       (default) retriever.search(query, filters={gender}) only —
+                    mirrors eval_model.py's R1 stage exactly. This is the
+                    unfiltered retrieval FLOOR, not what users see.
+  --mode pipeline  additionally applies the SAME garment_type facet filter and
+                    occasion register gate/rerank the live search_node applies
+                    (reusing intent_parser.parse_intent, coherence.
+                    is_coherent_candidate, slots.fabric_score_delta directly —
+                    not reimplemented) — this is what production actually
+                    returns for these queries.
+Report both when diagnosing whether a fix reached production; report --mode
+pipeline alone when citing "real" user-facing precision.
 
 An item retrieval returns that has NO label is counted separately as
 `unlabeled` and NEVER scored — the checker must never grade itself. A run with
@@ -13,13 +27,14 @@ extend the label file, re-run.
 
 Usage:
     python scripts/eval_strict.py
-    python scripts/eval_strict.py --data-dir data/processed/unified
+    python scripts/eval_strict.py --mode pipeline
+    python scripts/eval_strict.py --mode pipeline --data-dir data/processed/unified
 """
 from __future__ import annotations
 
 import argparse
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import yaml
@@ -36,15 +51,61 @@ _LABELS_PATH = _ROOT / "eval" / "fixtures" / "strict_gold_labels.yaml"
 # Which miss reasons a code change can remove vs what only data/inventory can.
 CODE_FIXABLE_REASONS = frozenset({
     "type-confusion", "set-not-single", "kids-leak", "budget",
-    "occasion-register", "attribute-contradiction",
+    "occasion-register", "attribute-contradiction", "colour-family",
 })
 DATA_REASONS = frozenset({"data-ceiling", "data-mislabel"})
+
+# Neutral slot name for is_coherent_candidate: only its dupatta-specific gate
+# (slot_name == "accessory") is slot-dependent — every ethnic/western/office
+# register gate is slot-agnostic, so "top" exercises them without ever
+# tripping the accessory-only gate. See coherence.is_coherent_candidate.
+_NEUTRAL_SLOT = "top"
+
+
+def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: bool) -> list[dict]:
+    """Mirror search_node's production filter(+gate+rerank) exactly (same
+    functions, not reimplemented) so this mode reports real user-facing order.
+
+    occasion_gate=False mirrors production BEFORE the 2026-07-11 occasion-gate
+    fix (garment_type facet filter only — that mechanism predates this
+    session). occasion_gate=True mirrors production AFTER it (adds the
+    is_coherent_candidate register gate + fabric_score_delta rerank now wired
+    into search_node). Use both to report an honest before/after — the type
+    filter is NOT new, only the occasion gate is.
+    """
+    from src.agents.intent_parser import parse_intent
+    from src.agents.outfit.coherence import is_coherent_candidate
+    from src.agents.outfit.slots import fabric_score_delta
+
+    intent = parse_intent(query)
+    filters: dict = {"gender": gender}
+    if intent.garment_type:
+        filters["product_type_name"] = intent.garment_type
+
+    items = retriever.search(query, top_k=50, filters=filters)
+
+    occasion_slug = intent.occasion
+    if occasion_gate and occasion_slug and occasion_slug != "casual":
+        gated = [it for it in items if is_coherent_candidate(it, occasion_slug, gender, _NEUTRAL_SLOT)]
+        if gated:  # never let the gate empty the pool (same discipline as composer)
+            items = gated
+        items = sorted(items, key=lambda it: fabric_score_delta(it, occasion_slug), reverse=True)
+    return items
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data-dir", default=str(_ROOT / "data" / "processed" / "unified"))
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--mode", choices=("raw", "pipeline"), default="raw",
+                        help="raw = unfiltered retrieval floor; "
+                             "pipeline = mirrors production's filter(+gate+rerank)")
+    parser.add_argument("--no-occasion-gate", action="store_true",
+                        help="pipeline mode only: mirror production BEFORE the "
+                             "2026-07-11 occasion-gate fix (type filter only)")
+    parser.add_argument("--json-out", default=None,
+                        help="Write a {precision_at_5, n_scored, n_unlabeled} summary here "
+                             "(consumed by scripts/eval_gate.py)")
     args = parser.parse_args()
 
     from eval_model import _build_components  # heavy import deferred past --help
@@ -62,10 +123,16 @@ def main() -> None:
 
     n_scored = n_relevant = n_unlabeled = 0
     reasons: Counter[str] = Counter()
-    per_query: list[tuple[str, str, int, int, int]] = []
+    per_query: list[tuple[str, str, str, int, int, int]] = []
+    by_category: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])  # [rel, miss, unl]
 
     for q in queries:
-        items = retriever.search(q["query"], top_k=50, filters={"gender": q["gender"]})
+        if args.mode == "pipeline":
+            items = _retrieve_pipeline(
+                retriever, q["query"], q["gender"], occasion_gate=not args.no_occasion_gate
+            )
+        else:
+            items = retriever.search(q["query"], top_k=50, filters={"gender": q["gender"]})
         top = items[: args.top_k]
         rel = miss = unl = 0
         for it in top:
@@ -82,15 +149,30 @@ def main() -> None:
         n_scored += rel + miss
         n_relevant += rel
         n_unlabeled += unl
-        per_query.append((q["id"], q["query"], rel, miss, unl))
+        cat = q.get("category", "uncategorized")
+        per_query.append((q["id"], cat, q["query"], rel, miss, unl))
+        by_category[cat][0] += rel
+        by_category[cat][1] += miss
+        by_category[cat][2] += unl
 
-    print(f"\nSTRICT GOLD EVAL — hand-audited relevance (rubric: {_QUERIES_PATH.name})")
+    _mode_label = args.mode
+    if args.mode == "pipeline":
+        _mode_label += "-no-occasion-gate" if args.no_occasion_gate else "-occasion-gated"
+    print(f"\nSTRICT GOLD EVAL [{_mode_label}] — hand-audited relevance "
+          f"(rubric: {_QUERIES_PATH.name})")
     print(f"queries={len(queries)}  scored_items={n_scored}  unlabeled_items={n_unlabeled}")
     if n_unlabeled:
         print("  ** UNLABELED ITEMS PRESENT — retrieval changed since labeling. **")
-        print("  ** Strict P@5 below covers labeled items only; re-audit before comparing. **")
+        print("  ** Numbers below cover labeled items only; re-audit before comparing. **")
     p5 = n_relevant / n_scored if n_scored else 0.0
-    print(f"\nstrict precision@{args.top_k}: {p5:.3f}  ({n_relevant}/{n_scored})")
+    print(f"\nstrict precision@{args.top_k} (overall): {p5:.3f}  ({n_relevant}/{n_scored})")
+
+    print("\nper-category precision@{}:".format(args.top_k))
+    for cat, (rel, miss, unl) in sorted(by_category.items()):
+        cat_scored = rel + miss
+        cat_p5 = rel / cat_scored if cat_scored else 0.0
+        unl_note = f"  (+{unl} unlabeled)" if unl else ""
+        print(f"  {cat:16s} {cat_p5:.3f}  ({rel}/{cat_scored}){unl_note}")
 
     code_misses = sum(c for r, c in reasons.items() if r in CODE_FIXABLE_REASONS)
     data_misses = sum(c for r, c in reasons.items() if r in DATA_REASONS)
@@ -105,10 +187,24 @@ def main() -> None:
               f"(remaining gap = {data_misses} data-capped items)")
 
     print("\nweakest queries:")
-    for qid, text, rel, miss, unl in sorted(per_query, key=lambda t: t[2]):
+    for qid, cat, text, rel, miss, unl in sorted(per_query, key=lambda t: t[3]):
         if miss + unl == 0:
             continue
-        print(f"  {qid}  {rel}/{rel + miss + unl}  {text!r}")
+        print(f"  {qid:14s} [{cat:16s}] {rel}/{rel + miss + unl}  {text!r}")
+
+    if args.json_out:
+        import json
+        Path(args.json_out).write_text(json.dumps({
+            "mode": _mode_label,
+            "precision_at_5": p5,
+            "n_relevant": n_relevant,
+            "n_scored": n_scored,
+            "n_unlabeled": n_unlabeled,
+            "by_category": {
+                cat: {"relevant": v[0], "miss": v[1], "unlabeled": v[2]}
+                for cat, v in by_category.items()
+            },
+        }, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
