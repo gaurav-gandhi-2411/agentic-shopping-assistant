@@ -798,3 +798,140 @@ labels:
   - {article_id: "8651069653142", relevant: false, reason: occasion-register,
      note: "bandhani print only, no embellishment signal"}
   - {article_id: "8585322365078", relevant: true, note: "'Embroidered', silk blend — embellishment matches sangeet register"}
+
+# ── Batch 8 (2026-07-12): post sold-out-filter catalogue rebuild — the
+# out-of-stock removal (Fix 1, ~9.4k Shopify items dropped) changed which
+# items surface into top-5 for many queries. 52 newly-surfaced items
+# hand-labeled against the same rubric so eval_gate.py can run clean
+# (zero unlabeled) against the rebuilt catalogue.
+- query_id: gold_001
+  items:
+  - {article_id: "10105011732777", relevant: true, note: "'bodycon maxi dress' explicit"}
+  - {article_id: "10105013272873", relevant: true, note: "'bodycon maxi dress' explicit"}
+- query_id: gold_002
+  items:
+  - {article_id: "10025795649833", relevant: true, note: "'maxi' explicit"}
+  - {article_id: "9993617441065", relevant: true, note: "'maxi' explicit"}
+- query_id: gold_004
+  items:
+  - {article_id: "8438473031830", relevant: true, note: "desc explicit 'Straight-fit Kurta'"}
+- query_id: gold_005
+  items:
+  - {article_id: "18425500", relevant: true, note: "'Anarkali' explicit in title"}
+  - {article_id: "8107872977118", relevant: false, reason: attribute-contradiction,
+     note: "plain kurta, no anarkali/flared silhouette signal"}
+  - {article_id: "8398549876886", relevant: true, note: "desc explicitly calls it 'Anarkali' despite 'A-Line' in title — same flared-silhouette family"}
+- query_id: gold_008
+  items:
+  - {article_id: "8783935537314", relevant: true, note: "'Oversized T-Shirt' explicit"}
+- query_id: gold_009
+  items:
+  - {article_id: "7891347079390", relevant: false, reason: attribute-contradiction,
+     note: "'Mid Rise' explicitly stated — contradicts 'high waisted'"}
+- query_id: gold_010
+  items:
+  - {article_id: "10118346932521", relevant: true, note: "'wrap dress' explicit"}
+  - {article_id: "10062682128681", relevant: true, note: "'wrap dress' explicit"}
+  - {article_id: "6624414531741", relevant: false, reason: attribute-contradiction,
+     note: "desc: 'ruched bodycon dress' — bodycon silhouette, not wrap"}
+- query_id: gold_011
+  items:
+  - {article_id: "15301318", relevant: true, note: "'Pencil Skirt' explicit"}
+- query_id: gold_012
+  items:
+  - {article_id: "15204772", relevant: true, note: "'Bootcut' explicit"}
+- query_id: gold_013
+  items:
+  - {article_id: "8629264941206", relevant: true}
+- query_id: gold_016
+  items:
+  - {article_id: "8458409607318", relevant: true}
+  - {article_id: "8595169214614", relevant: true}
+- query_id: gold_022
+  items:
+  - {article_id: "3608c6af-59d0-5ffe-9dc5-d6a4e1ee44f0", relevant: true}
+  - {article_id: "8063136104670", relevant: true}
+- query_id: gold_025
+  items:
+  - {article_id: "8843178672378", relevant: true}
+  - {article_id: "8475831828642", relevant: true}
+- query_id: gold_026
+  items:
+  - {article_id: "9541960958249", relevant: true, note: "'Floral' explicit"}
+- query_id: gold_027
+  items:
+  - {article_id: "18696830", relevant: true}
+- query_id: gold_029
+  items:
+  - {article_id: "10924536", relevant: true}
+  - {article_id: "9964609863977", relevant: true, note: "denim trucker jacket"}
+- query_id: gold_031
+  items:
+  - {article_id: "13482242", relevant: true}
+- query_id: gold_032
+  items:
+  - {article_id: "7482d19e-e59e-5635-8a4a-4a925cefe979", relevant: true, note: "'Formal Shirt' explicit"}
+  - {article_id: "3d600358-e1ad-5f1a-ad89-7e3d57e8f3b3", relevant: true, note: "'Formal Shirt' explicit"}
+- query_id: gold_014
+  items:
+  - {article_id: "8661205909654", relevant: true, note: "embroidered"}
+  - {article_id: "8661205745814", relevant: true, note: "embroidered"}
+  - {article_id: "18323512", relevant: true, note: "satin fabric, festive-plausible"}
+- query_id: gold_017
+  items:
+  - {article_id: "19029822", relevant: true, note: "embroidered"}
+  - {article_id: "16630054", relevant: false, reason: occasion-register,
+     note: "desc: 'solid lehenga choli' — no embellishment signal, too light for sangeet"}
+- query_id: gold_019
+  items:
+  - {article_id: "18342938", relevant: true, note: "'outfit' query legitimizes coordinated dhoti+top; printed (light) fits mehendi register"}
+- query_id: gold_020
+  items:
+  - {article_id: "23d38a72-b70f-5920-96f9-72e4d8642b51", relevant: true, note: "white festive kurta, reception-plausible"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "9b20ed7d-f8fc-530a-aa20-ba270d38b8f7", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "36681497-fa1d-55ef-936b-4c5cf81c0370", relevant: false, reason: type-confusion,
+     note: "grey winter shawl — wrong season/register/type for 'bright haldi look'"}
+- query_id: occ_adv_003
+  items:
+  - {article_id: "7631150678238", relevant: false, reason: occasion-register,
+     note: "novelty graphic tee — too casual for office wear"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "6669758005405", relevant: false, reason: occasion-register,
+     note: "a shrug alone is a layering accessory, not a complete outfit"}
+  - {article_id: "56ca488f-49b9-539c-921a-20ee786cde4b", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "9993617572137", relevant: true, note: "'Gown' explicit"}
+- query_id: occ_adv_008
+  items:
+  - {article_id: "624a78c4-41d9-55d0-8ce0-b006fb0c0b3b", relevant: true, note: "desc explicitly mentions office wear"}
+- query_id: multi_001
+  items:
+  - {article_id: "8225722007774", relevant: true, note: "desc: 'ruched bodycon dress', black, under 3000"}
+  - {article_id: "9608637350185", relevant: true, note: "desc: 'Bodycon Fit' explicit, black, under 3000"}
+- query_id: multi_002
+  items:
+  - {article_id: "8654910423190", relevant: false, reason: set-not-single, note: "'Kurta Set'"}
+- query_id: multi_004
+  items:
+  - {article_id: "8619428315286", relevant: true}
+- query_id: multi_008
+  items:
+  - {article_id: "8703115002078", relevant: false, reason: attribute-contradiction,
+     note: "plain kurta, no anarkali/flared silhouette signal despite embroidery"}
+- query_id: multi_012
+  items:
+  - {article_id: "9212182954146", relevant: true, note: "desc: 'Sophisticated...refined style'"}
+  - {article_id: "8743960477858", relevant: true}
+  - {article_id: "8575482396834", relevant: false, reason: occasion-register,
+     note: "desc: 'casual unwinding look...lounging at home' — contradicts the office ask"}
+- query_id: multi_014
+  items:
+  - {article_id: "7710573035606", relevant: true, note: "'Mirror Embroidered' — embellishment matches sangeet register; lime green = mint/green family"}
