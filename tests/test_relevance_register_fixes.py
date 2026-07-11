@@ -20,6 +20,9 @@ class TestRuggedFootwearRegister:
         assert is_rugged_footwear_item("Classic White Sneakers")
         assert is_rugged_footwear_item("Comfort Flip-Flops Blue")
         assert is_rugged_footwear_item("Ethnic Slippers Pack")
+        # Live-proof escape (2026-07-11): white walking shoes reached a sangeet
+        # board after the first vocabulary pass missed "walking".
+        assert is_rugged_footwear_item("Walking Shoes For Men (White)")
 
     def test_festive_appropriate_footwear_passes(self) -> None:
         assert not is_rugged_footwear_item("Black Oxford Shoes")

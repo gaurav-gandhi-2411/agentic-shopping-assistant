@@ -321,7 +321,7 @@ def is_casual_marker_item(prod_name: str) -> bool:
 # menswear registers are oxfords/derbies/loafers/monks/mojaris/juttis — even a
 # dress Chelsea boot is an edge case not worth the combat-boot false accepts.
 _RUGGED_FOOTWEAR_RE = re.compile(
-    r"\b(boots?|sneakers?|trainers?|running|sports?|training|trekking|hiking|"
+    r"\b(boots?|sneakers?|trainers?|running|walking|sports?|training|trekking|hiking|"
     r"football|badminton|gym|flip[\s-]?flops?|slippers?|sliders?|crocs?|clogs?)\b",
     re.IGNORECASE,
 )
