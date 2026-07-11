@@ -1734,7 +1734,20 @@ def build_graph(
         # LLM-emitted filters take precedence (facets already in merged are skipped).
         # Longest value matched first within each facet so "dark blue" beats "blue",
         # "t-shirt" beats "shirt", etc.
-        query_lower = query.lower()
+        # MUST scan raw_query, not `query` — the occasion-term injection above (RED
+        # 5b/D) appends several garment words to `query` purely to broaden dense/BM25
+        # recall for garment-type-less occasion queries ("haldi outfit for women").
+        # Scanning the augmented string here let an INJECTED word win the longest-
+        # match facet search over what the user actually typed: "lehenga for sangeet"
+        # was pinning product_type_name="sherwani" (from the sangeet occasion-term
+        # list) instead of the literal "lehenga" the user asked for, and garment-
+        # type-less occasion queries ("haldi/mehendi outfit for women") were being
+        # hard-filtered to a single injected type ("lehenga") instead of staying
+        # unfiltered across garment types as RED 5b/D intended. Found 2026-07-12 via
+        # a live-URL proof trace, not the strict eval harness (both eval_strict.py
+        # and eval_model.py drive `merged`/filters independently of this code path
+        # for several of their query fixtures).
+        query_lower = raw_query.lower()
         for facet_name, facet_vals in _valid_facet_values.items():
             if facet_name in merged:
                 continue

@@ -127,3 +127,62 @@ def test_something_for_a_wedding_returns_ethnic_wear(
     assert appropriate >= len(items) * 0.6, (
         f"expected majority wedding-appropriate ethnic wear, got product_types={types}"
     )
+
+
+@pytest.mark.requires_index
+def test_lehenga_for_sangeet_keeps_lehenga_not_sherwani(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """2026-07-12 regression: the occasion-term injection above appends
+    "lehenga sherwani kurta embellished festive" to the RETRIEVAL query for any
+    sangeet query with no garment-type filter yet set, purely to broaden dense/
+    BM25 recall. That augmented string was then reused by the facet
+    auto-extraction step, so "sherwani" (men's garment, longer string, sorts
+    first) could silently win the length-sorted facet match over the user's own
+    literal "lehenga" -- hard-filtering a "lehenga for sangeet" query to
+    sherwanis. Facet extraction must read the user's actual words, never a
+    retrieval-widening string, regardless of which happens to be longer.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM(["Here you go."] * 5)
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    state = _blank_state("lehenga for sangeet", memory)
+    result = agent.invoke(state)
+
+    items = result.get("retrieved_items", [])
+    assert items, "expected items to be returned for 'lehenga for sangeet'"
+    types = {it.get("product_type", "").lower() for it in items}
+    assert "sherwani" not in types, (
+        f"'lehenga for sangeet' must never hard-filter to sherwani, got product_types={types}"
+    )
+
+
+@pytest.mark.requires_index
+def test_haldi_outfit_not_hard_filtered_to_single_injected_type(
+    _unified_index: tuple[HybridRetriever, pd.DataFrame],
+) -> None:
+    """Companion regression to the sangeet case above: a garment-type-less
+    occasion query ("haldi outfit for women") must NOT be hard-filtered down
+    to a single garment type accidentally picked up from the occasion-term
+    injection's own word list (previously always resolved to "lehenga", the
+    longest word in the haldi/mehendi occasion-term list) -- RED 5b/D's intent
+    was to broaden retrieval across occasion-appropriate types, not narrow it
+    to one.
+    """
+    retriever, catalogue_df = _unified_index
+    llm = _MockLLM(["Here you go."] * 5)
+    memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+    agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=True)
+
+    state = _blank_state("haldi outfit for women", memory)
+    result = agent.invoke(state)
+
+    items = result.get("retrieved_items", [])
+    assert items, "expected items to be returned for 'haldi outfit for women'"
+    types = {it.get("product_type", "").lower() for it in items}
+    assert len(types) > 1, (
+        f"'haldi outfit for women' must not be hard-filtered to a single garment "
+        f"type, got product_types={types}"
+    )
