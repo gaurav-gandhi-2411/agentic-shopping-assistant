@@ -347,6 +347,30 @@ _SYNONYMS_SORTED: list[tuple[str, str]] = sorted(
     SYNONYMS.items(), key=lambda kv: len(kv[0]), reverse=True
 )
 
+_PLUS_SIZE_NAME_RE = re.compile(r"\bplus[\s-]?size\b", re.IGNORECASE)
+
+
+def demote_size_mismatched_items(items: list[dict], query: str) -> list[dict]:
+    """Body SHAPE is not a SIZE (sweep 2026-07-10, relevance-adjacent): a
+    "pear shaped" request surfaced an explicitly "Plus Size"-branded kurta in
+    the top results — reading as a size assumption the user never made.
+
+    When the query names a base shape (pear/apple/hourglass/rectangle/
+    inverted_triangle) and does NOT name a plus-size modifier, stable-demote
+    items whose product name markets "plus size" to the end of the list.
+    Never a filter: the items stay available (they are valid products), they
+    just cannot be the headline recommendation on shape grounds alone. A query
+    that DOES say plus-size/curvy is returned untouched.
+    """
+    q = (query or "").lower()
+    matched = {slug for phrase, slug in _SYNONYMS_SORTED if phrase in q}
+    has_base_shape = any(s in BASE_SHAPES for s in matched)
+    if not has_base_shape or "plus_size" in matched:
+        return items
+    keep = [it for it in items if not _PLUS_SIZE_NAME_RE.search(it.get("prod_name") or "")]
+    demoted = [it for it in items if _PLUS_SIZE_NAME_RE.search(it.get("prod_name") or "")]
+    return keep + demoted
+
 
 def parse_body_type(text: str) -> tuple[str | None, list[str]]:
     """Extract a base body_type + modifier list from free text.

@@ -7,7 +7,11 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.grounding import validate_response
-from src.agents.outfit.body_type import body_type_ack_message, body_type_clarify_message
+from src.agents.outfit.body_type import (
+    body_type_ack_message,
+    body_type_clarify_message,
+    demote_size_mismatched_items,
+)
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
@@ -2026,6 +2030,12 @@ def build_graph(
         _chip_colours = [c for c in _all_distinct_colours if c.lower() != _active_colour]
         if not _chip_colours:
             _chip_colours = _all_distinct_colours
+
+        # Shape != size (sweep 2026-07-10, relevance-adjacent): a "pear shaped"
+        # query must not headline explicitly "Plus Size"-branded items — the
+        # user stated a shape, never a size. Stable demotion, never removal;
+        # untouched when the user actually said plus-size/curvy.
+        items_out = demote_size_mismatched_items(items_out, raw_query)
 
         search_meta: dict = {"query": query, "filters": merged}
         if few_gender_results:
