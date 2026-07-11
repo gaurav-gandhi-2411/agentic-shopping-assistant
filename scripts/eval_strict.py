@@ -66,16 +66,17 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
     """Mirror search_node's production filter(+gate+rerank) exactly (same
     functions, not reimplemented) so this mode reports real user-facing order.
 
-    occasion_gate=False mirrors production BEFORE the 2026-07-11 occasion-gate
-    fix (garment_type facet filter only — that mechanism predates this
-    session). occasion_gate=True mirrors production AFTER it (adds the
-    is_coherent_candidate register gate + fabric_score_delta rerank now wired
-    into search_node). Use both to report an honest before/after — the type
-    filter is NOT new, only the occasion gate is.
+    occasion_gate toggles ONLY the is_coherent_candidate register gate +
+    fabric_score_delta rerank (the 2026-07-11 occasion-gate fix). Every other
+    mechanism here — garment_type/colour_group_name filters, the single-
+    garment set exclusion — is unconditional in both search_node and this
+    mirror, matching production regardless of the flag. Use both values to
+    isolate the occasion gate's specific contribution.
     """
+    from src.agents.graph import _OUTFIT_INTENT_RE, _SET_INTENT_RE
     from src.agents.intent_parser import parse_intent
     from src.agents.outfit.coherence import is_coherent_candidate
-    from src.agents.outfit.slots import fabric_score_delta, is_kids_item
+    from src.agents.outfit.slots import fabric_score_delta, is_kids_item, is_multi_piece_set
     from src.agents.tools import search_catalogue
 
     intent = parse_intent(query)
@@ -90,6 +91,21 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
     # (colour_filter_values) internally, so this mirror can never silently
     # drift from what search_node does.
     items = search_catalogue(query, filters, retriever, 50)["items"]
+
+    # Single-garment set exclusion — unconditional (not tied to occasion_gate),
+    # matching search_node exactly: skipped when the query itself legitimizes
+    # a multi-piece result (set/combo/co-ord/outfit/look words).
+    if intent.garment_type and items and not (
+        _SET_INTENT_RE.search(query) or _OUTFIT_INTENT_RE.search(query)
+    ):
+        set_filtered = [
+            it for it in items
+            if not is_multi_piece_set(
+                it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+            )
+        ]
+        if set_filtered:
+            items = set_filtered
 
     occasion_slug = intent.occasion
     if occasion_gate and occasion_slug and occasion_slug != "casual":

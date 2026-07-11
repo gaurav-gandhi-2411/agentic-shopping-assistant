@@ -53,6 +53,11 @@ _OUTFIT_INTENT_RE = re.compile(
     r"put\s+together|compose\s+(?:a|an))\b",
     re.IGNORECASE,
 )
+# search_node's single-garment set-exclusion gate (2026-07-11 follow-up): a
+# query containing any of these words legitimately wants a multi-piece
+# listing, so the gate is skipped — same "outfit"/"look" words as
+# _OUTFIT_INTENT_RE above, plus explicit set/combo/co-ord words.
+_SET_INTENT_RE = re.compile(r"\bsets?\b|\bcombo\b|\bco-?ord\b", re.IGNORECASE)
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
@@ -2038,10 +2043,31 @@ def build_graph(
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
         from src.agents.outfit.slots import is_kids_item as _occ_is_kids_item
+        from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
 
-        _occ_slug = _occ_parse_intent(raw_query).occasion or _reconstruct_occasion_from_history(
+        _occ_intent = _occ_parse_intent(raw_query)
+        _occ_slug = _occ_intent.occasion or _reconstruct_occasion_from_history(
             state.get("messages", [])
         )
+
+        # Single-garment set exclusion (largest remaining strict-eval miss bucket,
+        # 2026-07-11 follow-up): "kurti under 1500" surfaced a "Kaftan Kurta with
+        # Abstract Patchwork Palazzo" — a 2-3 piece SET listing — when the user
+        # named ONE garment type. Reuses the composer's is_multi_piece_set gate
+        # (never reimplemented) on the plain search path. Skipped when the query
+        # itself asks for a set/combo/outfit/look — that legitimizes a multi-piece
+        # result (see _OUTFIT_INTENT_RE above for the same "outfit" word list).
+        if _occ_intent.garment_type and items_out and not (
+            _SET_INTENT_RE.search(raw_query) or _OUTFIT_INTENT_RE.search(raw_query)
+        ):
+            _set_filtered = [
+                it for it in items_out
+                if not _occ_is_multi_piece_set(
+                    it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+                )
+            ]
+            if _set_filtered:  # pool-underflow protected, same discipline as every other gate
+                items_out = _set_filtered
         if _occ_slug and _occ_slug != "casual" and items_out:
             _occ_gender = (
                 merged.get("gender")

@@ -519,3 +519,54 @@ labels:
   - {article_id: "9099862311134", relevant: false, reason: set-not-single, note: "'Ethnic Set'"}
   - {article_id: "7607224041558", relevant: false, reason: attribute-contradiction,
      note: "'Straight Fit' contradicts 'anarkali'; also 'with Palazzo and Dupatta' set"}
+
+# ── Batch 5 (2026-07-11): single-garment set-exclusion gate delta items —
+# items surfaced now that is_multi_piece_set's third "with"-pattern signal
+# (+ ETHNIC_BOTTOM_KEYWORDS "palazzos" plural, WESTERN_BOTTOM_KEYWORDS "pant")
+# removes most literal-set/with-set items from single-garment searches.
+- query_id: gold_001
+  items:
+  - {article_id: "7810754937054", relevant: true}
+- query_id: gold_004
+  items:
+  - {article_id: "8428304466142", relevant: false, reason: attribute-contradiction,
+     note: "'Regular Fit' contradicts 'straight fit'; also a kurta set"}
+- query_id: gold_005
+  items:
+  - {article_id: "11636386", relevant: true}
+  - {article_id: "8107872747742", relevant: false, reason: attribute-contradiction,
+     note: "plain round-neck kurta set, no anarkali/flared silhouette signal"}
+- query_id: gold_014
+  items:
+  - {article_id: "18308826", relevant: true}
+- query_id: gold_018
+  items:
+  - {article_id: "8482607300758", relevant: true}
+- query_id: gold_020
+  items:
+  - {article_id: "fca772e6-2a63-55c1-8cc6-a1bb526a6d69", relevant: true,
+     note: "desc explicitly 'partywear, festivewear'"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "13619506", relevant: true, note: "sequins embroidered party-wear gown"}
+  - {article_id: "9719882121513", relevant: true}
+  - {article_id: "9962972283177", relevant: true}
+- query_id: occ_adv_007
+  items:
+  - {article_id: "8663532208278", relevant: false, reason: occasion-register,
+     note: "everyday cotton block-print — too casual for wedding-guest formality (same standard as the earlier indigo cotton saree miss in this query)"}
+  - {article_id: "16595858", relevant: true, note: "organza blouse — festive-appropriate fabric"}
+- query_id: multi_001
+  items:
+  - {article_id: "5339866923165", relevant: true, note: "desc explicitly says 'bodycon dress'"}
+- query_id: multi_003
+  items:
+  - {article_id: "17589250", relevant: true}
+  - {article_id: "17745514", relevant: true}
+- query_id: multi_008
+  items:
+  - {article_id: "7665024729174", relevant: false, reason: attribute-contradiction,
+     note: "'Straight Fit' explicitly stated — contradicts 'anarkali'"}
+  - {article_id: "8529053", relevant: true, note: "'Anarkali' explicit; Maroon is in the wine colour-family"}
+  - {article_id: "8201212854494", relevant: false, reason: attribute-contradiction,
+     note: "plain kurta, no anarkali/flared silhouette signal"}
