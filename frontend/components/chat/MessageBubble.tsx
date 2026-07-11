@@ -184,8 +184,10 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
             </div>
           )
         }
+        // Full-width responsive grid: the old max-w-[80%] two-column cap left
+        // ~60% of a desktop viewport empty with giant cards (sweep 2026-07-10, P2-9).
         return (
-          <div className="w-full max-w-[80%] grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {message.items.map((item) => (
               <ItemCard key={item.article_id} item={item} onSend={onSend} />
             ))}
