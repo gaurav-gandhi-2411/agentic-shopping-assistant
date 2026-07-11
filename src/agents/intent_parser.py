@@ -109,6 +109,13 @@ _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bkaftan\b", "kaftan"),
     (r"\bbodysuit\b|\blingerie\b|\bbra\b", "innerwear"),
     (r"\bnightgown\b|\bnight\s+gown\b|\bpyjama\b|\bpajama\b|\bnightsuit\b", "nightwear"),
+    # 2026-07-11 catalogue-gap follow-up: the catalogue's single sherwani was
+    # given its own product_type_name facet (scripts/patch_thin_category_
+    # facets.py) so a "sherwani for X" query can hard-filter to it instead of
+    # relying on embedding similarity alone. "bandhgala" has zero current
+    # inventory but costs nothing to recognise for when/if it's added.
+    (r"\bsherwanis?\b", "sherwani"),
+    (r"\bbandhgalas?\b", "bandhgala"),
 ]
 
 _COMPILED_GARMENT_RULES: list[tuple[re.Pattern[str], str]] = [

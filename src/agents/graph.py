@@ -1522,6 +1522,10 @@ def build_graph(
         (r"\bsalwar\b", "salwar"),
         (r"\bco-?ord\b|\bcoord\b", "coord"),
         (r"\bvest\b|\btank\b", "vest"),
+        # 2026-07-11 catalogue-gap follow-up — see intent_parser._GARMENT_RULES
+        # for the same addition and why (scripts/patch_thin_category_facets.py).
+        (r"\bsherwanis?\b", "sherwani"),
+        (r"\bbandhgalas?\b", "bandhgala"),
     ]
 
     # RED 5b/D: occasion keyword → extra garment-category search terms, appended to

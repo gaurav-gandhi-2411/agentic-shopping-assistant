@@ -4100,14 +4100,18 @@ queries:
   turns:
   - style my fiancee to match this sherwani
   expected_intent:
-    garment_type: null
+    # 2026-07-11: "sherwani" is now a recognized garment_type (catalogue-gap
+    # follow-up, scripts/patch_thin_category_facets.py) — was null only
+    # because the parser had no sherwani rule yet. is_product_query follows
+    # directly (garment_type is not None -> True per _is_product_query).
+    garment_type: sherwani
     gender: men
     colour: null
     occasion: null
     budget_max_inr: null
     body_type: null
     body_modifiers: []
-    is_product_query: false
+    is_product_query: true
   gates:
     compose: true
     occasion_slug: casual
@@ -5534,14 +5538,20 @@ queries:
   turns:
   - sherwani for women
   expected_intent:
-    garment_type: null
+    # 2026-07-11: "sherwani" is now a recognized garment_type, which per
+    # _is_product_query's own logic (garment_type is not None -> True)
+    # correctly makes this a product query too — the parser is right that
+    # this IS a garment request; the adversarial signal being tested here is
+    # the cross-gender mismatch (sherwani is a men's garment), not whether
+    # it's a product query at all.
+    garment_type: sherwani
     gender: women
     colour: null
     occasion: null
     budget_max_inr: null
     body_type: null
     body_modifiers: []
-    is_product_query: false
+    is_product_query: true
   gates:
     compose: true
     occasion_slug: casual
