@@ -75,7 +75,7 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
     """
     from src.agents.intent_parser import parse_intent
     from src.agents.outfit.coherence import is_coherent_candidate
-    from src.agents.outfit.slots import fabric_score_delta
+    from src.agents.outfit.slots import fabric_score_delta, is_kids_item
 
     intent = parse_intent(query)
     filters: dict = {"gender": gender}
@@ -86,7 +86,11 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
 
     occasion_slug = intent.occasion
     if occasion_gate and occasion_slug and occasion_slug != "casual":
-        gated = [it for it in items if is_coherent_candidate(it, occasion_slug, gender, _NEUTRAL_SLOT)]
+        gated = [
+            it for it in items
+            if is_coherent_candidate(it, occasion_slug, gender, _NEUTRAL_SLOT)
+            and not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+        ]
         if gated:  # never let the gate empty the pool (same discipline as composer)
             items = gated
         items = sorted(items, key=lambda it: fabric_score_delta(it, occasion_slug), reverse=True)

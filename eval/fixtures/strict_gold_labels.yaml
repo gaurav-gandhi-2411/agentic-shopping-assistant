@@ -408,6 +408,8 @@ labels:
   - {article_id: "7602969182294", relevant: true, note: "'outfit' query legitimizes a coordinated set"}
   - {article_id: "13754380", relevant: true}
   - {article_id: "7851298390102", relevant: true, note: "'outfit' query legitimizes a coordinated set"}
+  - {article_id: "18987256", relevant: true,
+     note: "olive green cotton kurta — colour+fabric+ethnic all match (surfaced after kids-item gate added)"}
 - query_id: occ_adv_001
   items:
   - {article_id: "6669758005405", relevant: false, reason: occasion-register,

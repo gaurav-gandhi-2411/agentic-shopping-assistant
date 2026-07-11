@@ -3,12 +3,12 @@ Loading retrieval indices from C:\Users\gaura\ml-projects\agentic-shopping-assis
 STRICT GOLD EVAL [pipeline-occasion-gated] — hand-audited relevance (rubric: strict_gold_queries.yaml)
 queries=40  scored_items=195  unlabeled_items=0
 
-strict precision@5 (overall): 0.764  (149/195)
+strict precision@5 (overall): 0.779  (152/195)
 
 per-category precision@5:
   literal          0.920  (23/25)
   multi_attribute  0.410  (16/39)
-  occasion         0.736  (53/72)
+  occasion         0.778  (56/72)
   style            0.966  (57/59)
 
 miss taxonomy:
@@ -19,7 +19,6 @@ miss taxonomy:
     4  budget                   [CODE-FIXABLE]
     4  data-ceiling             [DATA]
     4  attribute-contradiction  [CODE-FIXABLE]
-    3  kids-leak                [CODE-FIXABLE]
     1  data-mislabel            [DATA]
 
 if every CODE-FIXABLE miss were fixed: 0.974 (remaining gap = 5 data-capped items)
@@ -40,10 +39,7 @@ weakest queries:
   gold_005       [style           ] 4/5  'anarkali kurta for women'
   gold_016       [literal         ] 4/5  'kurti under 1500'
   gold_022       [literal         ] 4/5  'blue jeans under 2000 for men'
-  gold_017       [occasion        ] 4/5  'lehenga for sangeet'
   gold_018       [occasion        ] 4/5  'bright yellow kurta for haldi'
-  gold_019       [occasion        ] 4/5  'green outfit for mehendi'
   gold_020       [occasion        ] 4/5  "men's kurta for a reception"
-  occ_adv_004    [occasion        ] 4/5  'sangeet lehenga for women'
   occ_adv_007    [occasion        ] 4/5  'wedding guest saree for women'
   multi_002      [multi_attribute ] 4/5  'green floral kurta for mehendi under 2000'
