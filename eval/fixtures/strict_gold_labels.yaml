@@ -570,3 +570,121 @@ labels:
   - {article_id: "8529053", relevant: true, note: "'Anarkali' explicit; Maroon is in the wine colour-family"}
   - {article_id: "8201212854494", relevant: false, reason: attribute-contradiction,
      note: "plain kurta, no anarkali/flared silhouette signal"}
+
+# ── Batch 6 (2026-07-11): cross-encoder (ms-marco-MiniLM-L-6-v2) reranker
+# A/B delta items — the cross-encoder reorders the SAME post-gate candidate
+# pool (up to 50 items), so items ranked 6-50 by the baseline can newly enter
+# the top-5. Labeled against the same rubric as strict_gold_queries.yaml.
+- query_id: gold_001
+  items:
+  - {article_id: "10048217710889", relevant: true, note: "desc explicitly 'bodycon'"}
+- query_id: gold_002
+  items:
+  - {article_id: "7816435269718", relevant: true, note: "floor-length tiered maxi dress"}
+  - {article_id: "9034319593694", relevant: true}
+  - {article_id: "8600464392342", relevant: true, note: "'Maxi Dress' explicit"}
+- query_id: gold_003
+  items:
+  - {article_id: "10207153", relevant: true}
+- query_id: gold_004
+  items:
+  - {article_id: "19324632", relevant: true}
+  - {article_id: "9252969", relevant: true}
+- query_id: gold_005
+  items:
+  - {article_id: "8107872813278", relevant: false, reason: attribute-contradiction,
+     note: "plain round-neck kurta set, no anarkali/flared silhouette signal"}
+- query_id: gold_006
+  items:
+  - {article_id: "7663124349150", relevant: true}
+  - {article_id: "7663124480222", relevant: true}
+- query_id: gold_008
+  items:
+  - {article_id: "9098870489338", relevant: true}
+  - {article_id: "9051532067038", relevant: true}
+- query_id: gold_009
+  items:
+  - {article_id: "9549655310633", relevant: true}
+  - {article_id: "9549655540009", relevant: true}
+  - {article_id: "17185856", relevant: true, note: "desc explicitly 'High waist'"}
+  - {article_id: "18822968", relevant: true, note: "'High-Rise' = high-waisted"}
+- query_id: gold_010
+  items:
+  - {article_id: "7785146417374", relevant: true}
+  - {article_id: "7960862130398", relevant: true}
+- query_id: gold_011
+  items:
+  - {article_id: "9480558543145", relevant: true}
+- query_id: gold_012
+  items:
+  - {article_id: "8053765538014", relevant: true}
+- query_id: gold_013
+  items:
+  - {article_id: "15262298", relevant: true}
+  - {article_id: "8491630100630", relevant: false, reason: occasion-register,
+     note: "explicitly a nightdress/kaftan sleepwear item, not general daywear"}
+- query_id: gold_016
+  items:
+  - {article_id: "15771994", relevant: false, reason: budget, note: "INR 2695 exceeds the stated 1500 cap"}
+- query_id: gold_021
+  items:
+  - {article_id: "8fd4a3bc-02c1-548f-b64f-28ee3d1fc830", relevant: true}
+  - {article_id: "c40302a4-e092-5362-b08e-ff50b2a3ec67", relevant: true}
+  - {article_id: "f5d7fbcf-5593-5df3-b853-ed6c980d1548", relevant: true}
+- query_id: gold_022
+  items:
+  - {article_id: "945f415d-13cd-5daa-a723-2db21e4f7f9a", relevant: true}
+  - {article_id: "9158336512222", relevant: false, reason: budget, note: "INR 2879 exceeds the stated 2000 cap"}
+- query_id: gold_014
+  items:
+  - {article_id: "17735542", relevant: true}
+- query_id: gold_018
+  items:
+  - {article_id: "8389028675806", relevant: false, reason: set-not-single,
+     note: "desc: 'kurta sets... complete and coordinated traditional look' — genuine 2-piece set even though the name lacks a second garment noun the current gate detects"}
+- query_id: gold_019
+  items:
+  - {article_id: "18768740", relevant: true, note: "'outfit' query legitimizes a coordinated saree+blouse"}
+  - {article_id: "8649833447574", relevant: true}
+- query_id: gold_020
+  items:
+  - {article_id: "3c874b48-a660-5b8d-8d9b-3caabaf2c092", relevant: true}
+  - {article_id: "e049ddb3-1643-5040-83fe-81bc0afcc9c5", relevant: true}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "f300aea0-406a-5336-be08-c5b99971a039", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+  - {article_id: "56ca488f-49b9-539c-921a-20ee786cde4b", relevant: false, reason: type-confusion,
+     note: "baseball cap, not an outfit"}
+- query_id: occ_adv_003
+  items:
+  - {article_id: "18205644", relevant: true, note: "branded 'OFFICE & YOU'; shrug plausible over office wear"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "9993618358569", relevant: true, note: "genuine off-shoulder gown"}
+- query_id: occ_adv_008
+  items:
+  - {article_id: "8029159784670", relevant: true, note: "desc: 'Semi Formal Trousers...perfect for your lavish outing and daily wear'"}
+- query_id: multi_001
+  items:
+  - {article_id: "8932310909225", relevant: true, note: "black, explicitly bodycon, INR 899 under the 3000 cap"}
+- query_id: multi_002
+  items:
+  - {article_id: "8654910652566", relevant: false, reason: budget, note: "INR 2299 exceeds the stated 2000 cap; also a kurta set"}
+  - {article_id: "10808284", relevant: true, note: "green (colour field), floral, cotton, single kurta, INR 1198 under cap"}
+- query_id: multi_003
+  items:
+  - {article_id: "16190872", relevant: false, reason: attribute-contradiction,
+     note: "desc says 'Printed', no embellishment/embroidery/sequin signal — query asks for 'embellished'"}
+- query_id: multi_004
+  items:
+  - {article_id: "8389028479198", relevant: true, note: "lemon = yellow colour-family, cotton, single kurta, under cap"}
+- query_id: multi_006
+  items:
+  - {article_id: "c144a8a8-5e64-51a4-97d8-0254ea2a586e", relevant: true,
+     note: "colour field=White, 'Straight' explicit; desc mentions maroon but the structured colour/title fields are authoritative"}
+  - {article_id: "8510920491170", relevant: false, reason: attribute-contradiction,
+     note: "'Slim Fit' explicitly stated — contradicts 'straight fit'"}
+- query_id: multi_007
+  items:
+  - {article_id: "7538203492438", relevant: true, note: "'A-Line Flared' explicit, peach named in title"}

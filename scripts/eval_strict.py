@@ -61,8 +61,35 @@ DATA_REASONS = frozenset({"data-ceiling", "data-mislabel"})
 # tripping the accessory-only gate. See coherence.is_coherent_candidate.
 _NEUTRAL_SLOT = "top"
 
+# 2026-07-11 cross-encoder reranker A/B (Part 1b): a well-established, free,
+# self-hostable BEIR/MS-MARCO cross-encoder (~22M params, fast CPU inference).
+_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
-def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: bool) -> list[dict]:
+
+def _cross_encoder_candidate_text(item: dict) -> str:
+    colour = item.get("colour") or ""
+    product_type = item.get("product_type") or ""
+    name = item.get("prod_name") or item.get("display_name") or ""
+    return f"{name}, {colour} {product_type}".strip()
+
+
+def cross_encoder_rerank(model, query: str, items: list[dict]) -> list[dict]:
+    """Rerank an ALREADY-RETRIEVED candidate pool by cross-encoder relevance
+    score. Reorders only — never introduces new items, so this needs NO new
+    hand labels for an honest A/B against the existing strict gold labels
+    (unlike an embedding-model swap, which changes the retrieved SET itself).
+    """
+    if not items:
+        return items
+    pairs = [(query, _cross_encoder_candidate_text(it)) for it in items]
+    scores = model.predict(pairs)
+    order = sorted(range(len(items)), key=lambda i: scores[i], reverse=True)
+    return [items[i] for i in order]
+
+
+def _retrieve_pipeline(
+    retriever, query: str, gender: str, *, occasion_gate: bool, cross_encoder=None
+) -> list[dict]:
     """Mirror search_node's production filter(+gate+rerank) exactly (same
     functions, not reimplemented) so this mode reports real user-facing order.
 
@@ -72,6 +99,12 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
     garment set exclusion — is unconditional in both search_node and this
     mirror, matching production regardless of the flag. Use both values to
     isolate the occasion gate's specific contribution.
+
+    cross_encoder: an optional loaded sentence_transformers.CrossEncoder —
+    when given, reorders the FULL post-gate candidate pool by cross-encoder
+    relevance score as the final step (Part 1b A/B). Reordering only, never
+    introduces new items — an honest A/B against the existing hand labels
+    needs no new labeling, unlike an embedding-model swap.
     """
     from src.agents.graph import _OUTFIT_INTENT_RE, _SET_INTENT_RE
     from src.agents.intent_parser import parse_intent
@@ -117,6 +150,9 @@ def _retrieve_pipeline(retriever, query: str, gender: str, *, occasion_gate: boo
         if gated:  # never let the gate empty the pool (same discipline as composer)
             items = gated
         items = sorted(items, key=lambda it: fabric_score_delta(it, occasion_slug), reverse=True)
+
+    if cross_encoder is not None:
+        items = cross_encoder_rerank(cross_encoder, query, items)
     return items
 
 
@@ -133,6 +169,9 @@ def main() -> None:
     parser.add_argument("--json-out", default=None,
                         help="Write a {precision_at_5, n_scored, n_unlabeled} summary here "
                              "(consumed by scripts/eval_gate.py)")
+    parser.add_argument("--cross-encoder", action="store_true",
+                        help="pipeline mode only: rerank the post-gate candidate pool with "
+                             f"{_CROSS_ENCODER_MODEL} (Part 1b A/B, reordering only)")
     args = parser.parse_args()
 
     from eval_model import _build_components  # heavy import deferred past --help
@@ -148,6 +187,12 @@ def main() -> None:
     comps = _build_components(need_agent=False, data_dir=Path(args.data_dir))
     retriever = comps["retriever"]
 
+    cross_encoder = None
+    if args.cross_encoder:
+        from sentence_transformers import CrossEncoder
+        print(f"loading cross-encoder {_CROSS_ENCODER_MODEL}...")
+        cross_encoder = CrossEncoder(_CROSS_ENCODER_MODEL, device="cpu")
+
     n_scored = n_relevant = n_unlabeled = 0
     reasons: Counter[str] = Counter()
     per_query: list[tuple[str, str, str, int, int, int]] = []
@@ -156,7 +201,8 @@ def main() -> None:
     for q in queries:
         if args.mode == "pipeline":
             items = _retrieve_pipeline(
-                retriever, q["query"], q["gender"], occasion_gate=not args.no_occasion_gate
+                retriever, q["query"], q["gender"], occasion_gate=not args.no_occasion_gate,
+                cross_encoder=cross_encoder,
             )
         else:
             items = retriever.search(q["query"], top_k=50, filters={"gender": q["gender"]})
@@ -185,6 +231,8 @@ def main() -> None:
     _mode_label = args.mode
     if args.mode == "pipeline":
         _mode_label += "-no-occasion-gate" if args.no_occasion_gate else "-occasion-gated"
+        if args.cross_encoder:
+            _mode_label += "-cross-encoder"
     print(f"\nSTRICT GOLD EVAL [{_mode_label}] — hand-audited relevance "
           f"(rubric: {_QUERIES_PATH.name})")
     print(f"queries={len(queries)}  scored_items={n_scored}  unlabeled_items={n_unlabeled}")
