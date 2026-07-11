@@ -688,3 +688,113 @@ labels:
 - query_id: multi_007
   items:
   - {article_id: "7538203492438", relevant: true, note: "'A-Line Flared' explicit, peach named in title"}
+
+# ── Batch 7 (2026-07-11): gold-set expansion for statistical robustness —
+# literal 5->13 queries, multi_attribute 8->14 queries (2 of the 14 return
+# EMPTY result sets — genuine data-ceiling confirmations, not labeled: see
+# multi_009/multi_011 below).
+- query_id: gold_025
+  items:
+  - {article_id: "7caf0b0a-6f37-5769-a066-fb5c382ee11d", relevant: true}
+  - {article_id: "29bfba3a-cddd-5699-a2d5-c073c55d41ea", relevant: true}
+  - {article_id: "8542297391266", relevant: true}
+  - {article_id: "8522153722018", relevant: true}
+  - {article_id: "8029159784670", relevant: true}
+- query_id: gold_026
+  items:
+  - {article_id: "15249694", relevant: true}
+  - {article_id: "6883945971869", relevant: true}
+  - {article_id: "15956420", relevant: true}
+  - {article_id: "15583460", relevant: true}
+  - {article_id: "16504020", relevant: true}
+- query_id: gold_027
+  items:
+  - {article_id: "8214212640990", relevant: true}
+  - {article_id: "19123278", relevant: true}
+  - {article_id: "7891346915550", relevant: true}
+  - {article_id: "18328804", relevant: true}
+  - {article_id: "18822968", relevant: false, reason: budget, note: "INR 4499 exceeds the stated 2500 cap"}
+- query_id: gold_028
+  items:
+  - {article_id: "8826315604190", relevant: false, reason: set-not-single, note: "'Kurta Set' (2-piece)"}
+  - {article_id: "dd58ffef-33e5-551f-a745-fd3edd1f54d6", relevant: true}
+  - {article_id: "7679580a-0d30-5650-b939-c69f7fd30142", relevant: true}
+  - {article_id: "8063137087710", relevant: true}
+  - {article_id: "8063137054942", relevant: true}
+- query_id: gold_029
+  items:
+  - {article_id: "18128680", relevant: true}
+  - {article_id: "15183010", relevant: true}
+  - {article_id: "16466356", relevant: true}
+  - {article_id: "14595296", relevant: true}
+  - {article_id: "9844625473833", relevant: true}
+- query_id: gold_030
+  items:
+  - {article_id: "9b36e42b-5b5e-51fe-8845-f15db686f788", relevant: true}
+  - {article_id: "dfc445bd-1038-5e8b-b1e1-f79847b4707d", relevant: true}
+  - {article_id: "f44f918b-f784-598b-a043-0fc505453bc4", relevant: true}
+  - {article_id: "9218839445666", relevant: false, reason: budget, note: "INR 1599 exceeds the stated 1500 cap"}
+  - {article_id: "8895071977722", relevant: true, note: "'Polo' explicit in title, INR 1499 under cap"}
+- query_id: gold_031
+  items:
+  - {article_id: "8428303810782", relevant: true}
+  - {article_id: "17644516", relevant: true}
+  - {article_id: "15513528", relevant: true, note: "pack-of-2 palazzos still satisfies a plain palazzo-pants query"}
+  - {article_id: "15517674", relevant: true}
+  - {article_id: "17159088", relevant: true}
+- query_id: gold_032
+  items:
+  - {article_id: "7624165523678", relevant: true}
+  - {article_id: "7624165556446", relevant: true}
+  - {article_id: "ccb9a0b4-394a-532d-b396-88acd33e885d", relevant: false, reason: attribute-contradiction,
+     note: "title explicitly says 'Casual Shirt' — contradicts the 'formal' ask despite desc text claiming FORMAL"}
+  - {article_id: "7659217518814", relevant: true}
+  - {article_id: "8999960838394", relevant: false, reason: occasion-register,
+     note: "desc reads casual/breezy ('drapes smoothly...airy'), no formal signal"}
+- query_id: multi_009
+  items: []
+  # 'maroon velvet blazer for men for a winter wedding under 6000' — retriever
+  # returned ZERO items (occasion-gated pipeline). DATA-CEILING, not scored:
+  # confirms the earlier-documented men's-occasionwear/blazer inventory gap
+  # extends to velvet-fabric blazers specifically.
+- query_id: multi_010
+  items:
+  - {article_id: "16616108", relevant: true}
+  - {article_id: "18451644", relevant: true}
+  - {article_id: "18102924", relevant: true}
+  - {article_id: "18587336", relevant: true}
+  - {article_id: "11530714", relevant: true}
+- query_id: multi_011
+  items: []
+  # 'royal blue sherwani for groom under 12000' — retriever returned ZERO
+  # items. DATA-CEILING, not scored: confirms the earlier-documented
+  # sherwani-colour inventory gap (zero green sherwanis) extends to blue.
+- query_id: multi_012
+  items:
+  - {article_id: "8944668639394", relevant: true}
+  - {article_id: "8935864598690", relevant: true}
+  - {article_id: "8743960576162", relevant: true, note: "desc: 'Perfect for semi-formal occasions'"}
+  - {article_id: "d5c96b03-b875-5552-bd7c-d33cfa55019b", relevant: true, note: "desc explicitly mentions office wear"}
+  - {article_id: "8683800920226", relevant: false, reason: occasion-register,
+     note: "desc explicitly says 'Perfect for casual...' — contradicts the office ask"}
+- query_id: multi_013
+  items:
+  - {article_id: "6812047081558", relevant: false, reason: attribute-contradiction,
+     note: "desc: 'Ethnic...Party Wear Ethnic Dress' — ethnic silhouette, not a Western-style gown"}
+  - {article_id: "7810756149470", relevant: false, reason: attribute-contradiction,
+     note: "desc: 'ruched bodycon dress' — bodycon silhouette, not gown"}
+  - {article_id: "9001995632862", relevant: false, reason: attribute-contradiction,
+     note: "'Dress Set' with shrug (2-piece), sheath silhouette — not a gown"}
+  - {article_id: "7838839242974", relevant: false, reason: attribute-contradiction,
+     note: "desc: 'ruched bodycon dress' — bodycon silhouette, not gown"}
+  - {article_id: "7999310102750", relevant: true, note: "off-shoulder + flared silhouette — closest match to a Western-style gown"}
+- query_id: multi_014
+  items:
+  - {article_id: "8658942132374", relevant: false, reason: occasion-register,
+     note: "floral printed only, no embellishment signal — too light for sangeet register"}
+  - {article_id: "8651069685910", relevant: false, reason: occasion-register,
+     note: "bandhani print only, no embellishment signal"}
+  - {article_id: "7596566380630", relevant: true, note: "'Hand Embroidered' — embellishment matches sangeet register; green colour-family (mint/lime)"}
+  - {article_id: "8651069653142", relevant: false, reason: occasion-register,
+     note: "bandhani print only, no embellishment signal"}
+  - {article_id: "8585322365078", relevant: true, note: "'Embroidered', silk blend — embellishment matches sangeet register"}

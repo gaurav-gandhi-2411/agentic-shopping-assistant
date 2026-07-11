@@ -197,6 +197,9 @@ def main() -> None:
     reasons: Counter[str] = Counter()
     per_query: list[tuple[str, str, str, int, int, int]] = []
     by_category: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])  # [rel, miss, unl]
+    mrr_scores: list[float] = []
+    mrr_by_category: dict[str, list[float]] = defaultdict(list)
+    mrr_excluded = 0
 
     for q in queries:
         if args.mode == "pipeline":
@@ -208,14 +211,20 @@ def main() -> None:
             items = retriever.search(q["query"], top_k=50, filters={"gender": q["gender"]})
         top = items[: args.top_k]
         rel = miss = unl = 0
-        for it in top:
+        reciprocal_rank = 0.0
+        first_relevant_rank: int | None = None
+        any_unlabeled_in_top = False
+        for rank, it in enumerate(top, start=1):
             key = (q["id"], str(it.get("article_id")))
             label = labels.get(key)
             if label is None:
                 unl += 1
+                any_unlabeled_in_top = True
                 continue
             if label["relevant"]:
                 rel += 1
+                if first_relevant_rank is None:
+                    first_relevant_rank = rank
             else:
                 miss += 1
                 reasons[label.get("reason", "unspecified")] += 1
@@ -227,6 +236,24 @@ def main() -> None:
         by_category[cat][0] += rel
         by_category[cat][1] += miss
         by_category[cat][2] += unl
+        # MRR: skip queries with an unlabeled item ranked ABOVE the first labeled
+        # relevant hit (or unlabeled anywhere, if no relevant hit was found) — an
+        # unlabeled item's true relevance is unknown, so its rank position can't be
+        # honestly scored either way. Queries with zero retrieved items correctly
+        # score reciprocal-rank 0 (MRR is defined over "found nothing").
+        unlabeled_before_first_hit = any_unlabeled_in_top and (
+            first_relevant_rank is None
+            or any(
+                labels.get((q["id"], str(it.get("article_id")))) is None
+                for it in top[: first_relevant_rank - 1]
+            )
+        )
+        if unlabeled_before_first_hit:
+            mrr_excluded += 1
+            continue
+        reciprocal_rank = 1.0 / first_relevant_rank if first_relevant_rank else 0.0
+        mrr_scores.append(reciprocal_rank)
+        mrr_by_category[cat].append(reciprocal_rank)
 
     _mode_label = args.mode
     if args.mode == "pipeline":
@@ -248,6 +275,14 @@ def main() -> None:
         cat_p5 = rel / cat_scored if cat_scored else 0.0
         unl_note = f"  (+{unl} unlabeled)" if unl else ""
         print(f"  {cat:16s} {cat_p5:.3f}  ({rel}/{cat_scored}){unl_note}")
+
+    mrr = sum(mrr_scores) / len(mrr_scores) if mrr_scores else 0.0
+    excl_note = f"  ({mrr_excluded} queries excluded — unlabeled item ranked above first hit)" if mrr_excluded else ""
+    print(f"\nMRR@{args.top_k} (overall): {mrr:.3f}  (n={len(mrr_scores)}){excl_note}")
+    print(f"per-category MRR@{args.top_k}:")
+    for cat, scores in sorted(mrr_by_category.items()):
+        cat_mrr = sum(scores) / len(scores) if scores else 0.0
+        print(f"  {cat:16s} {cat_mrr:.3f}  (n={len(scores)})")
 
     code_misses = sum(c for r, c in reasons.items() if r in CODE_FIXABLE_REASONS)
     data_misses = sum(c for r, c in reasons.items() if r in DATA_REASONS)
@@ -279,6 +314,9 @@ def main() -> None:
                 cat: {"relevant": v[0], "miss": v[1], "unlabeled": v[2]}
                 for cat, v in by_category.items()
             },
+            "mrr_at_k": mrr,
+            "mrr_n": len(mrr_scores),
+            "mrr_excluded": mrr_excluded,
         }, indent=2), encoding="utf-8")
 
 

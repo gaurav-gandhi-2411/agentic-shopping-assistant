@@ -122,6 +122,39 @@ queries:
   category: literal
   query: cotton saree for daily wear
   gender: women
+# ── literal, Batch 7 expansion (2026-07-11, statistical robustness) ──────────
+- id: gold_025
+  category: literal
+  query: grey trousers for men
+  gender: men
+- id: gold_026
+  category: literal
+  query: floral skirt for women
+  gender: women
+- id: gold_027
+  category: literal
+  query: black jeans under 2500 for women
+  gender: women
+- id: gold_028
+  category: literal
+  query: printed kurta for men
+  gender: men
+- id: gold_029
+  category: literal
+  query: denim jacket for women
+  gender: women
+- id: gold_030
+  category: literal
+  query: polo t-shirt for men under 1500
+  gender: men
+- id: gold_031
+  category: literal
+  query: palazzo pants for women
+  gender: women
+- id: gold_032
+  category: literal
+  query: formal shirt for men under 2000
+  gender: men
 # ── occasion (register must be respected) ────────────────────────────────────
 - id: gold_014
   category: occasion
@@ -218,4 +251,29 @@ queries:
 - id: multi_008
   category: multi_attribute
   query: wine anarkali kurta for reception under 8000
+  gender: women
+# ── multi-attribute, Batch 7 expansion (2026-07-11, statistical robustness) ──
+- id: multi_009
+  category: multi_attribute
+  query: maroon velvet blazer for men for a winter wedding under 6000
+  gender: men
+- id: multi_010
+  category: multi_attribute
+  query: pastel pink lehenga for mehendi under 10000
+  gender: women
+- id: multi_011
+  category: multi_attribute
+  query: royal blue sherwani for groom under 12000
+  gender: men
+- id: multi_012
+  category: multi_attribute
+  query: beige linen trousers for men for office under 3000
+  gender: men
+- id: multi_013
+  category: multi_attribute
+  query: wine coloured gown for reception under 7000
+  gender: women
+- id: multi_014
+  category: multi_attribute
+  query: mint green anarkali for sangeet under 6000
   gender: women
