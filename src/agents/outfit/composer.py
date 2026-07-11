@@ -27,6 +27,7 @@ from src.agents.outfit.slots import (
     is_kids_item,
     is_multi_piece_set,
     is_novelty_item,
+    is_rugged_footwear_item,
     is_slot_type_allowed,
     is_western_item,
 )
@@ -909,6 +910,16 @@ def _score_candidates(
         # the best-scoring candidate (live-proven: office look's bottom slot
         # filled with "ONLY Women Blue Solid Denim Mini Skirts").
         if get_occasion(occasion_slug).formality >= 3 and is_casual_marker_item(item_name):
+            continue
+        # Footwear register gate (sweep 2026-07-10, relevance-adjacent): the
+        # casual-marker vocabulary above covers garments only — ₹759 combat
+        # boots passed it into a sangeet look. Rugged/athletic footwear never
+        # belongs in a formality >= 3 occasion's footwear slot.
+        if (
+            slot_name == "footwear"
+            and get_occasion(occasion_slug).formality >= 3
+            and is_rugged_footwear_item(item_name)
+        ):
             continue
         if not is_coherent_candidate(
             item, occasion_slug, gender, slot_name, skip_gender_gate=is_neutral_fallback_item

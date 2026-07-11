@@ -313,6 +313,26 @@ def is_casual_marker_item(prod_name: str) -> bool:
     return bool(_CASUAL_MARKER_RE.search(prod_name or ""))
 
 
+# Rugged/athletic footwear register — live-proven miss (sweep 2026-07-10,
+# relevance-adjacent): a sangeet "his look" footwear slot filled with ₹759
+# combat boots. The generic casual-marker gate above covers garments (denim/
+# cargo/joggers) but had no footwear vocabulary at all. Plain "boots" is
+# included deliberately: for Indian festive/formal occasions the appropriate
+# menswear registers are oxfords/derbies/loafers/monks/mojaris/juttis — even a
+# dress Chelsea boot is an edge case not worth the combat-boot false accepts.
+_RUGGED_FOOTWEAR_RE = re.compile(
+    r"\b(boots?|sneakers?|trainers?|running|sports?|training|trekking|hiking|"
+    r"football|badminton|gym|flip[\s-]?flops?|slippers?|sliders?|crocs?|clogs?)\b",
+    re.IGNORECASE,
+)
+
+
+def is_rugged_footwear_item(prod_name: str) -> bool:
+    """True if `prod_name` reads as rugged/athletic/at-home footwear — never
+    acceptable in a formality >= 3 look's footwear slot."""
+    return bool(_RUGGED_FOOTWEAR_RE.search(prod_name or ""))
+
+
 # Phase B (product gap 2): a multi-piece SET listing ("Anarkali Sharara Set",
 # "Kurta Set with Dupatta", a "Co-Ord Set") is a WHOLE OUTFIT, not a single
 # garment — it must never fill a single complement slot (bottom/top/
