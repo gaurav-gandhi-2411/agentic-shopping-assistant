@@ -44,8 +44,20 @@ from src.retrieval.hybrid_search import HybridRetriever
 # ── Intent detection ────────────────────────────────────────────────────────
 
 # Words that directly imply a concrete partner gender.
-_MEN_WORD_RE = re.compile(r"\b(husband|boyfriend|groom)\b", re.IGNORECASE)
-_WOMEN_WORD_RE = re.compile(r"\b(wife|girlfriend|bride)\b", re.IGNORECASE)
+# "groom"/"bride" are deliberately NOT here (see _GROOM_RE/_BRIDE_RE below) —
+# husband/wife/boyfriend/girlfriend are near-always used in a possessive,
+# "my partner" sense, but "sherwani for groom"/"lehenga for bride" are
+# extremely common PLAIN single-item search phrasings (occasion-role
+# descriptors, same as "for men") with zero partner-coordination intent.
+# Live-proven 2026-07-11: "sherwani for groom" misrouted to a partner-styling
+# clarify question instead of ever searching.
+_MEN_WORD_RE = re.compile(r"\b(husband|boyfriend)\b", re.IGNORECASE)
+_WOMEN_WORD_RE = re.compile(r"\b(wife|girlfriend)\b", re.IGNORECASE)
+
+# Weaker signal: only counts alongside an explicit styling/coordination verb
+# in the SAME query — mirrors the "for him"/"for her" treatment below.
+_GROOM_RE = re.compile(r"\bgroom\b", re.IGNORECASE)
+_BRIDE_RE = re.compile(r"\bbride\b", re.IGNORECASE)
 
 # Words that name a partner WITHOUT implying a specific gender — resolved
 # against the anchor look's own gender (opposite of it) by resolve_partner_gender.
@@ -90,11 +102,13 @@ def detect_partner_intent(raw_query: str) -> PartnerIntent:
 
     Fires ONLY on:
       - An explicit relationship noun: husband, wife, boyfriend, girlfriend,
-        fiance(e), groom, bride, partner, couple.
+        fiance(e), partner, couple.
       - The literal phrase "his and hers".
-      - "for him"/"for her" WHEN a styling/coordination verb ("style", "wear",
-        "match", "coordinate", "outfit", "dress", "look") is ALSO present in
-        the same query.
+      - "for him"/"for her"/"groom"/"bride" WHEN a styling/coordination verb
+        ("style", "wear", "match", "coordinate", "outfit", "dress", "look")
+        is ALSO present in the same query — "groom"/"bride" alone are plain
+        occasion-role descriptors ("sherwani for groom"), not a partner
+        signal on their own; "the groom needs a matching look" IS one.
 
     Never fires on ambiguous phrasing with no relationship signal at all —
     e.g. "also show me shirts" or "women's shirts for me too".
@@ -119,6 +133,10 @@ def detect_partner_intent(raw_query: str) -> PartnerIntent:
         return PartnerIntent(True, "men", "for him")
     if has_styling_verb and _FOR_HER_RE.search(raw_query):
         return PartnerIntent(True, "women", "for her")
+    if has_styling_verb and _GROOM_RE.search(raw_query):
+        return PartnerIntent(True, "men", "groom")
+    if has_styling_verb and _BRIDE_RE.search(raw_query):
+        return PartnerIntent(True, "women", "bride")
 
     return PartnerIntent(False, None, None)
 
