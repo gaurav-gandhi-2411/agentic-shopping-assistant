@@ -2017,6 +2017,43 @@ def build_graph(
                         seen_diverse.add(item["article_id"])
             items_out = diverse[:top_k]
 
+        # Occasion register gate + rerank (relevance quality pass, 2026-07-11):
+        # occasion previously entered plain search ONLY as raw keyword text
+        # appended to the query when no garment type was present
+        # (_OCCASION_QUERY_TERMS above) — "lehenga for sangeet" got zero
+        # occasion signal beyond whatever the embedding happened to catch, so
+        # western items and haldi-inappropriate heavy/dark items could rank
+        # into the top-5 untouched. Reuses the SAME hard register gate
+        # (is_coherent_candidate) and fabric/embellishment rerank
+        # (fabric_score_delta) the outfit composer already applies per-slot —
+        # applied once here to the plain search result list. Pool-underflow
+        # protected: a gate that would empty the list is skipped, never
+        # returns zero results just because every candidate happened to be
+        # off-register.
+        from src.agents.intent_parser import parse_intent as _occ_parse_intent
+        from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
+        from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
+
+        _occ_slug = _occ_parse_intent(raw_query).occasion or _reconstruct_occasion_from_history(
+            state.get("messages", [])
+        )
+        if _occ_slug and _occ_slug != "casual" and items_out:
+            _occ_gender = (
+                merged.get("gender")
+                or ("men" if merged.get("index_group_name") == "menswear"
+                    else "women" if merged.get("index_group_name") == "ladieswear"
+                    else "unisex")
+            )
+            _occ_gated = [
+                it for it in items_out
+                if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
+            ]
+            if _occ_gated:
+                items_out = _occ_gated
+            items_out = sorted(
+                items_out, key=lambda it: _occ_fabric_delta(it, _occ_slug), reverse=True
+            )
+
         # Colour refinement chips: distinct colours in the result set.
         # Excludes the active colour filter so chips offer genuine alternatives.
         # Falls back to all available colours if nothing else is available (e.g.
