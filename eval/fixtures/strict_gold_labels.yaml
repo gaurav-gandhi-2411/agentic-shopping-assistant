@@ -1,0 +1,207 @@
+# Hand-audited relevance labels for eval/fixtures/strict_gold_queries.yaml.
+# Rubric: see strict_gold_queries.yaml header. One entry per retrieved item.
+# labeled_by: Claude (Fable 5), reading each product's name/type/colour/desc — every
+#   label is auditable against the snapshot below; GG may overturn any label.
+# labeled_on: 2026-07-11
+# retrieval_snapshot: commit 920e2b8, data/processed/unified,
+#   HybridRetriever.search(query, top_k=50, filters={gender})[:5]  (mirrors R1 stage)
+# miss reasons (taxonomy):
+#   type-confusion         wrong garment type ranked in (trousers for "blazer")
+#   set-not-single         multi-piece set returned for a single-garment query
+#   kids-leak              girls/kids item labeled women in the catalogue
+#   budget                 price exceeds the query's stated cap
+#   occasion-register      garment type ok but register wrong for stated occasion
+#   attribute-contradiction named attribute contradicted (mid-rise for "high waisted")
+#   data-mislabel          catalogue name/desc disagree (jeans named, pyjama described)
+#   data-ceiling           no better item EXISTS in the catalogue (inventory gap)
+version: 1
+labels:
+- query_id: gold_001
+  items:
+  - {article_id: "7599231598814", relevant: true}
+  - {article_id: "8760230117673", relevant: true}
+  - {article_id: "8225722171614", relevant: true}
+  - {article_id: "10095562948905", relevant: true}
+  - {article_id: "7960862261470", relevant: true}
+- query_id: gold_002
+  items:
+  - {article_id: "6883946594461", relevant: true}
+  - {article_id: "10048217841961", relevant: true}
+  - {article_id: "9993617670441", relevant: true}
+  - {article_id: "8629261828246", relevant: true}
+  - {article_id: "10073660227881", relevant: true}
+- query_id: gold_003
+  items:
+  - {article_id: "16175140", relevant: true}
+  - {article_id: "8598655336598", relevant: true}
+  - {article_id: "13646356", relevant: true}
+  - {article_id: "8654826143894", relevant: true}
+  - {article_id: "9815193", relevant: true}
+- query_id: gold_004
+  items:
+  - {article_id: "8476936568982", relevant: true}
+  - {article_id: "2528692", relevant: true}
+  - {article_id: "8491606573206", relevant: true}
+  - {article_id: "18656664", relevant: true}
+  - {article_id: "7797355380822", relevant: false, reason: set-not-single,
+     note: "'Straight Fit Kurta with Pant' — 2-piece set for a single-kurta query"}
+- query_id: gold_005
+  items:
+  - {article_id: "16186448", relevant: true,
+     note: "kurta + bundled dupatta/belt — anarkali convention, kurta is the garment"}
+  - {article_id: "8635949940886", relevant: false, reason: set-not-single,
+     note: "'Anarkali Kurta Set' (2-piece)"}
+  - {article_id: "9301311", relevant: true}
+  - {article_id: "10720544", relevant: true}
+  - {article_id: "7833424789590", relevant: false, reason: set-not-single,
+     note: "'Kurta Set with Pant & Dupatta' (3-piece)"}
+- query_id: gold_006
+  items:
+  - {article_id: "16731982", relevant: true}
+  - {article_id: "7663124316382", relevant: true}
+  - {article_id: "7663124381918", relevant: true}
+  - {article_id: "13482242", relevant: true}
+  - {article_id: "18922128", relevant: true}
+- query_id: gold_007
+  items:
+  - {article_id: "8907901534370", relevant: true}
+  - {article_id: "b64f83b8-460e-54af-a71f-de14cec74584", relevant: false, reason: type-confusion,
+     note: "slim-fit TROUSERS for a blazer query"}
+  - {article_id: "8469313487010", relevant: false, reason: type-confusion, note: trousers}
+  - {article_id: "7bc8395c-6d72-5d73-a2d9-3471775dec23", relevant: false, reason: type-confusion, note: trousers}
+  - {article_id: "8486611648674", relevant: false, reason: type-confusion, note: trousers}
+- query_id: gold_008
+  items:
+  - {article_id: "8879284125858", relevant: true}
+  - {article_id: "9158337724638", relevant: true}
+  - {article_id: "8661208072354", relevant: true}
+  - {article_id: "8905983492258", relevant: true}
+  - {article_id: "8842934681850", relevant: false, reason: type-confusion,
+     note: "oversized SHIRT/shacket for a t-shirt query"}
+- query_id: gold_009
+  items:
+  - {article_id: "18507630", relevant: true, note: high-rise == high-waisted}
+  - {article_id: "8053765538014", relevant: true}
+  - {article_id: "7891346915550", relevant: true,
+     note: "rise unstated, not contradicted — counts per rubric; stylistically weak"}
+  - {article_id: "10073660588329", relevant: false, reason: type-confusion,
+     note: "high-waisted SHORTS for a jeans query"}
+  - {article_id: "8214212640990", relevant: false, reason: attribute-contradiction,
+     note: "'Mid Rise' contradicts high-waisted"}
+- query_id: gold_010
+  items:
+  - {article_id: "10077982196009", relevant: true}
+  - {article_id: "8225722040542", relevant: true}
+  - {article_id: "10077982654761", relevant: true}
+  - {article_id: "6862311161942", relevant: true}
+  - {article_id: "10077980885289", relevant: true}
+- query_id: gold_011
+  items:
+  - {article_id: "18769446", relevant: true}
+  - {article_id: "19232078", relevant: true}
+  - {article_id: "17694094", relevant: true}
+  - {article_id: "19254142", relevant: true}
+  - {article_id: "9828544348457", relevant: true}
+- query_id: gold_012
+  items:
+  - {article_id: "19298212", relevant: true}
+  - {article_id: "18948806", relevant: true}
+  - {article_id: "9935211004201", relevant: true}
+  - {article_id: "18980894", relevant: true}
+  - {article_id: "18948814", relevant: true}
+- query_id: gold_013
+  items:
+  - {article_id: "7785146155230", relevant: true}
+  - {article_id: "7631151562974", relevant: true}
+  - {article_id: "8144876372190", relevant: true}
+  - {article_id: "8458986750102", relevant: true}
+  - {article_id: "8225722007774", relevant: true}
+- query_id: gold_014
+  items:
+  - {article_id: "8661210071190", relevant: true}
+  - {article_id: "8661207974038", relevant: true}
+  - {article_id: "8664473174166", relevant: true}
+  - {article_id: "8649834266774", relevant: true}
+  - {article_id: "17052894", relevant: true}
+- query_id: gold_015
+  items:
+  - {article_id: "9051530461406", relevant: true}
+  - {article_id: "d1f26e1d-188f-5f06-8a2d-51a0ef339417", relevant: true}
+  - {article_id: "9001983148254", relevant: false, reason: occasion-register,
+     note: "floral placement-print statement coat — not office register"}
+  - {article_id: "9001983115486", relevant: false, reason: occasion-register,
+     note: "same floral coat; desc even reads 'feminine charm' (listed gender=men)"}
+  - {article_id: "57ee7499-1446-59df-ab85-f941bd013bda", relevant: false, reason: set-not-single,
+     note: "2-piece SUIT for a blazer query"}
+- query_id: gold_016
+  items:
+  - {article_id: "8596509196438", relevant: true}
+  - {article_id: "15953036", relevant: false, reason: budget, note: "₹1599 > ₹1500 cap"}
+  - {article_id: "7690338631766", relevant: false, reason: set-not-single,
+     note: "kaftan kurta + palazzo set, also ₹2099 over cap"}
+  - {article_id: "8616943255702", relevant: true}
+  - {article_id: "8494541635734", relevant: true}
+- query_id: gold_017
+  items:
+  - {article_id: "15028766", relevant: false, reason: kids-leak,
+     note: "'Campana GIRLS' — kids lehenga labeled women"}
+  - {article_id: "18242972", relevant: true}
+  - {article_id: "19029828", relevant: true}
+  - {article_id: "16818552", relevant: true}
+  - {article_id: "8607018614934", relevant: true}
+- query_id: gold_018
+  items:
+  - {article_id: "8389028544734", relevant: true}
+  - {article_id: "8596579352726", relevant: true}
+  - {article_id: "8595166789782", relevant: true}
+  - {article_id: "8438473031830", relevant: true}
+  - {article_id: "7848094367830", relevant: false, reason: set-not-single,
+     note: "'Kurta with Pant & Dupatta' set for a single-kurta query"}
+- query_id: gold_019
+  items:
+  - {article_id: "8285819011294", relevant: true,
+     note: "indo-western green top plausible for mehendi; desc/name colour conflict flagged"}
+  - {article_id: "4755966328968", relevant: true}
+  - {article_id: "8649833152662", relevant: true}
+  - {article_id: "19333652", relevant: false, reason: kids-leak,
+     note: "'Bitiya by Bhama GIRLS' — kids set labeled women"}
+  - {article_id: "8664473141398", relevant: true}
+- query_id: gold_020
+  items:
+  - {article_id: "8063136891102", relevant: true}
+  - {article_id: "0c0e3469-8a63-5cfd-a470-d70a3ba18b34", relevant: false, reason: set-not-single,
+     note: "kurta + churidar set; ₹698 basic cotton also weak register for reception"}
+  - {article_id: "8063136923870", relevant: true}
+  - {article_id: "8063137054942", relevant: true}
+  - {article_id: "8063137087710", relevant: true}
+- query_id: gold_021
+  items:
+  - {article_id: "7624165523678", relevant: true}
+  - {article_id: "52d942e7-cbef-562d-ae0e-3e0a574f4e71", relevant: false, reason: type-confusion,
+     note: "T-SHIRT for a shirt query"}
+  - {article_id: "8204942835934", relevant: true}
+  - {article_id: "143e907c-7774-5697-82a4-63b805120826", relevant: false, reason: type-confusion, note: t-shirt}
+  - {article_id: "8380070428894", relevant: false, reason: type-confusion, note: t-shirt}
+- query_id: gold_022
+  items:
+  - {article_id: "8f071aa0-205e-5737-a8cb-fbd9ecb41f4a", relevant: true}
+  - {article_id: "7135799279773", relevant: true}
+  - {article_id: "a32fbc16-8978-5428-882c-174769dbe2f8", relevant: false, reason: data-mislabel,
+     note: "named 'Jeans', described 'Denim Pyjamas … lounging' — contradiction"}
+  - {article_id: "55000a99-54ab-596a-8d66-4dbe022d14e1", relevant: true}
+  - {article_id: "8588081856674", relevant: true}
+- query_id: gold_023
+  items:
+  - {article_id: "12551854", relevant: true}
+  - {article_id: "8663534698646", relevant: true}
+  - {article_id: "18697910", relevant: true, note: material unstated — not contradicted}
+  - {article_id: "8660401782934", relevant: true}
+  - {article_id: "18682092", relevant: true, note: material unstated — not contradicted}
+- query_id: gold_024
+  items:
+  - {article_id: "de4c2aca-d13b-5954-8757-4bb20b40fd93", relevant: true}
+  - {article_id: "a964ab15-ce9f-55c8-ab73-a30cd8d6db86", relevant: false, reason: data-ceiling,
+     note: "boxer shorts — but catalogue holds exactly 1 sherwani total; nothing correct exists to rank here"}
+  - {article_id: "8843021549818", relevant: false, reason: data-ceiling, note: striped shirt; see above}
+  - {article_id: "3519bc25-ef6a-50e8-842a-3f232d44c36d", relevant: false, reason: data-ceiling, note: boxer; see above}
+  - {article_id: "b83f0047-a2e0-5bdd-81c2-345f1e2781bd", relevant: false, reason: data-ceiling, note: sweatshirt; see above}
