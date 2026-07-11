@@ -45,8 +45,10 @@ const PRODUCTS: Record<string, ProductMock> = {
     price: "₹3,499",
     mrp: "₹5,999",
     discount: "42% off",
+    // Real Snitch blazer product shot (catalogue item 4mbz0016) — the previous
+    // Unsplash photo was a man's HEADSHOT, not a blazer (sweep 2026-07-10, P2-13).
     imageUrl:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&q=80&fit=crop",
+      "https://cdn.shopify.com/s/files/1/0420/7073/7058/files/4mbz0016-01_1.jpg?v=1770377146",
     sizes: ["S", "M", "L", "XL", "XXL"],
     accentHex: "#1a1a2e",
     brandBg: "#f0f0f8",
