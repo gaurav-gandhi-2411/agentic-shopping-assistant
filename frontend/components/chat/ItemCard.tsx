@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Store, Tag } from "lucide-react"
 import { api } from "@/lib/api/client"
 import type { ItemSummary, PriceMatch } from "@/lib/api/types"
+import { ProductImage } from "@/components/ProductImage"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 
@@ -37,22 +38,11 @@ export function ItemCard({ item, onSend }: Props) {
       {/* Image — the hero. Tall editorial aspect ratio, subtly rounded top
           (inherited from the card's own overflow-hidden + rounded-lg). */}
       <div className="relative w-full aspect-[4/5] shrink-0 bg-muted">
-        {item.image_url ? (
-          <Image
-            src={item.image_url}
-            alt={item.prod_name}
-            fill
-            sizes="(max-width: 640px) 50vw, 320px"
-            unoptimized
-            className="object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <span className="text-4xl select-none" aria-hidden>
-              👗
-            </span>
-          </div>
-        )}
+        <ProductImage
+          src={item.image_url}
+          alt={item.prod_name}
+          sizes="(max-width: 640px) 50vw, 320px"
+        />
       </div>
 
       {/* Minimal chrome below the image */}
