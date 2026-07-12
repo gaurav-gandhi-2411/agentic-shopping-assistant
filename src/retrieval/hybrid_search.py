@@ -5,7 +5,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from src.catalogue.cleaning import is_fabric_bolt_text
+from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item
 from src.config.stores import get_inactive_stores
 
 from .dense_search import DenseRetriever
@@ -331,6 +331,21 @@ class HybridRetriever:
         self.catalogue_df = catalogue_df.set_index("article_id")
         self.config = config
 
+        # Precomputed once (not per-.search() call): is_kids_item's regex scan
+        # over prod_name measured at ~150ms for the full 52k-row unified
+        # catalogue (regex work isn't sped up by pandas vectorization the way
+        # simple string equality/isin comparisons are — see _not_fabric_mask/
+        # _not_inactive_store_mask above, which stay cheap and ARE recomputed
+        # per-call). Recomputing this mask on every search() call added ~165ms
+        # of latency per request (measured, HybridRetriever.search: ~170ms ->
+        # ~335ms) for a value that never changes for the lifetime of this
+        # retriever instance (catalogue_df is fixed at construction).
+        self._not_kids_mask: np.ndarray | None = None
+        if "prod_name" in self.catalogue_df.columns:
+            self._not_kids_mask = (
+                ~self.catalogue_df["prod_name"].fillna("").apply(is_kids_item)
+            ).values
+
     def search(
         self,
         query: str,
@@ -374,6 +389,18 @@ class HybridRetriever:
                     ~self.catalogue_df["store"].str.lower().isin(inactive_stores)
                 ).values  # boolean array aligned with catalogue_df
 
+        # Juniors/girls/boys/kids items must never appear in ANY search result —
+        # the catalogue's gender column mislabels many of them as "women"/"men"
+        # (see src.catalogue.cleaning.is_kids_item docstring), so a gender filter
+        # alone does not exclude them. Live-proven: "red lehenga bridal" (a
+        # non-occasion-keyword query, so the occasion-gated kids check in
+        # graph.py never even ran) surfaced girls' lehengas ranked above adult
+        # bridal items. Mirror the fabric_material exclusion mechanism so kids
+        # rows are stripped out of the BM25 window before scoring, same as
+        # fabric bolts and inactive stores. Precomputed once in __init__ (see
+        # comment there) rather than recomputed here on every call.
+        _not_kids_mask = self._not_kids_mask
+
         def _combine_masks(*masks: np.ndarray | None) -> np.ndarray | None:
             """AND together any non-None boolean masks aligned with catalogue_df."""
             present = [m for m in masks if m is not None]
@@ -384,7 +411,9 @@ class HybridRetriever:
                 combined = combined & m
             return combined
 
-        _exclusion_mask = _combine_masks(_not_fabric_mask, _not_inactive_store_mask)
+        _exclusion_mask = _combine_masks(
+            _not_fabric_mask, _not_inactive_store_mask, _not_kids_mask
+        )
 
         sparse_allowed_ids: np.ndarray | None = None
         type_filter_val = (filters or {}).get("product_type_name")

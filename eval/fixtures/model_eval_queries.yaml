@@ -31,16 +31,28 @@
 #   budget_respected   - total look price (or item price) <= budget_inr
 #   no_novelty         - no item title matches PB_NOVELTY_RE vocabulary
 #                        (piano, guitar, novelty, quirky, costume)
+#   no_kids_leak       - no item title matches KIDS_MARKER_RE vocabulary
+#                        (junior(s), girl(s), boy(s), kid(s)) — IMPLEMENTED
+#                        2026-07-12 (check_no_kids_leak, wired into
+#                        evaluate_gate_checks) alongside the P0 kids-leak fix
+#                        (src.catalogue.cleaning.is_kids_item). NOT YET
+#                        retrofitted into the individual adversarial_* entries'
+#                        gates.checks lists below (still gender_pure +
+#                        suppression_honest proxies, per the note beneath this
+#                        one) — that bulk retrofit across ~30 entries was out
+#                        of scope for the kids-leak fix task; flagged here as a
+#                        real follow-up, not silently assumed done.
 #   suppression_honest - an empty/suppressed slot is reported honestly (never
 #                        fabricated), whether or not the gap was pre-flagged
 #                        via data_ceiling_tags
 #
 # The adversarial section below covers two additional bug classes the task
-# brief asked for (kids-item leak, cross-gender ethnic composition) that have
-# NO dedicated check in the harness today — there is no "no_kids_leak" or
-# "ethnic_gender_consistent" check implemented, and the relevance schema has
-# no "must_not" to express exclusion at the retrieval stage either. Rather
-# than reference a check name the harness will silently no-op, those entries
+# brief asked for (kids-item leak, cross-gender ethnic composition). Kids-item
+# leak now HAS a dedicated check (no_kids_leak, see above) but the entries
+# below have not yet been updated to reference it; "ethnic_gender_consistent"
+# still has no dedicated check, and the relevance schema has no "must_not" to
+# express exclusion at the retrieval stage either. Rather than reference a
+# check name the harness will silently no-op, those entries currently
 # use gender_pure + suppression_honest (the closest implemented proxies) and
 # say so explicitly in an inline comment at each bucket — flagged here as a
 # genuine gap for a follow-up, not silently assumed away.

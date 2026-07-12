@@ -75,7 +75,7 @@ def test_check_daily_cap_under_limit() -> None:
 
 
 def test_check_daily_cap_over_limit() -> None:
-    engine = _make_engine_mock((200,))
+    engine = _make_engine_mock((700,))  # matches DEMO_DAILY_REQUEST_CAP default
     result = guards_module.check_daily_cap("snitch", engine)
     assert result is False
 
@@ -104,7 +104,7 @@ def test_check_ip_rate_limit_under_limit() -> None:
 
 
 def test_check_ip_rate_limit_at_limit() -> None:
-    engine = _make_engine_mock((10,))
+    engine = _make_engine_mock((35,))  # matches DEMO_PER_IP_HOUR_LIMIT default
     allowed, retry_after = guards_module.check_ip_rate_limit("1.2.3.4", "snitch", engine)
     assert allowed is False
     assert retry_after > 0

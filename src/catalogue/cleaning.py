@@ -68,6 +68,41 @@ def is_fabric_bolt_text(text: str | None) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Kids/juniors item exclusion
+# ---------------------------------------------------------------------------
+# S5 fix (promoted from src/agents/outfit/slots.py, 2026-07-12): juniors/kids
+# garments mislabeled as adult inventory. src.catalogue.adapter.derive_item_gender
+# previously treated "girl"/"girls"/"boy"/"boys" as ADULT gender keywords, so
+# juniors/girls/boys/kids SKUs were carrying gender="women"/"men" alongside
+# genuinely adult items (verified: "M&H Juniors Girls Blue Straight Knee Length
+# Denim Skirts" and "Juniors by Lifestyle Kids-Girls White Pure Cotton Print
+# Top" both carried gender="women" in data/processed/unified/catalogue.parquet)
+# — so gender_allowed()/a gender filter alone let them through into ADULT
+# results. Live-proven: an office look's bottom slot filled with the Juniors
+# denim-skirt item above, and "red lehenga bridal"/"gold jewellery to go with
+# red lehenga" (non-occasion-keyword searches) surfaced girls' lehengas ranked
+# above adult bridal options. Deliberately narrow (four markers, not a broader
+# age/size heuristic) to avoid rejecting real adult inventory whose name
+# happens to share a word.
+#
+# Promoted here (rather than left in src/agents/outfit/slots.py) so the
+# retrieval layer (src/retrieval/hybrid_search.py) and the plain-search node
+# (src/agents/graph.py) can both apply it as an UNCONDITIONAL hard exclusion,
+# mirroring is_fabric_bolt_text above, without importing from the agents layer.
+_KIDS_MARKER_RE = re.compile(r"\b(junior|juniors|girl|girls|boy|boys|kid|kids)\b", re.IGNORECASE)
+
+
+def is_kids_item(prod_name: str | None) -> bool:
+    """Return True if `prod_name` carries a juniors/girls/boys/kids marker.
+
+    Applied as a hard exclusion at retrieval time (hybrid_search.py, graph.py)
+    AND as an additional per-slot gate in the outfit composer — see module
+    docstring above _KIDS_MARKER_RE for why the gender column alone isn't enough.
+    """
+    return bool(_KIDS_MARKER_RE.search(prod_name or ""))
+
+
 def reclassify_finished_sarees(
     df: pd.DataFrame,
     *,

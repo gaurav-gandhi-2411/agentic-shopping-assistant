@@ -86,6 +86,13 @@ _ALL_STAGES: tuple[str, ...] = ("intent", "r1", "gates", "judge", "e2e")
 # browser_proof.py imports playwright, an unwanted dependency for this harness.
 NOVELTY_RE = re.compile(r"\b(piano|guitar|novelty|quirky|costume)\b", re.IGNORECASE)
 
+# Kids/juniors marker — copied verbatim from src.catalogue.cleaning's
+# _KIDS_MARKER_RE (not imported, mirroring NOVELTY_RE's precedent above: this
+# section is documented zero-project-import so its functions stay testable
+# without loading the catalogue/retrieval/LLM layers). See that module's
+# docstring for the P0 trust/safety bug this closes (2026-07-12).
+KIDS_MARKER_RE = re.compile(r"\b(junior|juniors|girl|girls|boy|boys|kid|kids)\b", re.IGNORECASE)
+
 # Fields compared for exact-match intent-parser accuracy (Stage 1). body_modifiers
 # and store_filter are intentionally excluded — the task spec lists these 7 only.
 _INTENT_FIELDS: tuple[str, ...] = (
@@ -381,6 +388,23 @@ def check_no_novelty(
     return True
 
 
+def check_no_kids_leak(
+    look_bundle: dict[str, Any] | tuple[dict[str, Any], dict[str, Any]],
+    couple: bool,
+) -> bool:
+    """True iff no item's prod_name/display_name matches KIDS_MARKER_RE, across
+    the look (or both boards, for a couple pair) — P0 trust/safety gate added
+    2026-07-12 alongside src.catalogue.cleaning.is_kids_item and the
+    unconditional retrieval-layer exclusion (see that module's docstring)."""
+    boards = list(look_bundle) if couple else [look_bundle]
+    for board in boards:
+        for it in _items_of_look(board):
+            name = it.get("prod_name") or it.get("display_name") or ""
+            if KIDS_MARKER_RE.search(name):
+                return False
+    return True
+
+
 def evaluate_suppression_honest(
     suppressed_slots: list[dict[str, Any]], empty_slots: list[str]
 ) -> bool:
@@ -429,6 +453,8 @@ def evaluate_gate_checks(
         checks["budget_respected"] = check_budget_respected(look_bundle, budget_inr, couple)
     if "no_novelty" in checks_wanted:
         checks["no_novelty"] = check_no_novelty(look_bundle, couple)
+    if "no_kids_leak" in checks_wanted:
+        checks["no_kids_leak"] = check_no_kids_leak(look_bundle, couple)
     if "suppression_honest" in checks_wanted:
         checks["suppression_honest"] = evaluate_suppression_honest(suppressed_slots, empty_slots)
 

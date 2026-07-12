@@ -23,9 +23,9 @@ Usage:
     python scripts/eval_gate.py              # run eval stages, then check
     python scripts/eval_gate.py --no-run     # check the newest existing reports only
 
-Mandatory before any backend deploy — see DEPLOY.md "Relevance regression gate".
-Not wired into ci.yml: the retrieval index (data/processed/unified) is gitignored and
-CI has no GCS credentials; this gate is a local pre-deploy step by design.
+Mandatory before any backend deploy — see DEPLOY.md "Relevance regression gate". Also
+wired into .github/workflows/ci.yml's eval job, which downloads the real unified index
+via WIF before running this.
 """
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def run_strict_eval() -> dict:
 
 def check(
     report_path: Path, min_p5: float, min_ndcg: float, min_intent: float,
-    strict_result: dict, min_strict_p5: float,
+    strict_result: dict, min_strict_p5: float, max_unlabeled: int = 0,
 ) -> int:
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     failures: list[str] = []
@@ -114,8 +114,9 @@ def check(
     strict_p5 = strict_result["precision_at_5"]
     rows.append((
         f"strict gold P@5     {strict_p5:.3f}  (min {min_strict_p5:.2f}, "
-        f"n={strict_result['n_scored']}, unlabeled={strict_result['n_unlabeled']})",
-        strict_p5 >= min_strict_p5 and strict_result["n_unlabeled"] == 0,
+        f"n={strict_result['n_scored']}, unlabeled={strict_result['n_unlabeled']}, "
+        f"max_unlabeled={max_unlabeled})",
+        strict_p5 >= min_strict_p5 and strict_result["n_unlabeled"] <= max_unlabeled,
     ))
 
     print(f"gate: {report_path.name}")
@@ -139,6 +140,14 @@ def main() -> None:
                         help="Minimum intent all-fields-exact, as a 0-1 fraction")
     parser.add_argument("--min-strict-p5", type=float, default=0.70,
                         help="Minimum hand-audited strict gold precision@5 (pipeline mode)")
+    parser.add_argument("--max-unlabeled", type=int, default=0,
+                        help="Max strict-gold items allowed to be unlabeled before failing "
+                             "(default 0). A local run and a CI run over the same catalogue "
+                             "can surface a handful of different borderline top-5 items due "
+                             "to floating-point drift in similarity scoring across CPU "
+                             "architectures — CI passes a small nonzero tolerance for this; "
+                             "local pre-deploy runs stay at the strict default so labeling "
+                             "drift from a real catalogue/ranking change still gets caught.")
     args = parser.parse_args()
 
     if not args.no_run:
@@ -146,7 +155,7 @@ def main() -> None:
     strict_result = run_strict_eval()
     sys.exit(check(
         newest_report(), args.min_p5, args.min_ndcg, args.min_intent,
-        strict_result, args.min_strict_p5,
+        strict_result, args.min_strict_p5, args.max_unlabeled,
     ))
 
 

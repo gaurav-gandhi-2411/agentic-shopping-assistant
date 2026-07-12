@@ -35,7 +35,7 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
-from src.catalogue.cleaning import is_fabric_bolt_text
+from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
@@ -519,20 +519,77 @@ _SHOPPING_INTENT_WORDS: frozenset[str] = frozenset({
 })
 
 
+def _looks_like_gibberish(token: str) -> bool:
+    """True for a token shaped like keyboard-mash noise rather than an English
+    word: no vowel at all, or an abnormally long run (>=5) of consecutive
+    non-vowel letters — real English rarely sustains more than ~4 consonants in
+    a row. Only meaningful on tokens >=5 chars (shorter strings are too likely
+    to be legitimate short words/abbreviations to judge this way) and is only
+    ever called on tokens that already failed the vocab/intent-word check (see
+    _is_unrecognized_query) — an empirical scan of the 18k-term production BM25
+    vocabulary (2026-07-12) found every real word this heuristic would flag
+    (e.g. "crystal", "motorcycle") was already a vocab member, so it never
+    reaches this fallback for genuine catalogue terms."""
+    vowels = set("aeiou")
+    if not any(c in vowels for c in token):
+        return True
+    longest_run = 0
+    run = 0
+    for c in token:
+        if c in vowels:
+            run = 0
+        else:
+            run += 1
+            longest_run = max(longest_run, run)
+    return longest_run >= 5
+
+
 def _is_unrecognized_query(query: str, retriever: "HybridRetriever") -> bool:
-    """True when NO token of a query is recognisable — not in the catalogue's
-    BM25 vocabulary and not a known shopping-intent word. Tokens under 3 chars
-    are ignored (glue like "a"/"of"); a query with no >=3-char alpha token at
-    all is NOT flagged (emoji/short inputs follow the normal path)."""
+    """True when a query looks unrecognisable: a MINORITY of its tokens are
+    recognisable (known shopping-intent word or in the catalogue's BM25
+    vocabulary), OR at least one token is shaped like keyboard-mash noise.
+    Tokens under 3 chars are ignored (glue like "a"/"of"); a query with no
+    >=3-char alpha token at all is NOT flagged (emoji/short inputs follow the
+    normal path).
+
+    Was any-token-recognized (OR) before 2026-07-12, P0: that flagged
+    unrecognized only when LITERALLY ZERO tokens were known, so
+    "asdkfjhqwoiuerlkj purple flying shoes" (2 of 4 tokens are real catalogue
+    vocabulary — "purple", "shoes") was judged "recognized" and got a
+    confident LLM recommendation pitch for the one real word, with no
+    acknowledgment that the rest of the query was gibberish.
+
+    Threshold reasoning: recognized tokens must be a STRICT MAJORITY (>50%,
+    i.e. ratio not < 0.5) for the ratio check alone to pass. But the ratio
+    check alone is not sufficient — verified empirically against the real
+    production BM25 vocabulary (18k+ terms drawn from free-text product
+    descriptions), a single garbage token diluted by a few real words often
+    still clears 50% (e.g. this exact repro scores 0.75; a second live repro,
+    "purple flying unicorn shoes qwxyz", scores 0.60) while some genuinely
+    well-formed short queries ("trendy indowestern", "show me sherwanis")
+    score only 0.50 because BM25 vocab membership is a very permissive
+    "is this a common English word anywhere in the corpus" signal, not a
+    catalogue-relevance signal. No single ratio threshold separates the two
+    live bug repros from those legitimate queries. The word-shape check closes
+    that gap directly: it targets tokens that aren't real words at all
+    (independent of whether they happen to sit in a niche product-description
+    corpus), so "asdkfjhqwoiuerlkj" and "qwxyz" are caught even though their
+    surrounding tokens keep the ratio above 50%, while real-but-uncatalogued
+    words like "unicorn" or "indowestern" are correctly left alone."""
     tokens = [t for t in re.findall(r"[a-z]+", query.lower()) if len(t) >= 3]
     if not tokens:
-        return False
-    if any(t in _SHOPPING_INTENT_WORDS for t in tokens):
         return False
     sparse = getattr(retriever, "sparse", None)
     if sparse is None or not hasattr(sparse, "has_any_known_token"):
         return False
-    return not sparse.has_any_known_token(" ".join(tokens))
+    recognized = 0
+    has_gibberish_token = False
+    for t in tokens:
+        if t in _SHOPPING_INTENT_WORDS or sparse.has_any_known_token(t):
+            recognized += 1
+        elif len(t) >= 5 and _looks_like_gibberish(t):
+            has_gibberish_token = True
+    return (recognized / len(tokens)) < 0.5 or has_gibberish_token
 
 
 def _detect_ooc(query: str) -> str | None:
@@ -1890,6 +1947,20 @@ def build_graph(
 
         result["items"] = [it for it in result["items"] if not _is_material(it)]
 
+        # Strip juniors/girls/boys/kids items UNCONDITIONALLY — never gated behind
+        # occasion detection. Live-proven root cause: "red lehenga bridal" and "gold
+        # jewellery to go with red lehenga" are non-occasion-keyword queries (no
+        # sangeet/mehendi/etc. token), so the occasion-gated kids check further below
+        # (only run when an occasion IS detected) never fired, and girls' lehengas
+        # (mislabeled gender="women" by the catalogue — see
+        # src.catalogue.cleaning.is_kids_item docstring) ranked into the top results
+        # alongside genuinely adult bridal items. Mirrors the _is_material strip above
+        # — applied to every plain-search result regardless of query shape.
+        result["items"] = [
+            it for it in result["items"]
+            if not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+        ]
+
         # Gender filter is applied when it was extracted from this query (not inherited).
         # Keep it explicit so we can handle zero-stock gracefully below.
         gender_filter_applied = "index_group_name" in merged and "index_group_name" not in {
@@ -2055,7 +2126,6 @@ def build_graph(
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
-        from src.agents.outfit.slots import is_kids_item as _occ_is_kids_item
         from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
 
         _occ_intent = _occ_parse_intent(raw_query)
@@ -2088,14 +2158,16 @@ def build_graph(
                     else "women" if merged.get("index_group_name") == "ladieswear"
                     else "unisex")
             )
-            # Live-proven 2026-07-11: "sangeet lehenga for women" still surfaced a
-            # "Campana GIRLS ..." kids item — is_coherent_candidate covers ethnic/
-            # western register only, not the kids-leak class the composer already
-            # guards against per-slot. Same discipline applies here.
+            # Kids-item filtering used to be duplicated here (a "Campana GIRLS ..."
+            # kids item live-proven 2026-07-11 slipping past is_coherent_candidate,
+            # which covers ethnic/western register only). Removed 2026-07-12: kids
+            # items are now stripped UNCONDITIONALLY right after the _is_material
+            # filter above, before this occasion-gated block ever runs, so
+            # re-checking here was dead code covering zero additional cases on the
+            # primary path — see src.catalogue.cleaning.is_kids_item.
             _occ_gated = [
                 it for it in items_out
                 if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
-                and not _occ_is_kids_item(it.get("prod_name") or it.get("display_name") or "")
             ]
             if _occ_gated:
                 items_out = _occ_gated
