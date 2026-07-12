@@ -109,8 +109,12 @@ jobs:
         run: cd frontend && npm run build
 
       - name: Security audit (npm audit)
-        run: cd frontend && npm audit --audit-level=moderate
-        continue-on-error: true
+        run: cd frontend && npm audit --audit-level=high
+        # BLOCKING (T2 gate — no continue-on-error). Threshold is high, not moderate:
+        # the one known finding today (GHSA-qx2v-qp2m-jg93, postcss XSS via
+        # next's bundled postcss<8.5.10) is moderate severity with no non-major fix
+        # available (`npm audit fix --force` would bump next across a major version).
+        # Re-evaluate this exception the next time next/postcss is upgraded.
 
   eval:
     runs-on: ubuntu-latest
