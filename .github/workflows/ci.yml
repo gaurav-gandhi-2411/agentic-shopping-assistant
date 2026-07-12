@@ -13,6 +13,9 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for WIF auth (google-github-actions/auth)
 
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +45,26 @@ jobs:
         run: mypy .
         continue-on-error: true
 
+      - name: Authenticate to GCP (read-only, index bucket only)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Download unified index (for requires_index tests)
+        run: |
+          mkdir -p data/processed/unified data/processed/clip/unified
+          gcloud storage cp -r 'gs://asa-demo-indices/unified/unified/*' data/processed/unified/
+          gcloud storage cp gs://asa-demo-indices/unified/clip/unified/clip_article_ids.npy data/processed/clip/unified/
+          # tests/test_retrieval.py, test_tools.py, and the conftest.py requires_index
+          # sentinel (data/processed/dense.faiss) read the flat data/processed/ path,
+          # not data/processed/unified/ — same index files, just also copied flat.
+          cp data/processed/unified/* data/processed/
+
       - name: Test
-        run: pytest -m "not requires_ollama and not requires_index" -v
+        run: pytest -m "not requires_ollama" -v
 
       - name: Security audit (pip-audit)
         run: pip-audit -r requirements.txt
@@ -75,8 +96,10 @@ jobs:
 
   eval:
     runs-on: ubuntu-latest
-    continue-on-error: true   # Ollama not available in standard CI; informational only
     needs: backend
+    permissions:
+      contents: read
+      id-token: write   # required for WIF auth (google-github-actions/auth)
 
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +111,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run eval suite (requires Ollama)
-        run: python -m eval.run --provider ollama
-        continue-on-error: true
-        # Set OLLAMA_HOST if your Ollama instance is not on localhost:11434
+      - name: Authenticate to GCP (read-only, index bucket only)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Download unified index
+        run: |
+          mkdir -p data/processed/unified
+          gcloud storage cp -r 'gs://asa-demo-indices/unified/unified/*' data/processed/unified/
+
+      - name: Relevance regression gate
+        run: python scripts/eval_gate.py
+        # Deterministic (zero LLM calls: intent/r1/gates) + hand-audited strict gold
+        # eval — see scripts/eval_gate.py for thresholds. Replaces the old
+        # `python -m eval.run --provider ollama` step, which needed Ollama (never
+        # available in GitHub-hosted runners) and only ran with continue-on-error,
+        # i.e. never actually gated anything.
