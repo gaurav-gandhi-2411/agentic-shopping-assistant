@@ -141,15 +141,19 @@ def extract_colour_from_title(title: str) -> str | None:
 
 
 # ── Gender keyword sets ────────────────────────────────────────────────────────
-# Women checked BEFORE men so "women's kurta" doesn't false-match "men" substring
+# Women checked BEFORE men so "women's kurta" doesn't false-match "men" substring.
+# "girl"/"girls"/"boy"/"boys" deliberately excluded — a kids marker in the title
+# must never be converted into an adult gender signal (that's exactly the
+# catalogue mislabeling src.catalogue.cleaning.is_kids_item exists to catch
+# downstream). See tests/test_kids_leak_exclusion.py.
 _GENDER_WOMEN_KEYWORDS: frozenset[str] = frozenset({
     "saree", "lehenga", "dupatta", "kurti", "anarkali", "sharara",
     "salwar kameez", "palazzo", "ghagra", "choli",
-    "women", "woman", "ladies", "female", "girl", "girls",
+    "women", "woman", "ladies", "female",
 })
 _GENDER_MEN_KEYWORDS: frozenset[str] = frozenset({
     "sherwani", "bandhgala",
-    "men", "man", "male", "boys", "boy",
+    "men", "man", "male",
 })
 
 # ── Generic/Shopify column mapping ─────────────────────────────────────────────
@@ -174,19 +178,32 @@ _GENERIC_COLUMN_MAP: dict[str, list[str]] = {
 
 # ── Gender derivation ──────────────────────────────────────────────────────────
 
+def _contains_word(text: str, phrase: str) -> bool:
+    """Word-boundary substring match — plain `phrase in text` lets short gender
+    keywords false-positive inside unrelated words (e.g. "man" inside "Roman
+    Sandals", historically "boy" inside "Boyfriend Jeans" before those markers
+    were removed from _GENDER_MEN_KEYWORDS entirely). Mirrors
+    src.agents.outfit.slots._contains_word — kept as a local copy rather than
+    a cross-import to avoid a layering dependency from catalogue -> agents.
+    """
+    return re.search(rf"\b{re.escape(phrase)}\b", text) is not None
+
+
 def derive_item_gender(prod_name: str, product_type_name: str, brand_default: str) -> str:
     """Derive per-item gender via fallback chain.
 
-    1. Name/type keyword scan (women-specific → women; men-specific → men).
-       Check women BEFORE men so "women's kurta" doesn't match "men" inside "women".
+    1. Name/type keyword scan (women-specific → women; men-specific → men),
+       word-boundary matched so short keywords can't false-positive inside an
+       unrelated word. Check women BEFORE men so "women's kurta" doesn't match
+       "men" inside "women".
     2. Brand default if not "mixed" or "unknown".
     3. Return "unknown".
     """
     combined = (prod_name + " " + product_type_name).lower()
     # Women keywords take priority (checked first to avoid "women" matching "men" sub-string)
-    if any(kw in combined for kw in _GENDER_WOMEN_KEYWORDS):
+    if any(_contains_word(combined, kw) for kw in _GENDER_WOMEN_KEYWORDS):
         return "women"
-    if any(kw in combined for kw in _GENDER_MEN_KEYWORDS):
+    if any(_contains_word(combined, kw) for kw in _GENDER_MEN_KEYWORDS):
         return "men"
     if brand_default and brand_default.lower() not in ("mixed", "unknown", ""):
         return brand_default.lower()
