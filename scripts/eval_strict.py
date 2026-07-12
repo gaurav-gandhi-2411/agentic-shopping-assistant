@@ -109,8 +109,9 @@ def _retrieve_pipeline(
     from src.agents.graph import _OUTFIT_INTENT_RE, _SET_INTENT_RE
     from src.agents.intent_parser import parse_intent
     from src.agents.outfit.coherence import is_coherent_candidate
-    from src.agents.outfit.slots import fabric_score_delta, is_kids_item, is_multi_piece_set
+    from src.agents.outfit.slots import fabric_score_delta, is_multi_piece_set
     from src.agents.tools import search_catalogue
+    from src.catalogue.cleaning import is_kids_item
 
     intent = parse_intent(query)
     filters: dict = {"gender": gender}
@@ -124,6 +125,15 @@ def _retrieve_pipeline(
     # (colour_filter_values) internally, so this mirror can never silently
     # drift from what search_node does.
     items = search_catalogue(query, filters, retriever, 50)["items"]
+
+    # Kids-item strip — UNCONDITIONAL (not tied to occasion_gate), matching
+    # search_node exactly (2026-07-12 fix): applied immediately after retrieval,
+    # before the occasion gate below, so this mirror stays honest for
+    # non-occasion-keyword queries too (e.g. "red lehenga bridal").
+    items = [
+        it for it in items
+        if not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+    ]
 
     # Single-garment set exclusion — unconditional (not tied to occasion_gate),
     # matching search_node exactly: skipped when the query itself legitimizes
@@ -145,7 +155,6 @@ def _retrieve_pipeline(
         gated = [
             it for it in items
             if is_coherent_candidate(it, occasion_slug, gender, _NEUTRAL_SLOT)
-            and not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
         ]
         if gated:  # never let the gate empty the pool (same discipline as composer)
             items = gated

@@ -35,7 +35,7 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
-from src.catalogue.cleaning import is_fabric_bolt_text
+from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
@@ -1890,6 +1890,20 @@ def build_graph(
 
         result["items"] = [it for it in result["items"] if not _is_material(it)]
 
+        # Strip juniors/girls/boys/kids items UNCONDITIONALLY — never gated behind
+        # occasion detection. Live-proven root cause: "red lehenga bridal" and "gold
+        # jewellery to go with red lehenga" are non-occasion-keyword queries (no
+        # sangeet/mehendi/etc. token), so the occasion-gated kids check further below
+        # (only run when an occasion IS detected) never fired, and girls' lehengas
+        # (mislabeled gender="women" by the catalogue — see
+        # src.catalogue.cleaning.is_kids_item docstring) ranked into the top results
+        # alongside genuinely adult bridal items. Mirrors the _is_material strip above
+        # — applied to every plain-search result regardless of query shape.
+        result["items"] = [
+            it for it in result["items"]
+            if not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+        ]
+
         # Gender filter is applied when it was extracted from this query (not inherited).
         # Keep it explicit so we can handle zero-stock gracefully below.
         gender_filter_applied = "index_group_name" in merged and "index_group_name" not in {
@@ -2055,7 +2069,6 @@ def build_graph(
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
-        from src.agents.outfit.slots import is_kids_item as _occ_is_kids_item
         from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
 
         _occ_intent = _occ_parse_intent(raw_query)
@@ -2088,14 +2101,16 @@ def build_graph(
                     else "women" if merged.get("index_group_name") == "ladieswear"
                     else "unisex")
             )
-            # Live-proven 2026-07-11: "sangeet lehenga for women" still surfaced a
-            # "Campana GIRLS ..." kids item — is_coherent_candidate covers ethnic/
-            # western register only, not the kids-leak class the composer already
-            # guards against per-slot. Same discipline applies here.
+            # Kids-item filtering used to be duplicated here (a "Campana GIRLS ..."
+            # kids item live-proven 2026-07-11 slipping past is_coherent_candidate,
+            # which covers ethnic/western register only). Removed 2026-07-12: kids
+            # items are now stripped UNCONDITIONALLY right after the _is_material
+            # filter above, before this occasion-gated block ever runs, so
+            # re-checking here was dead code covering zero additional cases on the
+            # primary path — see src.catalogue.cleaning.is_kids_item.
             _occ_gated = [
                 it for it in items_out
                 if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
-                and not _occ_is_kids_item(it.get("prod_name") or it.get("display_name") or "")
             ]
             if _occ_gated:
                 items_out = _occ_gated
