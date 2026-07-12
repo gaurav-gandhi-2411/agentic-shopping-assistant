@@ -22,8 +22,8 @@ for p in (str(_ROOT), str(_SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from eval_strict import _retrieve_pipeline  # noqa: E402
 from eval_model import _build_components  # noqa: E402
+from eval_strict import _retrieve_pipeline  # noqa: E402
 
 _QUERIES_PATH = _ROOT / "eval" / "fixtures" / "strict_gold_queries.yaml"
 _LABELS_PATH = _ROOT / "eval" / "fixtures" / "strict_gold_labels.yaml"
