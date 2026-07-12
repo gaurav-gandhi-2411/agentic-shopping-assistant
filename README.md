@@ -3,6 +3,8 @@
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
+> **Product:** [StyleMaitri](https://stylemaitri.vercel.app) — this repo predates the product rebrand. The deployed frontend (`stylemaitri` Vercel project) and Cloud Run backend (`asa-stylist-api`, project `iconic-reactor-496423-m4`) are both built from this repo's `frontend/` and API code respectively.
+
 White-label conversational shopping assistant for Indian D2C fashion brands. Point `BRAND=snitch`
 at a catalogue, deploy one Docker container to Cloud Run, and shoppers get a natural-language
 assistant that retrieves real products, quotes real INR prices, and links directly to the brand's
