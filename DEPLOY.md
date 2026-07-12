@@ -342,6 +342,21 @@ If shorts, sweatshirts, or jackets appear, the index is stale — re-upload and 
 
 ## Deploy Vercel frontend
 
+**Recommended: `scripts/deploy-frontend.ps1`.** A manual `vercel --prod` leaves no record
+anywhere of which git commit was actually live at a given deploy. The script wraps the
+same command and adds three things a plain `vercel --prod` doesn't: it refuses to run if
+`frontend/` has any uncommitted change, it parses the production URL out of vercel's own
+output, and it appends `<timestamp> sha=<commit> url=<url> target=production` to
+`reports/deploys.log` (committed and pushed) so every deploy has a provenance trail.
+
+```powershell
+pwsh scripts/deploy-frontend.ps1
+```
+
+The manual steps below are the ground truth the script wraps — useful for a one-off
+deploy from a dirty tree during active iteration, or if the script itself needs
+debugging.
+
 ```bash
 cd frontend
 vercel --prod
