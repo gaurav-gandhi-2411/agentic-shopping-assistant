@@ -1,0 +1,16 @@
+display_name: "H&M"
+logo_url: null
+primary_colour: "#E50010"
+accent_colour: "#222222"
+tagline: "Fashion and quality at the best price"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "EU"
+gender_default: "mixed"
+catalogue_path: "data/processed/catalogue.parquet"
+pdp_url_template: "https://www2.hm.com/en_in/productpage.{handle}.html"
+suggestion_chips:
+  - "Show me summer dresses"
+  - "Casual outfits for the weekend"
+  - "Office wear for women"
+  - "Budget-friendly basics"

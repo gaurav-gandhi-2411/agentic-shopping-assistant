@@ -82,7 +82,7 @@ class PostgresSessionStore:
 
             msg_rows = conn.execute(
                 text(
-                    "SELECT role, content, items, filters "
+                    "SELECT id::text, role, content, items, filters "
                     "FROM messages "
                     "WHERE conversation_id = CAST(:cid AS uuid) "
                     "ORDER BY created_at ASC"
@@ -91,6 +91,7 @@ class PostgresSessionStore:
             ).fetchall()
 
         messages = [{"role": r.role, "content": r.content} for r in msg_rows]
+        message_ids = [r.id for r in msg_rows]
 
         retrieved_items: list = []
         filters: dict = {}
@@ -112,6 +113,7 @@ class PostgresSessionStore:
             "excluded_colours": conv_row.excluded_colours,
             "_memory": memory,
             "_db_message_count": len(messages),
+            "_message_ids": message_ids,
             "_summary": conv_row.summary,
             "_summary_message_count": conv_row.summary_message_count,
             "_is_public": bool(conv_row.is_public),
@@ -219,6 +221,25 @@ class PostgresSessionStore:
                 )
 
         state["_db_message_count"] = len(messages)
+
+    def get_last_assistant_message_id(self, conversation_id: str) -> str | None:
+        """Return the UUID of the most recently inserted assistant message.
+
+        Used by the WS route to include the persisted message_id in the
+        WSDoneMessage frame so the frontend can submit feedback.  Returns
+        None when no assistant message exists yet (shouldn't happen in normal
+        flow, but guards against edge cases).
+        """
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT id::text FROM messages "
+                    "WHERE conversation_id = CAST(:cid AS uuid) AND role = 'assistant' "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"cid": conversation_id},
+            ).fetchone()
+        return row[0] if row is not None else None
 
     def delete(self, conversation_id: str, user_id: str) -> None:
         with self._engine.begin() as conn:

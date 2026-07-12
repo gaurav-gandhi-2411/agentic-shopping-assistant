@@ -34,6 +34,7 @@ _session_store: SessionStore = InMemorySessionStore()
 # ConversationMemory is passed through AgentState._memory at invoke time.
 _agent_sync: Any = None      # streaming_mode=False
 _agent_streaming: Any = None  # streaming_mode=True
+_db_engine: Any = None
 
 # ---------------------------------------------------------------------------
 # Auth — get_current_user_id lives in api.auth (Phase 2 prompt 2).
@@ -54,15 +55,18 @@ def _init(
     llm: Any,
     config: dict,
     session_store: SessionStore | None = None,
+    db_engine: Any = None,
 ) -> None:
     global _retriever, _catalogue_df, _llm, _config, _session_store
-    global _agent_sync, _agent_streaming
+    global _agent_sync, _agent_streaming, _db_engine
     _retriever = retriever
     _catalogue_df = catalogue_df
     _llm = llm
     _config = config
     if session_store is not None:
         _session_store = session_store
+    if db_engine is not None:
+        _db_engine = db_engine
 
     # Compile both graph variants once — this is the only call to build_graph()
     # and builder.compile() in the process lifetime.
@@ -99,6 +103,10 @@ def get_config() -> dict:
 
 def get_session_store() -> SessionStore:
     return _session_store
+
+
+def get_db_engine() -> Any:
+    return _db_engine
 
 
 def get_agent_factory() -> Callable[..., Any]:

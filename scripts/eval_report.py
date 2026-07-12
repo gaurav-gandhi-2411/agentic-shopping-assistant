@@ -97,7 +97,7 @@ def generate_markdown(payload: dict) -> str:
                 lines += [
                     f"**Failed checks:** `{', '.join(r.get('failed', []))}`",
                     "",
-                    f"**Response (first 400 chars):**",
+                    "**Response (first 400 chars):**",
                     f"> {r.get('response_text', '')[:400]}",
                     "",
                 ]
@@ -108,7 +108,7 @@ def generate_markdown(payload: dict) -> str:
                 }
                 lines += [
                     "**Check results:**",
-                    f"```",
+                    "```",
                     json.dumps(check_detail, indent=2, default=str),
                     "```",
                     "",
@@ -124,7 +124,7 @@ def generate_markdown(payload: dict) -> str:
     for r in results:
         icon = "PASS" if r["status"] == "PASS" else ("FAIL" if r["status"] == "FAIL" else "ERR")
         lines += [
-            f"<details>",
+            "<details>",
             f"<summary>{icon} <strong>{r['id']}</strong> — {r['query']}</summary>",
             "",
             f"- **Status:** {r['status']}",

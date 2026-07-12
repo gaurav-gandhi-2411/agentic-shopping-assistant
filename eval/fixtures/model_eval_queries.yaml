@@ -1,0 +1,5681 @@
+# eval/fixtures/model_eval_queries.yaml
+#
+# Pre-launch synthetic eval query set for the Agentic Shopping Assistant's
+# intent-parsing / retrieval / outfit-composition stack. Complementary to
+# scripts/eval_queries.yaml (57 queries, older H&M-catalogue-era schema) —
+# no query text is duplicated between the two files.
+#
+# Sourced wherever possible from EXISTING labelled test data rather than
+# invented from scratch:
+#   - tests/test_intent_parser.py           -> search (gender/garment/colour/budget)
+#   - src/agents/outfit/occasions.py +
+#     src/agents/intent_parser.py _OCCASION_MAP -> occasion (12 slugs x synonyms)
+#   - tests/test_body_type.py,
+#     tests/test_body_type_bare_statement.py -> body_type
+#   - tests/test_partner_styling.py
+#     detect_partner_intent positives        -> couple
+#   - scripts/browser_proof.py PB_NOVELTY_RE  -> adversarial novelty vocabulary
+#
+# ---------------------------------------------------------------------------
+# expected_intent fields are exactly IntentV1's real fields (see
+# src/agents/intent_parser.py's IntentV1 dataclass) — a subset is used here
+# (garment_type, gender, colour, occasion, budget_max_inr, body_type,
+# body_modifiers, is_product_query); store_filter/raw_query/
+# wants_body_type_guidance are not scored by this fixture set.
+#
+# gates.checks vocabulary — exactly the 4 checks the task brief specified,
+# CONFIRMED implemented by reading scripts/eval_model.py's
+# evaluate_gate_checks (built concurrently against this same fixture):
+#   gender_pure        - every composed/retrieved item matches the resolved
+#                        look gender (no cross-gender leak)
+#   budget_respected   - total look price (or item price) <= budget_inr
+#   no_novelty         - no item title matches PB_NOVELTY_RE vocabulary
+#                        (piano, guitar, novelty, quirky, costume)
+#   suppression_honest - an empty/suppressed slot is reported honestly (never
+#                        fabricated), whether or not the gap was pre-flagged
+#                        via data_ceiling_tags
+#
+# The adversarial section below covers two additional bug classes the task
+# brief asked for (kids-item leak, cross-gender ethnic composition) that have
+# NO dedicated check in the harness today — there is no "no_kids_leak" or
+# "ethnic_gender_consistent" check implemented, and the relevance schema has
+# no "must_not" to express exclusion at the retrieval stage either. Rather
+# than reference a check name the harness will silently no-op, those entries
+# use gender_pure + suppression_honest (the closest implemented proxies) and
+# say so explicitly in an inline comment at each bucket — flagged here as a
+# genuine gap for a follow-up, not silently assumed away.
+#
+# data_ceiling_tags vocabulary (best-effort annotation, NOT verified against
+# live per-store inventory counts — see src/agents/outfit/composer.py's
+# _suppression_reason, which deliberately never quotes a live count either):
+#   womens_footwear, mens_occasionwear, jewellery
+#
+# Two real intent_parser.py gaps were discovered while building this fixture
+# (out of this task's scope — fixtures/tests only — flagged for a follow-up
+# fix; see the ADVERSARIAL section comment below for detail):
+#   BUG1 - "lehenga" plural ("lehengas") is never extracted as a garment_type
+#          (adversarial_031).
+#   BUG2 - an ethnic-women-marker noun (kurta/kurti/saree/lehenga/dupatta/
+#          anarkali/sharara/palazzo) in the same query as an explicit
+#          "men's"/"for men" signal silently overrides gender to "women".
+#
+# checks keys used by relevance blocks:
+#   must    - ALL properties must hold for an item to count as relevant
+#             (gain 1 for NDCG if must-only, gain 2 if must+graded both hold)
+#   graded  - optional bonus properties (see must, above)
+# ---------------------------------------------------------------------------
+
+version: 1
+queries:
+- id: search_001
+  category: search
+  turns:
+  - black dress for my wife
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: Black
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Black
+- id: search_002
+  category: search
+  turns:
+  - show me something for my husband
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+- id: search_003
+  category: search
+  turns:
+  - for my girlfriend
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_004
+  category: search
+  turns:
+  - for him
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_005
+  category: search
+  turns:
+  - for her
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_006
+  category: search
+  turns:
+  - women's jacket
+  expected_intent:
+    garment_type: outerwear
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jacket
+      - coat
+      gender_in:
+      - women
+- id: search_007
+  category: search
+  turns:
+  - mens shirt
+  expected_intent:
+    garment_type: shirt
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+      gender_in:
+      - men
+- id: search_008
+  category: search
+  turns:
+  - ladies kurti
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+- id: search_009
+  category: search
+  turns:
+  - for my mom
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_010
+  category: search
+  turns:
+  - for my dad
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_011
+  category: search
+  turns:
+  - for my daughter
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_012
+  category: search
+  turns:
+  - for my son
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_013
+  category: search
+  turns:
+  - for my brother
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_014
+  category: search
+  turns:
+  - female formal wear
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: search_015
+  category: search
+  turns:
+  - he needs a blazer
+  expected_intent:
+    garment_type: blazer
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+      gender_in:
+      - men
+- id: search_016
+  category: search
+  turns:
+  - t-shirt
+  expected_intent:
+    garment_type: top
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - top
+      - t-shirt
+      - tee
+- id: search_017
+  category: search
+  turns:
+  - tee
+  expected_intent:
+    garment_type: top
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - top
+      - t-shirt
+      - tee
+- id: search_018
+  category: search
+  turns:
+  - tshirt
+  expected_intent:
+    garment_type: top
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - top
+      - t-shirt
+      - tee
+- id: search_019
+  category: search
+  turns:
+  - blouse
+  expected_intent:
+    garment_type: blouse
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blouse
+- id: search_020
+  category: search
+  turns:
+  - skirt
+  expected_intent:
+    garment_type: skirt
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - skirt
+- id: search_021
+  category: search
+  turns:
+  - shorts
+  expected_intent:
+    garment_type: shorts
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shorts
+- id: search_022
+  category: search
+  turns:
+  - jeans
+  expected_intent:
+    garment_type: jeans
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jeans
+      - denim
+- id: search_023
+  category: search
+  turns:
+  - kurti for women
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+- id: search_024
+  category: search
+  turns:
+  - blazer
+  expected_intent:
+    garment_type: blazer
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+- id: search_025
+  category: search
+  turns:
+  - bomber jacket
+  expected_intent:
+    garment_type: outerwear
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jacket
+      - coat
+- id: search_026
+  category: search
+  turns:
+  - puffer jacket
+  expected_intent:
+    garment_type: outerwear
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jacket
+      - coat
+- id: search_027
+  category: search
+  turns:
+  - sweatshirt
+  expected_intent:
+    garment_type: knitwear
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - sweater
+      - hoodie
+      - cardigan
+      - sweatshirt
+- id: search_028
+  category: search
+  turns:
+  - hoodie
+  expected_intent:
+    garment_type: knitwear
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - sweater
+      - hoodie
+      - cardigan
+      - sweatshirt
+- id: search_029
+  category: search
+  turns:
+  - cardigan
+  expected_intent:
+    garment_type: knitwear
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - sweater
+      - hoodie
+      - cardigan
+      - sweatshirt
+- id: search_030
+  category: search
+  turns:
+  - jumpsuit
+  expected_intent:
+    garment_type: jumpsuit
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jumpsuit
+- id: search_031
+  category: search
+  turns:
+  - saree
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+- id: search_032
+  category: search
+  turns:
+  - lehenga
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+- id: search_033
+  category: search
+  turns:
+  - palazzo pants
+  expected_intent:
+    garment_type: palazzo
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - palazzo
+      gender_in:
+      - women
+- id: search_034
+  category: search
+  turns:
+  - trousers
+  expected_intent:
+    garment_type: trousers
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - trouser
+      - pant
+      - chino
+- id: search_035
+  category: search
+  turns:
+  - chinos
+  expected_intent:
+    garment_type: trousers
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - trouser
+      - pant
+      - chino
+- id: search_036
+  category: search
+  turns:
+  - black dress
+  expected_intent:
+    garment_type: dress
+    gender: null
+    colour: Black
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+    graded:
+      colour_in:
+      - Black
+- id: search_037
+  category: search
+  turns:
+  - blue jeans
+  expected_intent:
+    garment_type: jeans
+    gender: null
+    colour: Blue
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jeans
+      - denim
+    graded:
+      colour_in:
+      - Blue
+- id: search_038
+  category: search
+  turns:
+  - red kurti
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: Red
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+- id: search_039
+  category: search
+  turns:
+  - dark blue blazer
+  expected_intent:
+    garment_type: blazer
+    gender: null
+    colour: Dark Blue
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+    graded:
+      colour_in:
+      - Dark Blue
+- id: search_040
+  category: search
+  turns:
+  - white shirt
+  expected_intent:
+    garment_type: shirt
+    gender: null
+    colour: White
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+    graded:
+      colour_in:
+      - White
+- id: search_041
+  category: search
+  turns:
+  - navy dress
+  expected_intent:
+    garment_type: dress
+    gender: null
+    # 2026-07-11: navy maps to its own catalogue-exact "Navy Blue" value now,
+    # not the approximate neighbour "Dark Blue" — see intent_parser._COLOUR_MAP.
+    colour: Navy Blue
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+    graded:
+      # Both values: colour_filter_values() widens "Navy Blue" retrieval to
+      # this exact family (see intent_parser._COLOUR_FAMILY) — either is a
+      # genuine match now, not just the canonical value.
+      colour_in:
+      - Navy Blue
+      - Dark Blue
+- id: search_042
+  category: search
+  turns:
+  - grey trousers
+  expected_intent:
+    garment_type: trousers
+    gender: null
+    colour: Grey
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - trouser
+      - pant
+      - chino
+    graded:
+      colour_in:
+      - Grey
+- id: search_043
+  category: search
+  turns:
+  - pink blouse
+  expected_intent:
+    garment_type: blouse
+    gender: null
+    colour: Pink
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blouse
+    graded:
+      colour_in:
+      - Pink
+- id: search_044
+  category: search
+  turns:
+  - green top
+  expected_intent:
+    garment_type: top
+    gender: null
+    colour: Green
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - top
+      - t-shirt
+      - tee
+    graded:
+      colour_in:
+      - Green
+- id: search_045
+  category: search
+  turns:
+  - navy blue jeans
+  expected_intent:
+    garment_type: jeans
+    gender: null
+    # 2026-07-11: navy maps to its own catalogue-exact "Navy Blue" value now,
+    # not the approximate neighbour "Dark Blue" — see intent_parser._COLOUR_MAP.
+    colour: Navy Blue
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jeans
+      - denim
+    graded:
+      # Both values: colour_filter_values() widens "Navy Blue" retrieval to
+      # this exact family (see intent_parser._COLOUR_FAMILY) — either is a
+      # genuine match now, not just the canonical value.
+      colour_in:
+      - Navy Blue
+      - Dark Blue
+- id: search_046
+  category: search
+  turns:
+  - under ₹1000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 1000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_047
+  category: search
+  turns:
+  - below 2000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 2000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_048
+  category: search
+  turns:
+  - less than 1500
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 1500
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_049
+  category: search
+  turns:
+  - up to 3000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_050
+  category: search
+  turns:
+  - max 500
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 500
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_051
+  category: search
+  turns:
+  - within 800
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 800
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_052
+  category: search
+  turns:
+  - upto 2500
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 2500
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_053
+  category: search
+  turns:
+  - find me blue jeans under 2000
+  expected_intent:
+    garment_type: jeans
+    gender: null
+    colour: Blue
+    occasion: null
+    budget_max_inr: 2000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jeans
+      - denim
+    graded:
+      colour_in:
+      - Blue
+- id: search_054
+  category: search
+  turns:
+  - around 1000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 1300
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_055
+  category: search
+  turns:
+  - about 2000 rupees
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 2600
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_056
+  category: search
+  turns:
+  - under ₹1,500
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 1500
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: search_057
+  category: search
+  turns:
+  - men's white shirt
+  expected_intent:
+    garment_type: shirt
+    gender: men
+    colour: White
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - White
+- id: search_058
+  category: search
+  turns:
+  - sarees for women
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+- id: search_059
+  category: search
+  turns:
+  - red lehenga
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: Red
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+- id: search_060
+  category: search
+  turns:
+  - kurta set for women
+  expected_intent:
+    garment_type: kurta
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      gender_in:
+      - women
+- id: occasion_001
+  category: occasion
+  turns:
+  - casual outfit for the weekend
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_002
+  category: occasion
+  turns:
+  - kuch casual sa outfit chahiye
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_003
+  category: occasion
+  turns:
+  - beach vacation outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_004
+  category: occasion
+  turns:
+  - brunch with friends outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_005
+  category: occasion
+  turns:
+  - casual outfit for my husband
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_006
+  category: occasion
+  turns:
+  - smart casual dress for women
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: null
+    occasion: smart_casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: smart_casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_007
+  category: occasion
+  turns:
+  - smart casual look for a date night
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: smart_casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: smart_casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_008
+  category: occasion
+  turns:
+  - something smart casual for office drinks
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: smart_casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: smart_casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_009
+  category: occasion
+  turns:
+  - smart casual outfit for him
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: smart_casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: smart_casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_010
+  category: occasion
+  turns:
+  - smart casual blazer for men
+  expected_intent:
+    garment_type: blazer
+    gender: men
+    colour: null
+    occasion: smart_casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: smart_casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_011
+  category: occasion
+  turns:
+  - office wear for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_012
+  category: occasion
+  turns:
+  - work outfit for the office
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_013
+  category: occasion
+  turns:
+  - formal office look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_014
+  category: occasion
+  turns:
+  - office wear for my husband
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_015
+  category: occasion
+  turns:
+  - office ke liye formal look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_016
+  category: occasion
+  turns:
+  - haldi ceremony outfit for the bride's friend
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: haldi
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_017
+  category: occasion
+  turns:
+  - haldi function guest outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: haldi
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: occasion_018
+  category: occasion
+  turns:
+  - yellow outfit for haldi
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: Yellow
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: haldi
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_019
+  category: occasion
+  turns:
+  - haldi outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: haldi
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_020
+  category: occasion
+  turns:
+  - haldi ceremony guest look under 5000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: haldi
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: haldi
+    gender: women
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_021
+  category: occasion
+  turns:
+  - mehendi outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_022
+  category: occasion
+  turns:
+  - mehndi function look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: occasion_023
+  category: occasion
+  turns:
+  - mehendi guest outfit under 5000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: mehendi
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: women
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_024
+  category: occasion
+  turns:
+  - mehendi look for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_025
+  category: occasion
+  turns:
+  - outfit for a mehndi ceremony
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_026
+  category: occasion
+  turns:
+  - party outfit for tonight
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_027
+  category: occasion
+  turns:
+  - date night outfit for her
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_028
+  category: occasion
+  turns:
+  - evening wear for a party
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_029
+  category: occasion
+  turns:
+  - party outfit for him
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_030
+  category: occasion
+  turns:
+  - party wear for men under 4000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: party_evening
+    budget_max_inr: 4000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: men
+    budget_inr: 4000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_031
+  category: occasion
+  turns:
+  - festive look for diwali puja
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_032
+  category: occasion
+  turns:
+  - puja outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_033
+  category: occasion
+  turns:
+  - festive puja outfit for women under 6000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: women
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_034
+  category: occasion
+  turns:
+  - puja outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_035
+  category: occasion
+  turns:
+  - diwali puja outfit under 6000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: women
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_036
+  category: occasion
+  turns:
+  - traditional ethnic outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_037
+  category: occasion
+  turns:
+  - ethnic outfit for a family function
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_038
+  category: occasion
+  turns:
+  - traditional wear for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_039
+  category: occasion
+  turns:
+  - ethnic look for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_040
+  category: occasion
+  turns:
+  - something traditional for a family event under 7000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: 7000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: women
+    budget_inr: 7000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_041
+  category: occasion
+  turns:
+  - wedding guest outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: occasion_042
+  category: occasion
+  turns:
+  - shaadi mein pehene ke liye outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_043
+  category: occasion
+  turns:
+  - wedding guest look under 10000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 10000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: 10000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_044
+  category: occasion
+  turns:
+  - wedding outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_045
+  category: occasion
+  turns:
+  - shaadi outfit for the groom's friend
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_046
+  category: occasion
+  turns:
+  - engagement outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: engagement
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: engagement
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_047
+  category: occasion
+  turns:
+  - ring ceremony look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: engagement
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: engagement
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_048
+  category: occasion
+  turns:
+  - roka outfit for women under 9000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: engagement
+    budget_max_inr: 9000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: engagement
+    gender: women
+    budget_inr: 9000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_049
+  category: occasion
+  turns:
+  - sagai outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: engagement
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: engagement
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_050
+  category: occasion
+  turns:
+  - engagement party outfit under 12000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: engagement
+    budget_max_inr: 12000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: engagement
+    gender: women
+    budget_inr: 12000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_051
+  category: occasion
+  turns:
+  - sangeet outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: occasion_052
+  category: occasion
+  turns:
+  - sangeet look under 8000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: 8000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_053
+  category: occasion
+  turns:
+  - sangeet function outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_054
+  category: occasion
+  turns:
+  - dance-ready sangeet outfit under 11000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 11000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: 11000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_055
+  category: occasion
+  turns:
+  - sangeet night look for the bride's sister
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_056
+  category: occasion
+  turns:
+  - reception outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+  - jewellery
+- id: occasion_057
+  category: occasion
+  turns:
+  - cocktail reception look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_058
+  category: occasion
+  turns:
+  - wedding reception outfit under 15000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: 15000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: 15000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: occasion_059
+  category: occasion
+  turns:
+  - reception look for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: occasion_060
+  category: occasion
+  turns:
+  - cocktail party outfit for the reception under 18000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: 18000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: 18000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: body_type_001
+  category: body_type
+  turns:
+  - I have a pear silhouette
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: pear
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_002
+  category: body_type
+  turns:
+  - I have an apple silhouette
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: apple
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_003
+  category: body_type
+  turns:
+  - I have an hourglass silhouette
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: hourglass
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_004
+  category: body_type
+  turns:
+  - I have a rectangle silhouette
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: rectangle
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_005
+  category: body_type
+  turns:
+  - I have an inverted triangle silhouette
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_006
+  category: body_type
+  turns:
+  - I'm a petite pear
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: pear
+    body_modifiers:
+    - petite
+    is_product_query: false
+- id: body_type_007
+  category: body_type
+  turns:
+  - I'm a tall rectangle
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: rectangle
+    body_modifiers:
+    - tall
+    is_product_query: false
+- id: body_type_008
+  category: body_type
+  turns:
+  - I'm plus size with an hourglass figure
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: hourglass
+    body_modifiers:
+    - plus_size
+    is_product_query: false
+- id: body_type_009
+  category: body_type
+  turns:
+  - I'm petite and apple shaped
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: apple
+    body_modifiers:
+    - petite
+    is_product_query: false
+- id: body_type_010
+  category: body_type
+  turns:
+  - I'm a tall inverted triangle
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: inverted_triangle
+    body_modifiers:
+    - tall
+    is_product_query: false
+- id: body_type_011
+  category: body_type
+  turns:
+  - pear-shaped sangeet look under 8000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 8000
+    body_type: pear
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: 8000
+    body_type: pear
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_012
+  category: body_type
+  turns:
+  - petite pear outfit for office
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: pear
+    body_modifiers:
+    - petite
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: pear
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_013
+  category: body_type
+  turns:
+  - I have curvy hips, need a mehendi look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: pear
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: women
+    budget_inr: null
+    body_type: pear
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_014
+  category: body_type
+  turns:
+  - pear shaped wedding guest outfit under 12000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 12000
+    body_type: pear
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: 12000
+    body_type: pear
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_015
+  category: body_type
+  turns:
+  - apple shaped office look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: apple
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: apple
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_016
+  category: body_type
+  turns:
+  - apple shape party outfit under 6000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: 6000
+    body_type: apple
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: 6000
+    body_type: apple
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_017
+  category: body_type
+  turns:
+  - tall apple, casual outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: apple
+    body_modifiers:
+    - tall
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: apple
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_018
+  category: body_type
+  turns:
+  - apple-shaped sangeet look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: apple
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: null
+    body_type: apple
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_019
+  category: body_type
+  turns:
+  - hourglass figure wedding guest look under 15000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 15000
+    body_type: hourglass
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: 15000
+    body_type: hourglass
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_020
+  category: body_type
+  turns:
+  - hourglass shaped office outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: hourglass
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: hourglass
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_021
+  category: body_type
+  turns:
+  - plus size hourglass, reception look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: hourglass
+    body_modifiers:
+    - plus_size
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: null
+    body_type: hourglass
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_022
+  category: body_type
+  turns:
+  - balanced curves, festive puja outfit under 9000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: 9000
+    body_type: hourglass
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: women
+    budget_inr: 9000
+    body_type: hourglass
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_023
+  category: body_type
+  turns:
+  - rectangle body type, casual outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: rectangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: rectangle
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_024
+  category: body_type
+  turns:
+  - tall rectangle, sangeet look under 10000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 10000
+    body_type: rectangle
+    body_modifiers:
+    - tall
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: 10000
+    body_type: rectangle
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_025
+  category: body_type
+  turns:
+  - athletic build, office look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: rectangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: rectangle
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_026
+  category: body_type
+  turns:
+  - rectangle shape party outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: rectangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: rectangle
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_027
+  category: body_type
+  turns:
+  - inverted triangle silhouette, party look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: inverted_triangle
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_028
+  category: body_type
+  turns:
+  - broad-shouldered, reception outfit under 20000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: 20000
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: 20000
+    body_type: inverted_triangle
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_029
+  category: body_type
+  turns:
+  - inverted triangle, office look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: inverted_triangle
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: body_type_030
+  category: body_type
+  turns:
+  - inverted-triangle shaped wedding guest outfit under 14000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 14000
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: 14000
+    body_type: inverted_triangle
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: couple_001
+  category: couple
+  turns:
+  - what should my husband wear with this?
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_002
+  category: couple
+  turns:
+  - style my wife to match
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_003
+  category: couple
+  turns:
+  - what would look good on my boyfriend?
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_004
+  category: couple
+  turns:
+  - coordinate an outfit for my girlfriend
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_005
+  category: couple
+  turns:
+  - the groom needs a matching look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_006
+  category: couple
+  turns:
+  - the bride needs a matching look
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_007
+  category: couple
+  turns:
+  - his and hers outfit for a wedding
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_008
+  category: couple
+  turns:
+  - couple outfit for a wedding
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_009
+  category: couple
+  turns:
+  - can you style my partner as well
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_010
+  category: couple
+  turns:
+  - what should my fiance wear to match
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_011
+  category: couple
+  turns:
+  - what should I style for him to match this?
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_012
+  category: couple
+  turns:
+  - can you coordinate an outfit for her
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_013
+  category: couple
+  turns:
+  - what should my husband wear with my saree
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_014
+  category: couple
+  turns:
+  - style us as a couple for a reception under 15000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: 15000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: men
+    budget_inr: 15000
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: couple_015
+  category: couple
+  turns:
+  - style us as a couple for a wedding
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_016
+  category: couple
+  turns:
+  - coordinate my partner's outfit for the sangeet
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_017
+  category: couple
+  turns:
+  - what should my wife wear with my kurta
+  expected_intent:
+    garment_type: kurta
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_018
+  category: couple
+  turns:
+  - match my fiance for the reception
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_019
+  category: couple
+  turns:
+  - his and hers outfit for the sangeet
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_020
+  category: couple
+  turns:
+  - couple look for a mehendi function
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: mehendi
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_021
+  category: couple
+  turns:
+  - style my boyfriend to match my lehenga
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_022
+  category: couple
+  turns:
+  - what should my girlfriend wear with this outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_023
+  category: couple
+  turns:
+  - coordinate an outfit for my husband for the wedding
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_024
+  category: couple
+  turns:
+  - his and hers look for a party under 10000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: 10000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: men
+    budget_inr: 10000
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: couple_025
+  category: couple
+  turns:
+  - style us as a couple for engagement photos
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: engagement
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: engagement
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_026
+  category: couple
+  turns:
+  - match my partner's outfit for haldi
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: haldi
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_027
+  category: couple
+  turns:
+  - what would look good on my wife for the reception
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_028
+  category: couple
+  turns:
+  - groom and bride matching outfits for the wedding
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: couple_029
+  category: couple
+  turns:
+  - coordinate outfits for me and my husband under 20000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: 20000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: 20000
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: couple_030
+  category: couple
+  turns:
+  - style my fiancee to match this sherwani
+  expected_intent:
+    # 2026-07-11: "sherwani" is now a recognized garment_type (catalogue-gap
+    # follow-up, scripts/patch_thin_category_facets.py) — was null only
+    # because the parser had no sherwani rule yet. is_product_query follows
+    # directly (garment_type is not None -> True per _is_product_query).
+    garment_type: sherwani
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: true
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+- id: refinement_001
+  category: refinement
+  turns:
+  - white shirt men
+  - in blue now
+  expected_intent:
+    garment_type: shirt
+    gender: men
+    colour: Blue
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - Blue
+- id: refinement_002
+  category: refinement
+  turns:
+  - pear-shaped sangeet look under 8000
+  - make it more festive
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: 8000
+    body_type: pear
+    body_modifiers: []
+    is_product_query: true
+- id: refinement_003
+  category: refinement
+  turns:
+  - black dress for women
+  - cheaper
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: Black
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Black
+- id: refinement_004
+  category: refinement
+  turns:
+  - sangeet look under 8000
+  - what should my husband wear
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_005
+  category: refinement
+  turns:
+  - red kurti
+  - in blue
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: Blue
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Blue
+- id: refinement_006
+  category: refinement
+  turns:
+  - blue jeans
+  - make it black
+  expected_intent:
+    garment_type: jeans
+    gender: null
+    colour: Black
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_007
+  category: refinement
+  turns:
+  - office wear for women
+  - more casual
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: refinement_008
+  category: refinement
+  turns:
+  - casual outfit for men
+  - more formal
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+- id: refinement_009
+  category: refinement
+  turns:
+  - black dress
+  - show me more
+  expected_intent:
+    garment_type: dress
+    gender: null
+    colour: Black
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+    graded:
+      colour_in:
+      - Black
+- id: refinement_010
+  category: refinement
+  turns:
+  - women's jacket
+  - something similar
+  expected_intent:
+    garment_type: outerwear
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jacket
+      - coat
+      gender_in:
+      - women
+- id: refinement_011
+  category: refinement
+  turns:
+  - kurti for women under 2000
+  - cheaper
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: 2000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+- id: refinement_012
+  category: refinement
+  turns:
+  - wedding guest outfit for women
+  - under 10000 now
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 10000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_013
+  category: refinement
+  turns:
+  - mehendi look for women
+  - in yellow
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: Yellow
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Yellow
+- id: refinement_014
+  category: refinement
+  turns:
+  - reception outfit for men
+  - in navy
+  expected_intent:
+    garment_type: null
+    gender: men
+    # 2026-07-11: navy -> "Navy Blue" (its own catalogue-exact value now).
+    colour: Navy Blue
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_015
+  category: refinement
+  turns:
+  - haldi outfit for women under 5000
+  - make it more festive
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: refinement_016
+  category: refinement
+  turns:
+  - engagement outfit for women
+  - different colour
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: engagement
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: refinement_017
+  category: refinement
+  turns:
+  - party dress for women
+  - change colour
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+- id: refinement_018
+  category: refinement
+  turns:
+  - blazer for men
+  - in grey
+  expected_intent:
+    garment_type: blazer
+    gender: men
+    colour: Grey
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - Grey
+- id: refinement_019
+  category: refinement
+  turns:
+  - sangeet look for women under 8000
+  - show me more
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: refinement_020
+  category: refinement
+  turns:
+  - traditional ethnic outfit for women
+  - more formal
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: refinement_021
+  category: refinement
+  turns:
+  - men's white shirt under 1500
+  - in blue now
+  expected_intent:
+    garment_type: shirt
+    gender: men
+    colour: Blue
+    occasion: null
+    budget_max_inr: 1500
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - Blue
+- id: refinement_022
+  category: refinement
+  turns:
+  - saree for women
+  - in red
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: Red
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+- id: refinement_023
+  category: refinement
+  turns:
+  - lehenga for wedding
+  - cheaper
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+- id: refinement_024
+  category: refinement
+  turns:
+  - office wear for women under 3000
+  - what should my husband wear
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_025
+  category: refinement
+  turns:
+  - festive puja outfit for women
+  - in green
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: Green
+    occasion: festive_puja
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Green
+- id: refinement_026
+  category: refinement
+  turns:
+  - smart casual look for men
+  - more casual
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+- id: refinement_027
+  category: refinement
+  turns:
+  - casual dress for women
+  - like these
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+- id: refinement_028
+  category: refinement
+  turns:
+  - black kurti for women
+  - something like this
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: Black
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Black
+- id: refinement_029
+  category: refinement
+  turns:
+  - red dress for women under 4000
+  - in black now
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: Black
+    occasion: null
+    budget_max_inr: 4000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Black
+- id: refinement_030
+  category: refinement
+  turns:
+  - blazer for women under 5000
+  - make it cheaper
+  expected_intent:
+    garment_type: blazer
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+      gender_in:
+      - women
+- id: refinement_031
+  category: refinement
+  turns:
+  - trousers for men
+  - in grey
+  expected_intent:
+    garment_type: trousers
+    gender: men
+    colour: Grey
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - trouser
+      - pant
+      - chino
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - Grey
+- id: refinement_032
+  category: refinement
+  turns:
+  - jumpsuit for women
+  - different color
+  expected_intent:
+    garment_type: jumpsuit
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jumpsuit
+      gender_in:
+      - women
+- id: refinement_033
+  category: refinement
+  turns:
+  - party evening look for women under 6000
+  - make it more festive
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+- id: refinement_034
+  category: refinement
+  turns:
+  - wedding guest look for men
+  - in navy blue
+  expected_intent:
+    garment_type: null
+    gender: men
+    # 2026-07-11: navy blue -> "Navy Blue" (its own catalogue-exact value now).
+    colour: Navy Blue
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_035
+  category: refinement
+  turns:
+  - pear-shaped office look
+  - more formal
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: pear
+    body_modifiers: []
+    is_product_query: true
+- id: refinement_036
+  category: refinement
+  turns:
+  - tall rectangle party look
+  - in black
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: Black
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: rectangle
+    body_modifiers:
+    - tall
+    is_product_query: true
+- id: refinement_037
+  category: refinement
+  turns:
+  - plus size hourglass wedding guest look under 15000
+  - cheaper
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 15000
+    body_type: hourglass
+    body_modifiers:
+    - plus_size
+    is_product_query: true
+- id: refinement_038
+  category: refinement
+  turns:
+  - reception outfit for women under 20000
+  - style my husband to match
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: reception
+    budget_max_inr: 20000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_039
+  category: refinement
+  turns:
+  - engagement outfit for men
+  - under 8000 now
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: engagement
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: refinement_040
+  category: refinement
+  turns:
+  - sangeet outfit for women
+  - style us as a couple
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+- id: adversarial_001
+  category: adversarial
+  turns:
+  - red saree for a wedding
+  - show me more options
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: Red
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_002
+  category: adversarial
+  turns:
+  - women's kurti for the office
+  - cheaper
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_003
+  category: adversarial
+  turns:
+  - men's blazer for the office
+  - in blue
+  expected_intent:
+    garment_type: blazer
+    gender: men
+    colour: Blue
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - Blue
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_004
+  category: adversarial
+  turns:
+  - women's lehenga for the reception
+  - something more festive
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: null
+    occasion: festive_puja
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: festive_puja
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_005
+  category: adversarial
+  turns:
+  - ladies ethnic wear for haldi
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_006
+  category: adversarial
+  turns:
+  - black dress for women under 3000
+  - in blue
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: Blue
+    occasion: null
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Blue
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: 3000
+    body_type: null
+    couple: false
+    checks:
+    - budget_respected
+    - suppression_honest
+- id: adversarial_007
+  category: adversarial
+  turns:
+  - wedding guest outfit under 10000
+  - show me more
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 10000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: 10000
+    body_type: null
+    couple: false
+    checks:
+    - budget_respected
+    - suppression_honest
+- id: adversarial_008
+  category: adversarial
+  turns:
+  - office wear for women under 4000
+  - something more formal
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: 4000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: 4000
+    body_type: null
+    couple: false
+    checks:
+    - budget_respected
+    - suppression_honest
+- id: adversarial_009
+  category: adversarial
+  turns:
+  - kurti under 1500
+  - in red
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: Red
+    occasion: null
+    budget_max_inr: 1500
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: 1500
+    body_type: null
+    couple: false
+    checks:
+    - budget_respected
+    - suppression_honest
+- id: adversarial_010
+  category: adversarial
+  turns:
+  - reception outfit under 20000
+  - in gold
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: 20000
+    body_type: null
+    body_modifiers: []
+    is_product_query: false
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: 20000
+    body_type: null
+    couple: false
+    checks:
+    - budget_respected
+    - suppression_honest
+- id: adversarial_011
+  category: adversarial
+  turns:
+  - black handbag for a wedding
+  expected_intent:
+    garment_type: bag
+    gender: null
+    colour: Black
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - bag
+      - clutch
+      - tote
+      - handbag
+    graded:
+      colour_in:
+      - Black
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - no_novelty
+- id: adversarial_012
+  category: adversarial
+  turns:
+  - clutch bag for sangeet
+  expected_intent:
+    garment_type: bag
+    gender: null
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - bag
+      - clutch
+      - tote
+      - handbag
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - no_novelty
+- id: adversarial_013
+  category: adversarial
+  turns:
+  - statement bag for a party
+  expected_intent:
+    garment_type: bag
+    gender: null
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - bag
+      - clutch
+      - tote
+      - handbag
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - no_novelty
+- id: adversarial_014
+  category: adversarial
+  turns:
+  - tote bag for the office
+  expected_intent:
+    garment_type: bag
+    gender: null
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - bag
+      - clutch
+      - tote
+      - handbag
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - no_novelty
+- id: adversarial_015
+  category: adversarial
+  turns:
+  - ethnic accessories for the reception
+  - show me more
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: reception
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: reception
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - no_novelty
+  data_ceiling_tags:
+  - jewellery
+- id: adversarial_016
+  category: adversarial
+  turns:
+  - party dress for women
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_017
+  category: adversarial
+  turns:
+  - casual t-shirt for men
+  expected_intent:
+    garment_type: top
+    gender: men
+    colour: null
+    occasion: casual
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - top
+      - t-shirt
+      - tee
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_018
+  category: adversarial
+  turns:
+  - ethnic wear for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: traditional_ethnic
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: traditional_ethnic
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_019
+  category: adversarial
+  turns:
+  - denim jacket for men
+  expected_intent:
+    garment_type: outerwear
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jacket
+      - coat
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_020
+  category: adversarial
+  turns:
+  - party wear for girls night out
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: party_evening
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+- id: adversarial_021
+  category: adversarial
+  turns:
+  - men's kurta for sangeet
+  expected_intent:
+    garment_type: kurta
+    gender: men
+    colour: null
+    occasion: sangeet
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - suppression_honest
+- id: adversarial_022
+  category: adversarial
+  turns:
+  - saree for men
+  expected_intent:
+    garment_type: saree
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - suppression_honest
+- id: adversarial_023
+  category: adversarial
+  turns:
+  - men's saree for a wedding
+  expected_intent:
+    garment_type: saree
+    gender: men
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - suppression_honest
+- id: adversarial_024
+  category: adversarial
+  turns:
+  - lehenga for my husband
+  expected_intent:
+    garment_type: lehenga
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - suppression_honest
+- id: adversarial_025
+  category: adversarial
+  turns:
+  - sherwani for women
+  expected_intent:
+    # 2026-07-11: "sherwani" is now a recognized garment_type, which per
+    # _is_product_query's own logic (garment_type is not None -> True)
+    # correctly makes this a product query too — the parser is right that
+    # this IS a garment request; the adversarial signal being tested here is
+    # the cross-gender mismatch (sherwani is a men's garment), not whether
+    # it's a product query at all.
+    garment_type: sherwani
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: casual
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - suppression_honest
+- id: adversarial_026
+  category: adversarial
+  turns:
+  - elegant black dress for a party
+  expected_intent:
+    garment_type: dress
+    gender: null
+    colour: Black
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+    graded:
+      colour_in:
+      - Black
+- id: adversarial_027
+  category: adversarial
+  turns:
+  - denim shorts for women
+  expected_intent:
+    garment_type: shorts
+    gender: women
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shorts
+      gender_in:
+      - women
+- id: adversarial_028
+  category: adversarial
+  turns:
+  - dress shirt for men
+  expected_intent:
+    garment_type: shirt
+    gender: men
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+      gender_in:
+      - men
+- id: adversarial_029
+  category: adversarial
+  turns:
+  - shorts for under dresses
+  expected_intent:
+    garment_type: shorts
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shorts
+- id: adversarial_030
+  category: adversarial
+  turns:
+  - little black dress for a party
+  expected_intent:
+    garment_type: dress
+    gender: null
+    colour: Black
+    occasion: party_evening
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+    graded:
+      colour_in:
+      - Black
+- id: adversarial_031
+  category: adversarial
+  turns:
+  - red lehengas for a function
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: Red
+    occasion: null
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red

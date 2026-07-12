@@ -1,0 +1,16 @@
+display_name: "Global Republic"
+logo_url: null
+primary_colour: "#2C3E50"
+accent_colour: "#ECF0F1"
+tagline: "Contemporary casual wear"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "unknown"
+catalogue_path: "data/raw/shopify/globalrepublic/products.csv"
+pdp_url_template: "https://globalrepublic.in/products/{handle}"
+suggestion_chips:
+  - "Cargo pants women"
+  - "Casual shorts men"
+  - "Basic tops women"
+  - "Street style outfits"

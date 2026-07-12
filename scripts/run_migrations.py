@@ -122,8 +122,9 @@ def main() -> None:
         "1", "true", "yes",
     )
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", _normalise_url(db_url))

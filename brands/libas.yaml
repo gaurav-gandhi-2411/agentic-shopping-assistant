@@ -1,0 +1,17 @@
+display_name: "Libas"
+logo_url: null
+primary_colour: "#8B4513"
+accent_colour: "#FFF8F0"
+tagline: "Indian ethnic fashion"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/libas/products.csv"
+pdp_url_template: "https://libas.in/products/{handle}"
+suggestion_chips:
+  - "Kurta set for women"
+  - "Cotton salwar suit"
+  - "Ethnic wear for wedding"
+  - "Printed straight kurta"
+  - "Festive saree"

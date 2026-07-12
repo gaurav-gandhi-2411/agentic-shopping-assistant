@@ -11,9 +11,17 @@ _SYSTEM = """\
 You are a fashion product reranker. Given a user query and a numbered list of candidate \
 products, select the best 5 that match the full intent of the query.
 
+Each product line may include a price (₹) and a short description snippet after the dash. \
+Use the description for signal the name/colour/type alone don't carry — e.g. fabric or \
+warmth cues ("wool", "fleece-lined", "full sleeve" vs "lightweight", "sleeveless") to judge \
+season fit, or fit/occasion cues the query implies. Use price only when the query states a \
+budget or price preference. Never invent a price or description detail that isn't shown — \
+if a candidate has no snippet, judge it on name/colour/type alone.
+
 Ranking rules:
-- Occasion context: "date night" / "evening out" / "wedding" / "cocktail" → formal \
-or elegant wear; never sleepwear, underwear, or swimwear
+- Occasion context: "date night" / "evening out" / "wedding" / "cocktail" / "sangeet" / \
+"haldi" / "mehendi" / "reception" / "engagement" → formal or elegant wear; never sleepwear, \
+underwear, or swimwear
 - Date night / evening / cocktail / wedding queries — apply ALL of these:
   * Prefer rich, elegant colours: black, red, dark blue, dark red, burgundy, emerald, dark green, wine
   * DIVERSITY REQUIRED: your 5 picks MUST include AT LEAST 2 distinct colour values. \
@@ -59,7 +67,11 @@ def _enforce_colour_diversity(
     the lowest-ranked pick for the best different-colour candidate from the pool."""
     if not _DATE_NIGHT_RE.search(query):
         return selected
-    colours = [it.get("colour", "").lower() for it in selected]
+    # `.get("colour")` can return an explicit None (the key is present but its value
+    # is None) — the dict.get default only applies when the key is MISSING entirely.
+    # Calling `.lower()` on that None crashes the whole turn, so normalise with
+    # `or ""` rather than relying on `.get(key, "")`.
+    colours = [(it.get("colour") or "").lower() for it in selected]
     if len(set(colours)) >= 2:
         return selected  # already diverse
     dominant = colours[0] if colours else ""
@@ -67,24 +79,43 @@ def _enforce_colour_diversity(
     for cand in candidates:
         if cand["article_id"] in seen_ids:
             continue
-        if cand.get("colour", "").lower() != dominant:
+        if (cand.get("colour") or "").lower() != dominant:
             swapped = selected[:-1] + [cand]
             logger.debug(
                 "[reranker] colour-diversity swap: dropped %s (%s), added %s (%s)",
-                selected[-1]["article_id"], selected[-1].get("colour", ""),
-                cand["article_id"], cand.get("colour", ""),
+                selected[-1]["article_id"], selected[-1].get("colour") or "",
+                cand["article_id"], cand.get("colour") or "",
             )
             return swapped
     return selected  # no alternative found — keep as is
 
 
+_DESC_SNIPPET_CHARS = 120
+
+
 def _format_candidates(items: list[dict]) -> str:
     lines = []
     for i, it in enumerate(items, 1):
-        lines.append(
-            f"{i}. {it['display_name']}"
-            f" ({it.get('colour', '')} {it.get('product_type', '')} | {it.get('department', '')})"
-        )
+        # `or ""` guards against explicit None values (not just missing keys) so a
+        # candidate with e.g. colour=None renders as blank rather than the literal
+        # string "None" in the LLM prompt.
+        colour = it.get("colour") or ""
+        product_type = it.get("product_type") or ""
+        department = it.get("department") or ""
+        price = it.get("price_inr")
+        price_str = f"₹{price:.0f}" if isinstance(price, (int, float)) else ""
+        # Truncate to a short snippet — the full detail_desc can run to several
+        # sentences, which would bloat the prompt and dilute the ranking signal.
+        desc = (it.get("detail_desc") or "").strip()
+        if len(desc) > _DESC_SNIPPET_CHARS:
+            desc = desc[:_DESC_SNIPPET_CHARS].rsplit(" ", 1)[0] + "…"
+        line = f"{i}. {it['display_name']} ({colour} {product_type} | {department}"
+        if price_str:
+            line += f" | {price_str}"
+        line += ")"
+        if desc:
+            line += f" — {desc}"
+        lines.append(line)
     return "\n".join(lines)
 
 

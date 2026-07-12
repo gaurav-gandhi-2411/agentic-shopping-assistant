@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
 import re
 import time
 import uuid
-from typing import Iterator, Protocol
+from typing import Callable, Iterator, Protocol
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
@@ -52,6 +54,7 @@ class OllamaClient:
             host=llm_cfg["host"],
             timeout=self.timeout,
         )
+        self.cost_reporter: Callable[[float], None] | None = None
 
     def chat(
         self,
@@ -111,6 +114,8 @@ class OllamaClient:
                     "turn_id": turn_id,
                 })
             )
+            if self.cost_reporter is not None:
+                self.cost_reporter(cost)
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []
@@ -145,7 +150,18 @@ class GroqClient:
         self.model = llm_cfg.get("groq_model", "llama-3.1-8b-instant")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
-        self._client = _groq_lib.Groq(api_key=api_key)
+        # Explicit per-request HTTP timeout, matching OllamaClient's existing
+        # timeout_seconds convention above — the groq SDK already defaults to a
+        # bounded ~60s read timeout, but making it explicit here closes the audit
+        # gap (every LLMClient should have a documented, config-driven timeout)
+        # and keeps all four providers consistent. This is NOT the fix for the
+        # Wave 7 hang (that was an unbounded application-level retry loop, fixed
+        # at the WS turn-deadline in api/routes/chat.py::ws_chat) — a single HTTP
+        # call here was already bounded.
+        self._client = _groq_lib.Groq(
+            api_key=api_key, timeout=llm_cfg.get("timeout_seconds", 60)
+        )
+        self.cost_reporter: Callable[[float], None] | None = None
 
     def chat(
         self,
@@ -190,6 +206,8 @@ class GroqClient:
                         "turn_id": turn_id,
                     })
                 )
+                if self.cost_reporter is not None:
+                    self.cost_reporter(cost)
                 return resp.choices[0].message.content
             except Exception as exc:
                 attempt += 1
@@ -225,7 +243,9 @@ class GroqClient:
                 temperature=temperature if temperature is not None else self.default_temperature,
                 max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
                 stream=True,
-                stream_options={"include_usage": True},
+                # stream_options is not in the groq SDK's TypedDict; pass via extra_body
+                # so the API returns a usage chunk at the end for cost tracking.
+                extra_body={"stream_options": {"include_usage": True}},
             )
             for chunk in stream:
                 if chunk.choices:
@@ -256,6 +276,8 @@ class GroqClient:
                     "turn_id": turn_id,
                 })
             )
+            if self.cost_reporter is not None:
+                self.cost_reporter(cost)
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []

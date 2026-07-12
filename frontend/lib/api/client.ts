@@ -1,14 +1,23 @@
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
-import type { ConversationDetail, ConversationSummary, ItemSummary } from "./types"
+import type { ConversationDetail, ConversationSummary, DashboardData, ItemSummary } from "./types"
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    const demoUrl = sessionStorage.getItem("demo_backend_url")
+    if (demoUrl) return demoUrl
+  }
+  return process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+}
 
 // ---------------------------------------------------------------------------
 // Auth helpers
 // ---------------------------------------------------------------------------
 
 async function getToken(): Promise<string> {
+  if (typeof window !== "undefined") {
+    const demoToken = sessionStorage.getItem("demo_session_token")
+    if (demoToken) return demoToken
+  }
   const supabase = createSupabaseClient()
   const {
     data: { session },
@@ -29,7 +38,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 // ---------------------------------------------------------------------------
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const res = await fetch(`${getBackendUrl()}${path}`, {
     ...init,
     headers: { ...(await authHeaders()), ...init.headers },
   })
@@ -72,6 +81,22 @@ export const api = {
     similar: (articleId: string): Promise<ItemSummary[]> =>
       request(`/catalogue/${encodeURIComponent(articleId)}/similar`),
   },
+
+  feedback: {
+    submit: (
+      messageId: string,
+      rating: 1 | -1,
+      comment?: string
+    ): Promise<void> =>
+      request(`/messages/${encodeURIComponent(messageId)}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ rating, comment: comment ?? null }),
+      }),
+  },
+
+  dashboard: {
+    get: (): Promise<DashboardData> => request("/dashboard"),
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -79,15 +104,33 @@ export const api = {
 // ---------------------------------------------------------------------------
 
 // Browsers cannot send custom Authorization headers on WebSocket connections.
-// We pass the JWT as a query parameter instead — this is the pattern baked into
-// the backend's WS auth handler (get_current_user_id_ws).
-// Tokens are valid for one hour; mid-session refresh is out of scope.
-// conversation_id is NOT passed as a query param — the backend reads it from
-// the user_message frame body. Tokens must be percent-encoded because JWTs
-// contain base64url characters that are safe, but the + padding variant and
-// any future header changes could break raw interpolation.
+// Preferred path: exchange a short-lived ticket via POST /auth/ws-ticket and
+// pass ?ticket=<nonce>.  The nonce is 60 s single-use, so it is safe in access
+// logs unlike the full JWT.
+// Fallback path (graceful degradation): if the ticket endpoint fails for any
+// reason we fall back to ?token=<jwt> so the user is never silently blocked.
 export async function getWsUrl(): Promise<string> {
+  const wsBase = getBackendUrl().replace(/^http/, "ws")
+
+  try {
+    const res = await fetch(`${getBackendUrl()}/auth/ws-ticket`, {
+      method: "POST",
+      headers: await authHeaders(),
+    })
+    if (res.ok) {
+      const { ticket } = (await res.json()) as { ticket: string }
+      return `${wsBase}/chat/stream?ticket=${encodeURIComponent(ticket)}`
+    }
+    // Non-OK response: fall through to legacy token path.
+    console.warn(`[getWsUrl] ws-ticket endpoint returned ${res.status}, falling back to ?token=`)
+  } catch (err) {
+    // Network or auth error: fall through to legacy token path.
+    console.warn("[getWsUrl] ws-ticket request failed, falling back to ?token=", err)
+  }
+
+  // Legacy fallback — ticket endpoint unavailable or returned an error.
+  // conversation_id is NOT passed as a query param; the backend reads it from
+  // the user_message frame body.  JWTs are percent-encoded defensively.
   const token = await getToken()
-  const wsBase = BACKEND_URL.replace(/^http/, "ws")
   return `${wsBase}/chat/stream?token=${encodeURIComponent(token)}`
 }

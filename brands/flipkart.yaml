@@ -1,0 +1,17 @@
+display_name: "Flipkart Fashion"
+logo_url: null
+primary_colour: "#2874F0"
+accent_colour: "#F9A825"
+tagline: "India's Fashion Marketplace"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "mixed"
+catalogue_path: "data/raw/flipkart/fashion_products.csv"
+pdp_url_template: "{handle}"
+suggestion_chips:
+  - "Kurtas for women under 1000"
+  - "Casual shirts for men"
+  - "Winter jackets"
+  - "Track pants for gym"
+  - "Formal trousers"

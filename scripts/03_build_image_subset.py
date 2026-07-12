@@ -27,7 +27,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from PIL import Image
 
@@ -258,21 +257,21 @@ def print_composition(subset: pd.DataFrame) -> None:
             all_pass = False
         print(f"  {name:<48} {count:>4}  [{op}{limit}] {'PASS' if ok else 'FAIL'}")
 
-    print(f"\n  Colour distribution (top 10):")
+    print("\n  Colour distribution (top 10):")
     for colour, cnt in subset["colour_group_name"].value_counts().head(10).items():
         print(f"    {colour:<28} {cnt:>4}  ({cnt/len(subset)*100:.1f}%)")
 
-    print(f"\n  index_group_name:")
+    print("\n  index_group_name:")
     for grp, cnt in subset["index_group_name"].value_counts().items():
         print(f"    {grp:<28} {cnt:>4}  ({cnt/len(subset)*100:.1f}%)")
 
-    print(f"\n  product_type_name (top 20):")
+    print("\n  product_type_name (top 20):")
     for pt, cnt in subset["product_type_name"].value_counts().head(20).items():
         print(f"    {pt:<35} {cnt:>4}")
 
     if not all_pass:
         raise RuntimeError("Composition check FAILED — one or more constraints violated.")
-    print(f"\n  All constraints PASSED.")
+    print("\n  All constraints PASSED.")
 
 
 def resize_images(subset_df: pd.DataFrame, img_src: Path, img_dst: Path) -> int:

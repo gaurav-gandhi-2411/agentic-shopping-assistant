@@ -2,17 +2,24 @@
 
 import { useEffect, useRef } from "react"
 import type { ChatMessage } from "@/lib/api/types"
+import { useBrandConfig } from "@/hooks/useBrandConfig"
+import { LogoMark } from "@/components/Logo"
 import { MessageBubble } from "./MessageBubble"
 
 interface Props {
   messages: ChatMessage[]
   isSending: boolean
   onSend?: (text: string) => void
+  /** Brand id propagated to OutfitBoard for buy link resolution. */
+  brand?: string
+  /** Sends a suggestion chip's text as if the user typed it. Empty-state chips render only when this is provided. */
+  onSendSuggestion?: (text: string) => void
 }
 
-export function MessageList({ messages, isSending, onSend }: Props) {
+export function MessageList({ messages, isSending, onSend, brand, onSendSuggestion }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const isStreamingRef = useRef(false)
+  const { data: brandConfig } = useBrandConfig()
 
   // Scroll to bottom when messages change, using instant scroll during
   // streaming and smooth scroll for new (non-streaming) messages.
@@ -25,24 +32,57 @@ export function MessageList({ messages, isSending, onSend }: Props) {
   }, [messages])
 
   if (messages.length === 0) {
+    const chips = brandConfig?.suggestion_chips ?? []
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-8 select-none">
-        <span className="text-5xl" aria-hidden>
-          🛍️
+        <span aria-hidden>
+          <LogoMark className="h-14 w-14 text-champagne" />
         </span>
-        <p className="text-lg font-semibold">What can I help you find?</p>
-        <p className="text-sm text-muted-foreground max-w-xs">
-          Try &ldquo;show me red summer dresses&rdquo; or &ldquo;casual blue
-          jeans under £40&rdquo;
+        <p className="font-serif font-semibold text-xl tracking-tight text-foreground">
+          What can I help you find?
         </p>
+        <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+          Try &ldquo;show me red summer dresses&rdquo; or &ldquo;casual blue
+          jeans under ₹2,000&rdquo;
+        </p>
+        {onSendSuggestion && chips.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-2 max-w-sm mt-3">
+            {chips.map((chip) => (
+              <button
+                key={chip}
+                onClick={() => onSendSuggestion(chip)}
+                className="text-xs px-3 py-1.5 rounded-full border border-champagne/40 bg-background text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
 
+  // Only the LATEST assistant message should render its suggestion chips — otherwise
+  // stale chips from earlier turns would still be clickable and could resend outdated
+  // refinements against the current (already-refined) look.
+  let lastAssistantIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistantIndex = i
+      break
+    }
+  }
+
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-      {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} onSend={onSend} />
+    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
+      {messages.map((message, index) => (
+        <MessageBubble
+          key={message.id}
+          message={message}
+          onSend={onSend}
+          brand={brand}
+          isLatestAssistant={index === lastAssistantIndex}
+        />
       ))}
       {/* Typing indicator while the agent is running but no token yet */}
       {isSending && !messages.some((m) => m.isStreaming) && (

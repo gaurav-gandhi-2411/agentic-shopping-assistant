@@ -2,10 +2,73 @@
 
 import { useCallback, useRef, useState } from "react"
 import { getWsUrl } from "@/lib/api/client"
-import type { ChatMessage, ItemSummary, WsFrame } from "@/lib/api/types"
+import type {
+  ChatMessage,
+  ItemSummary,
+  OutfitVariant,
+  ItemLink,
+  SuppressedSlot,
+  WsFrame,
+} from "@/lib/api/types"
 
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
+
+// POST /style/from-image can be slow on a cold-started backend (CLIP model load).
+// Abort and show an honest message rather than hanging the "Finding your match…"
+// placeholder forever.
+const IMAGE_UPLOAD_TIMEOUT_MS = 75_000
+
+// ---------------------------------------------------------------------------
+// StyleFromImageResponse — mirrors POST /style/from-image backend response.
+// Same shape as an outfit chat turn's final_state fields.
+// ---------------------------------------------------------------------------
+interface StyleFromImageResponse {
+  conversation_id?: string | null
+  // Echoed back by the backend when a `message` field was sent (parallel work
+  // stream). Optional — no UI change needed when absent; the user's typed
+  // text is already shown in the optimistic user bubble.
+  user_text?: string | null
+  items: ItemSummary[]
+  look_id?: string | null
+  occasion?: string | null
+  look_gender?: string | null
+  budget_total_inr?: number | null
+  outfit_rationale?: string | null
+  outfit_variants?: OutfitVariant[] | null
+  cart_url?: string | null
+  item_links?: ItemLink[] | null
+  anchor_article_id?: string | null
+  suppressed_slots?: SuppressedSlot[] | null
+  look_role?: "primary" | "partner" | null
+  look_title?: string | null
+  coordinated_with?: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Demo session helpers — read credentials written by the brand picker page.
+// ---------------------------------------------------------------------------
+function getDemoSessionToken(): string | null {
+  if (typeof window === "undefined") return null
+  return sessionStorage.getItem("demo_session_token")
+}
+
+function getDemoBackendBase(): string {
+  if (typeof window !== "undefined") {
+    const url = sessionStorage.getItem("demo_backend_url")
+    if (url) return url
+  }
+  return process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+}
+
+// Map HTTP status codes from /style/from-image to user-friendly messages.
+function imageUploadErrorMessage(status: number): string {
+  if (status === 413) return "Image too large (max 15 MB). Please try a smaller file."
+  if (status === 400) return "That doesn't look like a supported image (JPEG, PNG, WebP, HEIC)."
+  if (status === 404) return "Image styling isn't available right now — try typing your request instead."
+  if (status === 429) return "Rate limited — please wait a moment and try again."
+  return `Something went wrong (${status}). Please try again.`
+}
 
 interface UseChatStreamOptions {
   onConversationId?: (id: string) => void
@@ -41,6 +104,7 @@ export function useChatStream({
         ...prev,
         {
           id: crypto.randomUUID(),
+          dbId: null,
           role: "user",
           content: text,
           items: [],
@@ -56,6 +120,9 @@ export function useChatStream({
       let finished = false
       // Tracks whether the assistant placeholder was added (so retries don't duplicate it).
       let placeholderAdded = false
+      // Tracks whether any token text arrived before an abnormal close, so retry
+      // exhaustion can distinguish "partial content received" from "nothing received".
+      let receivedAnyToken = false
 
       let url: string
       try {
@@ -65,6 +132,7 @@ export function useChatStream({
           ...prev,
           {
             id: assistantId,
+            dbId: null,
             role: "assistant",
             content: "Failed to connect — are you signed in?",
             items: [],
@@ -107,6 +175,7 @@ export function useChatStream({
                   ...prev,
                   {
                     id: assistantId,
+                    dbId: null,
                     role: "assistant",
                     content: "",
                     items: [],
@@ -123,6 +192,7 @@ export function useChatStream({
             }
 
             case "token": {
+              receivedAnyToken = true
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -135,13 +205,83 @@ export function useChatStream({
 
             case "done": {
               finished = true
-              setMessages((prev) =>
-                prev.map((m) =>
+              // Capture the persisted DB message UUID for feedback calls.
+              // frame.message_id is null when running against InMemorySessionStore.
+              const dbMessageId = frame.message_id ?? null
+              const lookId = frame.final_state.look_id ?? null
+              const occasion = frame.final_state.occasion ?? null
+              const lookGender = frame.final_state.look_gender ?? null
+              const budgetTotalInr = frame.final_state.budget_total_inr ?? null
+              const outfitRationale = frame.final_state.outfit_rationale ?? null
+              const outfitVariants = frame.final_state.outfit_variants ?? null
+              const cartUrl = frame.final_state.cart_url ?? null
+              const itemLinks = frame.final_state.item_links ?? null
+              const suggestionChips = frame.final_state.suggestion_chips ?? null
+              const suppressedSlots = frame.final_state.suppressed_slots ?? null
+              const lookRole = frame.final_state.look_role ?? null
+              const lookTitle = frame.final_state.look_title ?? null
+              const coordinatedWith = frame.final_state.coordinated_with ?? null
+              // "Couple-from-scratch" turn: a SECOND coordinated board arrives
+              // bundled in the same "done" frame (see PartnerLook in
+              // lib/api/types.ts). Rendered as its OWN assistant message/bubble,
+              // appended right after the primary one — never merged into it.
+              // Absent on every other turn, including the pre-existing
+              // single-partner-turn flow ("what should my husband wear with
+              // this?"), which still uses the singleton fields above unchanged.
+              const partnerLook = frame.final_state.partner_look ?? null
+              setMessages((prev) => {
+                const updated = prev.map((m) =>
                   m.id === assistantId
-                    ? { ...m, isStreaming: false, items: pendingItems }
+                    ? {
+                        ...m,
+                        dbId: dbMessageId,
+                        isStreaming: false,
+                        items: pendingItems,
+                        lookId,
+                        occasion,
+                        lookGender,
+                        budgetTotalInr,
+                        outfitRationale,
+                        outfitVariants,
+                        cartUrl,
+                        itemLinks,
+                        suggestionChips,
+                        suppressedSlots,
+                        lookRole,
+                        lookTitle,
+                        coordinatedWith,
+                      }
                     : m
                 )
-              )
+                if (partnerLook && partnerLook.items.length > 0) {
+                  const partnerMessage: ChatMessage = {
+                    id: crypto.randomUUID(),
+                    dbId: null,
+                    role: "assistant",
+                    content: `**${partnerLook.look_title || "Your partner's look"}**`,
+                    items: partnerLook.items,
+                    isStreaming: false,
+                    lookId: partnerLook.look_id ?? null,
+                    occasion: partnerLook.occasion ?? null,
+                    lookGender: partnerLook.look_gender ?? null,
+                    budgetTotalInr: partnerLook.budget_total_inr ?? null,
+                    outfitRationale: partnerLook.outfit_rationale ?? null,
+                    outfitVariants: null,
+                    cartUrl: partnerLook.cart_url ?? null,
+                    itemLinks: partnerLook.item_links ?? null,
+                    // Shared with the primary board — chips describe refinement of
+                    // the whole turn, not one specific board; the partner message
+                    // is the LAST assistant message so it's where chips render.
+                    suggestionChips,
+                    suppressedSlots: partnerLook.suppressed_slots ?? null,
+                    lookRole: partnerLook.look_role ?? "partner",
+                    lookTitle: partnerLook.look_title ?? null,
+                    coordinatedWith: partnerLook.coordinated_with ?? null,
+                  }
+                  return [...updated, partnerMessage]
+                }
+                return updated
+              })
               setIsSending(false)
               ws.close()
               onDone?.()
@@ -221,16 +361,23 @@ export function useChatStream({
             retryCount++
             setTimeout(openConnection, delay)
           } else {
-            // All retries exhausted.
+            // All retries exhausted. Keep whatever we already received (tokens
+            // and/or items) instead of dropping it — only surface connectionLost
+            // when NOTHING useful arrived from the server.
             finished = true
+            const hasPendingItems = pendingItems.length > 0
             setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId && m.isStreaming
-                  ? { ...m, isStreaming: false, content: m.content || "" }
-                  : m
-              )
+              prev.map((m) => {
+                if (m.id !== assistantId || !m.isStreaming) return m
+                if (hasPendingItems) {
+                  return { ...m, isStreaming: false, items: pendingItems }
+                }
+                return { ...m, isStreaming: false, content: m.content || "" }
+              })
             )
-            setConnectionLost(true)
+            if (!receivedAnyToken && !hasPendingItems) {
+              setConnectionLost(true)
+            }
             setIsSending(false)
           }
         }
@@ -247,6 +394,156 @@ export function useChatStream({
     }
   }, [])
 
+  /**
+   * Upload a garment/inspiration image to POST /style/from-image and append
+   * the returned outfit look as an assistant message.  The user-side bubble
+   * is added optimistically; the assistant message is appended on success.
+   */
+  const sendImage = useCallback(async (file: File, userText?: string): Promise<void> => {
+    if (isSending) return
+
+    const imagePreviewUrl = URL.createObjectURL(file)
+
+    // Optimistic user bubble — shows both the user's typed text (if any) and the image.
+    const userMsgId = crypto.randomUUID()
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: userMsgId,
+        dbId: null,
+        role: "user",
+        content: userText?.trim() || "Find similar items",
+        items: [],
+        isStreaming: false,
+        imageUrl: imagePreviewUrl,
+      },
+    ])
+    setIsSending(true)
+
+    // Loading placeholder — assistant side.
+    const assistantId = crypto.randomUUID()
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: assistantId,
+        dbId: null,
+        role: "assistant",
+        content: "Finding your match…",
+        items: [],
+        isStreaming: true,
+      },
+    ])
+
+    try {
+      const backendBase = getDemoBackendBase()
+      const token = getDemoSessionToken()
+
+      // Re-use or seed a conversation_id so the backend can persist this
+      // image look into the session store.  Subsequent sendMessage calls pass
+      // conversationIdRef.current, which we update below after a successful
+      // response — this is the fix for G1 (image upload context retention).
+      const cid = conversationIdRef.current ?? crypto.randomUUID()
+
+      const body = new FormData()
+      body.append("file", file)
+      body.append("conversation_id", cid)
+      const trimmedText = userText?.trim()
+      if (trimmedText) {
+        body.append("message", trimmedText)
+      }
+
+      const headers: Record<string, string> = {}
+      if (token) headers["Authorization"] = `Bearer ${token}`
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), IMAGE_UPLOAD_TIMEOUT_MS)
+
+      let res: Response
+      try {
+        res = await fetch(`${backendBase}/style/from-image`, {
+          method: "POST",
+          headers,
+          body,
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
+
+      if (!res.ok) {
+        const friendlyMsg = imageUploadErrorMessage(res.status)
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, isStreaming: false, content: friendlyMsg }
+              : m
+          )
+        )
+        setIsSending(false)
+        return
+      }
+
+      const data = (await res.json()) as StyleFromImageResponse
+
+      // Update the conversation_id ref so follow-up sendMessage calls resume
+      // the session that now contains the image outfit context.
+      const returnedCid = data.conversation_id ?? cid
+      conversationIdRef.current = returnedCid
+      setConversationId(returnedCid)
+      onConversationId?.(returnedCid)
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                content: "",
+                isStreaming: false,
+                items: data.items ?? [],
+                lookId: data.look_id ?? null,
+                occasion: data.occasion ?? null,
+                lookGender: data.look_gender ?? null,
+                budgetTotalInr: data.budget_total_inr ?? null,
+                outfitRationale: data.outfit_rationale ?? null,
+                outfitVariants: data.outfit_variants ?? null,
+                cartUrl: data.cart_url ?? null,
+                itemLinks: data.item_links ?? null,
+                suppressedSlots: data.suppressed_slots ?? null,
+                lookRole: data.look_role ?? null,
+                lookTitle: data.look_title ?? null,
+                coordinatedWith: data.coordinated_with ?? null,
+                // Thread the user's own uploaded photo onto the assistant message so
+                // the owned-seed card in OutfitBoard can render it instead of (or as a
+                // fallback for) the catalogue image. Never revoked while this message
+                // lives — the object URL is only released when the whole page unloads.
+                anchorImageUrl: imagePreviewUrl,
+              }
+            : m
+        )
+      )
+      onDone?.()
+    } catch (err) {
+      const isTimeout = err instanceof DOMException && err.name === "AbortError"
+      const friendlyMsg = isTimeout
+        ? "This is taking longer than expected — the styling service may be waking up. " +
+          "Please try again in a minute."
+        : "Could not reach the styling service — please try again."
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                isStreaming: false,
+                content: friendlyMsg,
+              }
+            : m
+        )
+      )
+    } finally {
+      setIsSending(false)
+    }
+  }, [isSending, onDone])
+
   // Replace the messages list (e.g. when switching conversations).
   const resetMessages = useCallback((msgs: ChatMessage[] = []) => {
     wsRef.current?.close()
@@ -261,6 +558,7 @@ export function useChatStream({
     connectionLost,
     conversationId,
     sendMessage,
+    sendImage,
     cancel,
     resetMessages,
     setConversationId: (id: string | null) => {

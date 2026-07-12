@@ -1,0 +1,17 @@
+display_name: "Virgio"
+logo_url: null
+primary_colour: "#3D6B4F"
+accent_colour: "#F5F0E8"
+tagline: "Fashion. Conscious."
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/virgio/products.csv"
+pdp_url_template: "https://virgio.com/products/{handle}"
+suggestion_chips:
+  - "Sustainable cotton shirts"
+  - "Linen trousers"
+  - "Eco-friendly dresses"
+  - "Recycled fabric tees"
+  - "Natural fibre co-ords"

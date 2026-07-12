@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -75,8 +74,9 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    # Instantiate without context manager so the lifespan is never triggered
+    # and no real index files are required.
+    yield TestClient(app, raise_server_exceptions=True)
 
 
 @pytest.fixture
@@ -122,7 +122,11 @@ def test_get_conversation_detail(client: TestClient, seeded_cid: str) -> None:
     data = resp.json()
     assert data["conversation_id"] == seeded_cid
     assert len(data["messages"]) == 4
-    assert data["messages"][0] == {"role": "user", "content": "show me red dresses"}
+    first = data["messages"][0]
+    assert first["role"] == "user"
+    assert first["content"] == "show me red dresses"
+    # id is None for in-memory session store (no DB backing)
+    assert "id" in first
     assert len(data["retrieved_items"]) == 1
     assert data["retrieved_items"][0]["article_id"] == "111"
 

@@ -7,7 +7,6 @@ Outputs scripts/telemetry_requests.json for use by telemetry_analyze.py.
 from __future__ import annotations
 
 import json
-import sys
 import time
 from typing import Optional
 
@@ -83,9 +82,9 @@ def main() -> None:
     r_s1 = run("show me blue dresses",                      label="S1-search")
     r_s2 = run("I want a summer top",                       label="S2-search")
     r_s3 = run("looking for a leather jacket",              label="S3-search")
-    r_s4 = run("black trousers please",                     label="S4-search")
-    r_s5 = run("casual white trainers",                     label="S5-search")
-    r_s6 = run("evening gown for a wedding",                label="S6-search")
+    _r_s4 = run("black trousers please",                     label="S4-search")
+    _r_s5 = run("casual white trainers",                     label="S5-search")
+    _r_s6 = run("evening gown for a wedding",                label="S6-search")
     r_s7 = run("dark wash denim jeans",                     label="S7-search")
     r_s8 = run("cosy chunky knit jumper",                   label="S8-search")
 
@@ -123,8 +122,8 @@ def main() -> None:
     # -- Group 7: Multi-turn chain (5 turns on one conversation_id) ----------─
     print("\n-- Multi-turn chain (5 turns) --", flush=True)
     mt1 = run("show me midi skirts",                                 label="MT1-multi")
-    mt2 = run("I like these but need something more formal for the office",
-              cid=mt1.get("conversation_id"),                        label="MT2-multi")
+    _mt2 = run("I like these but need something more formal for the office",
+               cid=mt1.get("conversation_id"),                        label="MT2-multi")
     run("do you have these in navy or charcoal grey",
         cid=mt1.get("conversation_id"),                              label="MT3-multi")
     run("which of these has the best quality fabric",

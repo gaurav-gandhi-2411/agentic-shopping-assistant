@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import logging
 
 import pandas as pd
+
+from src.agents.outfit.composer import compose_outfit
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
@@ -29,7 +33,23 @@ def search_catalogue(
     retriever: HybridRetriever,
     top_k: int,
 ) -> dict:
-    """Runs hybrid retrieval. Returns {items: [...], query: ..., n_results: int}."""
+    """Runs hybrid retrieval. Returns {items: [...], query: ..., n_results: int}.
+
+    Widens a known-fragmented colour_group_name value (navy/mustard/burgundy/...
+    — see intent_parser._COLOUR_FAMILY) to its family isin-match ONLY for this
+    retrieval call — via a local copy, never mutating the caller's `filters`
+    dict, so every other consumer of that dict (persisted session state,
+    colour-refinement chips, excluded-colour detection) keeps seeing the
+    single canonical string it always has. Live-proven root cause (2026-07-11):
+    the catalogue distinguishes "Navy Blue" (770 items) from "Dark Blue"
+    (2369) as separate colour_group_name values, but the query-side synonym
+    map previously collapsed "navy" onto "Dark Blue" alone, silently
+    excluding every Navy-Blue-tagged item from a "navy" query.
+    """
+    if filters and filters.get("colour_group_name"):
+        from src.agents.intent_parser import colour_filter_values
+
+        filters = {**filters, "colour_group_name": colour_filter_values(filters["colour_group_name"])}
     items = retriever.search(query, top_k=top_k, filters=filters or None)
     return {"items": items, "query": query, "n_results": len(items)}
 
@@ -205,3 +225,29 @@ def suggest_outfit(
         "outfit_rationale": rationale,
         "empty_slots": empty_slots,
     }
+
+
+def compose_outfit_tool(
+    seed_article_id: str | None,
+    occasion_slug: str,
+    gender: str,
+    catalogue_df: pd.DataFrame,
+    retriever: HybridRetriever,
+    budget_inr: float | None = None,
+    owned_anchor: bool = False,
+    body_type: str | None = None,
+    body_modifiers: list[str] | None = None,
+) -> dict:
+    """Occasion-aware outfit composition. Delegates to src.agents.outfit.composer."""
+    return compose_outfit(
+        catalogue_df=catalogue_df,
+        retriever=retriever,
+        seed_article_id=seed_article_id,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        budget_inr=budget_inr,
+        pairing_stats=None,  # flywheel stats injected later when F phase is complete
+        owned_anchor=owned_anchor,
+        body_type=body_type,
+        body_modifiers=body_modifiers,
+    )

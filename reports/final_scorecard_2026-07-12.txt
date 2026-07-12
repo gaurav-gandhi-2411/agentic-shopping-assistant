@@ -1,0 +1,161 @@
+Final honest scorecard — Style Maitri retrieval + composition system
+Compiled: 2026-07-12, commit ca1b908 (current HEAD, deployed as
+asa-stylist-api-00068-sd2, rollback anchor asa-stylist-api-00067-5sv)
+This supersedes reports/full_metric_scorecard_2026-07-11.txt and
+reports/part3_final_scorecard_2026-07-11.txt (both still valid as historical
+snapshots at their own commits; this file is the current state).
+
+====================================================================================
+CORRECTION NOTE (why this report exists): a prior message this session cited a
+"reranker-integration fix (0.779 -> 0.926)" and "food-refusal misroute" / "occasion
+terms polluting the query string" as established findings. Verified against the repo:
+0.779 was real but unrelated to any reranker (a pre-fix snapshot from commit 643843b);
+0.926 does not exist anywhere; food-refusal was a real but ALREADY-FIXED bug (predates
+this review); "occasion terms polluting the query string" had no existing source BUT
+turned out, on investigation, to describe a real and previously-undiscovered bug --
+fixed this session as bdf66a4 (see below). The user confirmed proceeding from the real
+state. This report reflects only what is actually sourced in the repo.
+====================================================================================
+
+====================================================================================
+SECTION A — STRICT HAND-LABELED PRECISION + MRR (the real ceiling estimate)
+Source: python scripts/eval_strict.py --mode pipeline
+Report: reports/strict_eval_BATCH7_pipeline.txt
+Retrieval snapshot: commit 755af62. UNCHANGED by commits d71760b (gender fix) and
+bdf66a4 (occasion-term-pollution fix) -- eval_strict.py's _retrieve_pipeline()
+extracts filters directly via parse_intent() rather than mirroring search_node's own
+facet-auto-extraction closure, so it structurally could not have this class of bug
+and its number does not move when these fixes land. This is a known, documented
+harness limitation (see bdf66a4's commit message), not an oversight.
+n=54 queries, 246 hand-labeled items, ZERO unlabeled
+====================================================================================
+
+category          precision@5      MRR@5
+literal           0.908 (59/65)    0.962 (n=13)
+multi_attribute   0.636 (35/55)    0.538 (n=14)
+occasion          0.836 (56/67)    0.950 (n=15)
+style             0.966 (57/59)    1.000 (n=12)
+OVERALL           0.841 (207/246)  0.857 (n=54)
+
+miss taxonomy (all CODE-FIXABLE):
+  12  attribute-contradiction   11  occasion-register   6  budget
+   5  set-not-single             5  type-confusion
+if every CODE-FIXABLE miss were fixed: 1.000 (zero data-ceiling misses among items
+that WERE retrieved -- see Section C for items never retrieved at all).
+
+====================================================================================
+SECTION B — TWO PRODUCTION FIXES THIS SESSION NOT VISIBLE IN SECTION A
+(both live, both deployed, both proven via full-graph pytest + live-URL, NEITHER
+detectable by eval_strict.py's harness by construction -- see Section A note)
+====================================================================================
+
+--- B1. Gender-heuristic-ordering fix (commit d71760b, deployed 00067-5sv) ---
+BEFORE: any "<garment> for men" query where the garment itself (historically "kurta")
+was listed as a gender-implying heuristic silently resolved to gender=women.
+  parse_intent("printed kurta for men").gender  ->  "women"   (WRONG)
+AFTER: explicit gender words always win over any garment-implied fallback.
+  parse_intent("printed kurta for men").gender  ->  "men"     (correct)
+Live proof (2026-07-11, post-deploy): "printed kurta for men" -> 4 of 5 results
+explicitly men's kurtas (was 5 of 5 WOMEN's kurtas pre-fix, same day, same query).
+8 new regression tests (tests/test_intent_parser.py). Side effect: eval_gate.py's
+intent all-exact rose 92.4% -> 93.8% (one of the main model_eval_queries.yaml fixture
+categories exercises this exact pattern).
+
+--- B2. Occasion-term-pollution fix (commit bdf66a4, deployed 00068-sd2) ---
+BEFORE: search_node's occasion-term retrieval-widening (RED 5b/D: appends garment
+words like "lehenga sherwani kurta embellished festive" to broaden dense/BM25 recall
+for garment-type-less occasion queries) fed that WIDENED string into the very next
+block (facet auto-extraction), letting an injected word win a hard filter over what
+the user actually typed.
+  "lehenga for sangeet"           -> was hard-filtering to sherwani (men's garment)
+  "wedding guest saree for women" -> was hard-filtering to sherwani too
+  "haldi/mehendi outfit for women" -> was always hard-filtered to "lehenga" (the
+                                       longest injected word), defeating RED 5b/D's
+                                       own purpose of staying broad across types
+AFTER: facet extraction scans raw_query only; the retrieval-widening itself is
+untouched. Live proof (2026-07-12, post-deploy):
+  "lehenga for sangeet"            -> 4 items, types=[lehenga]           (fixed)
+  "wedding guest saree for women"  -> 3 items, types=[saree]             (fixed)
+  "haldi outfit for women"         -> 2 items, types=[anarkali, dupatta] (fixed, was 1 type)
+  "mehendi outfit for women"       -> 2 items, types=[dupatta, sharara]  (fixed, was 1 type)
+3 new regression tests (tests/test_occasion_search_augmentation.py), run end-to-end
+against the real unified index through the full agent graph.
+
+====================================================================================
+SECTION C — RERANKER/EMBEDDING EXPERIMENTS (free/open-source only, both REJECTED)
+====================================================================================
+1. Embedding-model swap (BAAI/bge-base-en-v1.5 vs current MiniLM): INCONCLUSIVE,
+   not pursued to a clean number -- 55% of retrieved items were unlabeled (a
+   different embedding space retrieves a substantially different pool), and
+   completing that labeling pass is comparable effort to building the original
+   gold set from scratch. reports/embedding_model_bench_BAAI_bge-base-en-v1.5.txt
+2. Cross-encoder reranker #1 (cross-encoder/ms-marco-MiniLM-L-6-v2): REGRESSED
+   precision@5 0.860 -> 0.839 on a clean, zero-unlabeled comparison (n=186).
+   reports/cross_encoder_rerank_AB.txt
+3. Cross-encoder reranker #2 (BAAI/bge-reranker-base): REJECTED on resource cost
+   alone (1.1GB vs 88MB, ~7.5x slower CPU inference -- real risk against the 4Gi
+   Cloud Run container). Precision on the labeled overlap was flat (0.837 vs 0.841),
+   not a meaningful margin either way. reports/reranker_bge_base_AB.txt
+CUMULATIVE CONCLUSION: neither generic model swap beat the existing hand-written,
+LLM-prompted business-rule reranker (src/agents/reranker.py). The real, measurable
+wins this session (Section B) came from fixing that hand-written logic directly.
+
+====================================================================================
+SECTION D — PROPERTY-BASED FLOOR + GATES (fresh, commit bdf66a4)
+Source: scripts/eval_gate.py's intent/r1/gates sub-run (fast, no LLM)
+====================================================================================
+  r1 precision@5      0.889  (min 0.80, n=92)   PASS
+  r1 NDCG@10          0.918  (min 0.85)         PASS
+  intent all-exact    93.8%  (min 88.0%, n=211) PASS  (was 92.4% before B1's fix)
+  gates errors        0  (must be 0)            PASS
+  gate budget_respected    1.00 (n=29)          PASS
+  gate gender_pure         1.00 (n=118)         PASS
+  gate no_novelty          1.00 (n=107)         PASS
+  gate suppression_honest  1.00 (n=113)         PASS
+  strict gold P@5     0.841  (min 0.70, n=246, unlabeled=0)  PASS
+eval_gate.py: ALL PASS.
+
+====================================================================================
+SECTION E — COHERENCE (JUDGE) + LATENCY/EMPTY-RATE (E2E)
+Source: python scripts/eval_model.py --stages all, commit ed57ebc (2026-07-11)
+NOT RE-RUN at current HEAD: this is a ~30+ minute local-Ollama run and neither B1
+(gender-heuristic ordering) nor B2 (occasion-term pollution) touch composition/
+coherence logic or agent turn-taking, so a fresh run is not expected to move these
+specific numbers. Cited with its own SHA rather than silently presented as current.
+====================================================================================
+  JUDGE (n=40): *** FLAGGED UNRELIABLE this run -- 3 of 4 calibration anchors missed
+  their expected bucket (only good_office passed). occasion_score mean=4.00,
+  coherence_score mean=3.48. Reported as low-confidence, not ground truth.
+  E2E (n=60, LOCAL OLLAMA PROXY ONLY -- not production Groq/Cloud Run latency):
+  error_rate=0.0%, empty_result_rate=4.3%, latency median=7.53s p95=13.98s max=20.43s,
+  post-pipeline precision@5=97% (n=34).
+  No fresh production (Groq/Cloud Run) latency number exists this session; the one
+  prior Groq artifact is 2 months stale with n=2 and was excluded rather than reused.
+
+====================================================================================
+SECTION F — CODE-FIXABLE vs DATA-CEILING (final split)
+====================================================================================
+CODE-FIXABLE, fixed this session (5 commits, all live):
+  5698a99  single-garment set exclusion
+  a7b9f00  colour-family filter widening
+  d71760b  gender-heuristic-ordering (Section B1)
+  bdf66a4  occasion-term-pollution in facet extraction (Section B2)
+  (99d2547 sherwani facet-tagging, earlier in the broader session)
+
+CODE-FIXABLE, remaining (Section A miss taxonomy, 39 misses among retrieved items):
+  attribute-contradiction (12), occasion-register (11), budget (6),
+  set-not-single (5, incl. the known bare-"<Garment> Set"-suffix gap),
+  type-confusion (5)
+
+DATA-CEILING (genuine zero/thin inventory, no architecture fix applies):
+  - multi_009: "maroon velvet blazer for men... under 6000" -> 0 items
+  - multi_011: "royal blue sherwani for groom under 12000" -> 0 items
+  - gates-stage data-ceiling rows: adversarial no_novelty (n=1), occasion
+    gender_pure/no_novelty/suppression_honest (n=7 each) -- honestly suppressed
+  - Full breakdown: commit 25527c6, "docs(catalogue): inventory gap report"
+
+====================================================================================
+eval_gate.py: thresholds left UNCHANGED (0.70 strict P@5 floor, 0.80 r1 P@5, 0.85
+NDCG, 88% intent, 1.0 all gates) -- current run clears every floor with real headroom;
+not tightened into a ratchet off one run's numbers.
+====================================================================================

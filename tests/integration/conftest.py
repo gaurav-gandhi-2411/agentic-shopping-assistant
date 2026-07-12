@@ -57,8 +57,9 @@ def create_auth_shim(pg_engine: Engine) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def run_migrations(pg_engine: Engine, create_auth_shim: None) -> None:
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", str(pg_engine.url))

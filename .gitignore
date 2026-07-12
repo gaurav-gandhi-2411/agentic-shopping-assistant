@@ -43,6 +43,12 @@ models/
 # Eval reports
 reports/
 
+# Log files
+*.log
+
+# DistilBERT router training datasets (abandoned after V3.1; weights in models/)
+data/*.jsonl
+
 # Notebook checkpoints
 .ipynb_checkpoints/
 
