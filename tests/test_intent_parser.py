@@ -456,6 +456,45 @@ class TestPriceQualifierExtraction:
 
 
 # ---------------------------------------------------------------------------
+# Group 7b: Formality softener extraction (BUG 3 — no formality/embellishment
+# qualifier slot existed; extraction only, ranking wiring is a downstream
+# consumer's job).
+# ---------------------------------------------------------------------------
+
+
+class TestFormalitySoftenerExtraction:
+    @pytest.mark.parametrize(
+        "query, expected_softener",
+        [
+            ("not too flashy lehenga", "minimalist"),
+            ("minimalist saree", "minimalist"),
+            ("simple kurti", "minimalist"),
+            ("understated saree", "minimalist"),
+            ("subtle lehenga", "minimalist"),
+            ("comfortable kurta", "comfortable"),
+            ("not too heavy lehenga", "comfortable"),
+            ("flashy lehenga", "flashy"),
+        ],
+    )
+    def test_formality_softener(self, query: str, expected_softener: str) -> None:
+        intent = parse_intent(query)
+        assert intent.formality_softener == expected_softener, (
+            f"query={query!r}: expected formality_softener={expected_softener!r}, "
+            f"got {intent.formality_softener!r}"
+        )
+
+    def test_no_formality_softener(self) -> None:
+        intent = parse_intent("black dress for wedding")
+        assert intent.formality_softener is None
+
+    def test_not_too_flashy_beats_bare_flashy(self) -> None:
+        """'not too flashy' must resolve to 'minimalist', not 'flashy' —
+        negation checked before the bare-word match."""
+        intent = parse_intent("something not too flashy for the reception")
+        assert intent.formality_softener == "minimalist"
+
+
+# ---------------------------------------------------------------------------
 # Group 8: merge_with_context
 # ---------------------------------------------------------------------------
 
@@ -539,6 +578,11 @@ class TestMergeWithContext:
         intent = parse_intent("show me an expensive lehenga")
         merged = merge_with_context(intent, {"price_qualifier": "cheap"})
         assert merged.price_qualifier == "expensive"
+
+    def test_formality_softener_carried_forward_from_context(self) -> None:
+        intent = parse_intent("in blue")
+        merged = merge_with_context(intent, {"formality_softener": "minimalist"})
+        assert merged.formality_softener == "minimalist"
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,10 @@ class IntentV1:
     # (graph.py) resolves this against the retrieved candidate pool's own price
     # distribution rather than a hardcoded cutoff.
     price_qualifier: str | None = None  # "cheap" | "expensive" | None
+    # Formality/embellishment softener ("not too flashy", "minimalist saree") —
+    # signal for a downstream ranking consumer (graph.py, next wave) to penalize
+    # heavily embellished items. Extraction only; no ranking wiring here.
+    formality_softener: str | None = None  # "flashy" | "minimalist" | "comfortable" | None
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +451,23 @@ _PRICE_QUALIFIER_EXPENSIVE_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Formality softener — "not too flashy"/"minimalist" style phrases signalling
+# the wearer wants low embellishment/heaviness (see IntentV1.formality_softener
+# docstring). "not too X" phrases are checked before bare "flashy" so
+# "not too flashy" resolves to "minimalist", not "flashy".
+# ---------------------------------------------------------------------------
+
+_FORMALITY_MINIMALIST_RE = re.compile(
+    r"\bnot\s+too\s+flashy\b|\bminimalist\b|\bsimple\b|\bunderstated\b|\bsubtle\b",
+    re.IGNORECASE,
+)
+_FORMALITY_COMFORTABLE_RE = re.compile(
+    r"\bnot\s+too\s+heavy\b|\bcomfortable\b",
+    re.IGNORECASE,
+)
+_FORMALITY_FLASHY_RE = re.compile(r"\bflashy\b", re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
 # Product-query signals
 # ---------------------------------------------------------------------------
 
@@ -602,6 +623,20 @@ def _extract_price_qualifier(text_lower: str) -> str | None:
     return None
 
 
+def _extract_formality_softener(text_lower: str) -> str | None:
+    """Return "minimalist"/"comfortable"/"flashy" for embellishment-related
+    phrases, else None. "not too X" negations are checked first so "not too
+    flashy" resolves to "minimalist" rather than "flashy".
+    """
+    if _FORMALITY_MINIMALIST_RE.search(text_lower):
+        return "minimalist"
+    if _FORMALITY_COMFORTABLE_RE.search(text_lower):
+        return "comfortable"
+    if _FORMALITY_FLASHY_RE.search(text_lower):
+        return "flashy"
+    return None
+
+
 def _extract_stores(text_lower: str) -> list[str]:
     """Return list of store names mentioned in the query (whole-word match)."""
     found: list[str] = []
@@ -667,6 +702,7 @@ def parse_intent(raw_query: str) -> IntentV1:
     body_type, body_modifiers = _extract_body_type(text_lower)
     wants_body_type_guidance = bool(_BODY_TYPE_QUESTION_RE.search(text_lower))
     price_qualifier = _extract_price_qualifier(text_lower)
+    formality_softener = _extract_formality_softener(text_lower)
 
     return IntentV1(
         garment_type=garment_type,
@@ -681,6 +717,7 @@ def parse_intent(raw_query: str) -> IntentV1:
         body_modifiers=body_modifiers,
         wants_body_type_guidance=wants_body_type_guidance,
         price_qualifier=price_qualifier,
+        formality_softener=formality_softener,
     )
 
 
@@ -689,7 +726,7 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
 
     Fields carried forward from session_context when the new intent does not
     specify them: garment_type, gender, colour, occasion, budget_max_inr,
-    price_qualifier.
+    price_qualifier, formality_softener.
 
     Never overwrites a field already populated by the new intent.
     Always preserves raw_query from the new intent.
@@ -702,7 +739,8 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         Dict with keys "garment_type", "gender", "colour", "occasion",
         "budget_max_inr" (all str | None, budget_max_inr is int | None),
         "body_type" (str | None), "body_modifiers" (list[str] | None),
-        "price_qualifier" (str | None) from the prior resolved intent.
+        "price_qualifier" (str | None), "formality_softener" (str | None)
+        from the prior resolved intent.
 
     Returns
     -------
@@ -739,4 +777,7 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         price_qualifier=intent.price_qualifier
         if intent.price_qualifier is not None
         else session_context.get("price_qualifier"),
+        formality_softener=intent.formality_softener
+        if intent.formality_softener is not None
+        else session_context.get("formality_softener"),
     )
