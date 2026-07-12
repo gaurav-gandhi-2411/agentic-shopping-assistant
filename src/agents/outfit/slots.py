@@ -470,6 +470,14 @@ HALDI_LIGHTWEIGHT_KEYWORDS: frozenset[str] = frozenset({
     "casual", "lightweight", "summer", "marigold", "yellow", "daisy",
 })
 
+# formality_softener override values (the sibling intent-parser field a
+# different fix surfaces from queries like "something comfortable for
+# sangeet dancing" or "not too flashy"). Reuses SANGEET_EMBELLISHMENT_KEYWORDS/
+# HALDI_LIGHTWEIGHT_KEYWORDS verbatim rather than duplicating them — the
+# override's "embellished vs plain/lightweight" text signal is semantically
+# identical to sangeet/haldi's existing keyword scan, only the SIGN differs.
+FORMALITY_SOFTENER_VALUES: frozenset[str] = frozenset({"minimalist", "comfortable"})
+
 
 def classify_anchor(product_type: str, prod_name: str = "") -> str:
     """Return anchor class: ethnic_top | ethnic_one_piece | ethnic_bottom |
@@ -731,24 +739,48 @@ def _get_fill_slots_base(anchor_class: str, gender: str, occasion_slug: str) -> 
     ]
 
 
-def fabric_score_delta(item: dict, occasion_slug: str) -> float:
+def fabric_score_delta(
+    item: dict, occasion_slug: str, formality_override: str | None = None
+) -> float:
     """Return a score adjustment based on fabric/embellishment keywords for haldi vs sangeet.
 
-    For sangeet/reception: embellished items score +0.1; lightweight items score -0.1.
-    For haldi/mehendi: lightweight/floral items score +0.1; embellished items score -0.1.
-    For all other occasions: 0.0.
+    Base behaviour (formality_override absent — unchanged, backward compatible):
+    - sangeet/reception: embellished items score +0.1; lightweight items score -0.1.
+    - haldi/mehendi: lightweight/floral items score +0.1; embellished items score -0.1.
+    - all other occasions (including wedding_guest): 0.0.
+
+    formality_override ("minimalist" | "comfortable", see FORMALITY_SOFTENER_VALUES —
+    the `formality_softener` value a sibling intent-parser fix surfaces from
+    queries like "something comfortable for sangeet dancing" or "not too
+    flashy"): when present, OVERRIDES the base occasion-driven sign entirely —
+    embellished/heavy items always score -0.1 and lightweight/plain items
+    always score +0.1, regardless of occasion_slug. This fixes two confirmed
+    live defects: (1) sangeet's base rule unconditionally boosts embellishment
+    even when the query explicitly asks for something comfortable/low-key,
+    with no way to suppress the bonus; (2) wedding_guest never got ANY
+    embellishment-awareness because it isn't in the base sangeet/haldi/
+    mehendi/reception occasion list — the override applies uniformly to
+    wedding_guest (and any other occasion) once the user has signalled they
+    want a toned-down look. wedding_guest's baseline (no override) behaviour
+    stays 0.0, unchanged.
 
     Keyword check is heuristic — searches prod_name + detail_desc.
     """
-    if occasion_slug not in ("sangeet", "haldi", "mehendi", "reception"):
-        return 0.0
-
     text = (
         (item.get("prod_name") or "") + " " + (item.get("detail_desc") or "")
     ).lower()
-
     has_embellishment = any(kw in text for kw in SANGEET_EMBELLISHMENT_KEYWORDS)
     has_lightweight = any(kw in text for kw in HALDI_LIGHTWEIGHT_KEYWORDS)
+
+    if formality_override in FORMALITY_SOFTENER_VALUES:
+        if has_embellishment:
+            return -0.1
+        if has_lightweight:
+            return 0.1
+        return 0.0
+
+    if occasion_slug not in ("sangeet", "haldi", "mehendi", "reception"):
+        return 0.0
 
     if occasion_slug in ("sangeet", "reception"):
         if has_embellishment:
