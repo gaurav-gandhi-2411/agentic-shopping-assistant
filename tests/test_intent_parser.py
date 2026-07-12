@@ -185,6 +185,33 @@ class TestColourGarmentCombos:
         intent = parse_intent("navy jacket")
         assert intent.colour == "Navy Blue"
 
+    def test_pastel_recognized_as_colour(self) -> None:
+        """BUG 2 regression: 'pastel' was not in _COLOUR_MAP at all — colour
+        stayed None for 'pastel lehenga' so no colour filtering happened."""
+        intent = parse_intent("pastel lehenga")
+        assert intent.colour == "Pastel"
+        assert intent.garment_type == "lehenga"
+
+    def test_pastel_widens_to_light_catalogue_colours(self) -> None:
+        """The retrieval-filter widening (colour_filter_values) must expand
+        'Pastel' to the verified-populated light/pastel catalogue buckets."""
+        from src.agents.intent_parser import colour_filter_values
+
+        intent = parse_intent("pastel saree")
+        widened = colour_filter_values(intent.colour)
+        assert widened == (
+            "Light Pink", "Light Blue", "Lavender", "Cream", "Light Beige", "White",
+        )
+
+    def test_light_pink_not_widened_by_pastel_family(self) -> None:
+        """A genuine 'light pink' query must NOT be widened by the new Pastel
+        family entry — Pastel and Light Pink are deliberately separate keys."""
+        from src.agents.intent_parser import colour_filter_values
+
+        intent = parse_intent("light pink dress")
+        assert intent.colour == "Light Pink"
+        assert colour_filter_values(intent.colour) == "Light Pink"
+
 
 # ---------------------------------------------------------------------------
 # Group 4: Refinement-only inputs — all must be is_product_query=True

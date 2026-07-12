@@ -229,6 +229,15 @@ _COLOUR_MAP: dict[str, str] = {
     "olive": "Olive",
     "teal": "Teal",
     "rust": "Rust",
+    # 2026-07-13 fix: "pastel" is a family adjective, not a specific hue, so it
+    # maps to its own synthetic canonical "Pastel" (deliberately NOT reusing an
+    # existing catalogue value like "Light Pink" here — that would also widen
+    # genuine "light pink" queries via the _COLOUR_FAMILY entry below). See
+    # _COLOUR_FAMILY for the widened retrieval-filter tuple; all six member
+    # colours verified present in the catalogue's colour_group_name column
+    # (data/processed/unified/catalogue.parquet): Light Pink=418, Light Blue=425,
+    # Lavender=128, Cream=243, Light Beige=16, White=2838 items.
+    "pastel": "Pastel",
 }
 
 _COLOUR_SORTED: list[tuple[str, str]] = sorted(
@@ -253,6 +262,7 @@ _COLOUR_FAMILY: dict[str, tuple[str, ...]] = {
     "Teal": ("Teal", "Turquoise", "Turquoise Blue"),
     "Cream": ("Cream", "Light Beige"),
     "Lavender": ("Lavender", "Purple"),
+    "Pastel": ("Light Pink", "Light Blue", "Lavender", "Cream", "Light Beige", "White"),
 }
 
 
