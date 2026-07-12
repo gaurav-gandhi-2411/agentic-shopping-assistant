@@ -112,16 +112,16 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # are both in-memory and assume a single running instance. >1 instance would let
 # traffic silently bypass the demo rate/cost caps and would fragment in-memory
 # session state across instances.
-# TEMPORARY: DEMO_PER_IP_HOUR_LIMIT and DEMO_DAILY_REQUEST_CAP are raised above
-# their defaults (10/IP/hour, 200/brand/day) for GG's testing window. --set-env-vars
-# replaces the full env-var set, so omitting these here would silently clobber the
-# raised limits currently live on the service. Remove this override in the
-# pre-public hardening pass (see project_prepublic_hardening memory).
+# DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted:
+# the code defaults in api/demo/guards.py (35/hr, 700/day) are the production
+# values. --set-env-vars replaces the full env-var set on every deploy, so do
+# not add these back here unless the intent is a standing override — use
+# `gcloud run services update --update-env-vars` for a one-off tuning change.
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
   --region="${GAR_REGION}" \
   --no-traffic \
-  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://stylemaitri.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/,DEMO_PER_IP_HOUR_LIMIT=1000,DEMO_DAILY_REQUEST_CAP=5000" \
+  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://stylemaitri.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/" \
   --set-secrets="${SECRETS}" \
   --memory=4Gi \
   --cpu=1 \

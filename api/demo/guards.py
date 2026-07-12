@@ -15,18 +15,20 @@ logger = logging.getLogger(__name__)
 # Rate-limit / cap constants
 # ---------------------------------------------------------------------------
 
-# DEMO_PER_IP_HOUR_LIMIT env var overrides the default (10) without a code
-# change or Docker rebuild — set it on the Cloud Run service to raise the limit
-# for testing, then remove/reset it before opening to the public.
+# 35/hr sized for a genuine exploration session (search + refine + outfit +
+# partner look, ~10 requests) without hitting 429 mid-session, while staying
+# bounded against single-IP abuse. DEMO_PER_IP_HOUR_LIMIT env var can still
+# override without a code change or Docker rebuild if it needs tuning again.
 def _get_per_ip_limit() -> int:
-    return max(1, int(os.environ.get("DEMO_PER_IP_HOUR_LIMIT", "10")))
+    return max(1, int(os.environ.get("DEMO_PER_IP_HOUR_LIMIT", "35")))
 
 
-# DEMO_DAILY_REQUEST_CAP env var overrides the default (200) without a code
-# change or Docker rebuild — set it on the Cloud Run service to raise the cap
-# for a testing window, then remove/reset it before opening to the public.
+# Kept at the same 20x ratio to the per-IP limit as the original 200/10
+# default. DEMO_DAILY_REQUEST_CAP env var can still override without a code
+# change or Docker rebuild. The $0.50/day _DAILY_COST_CAP_USD below is the
+# actual cost backstop, so this cap exists to bound request volume, not spend.
 def _get_daily_request_cap() -> int:
-    return max(1, int(os.environ.get("DEMO_DAILY_REQUEST_CAP", "200")))
+    return max(1, int(os.environ.get("DEMO_DAILY_REQUEST_CAP", "700")))
 
 _DAILY_COST_CAP_USD: float = 0.50  # USD per brand per UTC day
 
