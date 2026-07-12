@@ -38,6 +38,12 @@ class IntentV1:
     # ("what suits my body type") — routes to a deterministic clarify message
     # rather than product search (see graph.py's router_node short-circuit).
     wants_body_type_guidance: bool = False
+    # Vague price adjective ("cheap lehenga", "expensive saree") that carries no
+    # literal INR number — see _extract_budget's docstring for why this is a
+    # separate field rather than a guessed threshold. A downstream consumer
+    # (graph.py) resolves this against the retrieved candidate pool's own price
+    # distribution rather than a hardcoded cutoff.
+    price_qualifier: str | None = None  # "cheap" | "expensive" | None
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +431,22 @@ _BUDGET_APPROX_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Price qualifier — vague adjectives with no literal INR number attached
+# (see IntentV1.price_qualifier docstring). Checked independently of
+# _BUDGET_EXACT_RE/_BUDGET_APPROX_RE — a query can carry both ("cheap lehenga
+# under 3000" keeps its exact budget_max_inr AND price_qualifier="cheap").
+# ---------------------------------------------------------------------------
+
+_PRICE_QUALIFIER_CHEAP_RE = re.compile(
+    r"\bcheap\b|\bbudget[\s-]friendly\b|\binexpensive\b|\baffordable\b",
+    re.IGNORECASE,
+)
+_PRICE_QUALIFIER_EXPENSIVE_RE = re.compile(
+    r"\bexpensive\b|\bpremium\b|\bhigh[\s-]end\b|\bluxury\b",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
 # Product-query signals
 # ---------------------------------------------------------------------------
 
@@ -567,6 +589,19 @@ def _extract_budget(raw_query: str) -> int | None:
     return None
 
 
+def _extract_price_qualifier(text_lower: str) -> str | None:
+    """Return "cheap"/"expensive" for vague price adjectives, else None.
+
+    Unlike _extract_budget, this carries no INR number — see IntentV1.
+    price_qualifier docstring for why a fixed threshold is not invented here.
+    """
+    if _PRICE_QUALIFIER_CHEAP_RE.search(text_lower):
+        return "cheap"
+    if _PRICE_QUALIFIER_EXPENSIVE_RE.search(text_lower):
+        return "expensive"
+    return None
+
+
 def _extract_stores(text_lower: str) -> list[str]:
     """Return list of store names mentioned in the query (whole-word match)."""
     found: list[str] = []
@@ -631,6 +666,7 @@ def parse_intent(raw_query: str) -> IntentV1:
     is_product = _is_product_query(text_lower, garment_type, occasion, store_filter)
     body_type, body_modifiers = _extract_body_type(text_lower)
     wants_body_type_guidance = bool(_BODY_TYPE_QUESTION_RE.search(text_lower))
+    price_qualifier = _extract_price_qualifier(text_lower)
 
     return IntentV1(
         garment_type=garment_type,
@@ -644,6 +680,7 @@ def parse_intent(raw_query: str) -> IntentV1:
         body_type=body_type,
         body_modifiers=body_modifiers,
         wants_body_type_guidance=wants_body_type_guidance,
+        price_qualifier=price_qualifier,
     )
 
 
@@ -651,7 +688,8 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     """Merge a new turn's intent with accumulated session context.
 
     Fields carried forward from session_context when the new intent does not
-    specify them: garment_type, gender, colour, occasion, budget_max_inr.
+    specify them: garment_type, gender, colour, occasion, budget_max_inr,
+    price_qualifier.
 
     Never overwrites a field already populated by the new intent.
     Always preserves raw_query from the new intent.
@@ -663,8 +701,8 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     session_context:
         Dict with keys "garment_type", "gender", "colour", "occasion",
         "budget_max_inr" (all str | None, budget_max_inr is int | None),
-        "body_type" (str | None), "body_modifiers" (list[str] | None) from
-        the prior resolved intent.
+        "body_type" (str | None), "body_modifiers" (list[str] | None),
+        "price_qualifier" (str | None) from the prior resolved intent.
 
     Returns
     -------
@@ -698,4 +736,7 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         if intent.body_modifiers
         else (session_context.get("body_modifiers") or []),
         wants_body_type_guidance=intent.wants_body_type_guidance,
+        price_qualifier=intent.price_qualifier
+        if intent.price_qualifier is not None
+        else session_context.get("price_qualifier"),
     )

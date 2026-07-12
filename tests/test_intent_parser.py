@@ -408,6 +408,54 @@ class TestBudgetExtraction:
 
 
 # ---------------------------------------------------------------------------
+# Group 7a: Price qualifier extraction (BUG 1 — "cheap"/vague price adjectives
+# produced no signal at all; budget_max_inr stayed None so no price filtering
+# happened. price_qualifier is a separate slot — a downstream consumer
+# resolves it against the retrieved pool's own price distribution).
+# ---------------------------------------------------------------------------
+
+
+class TestPriceQualifierExtraction:
+    @pytest.mark.parametrize(
+        "query, expected_qualifier",
+        [
+            ("cheap lehenga", "cheap"),
+            ("budget-friendly saree", "cheap"),
+            ("budget friendly saree", "cheap"),
+            ("inexpensive kurti", "cheap"),
+            ("affordable dress", "cheap"),
+            ("expensive lehenga", "expensive"),
+            ("premium saree", "expensive"),
+            ("high-end blazer", "expensive"),
+            ("luxury lehenga", "expensive"),
+        ],
+    )
+    def test_price_qualifier(self, query: str, expected_qualifier: str) -> None:
+        intent = parse_intent(query)
+        assert intent.price_qualifier == expected_qualifier, (
+            f"query={query!r}: expected price_qualifier={expected_qualifier!r}, "
+            f"got {intent.price_qualifier!r}"
+        )
+
+    def test_no_price_qualifier(self) -> None:
+        intent = parse_intent("black dress for wedding")
+        assert intent.price_qualifier is None
+
+    def test_price_qualifier_coexists_with_exact_budget(self) -> None:
+        """'cheap lehenga under 3000' keeps BOTH the exact budget and the qualifier."""
+        intent = parse_intent("cheap lehenga under 3000")
+        assert intent.price_qualifier == "cheap"
+        assert intent.budget_max_inr == 3000
+
+    def test_cheap_lehenga_no_longer_none(self) -> None:
+        """Regression for the exact reported bug: 'cheap lehenga' produced no
+        signal at all (budget_max_inr stayed None, price_qualifier didn't
+        exist) so a ₹28,900 item could sit in a 'cheap lehenga' result set."""
+        intent = parse_intent("cheap lehenga")
+        assert intent.price_qualifier == "cheap"
+
+
+# ---------------------------------------------------------------------------
 # Group 8: merge_with_context
 # ---------------------------------------------------------------------------
 
@@ -479,6 +527,18 @@ class TestMergeWithContext:
         merged = merge_with_context(intent, {"garment_type": "dress"})
         assert merged is not intent
         assert intent.garment_type is None  # original not mutated
+
+    def test_price_qualifier_carried_forward_from_context(self) -> None:
+        """A refinement turn with no price adjective inherits the prior
+        turn's price_qualifier from session_context."""
+        intent = parse_intent("in blue")
+        merged = merge_with_context(intent, {"price_qualifier": "cheap"})
+        assert merged.price_qualifier == "cheap"
+
+    def test_new_price_qualifier_overwrites_context(self) -> None:
+        intent = parse_intent("show me an expensive lehenga")
+        merged = merge_with_context(intent, {"price_qualifier": "cheap"})
+        assert merged.price_qualifier == "expensive"
 
 
 # ---------------------------------------------------------------------------
