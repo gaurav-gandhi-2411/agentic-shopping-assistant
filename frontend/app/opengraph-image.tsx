@@ -15,6 +15,9 @@ export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
 export default function OpengraphImage() {
+  // exempt from design-token audit: this is a Satori/next-og render tree, which
+  // runs outside the DOM/CSS runtime and cannot resolve CSS custom properties —
+  // every hex literal below (cream/ink/champagne/muted-taupe) is intentional.
   return new ImageResponse(
     (
       <div
