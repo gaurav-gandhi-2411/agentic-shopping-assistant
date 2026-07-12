@@ -237,6 +237,7 @@ def compose_outfit_tool(
     owned_anchor: bool = False,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict:
     """Occasion-aware outfit composition. Delegates to src.agents.outfit.composer."""
     return compose_outfit(
@@ -250,4 +251,5 @@ def compose_outfit_tool(
         owned_anchor=owned_anchor,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )

@@ -93,6 +93,7 @@ def compose_outfit(
     exclude_ids: set[str] | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict:
     """Compose an outfit for a given occasion, optionally anchored to a seed item.
 
@@ -118,6 +119,13 @@ def compose_outfit(
         body_modifiers: P3 — list of MODIFIER_SLUGS ("petite"/"tall"/
             "plus_size"), or None. Composes with body_type (union of
             recommend/deprioritize keyword sets — see body_type_score_delta).
+        formality_override: Batch 2 (2026-07-13) — "minimalist"/"comfortable",
+            the sibling intent-parser signal a query like "something comfortable
+            for sangeet dancing" or "not too flashy" surfaces (see
+            slots.fabric_score_delta's docstring). Opt-in bias only (never a
+            filter), same treatment as body_type above: nudges complement
+            scoring via fabric_score_delta, threaded straight through to every
+            _find_best_candidate call. None (default) is a full no-op.
 
     Returns a dict with: look_id, seed_item, complements, outfit_rationale,
     empty_slots, suppressed_slots, occasion, gender, budget_total_inr.
@@ -244,6 +252,7 @@ def compose_outfit(
             seen_stores=seen_stores,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            formality_override=formality_override,
         )
         if candidate is None and slot_spec.slot_name == "bottom" and effective_gender == "men":
             # Live defect 2026-07-10: the men's ethnic bottom query (churidar/
@@ -267,6 +276,7 @@ def compose_outfit(
                 seen_stores=seen_stores,
                 body_type=body_type,
                 body_modifiers=body_modifiers,
+                formality_override=formality_override,
             )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
@@ -374,6 +384,7 @@ def compose_outfit_variants(
     owned_anchor: bool = False,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> list[dict]:
     """Compose 2-3 look variants around the same seed and occasion.
 
@@ -411,6 +422,8 @@ def compose_outfit_variants(
         body_type:           P3 — see ``compose_outfit`` docstring. Applied to
             every variant (base + biased).
         body_modifiers:      P3 — see ``compose_outfit`` docstring.
+        formality_override:  Batch 2 — see ``compose_outfit`` docstring. Applied
+            to every variant (base + biased).
 
     Returns:
         List of 1–3 look dicts.  Always non-empty (falls back to base-only).
@@ -428,6 +441,7 @@ def compose_outfit_variants(
         owned_anchor=owned_anchor,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     base["variant_label"] = "Base"
 
@@ -465,6 +479,7 @@ def compose_outfit_variants(
         extra_exclude_ids=accumulated_ids,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     if alt_colour_look and _is_distinct_look(alt_colour_look, variants):
         alt_colour_look["variant_label"] = "Colour story"
@@ -488,6 +503,7 @@ def compose_outfit_variants(
         extra_exclude_ids=accumulated_ids,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     if formality_look and _is_distinct_look(formality_look, variants):
         # Label: ethnic/formal occasions get "Lighter"; western/casual get "Dressier"
@@ -536,6 +552,7 @@ def compose_biased_look(
     extra_exclude_ids: set[str] | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict | None:
     """Compose a variant look using a biased retriever wrapper.
 
@@ -609,6 +626,7 @@ def compose_biased_look(
             exclude_ids=exclude_ids,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            formality_override=formality_override,
         )
         if look.get("seed_item") is None:
             return None
@@ -837,6 +855,7 @@ def _score_candidates(
     neutral_fallback_ids: set[str],
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> list[tuple[float, dict]]:
     """Run every hard gate + score every surviving candidate.
 
@@ -849,6 +868,10 @@ def _score_candidates(
     added to the score alongside fabric_score_delta (never a gate — every
     candidate that survives the hard gates above is still scored and
     returned; body type only nudges which one wins).
+
+    formality_override: Batch 2 (2026-07-13) — passed straight to
+    fabric_score_delta (see that function's docstring). Same "nudge, never a
+    gate" treatment as body_type above.
     """
     scored: list[tuple[float, dict]] = []
     for item in candidates:
@@ -932,7 +955,7 @@ def _score_candidates(
 
         base_score = item.get("score") or 0.5
         c_score = colour_score(item.get("colour") or "", anchor_colour, occasion_slug)
-        fab_delta = fabric_score_delta(item, occasion_slug)
+        fab_delta = fabric_score_delta(item, occasion_slug, formality_override=formality_override)
         bt_delta = body_type_score_delta(item, body_type, body_modifiers)
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
@@ -966,6 +989,7 @@ def _find_best_candidate(
     seen_stores: set[str] | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict | None:
     # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
     # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
@@ -1011,6 +1035,7 @@ def _find_best_candidate(
         neutral_fallback_ids=neutral_fallback_ids,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
 
     # Phase B pool-underflow fallback (live-proven: "office look for women"
@@ -1060,6 +1085,7 @@ def _find_best_candidate(
                 neutral_fallback_ids=set(),
                 body_type=body_type,
                 body_modifiers=body_modifiers,
+                formality_override=formality_override,
             )
 
     if not scored:
@@ -1081,6 +1107,7 @@ def swap_slot_in_look(
     pairing_stats: dict | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict | None:
     """Replace ONLY the complement occupying ``slot_name``, keeping the seed and
     every other complement in the current session look unchanged.
@@ -1170,6 +1197,7 @@ def swap_slot_in_look(
         seen_stores=seen_stores,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     if new_candidate is None:
         return None
