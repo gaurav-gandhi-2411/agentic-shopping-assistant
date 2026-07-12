@@ -43,6 +43,9 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
   const occasion = look?.snapshot?.occasion ?? look?.occasion ?? null
   const itemCount = look?.snapshot?.items?.length ?? 0
 
+  // exempt from design-token audit: this is a Satori/next-og render tree, which
+  // runs outside the DOM/CSS runtime and cannot resolve CSS custom properties —
+  // every hex literal below (cream/ink/champagne/muted-taupe) is intentional.
   return new ImageResponse(
     (
       <div

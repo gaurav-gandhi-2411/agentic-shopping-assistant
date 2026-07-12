@@ -33,6 +33,9 @@ interface ProductMock {
   sku: string
 }
 
+// exempt from design-token audit: accentHex/brandBg values are third-party
+// retailer brand colors (Snitch/Myntra/Flipkart) or a neutral demo fallback
+// simulating a generic storefront — not this app's design tokens.
 const PRODUCTS: Record<string, ProductMock> = {
   snitch: {
     name: "Milano Slim-Fit Blazer",
@@ -95,6 +98,8 @@ const PRODUCTS: Record<string, ProductMock> = {
   },
 }
 
+// exempt from design-token audit: neutral demo fallback simulating a generic
+// storefront's own accent color, not this app's design tokens.
 const FALLBACK_PRODUCT: ProductMock = {
   name: "Sample Product",
   brand: "Brand",
@@ -266,6 +271,9 @@ export default async function MockPdpPage({
                     <button
                       key={size}
                       className="w-10 h-10 rounded-lg border-2 text-sm font-medium transition-colors"
+                      // exempt from design-token audit: this mock PDP simulates a
+                      // generic third-party storefront's own UI chrome, not this
+                      // app's design tokens.
                       style={
                         i === 1
                           ? {
