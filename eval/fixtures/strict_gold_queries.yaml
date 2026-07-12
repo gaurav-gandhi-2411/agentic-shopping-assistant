@@ -277,3 +277,20 @@ queries:
   category: multi_attribute
   query: mint green anarkali for sangeet under 6000
   gender: women
+# ── kids-leak regression probes (added 2026-07-12) ────────────────────────────
+# Live-proven P0 trust/safety bug: girls'/boys' items ranked into adult results
+# for NON-occasion-keyword queries ("bridal" is not in intent_parser's
+# _OCCASION_MAP, so the occasion-gated kids check that already existed never
+# fired for these exact queries). category: literal — no occasion slug is
+# extracted from either query today, so from the retrieval code's perspective
+# there IS no occasion register in play; these exist specifically to close the
+# gap that let real "Bitiya by Bhama GIRLS...", "Cutiekins Girls...",
+# "BownBee Girls..." items rank above genuine adult bridal lehengas.
+- id: kids_leak_001
+  category: literal
+  query: red lehenga bridal
+  gender: women
+- id: kids_leak_002
+  category: literal
+  query: gold jewellery to go with red lehenga
+  gender: women

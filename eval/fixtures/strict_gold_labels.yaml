@@ -935,3 +935,29 @@ labels:
 - query_id: multi_014
   items:
   - {article_id: "7710573035606", relevant: true, note: "'Mirror Embroidered' — embellishment matches sangeet register; lime green = mint/green family"}
+# ── kids-leak regression labels (added 2026-07-12) ────────────────────────────
+# retrieval_snapshot: commit 880c42c (pre-fix HEAD) + the P0 kids-leak fix
+# applied on top, data/processed/unified, HybridRetriever.search(query,
+# top_k=50, filters={gender})[:5] (raw mode, mirrors R1 stage). Labeled_by:
+# Claude (Sonnet 5), same rubric as the header. Confirmed via direct
+# reproduction: on pre-fix code these two queries returned kids items
+# ("Bitiya by Bhama GIRLS...", "Cutiekins Girls...", "The Magic Wand Girls...",
+# "BownBee Girls...", "Campana Girls...") ranked alongside/above the adult
+# items labeled below; the post-fix raw-mode top-5 snapshot below contains
+# zero kids items.
+- query_id: kids_leak_001
+  items:
+  - {article_id: "14122722", relevant: true, note: "red/pink embellished ready-to-wear lehenga, bridal-appropriate register"}
+  - {article_id: "11999050", relevant: true, note: "red/gold printed lehenga with dupatta — festive-coded gold print, not plain cotton"}
+  - {article_id: "17589250", relevant: true, note: "red/yellow printed, made-to-measure — bridal tier"}
+  - {article_id: "10898760", relevant: true, note: "₹19999 red lehenga with dupatta — clearly bridal price/register tier"}
+  - {article_id: "10811418", relevant: false, reason: attribute-contradiction,
+     note: "'MIMOSA Green & Pink...Bridal Lehenga' — bridal register correct (name says Bridal) but colour is green/pink, not red-family; query named red explicitly"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "16465418", relevant: false, reason: data-ceiling,
+     note: "query asks for jewellery; catalogue has ~2 jewellery-adjacent rows total (verified scan) — retriever falls back to red/gold lehengas, no better TYPE-matching item exists"}
+  - {article_id: "18672330", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "14210976", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "11999050", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "11717870", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
