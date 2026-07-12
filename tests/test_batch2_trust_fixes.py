@@ -503,3 +503,46 @@ class TestLiveRepros:
 
         assert turn2_result.get("out_of_catalogue") is not True
         assert turn2_result.get("retrieved_items")
+
+    # ── Relational-noun gender guard, second map (2026-07-13 root-cause fix) ─
+
+    def test_grooms_sister_outfit_ideas_does_not_force_menswear(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Live-proven 2026-07-13: "groom's sister outfit ideas" returned
+        generic men's T-shirts/sweatshirts. Root cause was search_node's OWN
+        local _GENDER_MAP (separate from intent_parser.py's and from
+        outfit/partner.py's already-fixed _GROOM_RE/_BRIDE_RE) matching
+        \\bgroom\\b inside "groom's" with no relational-noun guard, hard-
+        setting index_group_name="menswear" via the raw-query regex fallback.
+        Fixed by applying the same _RELATIONAL_NOUN_ALT negative-lookahead
+        (imported from outfit.partner, the source of truth) to this second,
+        independent map. No gender signal is asserted here by design — an
+        unfiltered fallback is honest/acceptable for a deterministic parser
+        with no real signal (see module docstring — inferring "sister"
+        implies gender="women" is explicitly out of scope for this fix).
+        """
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        result = agent.invoke(_blank_state("groom's sister outfit ideas", memory))
+
+        assert result.get("filters", {}).get("index_group_name") != "menswear"
+
+    def test_sherwani_for_groom_still_filters_menswear(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Explicit non-regression: a query that SHOULD infer men's gender
+        from "groom" alone in a non-relational context must still correctly
+        filter to menswear — mirrors outfit/partner.py's own "sherwani for
+        groom" non-regression coverage for the sibling _GROOM_RE fix."""
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        result = agent.invoke(_blank_state("sherwani for groom", memory))
+
+        assert result.get("filters", {}).get("index_group_name") == "menswear"

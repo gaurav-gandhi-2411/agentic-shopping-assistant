@@ -19,6 +19,7 @@ from src.agents.outfit.composer import (
     swap_slot_in_look,
 )
 from src.agents.outfit.partner import (
+    _RELATIONAL_NOUN_ALT,
     build_coordinated_with_text,
     compose_couple_look,
     compose_partner_look,
@@ -1688,6 +1689,15 @@ def build_graph(
     # Gender keyword → index_group_name value mapping.
     # Applied in search_node before the general auto-facet extractor so
     # gender intent in the query always wins over ambiguous facet matches.
+    # groom/bride entries reuse outfit.partner's _RELATIONAL_NOUN_ALT negative-
+    # lookahead (source of truth: src/agents/outfit/partner.py's _GROOM_RE/
+    # _BRIDE_RE) — this is a SEPARATE, independent gender map from partner.py's
+    # (that one gates cross-gender partner-STYLING intent; this one gates the
+    # plain product-search gender filter), so it needed the same carve-out
+    # applied a second time. Without it, "groom's sister outfit ideas" matched
+    # \bgroom\b inside "groom's" (apostrophe is a non-word char) and hard-set
+    # index_group_name="menswear" even though "groom's" here possessively
+    # modifies "sister", not the wearer. Live-proven 2026-07-13.
     _GENDER_MAP: dict[str, str] = {
         r"\bmen\b": "Menswear", r"\bmens\b": "Menswear",
         r"\bman\b": "Menswear", r"\bmale\b": "Menswear",
@@ -1697,7 +1707,9 @@ def build_graph(
         r"\bwife\b": "Ladieswear", r"\bwives\b": "Ladieswear",
         r"\bgirlfriend\b": "Ladieswear", r"\bher\b": "Ladieswear",
         r"\bhusband\b": "Menswear", r"\bboyfriend\b": "Menswear",
-        r"\bhim\b": "Menswear", r"\bgroom\b": "Menswear", r"\bbride\b": "Ladieswear",
+        r"\bhim\b": "Menswear",
+        rf"\bgroom\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)": "Menswear",
+        rf"\bbride\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)": "Ladieswear",
         r"\bkid\b": "Baby/Children", r"\bkids\b": "Baby/Children",
         r"\bchild\b": "Baby/Children", r"\bchildren\b": "Baby/Children",
         r"\bbaby\b": "Baby/Children",
