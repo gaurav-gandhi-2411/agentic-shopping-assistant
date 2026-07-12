@@ -35,6 +35,7 @@ from src.agents.graph import (
 )
 from src.agents.grounding import validate_response
 from src.agents.outfit.composer import _score_candidates
+from src.agents.outfit.slots import SANGEET_EMBELLISHMENT_KEYWORDS
 from src.memory.conversation import ConversationMemory
 from src.retrieval.dense_search import DenseRetriever
 from src.retrieval.hybrid_search import _RELEVANCE_FLOOR, HybridRetriever
@@ -503,6 +504,77 @@ class TestLiveRepros:
 
         assert turn2_result.get("out_of_catalogue") is not True
         assert turn2_result.get("retrieved_items")
+
+    # ── Formality-aware occasion retrieval (2026-07-13 root-cause fix) ─────
+
+    def test_comfortable_sangeet_dancing_surfaces_non_embellished_items(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Live-proven 2026-07-13: "something comfortable for sangeet dancing"
+        correctly set occasion=sangeet + formality_softener=comfortable and
+        fabric_score_delta correctly scored every embellished item -0.1, but
+        the bug was upstream of that sort entirely — _OCCASION_QUERY_TERMS
+        unconditionally appended the literal word "embellished" to the
+        retrieval query whenever no garment type was present, so the
+        candidate POOL itself was already 100% embellishment-biased (10/10)
+        before the sort ever ran. Fixed by making the occasion query-
+        expansion terms formality-aware: a comfortable/minimalist variant
+        with no embellishment word is substituted when formality_softener
+        requests it.
+        """
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        result = agent.invoke(
+            _blank_state("something comfortable for sangeet dancing", memory)
+        )
+        items = result.get("retrieved_items", [])
+        assert items, "precondition: query returns items"
+
+        def _is_embellished(item: dict) -> bool:
+            text = (
+                (item.get("prod_name") or "") + " " + (item.get("detail_desc") or "")
+            ).lower()
+            return any(kw in text for kw in SANGEET_EMBELLISHMENT_KEYWORDS)
+
+        embellished_flags = [_is_embellished(it) for it in items]
+        assert not all(embellished_flags), (
+            "expected at least one non-embellished sangeet item to surface; "
+            f"got {sum(embellished_flags)}/{len(items)} embellished"
+        )
+        # The non-embellished items must actually rank above the heavy ones,
+        # not just be present somewhere in the pool — this is what the stable
+        # sort couldn't do on its own when the pool was 100% biased.
+        assert embellished_flags[0] is False
+
+    def test_plain_sangeet_occasion_terms_unaffected(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Non-regression: a sangeet query with NO formality softener must
+        keep the original (embellishment-favouring) occasion-term expansion —
+        the formality-aware branch only fires when the user actually asked
+        for something comfortable/minimalist."""
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        result = agent.invoke(_blank_state("something nice for sangeet", memory))
+        items = result.get("retrieved_items", [])
+        assert items, "precondition: query returns items"
+
+        def _is_embellished(item: dict) -> bool:
+            text = (
+                (item.get("prod_name") or "") + " " + (item.get("detail_desc") or "")
+            ).lower()
+            return any(kw in text for kw in SANGEET_EMBELLISHMENT_KEYWORDS)
+
+        embellished_flags = [_is_embellished(it) for it in items]
+        # Base sangeet behaviour still favours embellishment — most results
+        # embellished, matching the pre-fix distribution (verified 9/10 live).
+        assert sum(embellished_flags) >= len(items) - 2
 
     # ── Relational-noun gender guard, second map (2026-07-13 root-cause fix) ─
 

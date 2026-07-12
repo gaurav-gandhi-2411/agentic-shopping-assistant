@@ -1765,12 +1765,27 @@ def build_graph(
     # wedding") retrieve ethnic/occasion-appropriate garments. Order matters — more
     # specific occasions (sangeet, haldi/mehendi) are checked before the broader
     # "wedding"/"traditional" fallbacks would otherwise also match on shared words.
-    _OCCASION_QUERY_TERMS: list[tuple[str, str]] = [
-        (r"\bsangeet\b", "lehenga sherwani kurta embellished festive"),
-        (r"\b(?:haldi|mehendi)\b", "kurta kurti lehenga cotton floral yellow festive"),
-        (r"\b(?:puja|festive)\b", "kurta kurti anarkali festive ethnic"),
-        (r"\bwedding\b", "lehenga saree anarkali kurta sherwani ethnic wedding wear"),
-        (r"\btraditional\b|\bethnic\b", "saree lehenga kurta traditional ethnic"),
+    #
+    # Third tuple element (2026-07-13, formality-aware retrieval fix): an optional
+    # comfortable/minimalist-variant terms string, substituted for the default when
+    # formality_softener requests low embellishment (e.g. "something comfortable for
+    # sangeet dancing"). Without this, sangeet's default terms baked the literal word
+    # "embellished" into the dense/BM25 retrieval query itself — the candidate POOL
+    # returned was already 100% embellishment-biased before fabric_score_delta's
+    # downstream sort ever ran, so every candidate scored the same -0.1 and the
+    # stable sort had nothing lightweight to promote. Only sangeet's default terms
+    # contain an embellishment word; the other entries below were audited and are
+    # already occasion-neutral (no bias to counter), so they keep a single string.
+    _OCCASION_QUERY_TERMS: list[tuple[str, str, str | None]] = [
+        (
+            r"\bsangeet\b",
+            "lehenga sherwani kurta embellished festive",
+            "lehenga sherwani kurta lightweight comfortable festive",
+        ),
+        (r"\b(?:haldi|mehendi)\b", "kurta kurti lehenga cotton floral yellow festive", None),
+        (r"\b(?:puja|festive)\b", "kurta kurti anarkali festive ethnic", None),
+        (r"\bwedding\b", "lehenga saree anarkali kurta sherwani ethnic wedding wear", None),
+        (r"\btraditional\b|\bethnic\b", "saree lehenga kurta traditional ethnic", None),
     ]
 
     # Bolt-good / fabric SKU types — not finished wearable garments.
@@ -1956,11 +1971,25 @@ def build_graph(
         # never reaches the LLM router, so the LLM's own SEASONAL/OCCASION QUERY
         # REWRITING prompt guidance never applied here — this closes that gap without
         # depending on the LLM at all.
+        #
+        # Formality-aware terms (2026-07-13): "something comfortable for sangeet
+        # dancing" must not inject the word "embellished" into the retrieval query
+        # itself — see _OCCASION_QUERY_TERMS' docstring above for why that biased
+        # the candidate pool before fabric_score_delta's downstream sort ever ran.
         if "product_type_name" not in merged:
+            from src.agents.intent_parser import parse_intent as _occterm_parse_intent
+
             raw_lower = raw_query.lower()
-            for pattern, occasion_terms in _OCCASION_QUERY_TERMS:
+            _occterm_formality = _occterm_parse_intent(raw_query).formality_softener
+            for pattern, occasion_terms, comfortable_terms in _OCCASION_QUERY_TERMS:
                 if re.search(pattern, raw_lower, re.IGNORECASE):
-                    query = f"{query} {occasion_terms}"
+                    _terms = (
+                        comfortable_terms
+                        if comfortable_terms
+                        and _occterm_formality in ("comfortable", "minimalist")
+                        else occasion_terms
+                    )
+                    query = f"{query} {_terms}"
                     break
 
         # Auto-extract facet filters from the query when the LLM omitted them.
