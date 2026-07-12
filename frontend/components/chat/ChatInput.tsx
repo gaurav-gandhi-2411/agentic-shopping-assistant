@@ -157,7 +157,7 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={pendingImage ? "Add a note or just press Send…" : "Ask about clothing, style, outfits…"}
+            placeholder={pendingImage ? "Add a note or just press Send…" : "Ask about outfits…"}
             disabled={disabled}
             rows={1}
             className={cn(

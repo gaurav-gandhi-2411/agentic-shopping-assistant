@@ -1,0 +1,69 @@
+Strict gold-set expansion (Batch 7) — statistical robustness pass
+Run: 2026-07-11, commit ed57ebc (parent of the commit that lands this report + Batch 7 labels)
+Command: python scripts/eval_strict.py --mode pipeline
+
+WHY: Part 2 of the best-in-class-product review asked to "extend the hand-labeled gold
+set for statistical robustness where it's currently thin." The two thinnest categories
+were literal (n=5 queries) and multi_attribute (n=8 queries) — both well under the ~15-20
+query floor needed for a single-query miss to not swing the category percentage by >10pp.
+
+CHANGE: added 8 literal queries (5->13) and 6 multi_attribute queries (8->14, 2 of which
+return EMPTY result sets — see below) to eval/fixtures/strict_gold_queries.yaml. Hand-
+labeled all newly-retrieved top-5 items against the identical rubric documented in that
+file's header (garment type, silhouette/style, gender, colour-family, occasion register,
+budget) — eval/fixtures/strict_gold_labels.yaml "Batch 7", 90 new item labels.
+
+BEFORE (pre-Batch-7, n=40 queries, 186 labeled items, commit 5698a99):
+  overall precision@5: 0.860  (160/186)
+    literal          0.960  (24/25)
+    multi_attribute   0.657  (23/35)
+    occasion         0.836  (56/67)
+    style            0.966  (57/59)
+
+AFTER (post-Batch-7, n=54 queries, 246 labeled items):
+  overall precision@5: 0.841  (207/246)
+    literal          0.908  (59/65)
+    multi_attribute   0.636  (35/55)
+    occasion         0.836  (56/67)
+    style            0.966  (57/59)
+
+The overall number moved 0.860 -> 0.841. This is NOT a regression — zero retrieval or
+ranking code changed between these two runs (retrieval snapshot commit unchanged). It is
+the expected, honest effect of a larger, more representative literal/multi_attribute
+sample: the original 5-query literal category was disproportionately easy (plain "colour
++ garment" queries with no attribute-stacking); the 8 new queries include budget caps,
+plural-pack items, and a title/desc-contradiction case, which is a more realistic query
+mix and drags the category mean down from an artificially high 0.960 to 0.908 — both are
+real numbers, the larger n is simply less noise-prone (per the "n<50 treat deltas under
+5-10pp as noise" convention: literal moved from n=25 items, which is well below that
+floor, to n=65).
+
+TWO NEW QUERIES RETURN EMPTY RESULT SETS (excluded from the precision denominator,
+reported separately as evidence for the Part 3 data-ceiling report):
+  multi_009  "maroon velvet blazer for men for a winter wedding under 6000"  -> 0 items
+  multi_011  "royal blue sherwani for groom under 12000"                    -> 0 items
+Both confirm and sharpen the men's-formalwear inventory gap already known from this
+session's earlier catalogue-gap findings (zero green sherwanis, 7 sub-4000 men's
+blazers): the gap extends to specific colour/fabric combinations (blue sherwanis, velvet
+blazers) with zero matching SKUs at any price, not just a thin selection.
+
+Miss taxonomy is unchanged in composition (all 5 reasons still CODE-FIXABLE, zero
+data-ceiling misses among items that WERE retrieved) — see the full per-category
+breakdown and weakest-query list in the eval_strict.py output at commit HEAD (next
+commit after this report).
+
+ALSO ADDED this run: MRR@5, computed directly from the existing ranked/labeled data
+(no new labeling needed — a query's reciprocal rank is 1/(rank of first relevant hit),
+0 if none found in top-5). Queries with an unlabeled item ranked above the first
+relevant hit are excluded (can't honestly score a rank position of unknown relevance);
+none were excluded this run (n_unlabeled=0 throughout).
+
+  MRR@5 (overall): 0.857  (n=54)
+    literal          0.962  (n=13)
+    multi_attribute  0.538  (n=14)
+    occasion         0.950  (n=15)
+    style            1.000  (n=12)
+
+multi_attribute has both the lowest precision@5 (0.636) and the lowest MRR (0.538) —
+consistent evidence that stacked-constraint queries are where retrieval struggles most,
+not an artifact of one metric's definition.

@@ -1,0 +1,135 @@
+Part 3 — final scorecard: code-fixable vs data-ceiling, deploy + live-URL proof
+Compiled: 2026-07-11, commit d71760b (current HEAD, deployed as
+asa-stylist-api-00067-5sv, rollback anchor asa-stylist-api-00066-jqr)
+
+====================================================================================
+WHAT SHIPPED THIS REVIEW (chronological, each already unit-tested + full-suite-tested
++ eval_gate.py-passed + committed; see each commit message for its own before/after)
+====================================================================================
+1. 5698a99  fix(search): single-garment set exclusion (Part 0) -- closed the largest
+            pre-existing miss bucket (literal "with X and Y" set listings slipping
+            through a gate that only recognised the word "Set"). DEPLOYED prior to
+            this session's Part 1/2/3 work (asa-stylist-api-00066-jqr).
+2. ed57ebc  eval(retrieval): cross-encoder reranker A/B -- REGRESSION, NOT ADOPTED.
+            0.860 -> 0.839 on a clean labeled comparison. Production graph.py
+            untouched. Full reasoning: reports/cross_encoder_rerank_AB.txt.
+3. 755af62  eval(strict-gold): expanded literal (5->13) and multi_attribute (8->14)
+            categories for statistical robustness; added MRR@5. No production code
+            changed. reports/strict_eval_BATCH7_pipeline.txt.
+4. af50e3a  docs(eval): full honest metric scorecard combining strict + property-floor
+            + gates + judge + e2e. reports/full_metric_scorecard_2026-07-11.txt.
+5. d71760b  fix(intent): explicit gender word beats garment-implied heuristic -- a
+            REAL PRODUCTION BUG found by the live-URL proof this review's own rules
+            required, invisible to both eval harnesses (eval_strict.py bypasses
+            parse_intent() by design). "kurta for men" was silently resolving to
+            gender=women. DEPLOYED as asa-stylist-api-00067-5sv, LIVE-VERIFIED below.
+
+====================================================================================
+FINAL STRICT GOLD SCORECARD (commit 755af62 retrieval snapshot -- unchanged by d71760b
+since eval_strict.py passes gender directly; d71760b only affects the full-agent /chat
+path, verified separately via live proof below)
+====================================================================================
+Source: reports/strict_eval_BATCH7_pipeline.txt, python scripts/eval_strict.py --mode pipeline
+n=54 queries, 246 hand-labeled items, zero unlabeled
+
+category          precision@5      MRR@5
+literal           0.908 (59/65)    0.962 (n=13)
+multi_attribute   0.636 (35/55)    0.538 (n=14)
+occasion          0.836 (56/67)    0.950 (n=15)
+style             0.966 (57/59)    1.000 (n=12)
+OVERALL           0.841 (207/246)  0.857 (n=54)
+
+Per the task brief's own stated target: this is in the realistic band for subjective
+relevance (human inter-annotator agreement ~80-85%, SOTA production search ~70-85%) --
+NOT 98-99%, and no rubric loosening occurred to get here (rubric is unchanged since
+first written; see eval/fixtures/strict_gold_queries.yaml header, "labeled_on:
+2026-07-11", never edited to raise a number).
+
+====================================================================================
+CODE-FIXABLE vs DATA-CEILING -- the split this review's Part 3 explicitly required
+====================================================================================
+
+--- CODE-FIXABLE (retrieval/ranking/parsing logic -- inventory is NOT the constraint) ---
+From the strict gold set's 39 misses among items that WERE retrieved (0.841 = 207/246):
+  12  attribute-contradiction  -- named silhouette/style contradicted (bodycon vs maxi,
+                                  slim vs straight). Weakest concentration: multi_013
+                                  ("gown" query returning ethnic/bodycon/sheath dresses).
+  11  occasion-register        -- garment type right, formality/embellishment wrong for
+                                  the stated occasion (printed lehenga for sangeet
+                                  instead of embellished; casual trouser for office).
+   6  budget                   -- price exceeds stated cap (retrieval not respecting
+                                  the numeric filter tightly enough in a few cases).
+   5  set-not-single           -- multi-piece "X Set"/"X with Y" listings for a
+                                  single-garment query. STILL HAS A KNOWN GAP: bare
+                                  "<Garment> Set" listings with no second garment noun
+                                  and no "with" phrase (e.g. "Blue Bandhani Print
+                                  Cotton Kurta Set") are NOT caught by the current
+                                  is_multi_piece_set 2-signal heuristic -- confirmed
+                                  live in this review's own proof run below. This is
+                                  the clearest concrete next fix (a 3rd signal: product
+                                  name ends with the literal token "Set").
+   5  type-confusion           -- wrong garment type entirely (baseball caps for
+                                  "haldi outfit").
+  ALSO FIXED THIS REVIEW (not in the above count -- caught by live-URL proof, not the
+  strict harness): explicit-gender-word-vs-garment-heuristic ordering bug in
+  intent_parser.py (commit d71760b). Affects every "<ethnic garment> for men" query
+  where the garment itself used to imply "women" (kurta, historically).
+
+--- DATA-CEILING (genuine zero/thin inventory -- no architecture fix can serve these) ---
+  - multi_009: "maroon velvet blazer for men for a winter wedding under 6000" -> 0
+    items retrieved. Confirms/sharpens the known men's-blazer gap (7 sub-4000 blazers
+    total per the earlier catalogue-gap report) to a hard zero at this fabric+colour
+    combination.
+  - multi_011: "royal blue sherwani for groom under 12000" -> 0 items retrieved.
+    Confirms the known sherwani-colour gap (catalogue has exactly 1 sherwani SKU,
+    facet-tagged in an earlier commit) extends to colour variants entirely.
+  - Gates-stage data-ceiling rows (reports/model_eval_20260711T162145Z.md, Section B3):
+    adversarial no_novelty (n=1), occasion gender_pure/no_novelty/suppression_honest
+    (n=7 each) -- all honestly suppressed with a recorded reason, not silent drops.
+  - Full category/count breakdown: the earlier dedicated catalogue-gap report
+    (commit 25527c6, "docs(catalogue): inventory gap report") -- unchanged this
+    session; no architecture work can substitute for missing SKUs (per this review's
+    own explicit instruction: "no architecture fixes missing sherwanis/jewellery/
+    footwear").
+
+====================================================================================
+LIVE-URL PROOF (https://asa-stylist-api-657468372797.asia-south1.run.app, revision
+asa-stylist-api-00067-5sv, run 2026-07-11 post-deploy)
+====================================================================================
+1. "red embellished lehenga for sangeet under 15000" -> top result: "EthnoVogue Red &
+   Black Embroidered Mirror Work Made to Measure Lehenga" (Rs 6341) -- confirms the
+   Part 0 red-embellished-lehenga fix that motivated this whole review is live and
+   ranking a genuinely embellished item first.
+2. "bright yellow kurta for haldi" -> 5 single-kurta results, zero "Kurta Set" items --
+   confirms the set-exclusion gate (5698a99) is live and working for this query.
+   OBSERVATION (not fixed this review, flagging for product input): this
+   no-explicit-gender query now surfaces a mixed-gender result set (4 women's + 1
+   men's kurta) post the d71760b gender fix. Whether ambiguous-gender ethnic queries
+   should default to a single gender (previously: silently "women", an unstated
+   assumption) or intentionally show both (haldi and kurtas are not gender-exclusive)
+   is a product decision, not a bug this report resolves unilaterally.
+3. "printed kurta for men" -> 4 of 5 results are explicitly men's kurtas (was 5 of 5
+   WOMEN's kurtas before the d71760b fix, at the same review, same day) -- confirms
+   the gender-heuristic-ordering fix is live. Also surfaces the known bare-"Set"-suffix
+   gap noted above (2 of 5 results are still "Kurta Set" listings) -- pre-existing,
+   already tracked, not a new regression.
+
+====================================================================================
+eval_gate.py -- updated? Left thresholds UNCHANGED (min strict P@5 0.70, r1 P@5 0.80,
+NDCG 0.85, intent 88%, all gates 1.0). Current run: ALL PASS, strict P@5 0.841 (well
+above the 0.70 floor with real headroom), intent 93.8% (above 88% floor, improved
+from 92.4% as a side-effect of the gender fix). Not tightened further this review --
+a single run's numbers should not become next week's hard floor; the floor stays a
+regression backstop, not a ratchet.
+====================================================================================
+
+WHAT THIS REVIEW DID NOT DO (explicit scope boundaries, not oversights):
+- Did not swap the embedding model (BGE-base benchmark was inconclusive at 55%
+  unlabeled coverage; see reports/embedding_model_bench_BAAI_bge-base-en-v1.5.txt --
+  flagged as a follow-up requiring a dedicated labeling session, not rushed).
+- Did not fix the bare-"Set"-suffix gap or the mixed-gender-fallback question above --
+  both are real, both are documented, both are candidates for the next review pass,
+  neither was silently left out of this report.
+- Did not fabricate a production (Groq/Cloud Run) latency number -- only a local-Ollama
+  proxy number exists this session (median 7.53s); the one prior Groq artifact is 2
+  months stale with n=2 and was excluded rather than reused.

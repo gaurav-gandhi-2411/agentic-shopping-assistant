@@ -27,6 +27,7 @@ from src.agents.outfit.slots import (
     is_kids_item,
     is_multi_piece_set,
     is_novelty_item,
+    is_rugged_footwear_item,
     is_slot_type_allowed,
     is_western_item,
 )
@@ -244,6 +245,29 @@ def compose_outfit(
             body_type=body_type,
             body_modifiers=body_modifiers,
         )
+        if candidate is None and slot_spec.slot_name == "bottom" and effective_gender == "men":
+            # Live defect 2026-07-10: the men's ethnic bottom query (churidar/
+            # pyjama/dhoti) has almost no clean survivors in this catalogue, so
+            # every men's ethnic board shipped bottomless with a false "no men's
+            # bottoms" note — while 4,668 men's trousers/jeans exist. Tailored
+            # trousers are a legitimate bottom under a kurta or sherwani; retry
+            # once with a western-formal query before suppressing the slot.
+            candidate = _find_best_candidate(
+                query="tailored trousers formal dark trousers",
+                slot_name=slot_spec.slot_name,
+                occasion_slug=occasion_slug,
+                gender=effective_gender,
+                anchor_colour=anchor_colour,
+                seen_ids=seen_ids,
+                seen_prod_colour=seen_prod_colour,
+                retriever=retriever,
+                budget_remaining=budget_inr - running_total if budget_inr is not None else None,
+                pairing_stats=pairing_stats,
+                anchor_class=anchor_class,
+                seen_stores=seen_stores,
+                body_type=body_type,
+                body_modifiers=body_modifiers,
+            )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
             # RED 1a/1e/B4a/B4b: without this, ItemSummary.slot_role is None for every
@@ -331,7 +355,10 @@ def _suppression_reason(slot_name: str, gender: str) -> str:
         "top": "tops",
     }
     label = labels.get(slot_name, slot_name)
-    return f"No {gender}'s {label} in our partner stores yet"
+    # "that match this look" — the honest claim. A bare "No men's bottoms in our
+    # partner stores yet" was live-proven FALSE (4,668 exist); suppression only
+    # means no candidate survived THIS look's gates, never an inventory absence.
+    return f"No {gender}'s {label} that match this look in our partner stores yet"
 
 
 def compose_outfit_variants(
@@ -883,6 +910,16 @@ def _score_candidates(
         # the best-scoring candidate (live-proven: office look's bottom slot
         # filled with "ONLY Women Blue Solid Denim Mini Skirts").
         if get_occasion(occasion_slug).formality >= 3 and is_casual_marker_item(item_name):
+            continue
+        # Footwear register gate (sweep 2026-07-10, relevance-adjacent): the
+        # casual-marker vocabulary above covers garments only — ₹759 combat
+        # boots passed it into a sangeet look. Rugged/athletic footwear never
+        # belongs in a formality >= 3 occasion's footwear slot.
+        if (
+            slot_name == "footwear"
+            and get_occasion(occasion_slug).formality >= 3
+            and is_rugged_footwear_item(item_name)
+        ):
             continue
         if not is_coherent_candidate(
             item, occasion_slug, gender, slot_name, skip_gender_gate=is_neutral_fallback_item

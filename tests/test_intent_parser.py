@@ -60,6 +60,48 @@ class TestGenderPhrasings:
         assert intent.gender == "women"
 
 
+class TestExplicitGenderBeatsGarmentHeuristic:
+    """2026-07-11 live-proof-caught bug: "kurta" is unisex in this catalogue
+    (it stocks men's kurtas — see gold_020/gold_028 in the strict gold set),
+    so an explicit gender word must always win over any garment-implied
+    gender guess. Production was resolving "printed kurta for men" to
+    gender=women because the old _GENDER_MAP order checked "kurta" as a
+    women-marker before the explicit "men" rule."""
+
+    @pytest.mark.parametrize(
+        "query, expected_gender",
+        [
+            ("printed kurta for men", "men"),
+            ("white straight fit kurta for men under 2000", "men"),
+            ("men's kurta for a reception", "men"),
+            ("kurta for men", "men"),
+            ("kurta for women", "women"),
+        ],
+    )
+    def test_explicit_gender_word_wins_over_kurta(
+        self, query: str, expected_gender: str
+    ) -> None:
+        intent = parse_intent(query)
+        assert intent.gender == expected_gender, (
+            f"query={query!r}: expected gender={expected_gender!r}, got {intent.gender!r}"
+        )
+
+    def test_kurta_alone_has_no_gender_signal(self) -> None:
+        # No explicit gender word and no other gender-implying garment — the
+        # brand-default fallback (graph.py) handles this, not a garment guess.
+        intent = parse_intent("bright yellow kurta for haldi")
+        assert intent.gender is None
+
+    def test_kurti_still_implies_women(self) -> None:
+        # "kurti" (unlike "kurta") is a genuinely women-specific term.
+        intent = parse_intent("kurti under 1500")
+        assert intent.gender == "women"
+
+    def test_sherwani_still_implies_men(self) -> None:
+        intent = parse_intent("sherwani for groom")
+        assert intent.gender == "men"
+
+
 # ---------------------------------------------------------------------------
 # Group 2: Garment synonyms
 # ---------------------------------------------------------------------------
@@ -116,11 +158,11 @@ class TestColourGarmentCombos:
             ("red kurti", "Red", "kurti"),
             ("dark blue blazer", "Dark Blue", "blazer"),
             ("white shirt", "White", "shirt"),
-            ("navy dress", "Dark Blue", "dress"),
+            ("navy dress", "Navy Blue", "dress"),
             ("grey trousers", "Grey", "trousers"),
             ("pink blouse", "Pink", "blouse"),
             ("green top", "Green", "top"),
-            ("navy blue jeans", "Dark Blue", "jeans"),
+            ("navy blue jeans", "Navy Blue", "jeans"),
         ],
     )
     def test_colour_and_garment(
@@ -141,7 +183,7 @@ class TestColourGarmentCombos:
 
     def test_navy_canonical(self) -> None:
         intent = parse_intent("navy jacket")
-        assert intent.colour == "Dark Blue"
+        assert intent.colour == "Navy Blue"
 
 
 # ---------------------------------------------------------------------------
@@ -419,4 +461,4 @@ class TestRawQueryPreservation:
         q = "Navy BLUE Kurti"
         intent = parse_intent(q)
         assert intent.raw_query == "Navy BLUE Kurti"
-        assert intent.colour == "Dark Blue"  # canonical form used internally
+        assert intent.colour == "Navy Blue"  # canonical form used internally

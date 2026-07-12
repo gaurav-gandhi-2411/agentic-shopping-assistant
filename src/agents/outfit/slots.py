@@ -18,7 +18,7 @@ ETHNIC_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
     "salwar kameez", "palazzo set", "ethnic dress", "gown",
 })
 ETHNIC_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
-    "palazzo", "churidar", "salwar", "sharara", "pyjama", "dhoti",
+    "palazzo", "palazzos", "churidar", "salwar", "sharara", "pyjama", "dhoti",
 })
 WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     "shirt", "t-shirt", "tshirt", "top", "blouse", "sweater", "sweatshirt",
@@ -26,6 +26,10 @@ WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
 })
 WESTERN_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     "trousers", "jeans", "shorts", "skirt", "jeggings",
+    # 2026-07-11: "pant"/"pants" is a distinct catalogue naming convention from
+    # "trousers" ("Kurta with Pant & Dupatta") — same garment class, was
+    # previously unrecognised by this keyword set entirely.
+    "pant", "pants",
 })
 WESTERN_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
     "dress", "jumpsuit", "playsuit", "dungarees", "co-ord",
@@ -313,6 +317,26 @@ def is_casual_marker_item(prod_name: str) -> bool:
     return bool(_CASUAL_MARKER_RE.search(prod_name or ""))
 
 
+# Rugged/athletic footwear register — live-proven miss (sweep 2026-07-10,
+# relevance-adjacent): a sangeet "his look" footwear slot filled with ₹759
+# combat boots. The generic casual-marker gate above covers garments (denim/
+# cargo/joggers) but had no footwear vocabulary at all. Plain "boots" is
+# included deliberately: for Indian festive/formal occasions the appropriate
+# menswear registers are oxfords/derbies/loafers/monks/mojaris/juttis — even a
+# dress Chelsea boot is an edge case not worth the combat-boot false accepts.
+_RUGGED_FOOTWEAR_RE = re.compile(
+    r"\b(boots?|sneakers?|trainers?|running|walking|sports?|training|trekking|hiking|"
+    r"football|badminton|gym|flip[\s-]?flops?|slippers?|sliders?|crocs?|clogs?)\b",
+    re.IGNORECASE,
+)
+
+
+def is_rugged_footwear_item(prod_name: str) -> bool:
+    """True if `prod_name` reads as rugged/athletic/at-home footwear — never
+    acceptable in a formality >= 3 look's footwear slot."""
+    return bool(_RUGGED_FOOTWEAR_RE.search(prod_name or ""))
+
+
 # Phase B (product gap 2): a multi-piece SET listing ("Anarkali Sharara Set",
 # "Kurta Set with Dupatta", a "Co-Ord Set") is a WHOLE OUTFIT, not a single
 # garment — it must never fill a single complement slot (bottom/top/
@@ -362,16 +386,29 @@ _SET_GARMENT_NOUN_KEYWORDS: frozenset[str] = (
 )
 
 
+# 2026-07-11 (search-path set-exclusion follow-up): a THIRD signal, alongside
+# the two above — this catalogue's dominant multi-piece naming convention is
+# "<garment> with <garment> [& <garment>]" (e.g. "Kaftan Kurta with Abstract
+# Patchwork Palazzo", "Anarkali Kurta with Pant & Dupatta") and very often
+# never uses the literal word "set"/"sets" at all, so signal 2 alone misses
+# most of the real strict-eval-labeled "set-not-single" cases. "with" +
+# >=2 distinct garment nouns is a reliable, near-universal signal for this
+# catalogue's listing style — verified against every "set-not-single"
+# hand-label in eval/fixtures/strict_gold_labels.yaml.
+_WITH_RE = re.compile(r"\bwith\b", re.IGNORECASE)
+
+
 def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     """Return True if this item is a multi-piece SET listing (a whole outfit)
     rather than a single garment. See the module comment above
-    _SET_PRODUCT_TYPES for the two conservative signals checked.
+    _SET_PRODUCT_TYPES for the two conservative signals checked, and the
+    comment above _WITH_RE for the third.
     """
     pt = (product_type or "").lower().strip()
     if pt in _SET_PRODUCT_TYPES:
         return True
     name = (prod_name or "").lower()
-    if not _SET_WORD_RE.search(name):
+    if not (_SET_WORD_RE.search(name) or _WITH_RE.search(name)):
         return False
     distinct_nouns = {kw for kw in _SET_GARMENT_NOUN_KEYWORDS if _contains_word(name, kw)}
     return len(distinct_nouns) >= 2

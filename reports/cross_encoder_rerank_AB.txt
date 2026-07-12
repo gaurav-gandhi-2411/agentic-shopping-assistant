@@ -1,0 +1,56 @@
+Cross-encoder reranker A/B — cross-encoder/ms-marco-MiniLM-L-6-v2 vs current LLM-prompted reranker
+Run: 2026-07-11, commit 5698a99 (current HEAD at time of run)
+Commands:
+  python scripts/eval_strict.py --mode pipeline                  (baseline, current LLM reranker)
+  python scripts/eval_strict.py --mode pipeline --cross-encoder  (candidate, cross-encoder reorders the
+                                                                    post-occasion-gate candidate pool)
+
+RESULT — REGRESSION. NOT ADOPTED. Full numbers below.
+
+Mechanism under test: scripts/eval_strict.py's _retrieve_pipeline() runs the identical
+retrieval + occasion-gate + set-exclusion pipeline as production search_node up through
+candidate selection, then either (a) leaves the LLM-reranked order as-is (baseline) or
+(b) re-sorts the SAME candidate pool by cross-encoder.predict((query, item_text)) score
+(candidate). Both runs score against eval/fixtures/strict_gold_labels.yaml.
+
+47 items newly surfaced into top-5 by the cross-encoder reorder were hand-labeled against
+the same rubric as the rest of the gold set (strict_gold_labels.yaml "Batch 6",
+2026-07-11) before this comparison — both numbers below are on the IDENTICAL n=186 labeled
+item set, zero unlabeled either side. This is a clean, apples-to-apples comparison.
+
+                    baseline (LLM reranker)   cross-encoder reorder    delta
+overall precision@5   0.860  (160/186)          0.839  (156/186)      -0.021
+  literal              0.960  (24/25)            0.880  (22/25)       -0.080
+  multi_attribute       0.657  (23/35)            0.629  (22/35)       -0.028
+  occasion             0.836  (56/67)            0.806  (54/67)       -0.030
+  style                0.966  (57/59)            0.983  (58/59)       +0.017
+
+3 of 4 categories regress; the only gain (style, +1.7pp, 1 item) does not offset the
+literal-category loss (-8pp, 2 items) or the net overall loss (-2.1pp, 4 items).
+
+WHY: cross-encoder/ms-marco-MiniLM-L-6-v2 is trained on MS MARCO passage relevance (general
+web-search query-document matching), not fashion attribute matching. It has no notion of the
+hard business rules the current LLM-prompted reranker (src/agents/reranker.py) encodes
+explicitly — budget caps, exact silhouette/type match, colour-family tolerance, occasion
+register. The regression concentrates exactly where those rules matter most: literal (exact
+type/colour match) and multi_attribute (budget + colour + silhouette combined) both drop;
+style (loose semantic similarity, closest to what MS MARCO training rewards) is the one
+category that improves.
+
+DECISION: cross-encoder reranking is NOT wired into production (src/agents/graph.py
+search_node is unchanged — it still calls the existing LLM reranker). The
+--cross-encoder flag added to scripts/eval_strict.py is retained as an opt-in eval-only
+capability (default off, zero effect on eval_gate.py or any other eval mode) so a future
+session can A/B a fashion-domain-finetuned cross-encoder (e.g. one trained on a fashion
+retrieval dataset, or one distilled from this project's own labeled gold set) without
+re-deriving the harness.
+
+RECOMMENDATION: a generic MS MARCO cross-encoder is not worth pursuing further for this
+catalogue. If reranking quality is revisited, prioritize (a) fine-tuning a small
+cross-encoder on this project's own labeled pairs (the gold set + miss-taxonomy notes are
+already a training signal), or (b) extending the existing rule-based LLM reranker's business
+rules rather than replacing it with an off-the-shelf general-purpose model.
+
+Artifacts: eval/fixtures/strict_gold_labels.yaml "Batch 6" (47 new hand-labels, permanent
+gold-set growth regardless of this decision — n grew from 186 baseline-only-reachable items
+to being usable for any future reranking A/B against the same query set).

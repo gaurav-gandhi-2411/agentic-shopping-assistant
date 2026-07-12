@@ -228,7 +228,9 @@ def _build_cross_store_action(items: list[dict]) -> dict:
 
     for item in items:
         article_id = str(item.get("article_id") or "")
-        name = item.get("display_name") or item.get("prod_name") or article_id
+        # prod_name first: catalogue display_name carries an internal "(category)"
+        # suffix that leaked into buy-links and saved looks (sweep 2026-07-10, P1-7).
+        name = item.get("prod_name") or item.get("display_name") or article_id
         store = (item.get("store") or "").strip().lower() or None
 
         # Build the URL using the item's own store — never fall back to a
@@ -272,7 +274,9 @@ def _build_shopify_action(
     for item in items:
         article_id = str(item.get("article_id") or "")
         handle = (item.get("pdp_handle") or "").strip()
-        name = item.get("display_name") or item.get("prod_name") or article_id
+        # prod_name first: catalogue display_name carries an internal "(category)"
+        # suffix that leaked into buy-links and saved looks (sweep 2026-07-10, P1-7).
+        name = item.get("prod_name") or item.get("display_name") or article_id
 
         # Per-item PDP link (always built if we have a handle)
         pdp_url = _pdp_url(brand, handle) if handle else None
@@ -323,7 +327,9 @@ def _build_open_all_action(items: list[dict], brand: str) -> dict:
     for item in items:
         article_id = str(item.get("article_id") or "")
         handle = (item.get("pdp_handle") or "").strip()
-        name = item.get("display_name") or item.get("prod_name") or article_id
+        # prod_name first: catalogue display_name carries an internal "(category)"
+        # suffix that leaked into buy-links and saved looks (sweep 2026-07-10, P1-7).
+        name = item.get("prod_name") or item.get("display_name") or article_id
 
         if handle:
             item_links.append({

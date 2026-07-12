@@ -111,10 +111,23 @@ def fetch_all_products(domain: str, session: requests.Session) -> list[dict]:
 
 
 def normalize(products: list[dict], domain: str) -> pd.DataFrame:
-    """Flatten Shopify product dicts into the generic adapter's column schema."""
+    """Flatten Shopify product dicts into the generic adapter's column schema.
+
+    Drops products with ZERO purchasable variants (2026-07-13, launch-critical:
+    a live search was surfacing sold-out items because this catalogue is a
+    static snapshot with no other stock signal). Shopify's public /products.json
+    exposes per-variant "available": true/false — a product is kept only if at
+    least one variant is available (a size being sold out while others remain
+    in stock is not itself a reason to drop the product; ALL variants sold out
+    is). n_out_of_stock is logged so re-syncs report exactly how many were cut.
+    """
     rows = []
+    n_out_of_stock = 0
     for p in products:
         variants = p.get("variants") or []
+        if variants and not any(v.get("available") for v in variants):
+            n_out_of_stock += 1
+            continue
         price_str = variants[0].get("price", "0") if variants else "0"
         try:
             price_inr = float(price_str)
@@ -138,6 +151,9 @@ def normalize(products: list[dict], domain: str) -> pd.DataFrame:
                 "handle": str(p.get("handle", "")).strip(),
             }
         )
+
+    if n_out_of_stock:
+        print(f"  Dropped {n_out_of_stock} fully out-of-stock product(s) (zero available variants).")
 
     return pd.DataFrame(rows)
 

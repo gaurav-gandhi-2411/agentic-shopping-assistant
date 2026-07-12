@@ -1,0 +1,38 @@
+Loading retrieval indices from C:\Users\gaura\ml-projects\agentic-shopping-assistant\data\processed\unified...
+
+STRICT GOLD EVAL [pipeline-occasion-gated] — hand-audited relevance (rubric: strict_gold_queries.yaml)
+queries=40  scored_items=187  unlabeled_items=0
+
+strict precision@5 (overall): 0.845  (158/187)
+
+per-category precision@5:
+  literal          0.960  (24/25)
+  multi_attribute  0.600  (21/35)
+  occasion         0.824  (56/68)
+  style            0.966  (57/59)
+
+miss taxonomy:
+   11  set-not-single           [CODE-FIXABLE]
+    5  occasion-register        [CODE-FIXABLE]
+    5  type-confusion           [CODE-FIXABLE]
+    4  budget                   [CODE-FIXABLE]
+    4  attribute-contradiction  [CODE-FIXABLE]
+
+if every CODE-FIXABLE miss were fixed: 1.000 (remaining gap = 0 data-capped items)
+
+weakest queries:
+  multi_008      [multi_attribute ] 0/5  'wine anarkali kurta for reception under 8000'
+  occ_adv_002    [occasion        ] 1/4  'bright haldi look for women'
+  occ_adv_005    [occasion        ] 1/4  'mehendi outfit for women'
+  multi_007      [multi_attribute ] 1/5  'peach a-line kurta for women under 2500'
+  occ_adv_001    [occasion        ] 2/5  'haldi outfit for women'
+  multi_004      [multi_attribute ] 3/5  'yellow cotton kurta for haldi under 1500'
+  gold_004       [style           ] 4/5  'straight fit kurta for women'
+  gold_005       [style           ] 4/5  'anarkali kurta for women'
+  gold_016       [literal         ] 4/5  'kurti under 1500'
+  gold_018       [occasion        ] 4/5  'bright yellow kurta for haldi'
+  gold_020       [occasion        ] 4/5  "men's kurta for a reception"
+  occ_adv_007    [occasion        ] 4/5  'wedding guest saree for women'
+  multi_001      [multi_attribute ] 4/5  'black bodycon dress for office under 3000'
+  multi_002      [multi_attribute ] 4/5  'green floral kurta for mehendi under 2000'
+  multi_006      [multi_attribute ] 4/5  'white straight fit kurta for men under 2000'

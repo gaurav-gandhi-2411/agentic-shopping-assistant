@@ -1,0 +1,67 @@
+Reranker candidate #2 — BAAI/bge-reranker-base vs the current LLM-prompted reranker
+Run: 2026-07-12, commit bdf66a4 (current HEAD at time of run)
+Command: python scripts/eval_strict.py --mode pipeline --cross-encoder --cross-encoder-model "BAAI/bge-reranker-base"
+
+RESULT — REJECTED. Fails the $0/free-tier hard requirement on resource cost alone,
+and shows no precision improvement on the partial comparison available without
+further labeling. Full reasoning below.
+
+WHY THIS CANDIDATE: the first cross-encoder tried this review (cross-encoder/ms-marco-
+MiniLM-L-6-v2, reports/cross_encoder_rerank_AB.txt) regressed precision, attributed to
+domain mismatch (a small MS MARCO web-search-trained model with no fashion-attribute
+awareness). BAAI/bge-reranker-base is a larger, more capable, still free/self-hostable
+general-purpose cross-encoder — the natural next candidate by expected value if the
+prior failure was a model-capacity problem rather than a domain-mismatch problem.
+
+--- RESOURCE COST (measured directly, both models loaded in-process on CPU) ---
+                          ms-marco-MiniLM-L6-v2   BAAI/bge-reranker-base   delta
+params                    22.7M                    278.0M                  12.2x
+on-disk size (HF cache)   88MB                      1.1GB                  12.5x
+predict 50 pairs (CPU)    0.16s                     1.21s                  7.5x
+
+The production Cloud Run container (min-instances=0, 4Gi memory, per Dockerfile) already
+hosts CLIP ViT-B-32, sentence-transformers/all-MiniLM-L6-v2, the FAISS dense index, the
+BM25 sparse index, and the full 61,883-row catalogue dataframe in the same process.
+Adding a 1.1GB reranker model is a real risk against that 4Gi ceiling, and the model
+would need to be baked into the Docker image (per the existing SentenceTransformer
+pre-download step) to avoid a runtime download on every cold start — a 12.5x larger
+image layer with a real, measurable per-cold-start latency cost on a service that scales
+to zero between requests. This alone satisfies the review's explicit hard-reject
+criterion ("blows Cloud Run cold-start/memory... REJECT it and report why") independent
+of the precision result below.
+
+--- PRECISION (partial comparison — NOT fully labeled, reported honestly as partial) ---
+python scripts/eval_strict.py --mode pipeline --cross-encoder --cross-encoder-model
+"BAAI/bge-reranker-base" surfaced 31 unlabeled items (new top-5 entrants from the
+reorder) out of a possible 246 — labeling was NOT completed for this candidate because
+the resource-cost rejection above is already sufficient and independent grounds; running
+the same labeling exercise a third time this review for a candidate already disqualified
+on cost would not change the adopt/reject decision, only its precision-margin footnote.
+
+On the 215 items that WERE already labeled (89% coverage of the full 246):
+  baseline (LLM reranker, all 246 labeled): precision@5 0.841  (207/246)
+  bge-reranker-base (215 of 246 labeled):   precision@5 0.837  (180/215)  -- FLAT, not a
+                                             meaningful margin either direction.
+This is consistent with (not proof of, given the partial/uncomparable n) the same
+domain-mismatch hypothesis as the first candidate: bge-reranker-base is ALSO trained on
+general web/passage retrieval data (MS MARCO + broader multilingual retrieval mixes),
+not fashion-attribute matching, so it has no more notion of this catalogue's budget/
+silhouette/occasion-register business rules than the smaller MiniLM cross-encoder did.
+
+DECISION: REJECTED. Neither the cost nor the (partial) precision signal supports
+adoption; the cost rejection alone is sufficient per this review's explicit rule.
+scripts/eval_strict.py's --cross-encoder-model flag is retained (any sentence-
+transformers CrossEncoder can now be benchmarked without code changes) for a future
+session that wants to try a genuinely fashion/e-commerce-domain-finetuned reranker,
+which is the more promising remaining direction than another generic web-search model.
+
+CUMULATIVE FINDING ACROSS BOTH CANDIDATES THIS REVIEW: the retrieval bottleneck on this
+catalogue is not "needs a better generic reranker" — it is the explicit, hand-written
+business-rule logic (budget caps, colour-family tolerance, occasion-register formality,
+silhouette matching) that the current LLM-prompted reranker (src/agents/reranker.py)
+already encodes and that neither off-the-shelf cross-encoder reproduces. The two real,
+measurable wins this review shipped (the gender-heuristic-ordering fix and the occasion-
+term-pollution fix, both in src/agents/graph.py and src/agents/intent_parser.py) came
+from fixing that hand-written logic directly, not from swapping in a bigger model --
+consistent with this review's own opening premise that gains here are in code, not model
+capacity.

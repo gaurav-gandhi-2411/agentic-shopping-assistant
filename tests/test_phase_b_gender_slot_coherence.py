@@ -1178,7 +1178,9 @@ class TestSuppressedSlotsPayload:
         suppressed = {s["slot"]: s["reason"] for s in look["suppressed_slots"]}
         assert "footwear" in suppressed
         assert "accessory" in suppressed
-        assert suppressed["footwear"] == "No women's footwear in our partner stores yet"
+        assert suppressed["footwear"] == (
+            "No women's footwear that match this look in our partner stores yet"
+        )
         # outerwear WAS filled — must not appear in suppressed_slots
         assert "outerwear" not in suppressed
         # required-slot failure degrades to a suppression note, not an abort

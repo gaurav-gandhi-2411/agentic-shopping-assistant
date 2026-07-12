@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import Image from "next/image"
+import { ProductImage } from "@/components/ProductImage"
 import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } from "lucide-react"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
@@ -753,21 +753,15 @@ function SlotCard({
 
   const cardBody = (
     <>
-      <div className="relative aspect-[4/5] bg-muted max-h-52 overflow-hidden">
-        {imageSrc ? (
-          <Image
-            src={imageSrc}
-            alt={isOwned ? "Your uploaded photo" : item.prod_name}
-            fill
-            sizes="(max-width: 640px) 50vw, 33vw"
-            unoptimized
-            className="object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-3xl select-none">
-            👗
-          </div>
-        )}
+      {/* max-h-52 capped the image at ~165px wide inside a much wider grid cell,
+          leaving a big empty field beside every slot photo (sweep 2026-07-10,
+          P2-9). aspect-[4/5] + full cell width lets the photo be the hero. */}
+      <div className="relative aspect-[4/5] bg-muted overflow-hidden">
+        <ProductImage
+          src={imageSrc}
+          alt={isOwned ? "Your uploaded photo" : item.prod_name}
+          sizes="(max-width: 640px) 50vw, 33vw"
+        />
         <span
           className={cn(
             "absolute top-1.5 left-1.5 rounded-sm text-[10px] font-semibold px-1.5 py-0.5",

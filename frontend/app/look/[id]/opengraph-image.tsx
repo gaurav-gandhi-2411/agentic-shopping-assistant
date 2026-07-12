@@ -1,8 +1,8 @@
 /**
  * OG image for shared look pages — /look/[id]
  *
- * Renders a polished static-brand card (plum background, marigold
- * "Smiling Hanger" mark) plus the look's occasion + item count when the
+ * Renders a polished static-brand card (cream background, Marigold Knot
+ * mark) plus the look's occasion + item count when the
  * look can be fetched cheaply. Never throws: a failed fetch falls back to
  * the static brand card so the build/route never breaks.
  */
@@ -53,33 +53,18 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: "#1B1722",
+          backgroundColor: "#FAF6F1",
           fontFamily: "sans-serif",
         }}
       >
-        {/* Smiling Hanger mark */}
-        <svg width="120" height="120" viewBox="0 0 32 32" fill="none">
-          <path
-            d="M5.5 18.2L16 9.4l10.5 8.8"
-            stroke="#E8A33D"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M5.5 18.2c3.2 4.6 17.8 4.6 21 0"
-            stroke="#E8A33D"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M16 9.4V8.1c0-1.15.9-2.05 2.05-2.05"
-            stroke="#E8A33D"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+        {/* Marigold Knot mark (brand/mark.svg, approved rebrand asset — the
+            old "Smiling Hanger" here was a rejected concept that survived in
+            OG images only; see defect sweep 2026-07-10 P1-8) */}
+        <svg width="120" height="120" viewBox="0 0 48 48" fill="none">
+          <g transform="translate(24,24)" stroke="#B99A5F" strokeWidth="3.8" strokeLinecap="round" strokeLinejoin="round" fill="none">
+            <path d="M14.50,0.00 C14.50,6.60 4.30,7.30 0.00,3.00 C-4.30,7.30 -14.50,6.60 -14.50,0.00 C-14.50,-6.60 -4.30,-7.30 0.00,-3.00 C4.30,-7.30 14.50,-6.60 14.50,0.00 Z"/>
+            <path d="M14.50,0.00 C14.50,6.60 4.30,7.30 0.00,3.00 C-4.30,7.30 -14.50,6.60 -14.50,0.00 C-14.50,-6.60 -4.30,-7.30 0.00,-3.00 C4.30,-7.30 14.50,-6.60 14.50,0.00 Z" transform="rotate(90)"/>
+          </g>
         </svg>
 
         <div
@@ -88,11 +73,11 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
             marginTop: 32,
             fontSize: 64,
             fontWeight: 700,
-            color: "#ffffff",
+            color: "#3B3230",
             letterSpacing: "-0.02em",
           }}
         >
-          Style <span style={{ color: "#E8A33D" }}>Maitri</span>
+          Style <span style={{ color: "#B99A5F" }}>Maitri</span>
         </div>
 
         {occasion ? (
@@ -101,7 +86,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
               display: "flex",
               marginTop: 20,
               fontSize: 32,
-              color: "#e5e1e8",
+              color: "#6F6259",
             }}
           >
             {formatOccasion(occasion)}
@@ -113,7 +98,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
               display: "flex",
               marginTop: 20,
               fontSize: 32,
-              color: "#e5e1e8",
+              color: "#6F6259",
             }}
           >
             Your AI stylist for fashion discovery

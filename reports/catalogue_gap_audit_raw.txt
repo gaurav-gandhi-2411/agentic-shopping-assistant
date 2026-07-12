@@ -1,0 +1,50 @@
+catalogue total: 61883 rows
+
+women rows: 34495  |  men rows: 25336
+
+
+======================================================================
+MEN'S OCCASIONWEAR
+======================================================================
+sherwanis (men): 1
+  colours: {}
+  product_type_name values: ['Kurtas, Ethnic Sets and Bottoms']
+
+bandhgalas (men): 0
+
+blazers (men), total: 7
+  under 5000: 5
+  colours: {'Blue': 2, 'Black': 1, 'Off White': 1}
+
+men's ethnic bottoms (churidar/pyjama/dhoti), by NAME: 214
+  actual product_type_name values: {'Kurtas, Ethnic Sets and Bottoms': 118, 'nightwear': 89, 'kurta': 7}
+  of which classified as nightwear (not usable as festive bottom): 89
+
+======================================================================
+FOOTWEAR
+======================================================================
+women's footwear: 1
+men's footwear: 294
+women's ethnic footwear (jutti/mojari/kolhapuri): 0
+men's ethnic footwear (jutti/mojari/kolhapuri): 0
+
+======================================================================
+JEWELLERY / BRIDAL ACCESSORIES
+======================================================================
+jewellery items (any gender, by name): 31
+jewellery by product_type_name facet: 0
+
+======================================================================
+COLOUR DEPTH — men's ethnic occasionwear
+======================================================================
+sherwani: n=1  colours_available=[]
+bandhgala: n=0  colours_available=[]
+
+men's kurta (for contrast, healthy category): n=272  distinct colours=21
+
+======================================================================
+STORE CONCENTRATION — thin occasionwear categories
+======================================================================
+sherwani: stores = {'flipkart': 1}
+blazer(men): stores = {'snitch': 4, 'flipkart': 2, 'globalrepublic': 1}
+women's footwear: stores = {'globalrepublic': 1}

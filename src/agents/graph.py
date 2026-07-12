@@ -7,7 +7,11 @@ import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
 from src.agents.grounding import validate_response
-from src.agents.outfit.body_type import body_type_ack_message, body_type_clarify_message
+from src.agents.outfit.body_type import (
+    body_type_ack_message,
+    body_type_clarify_message,
+    demote_size_mismatched_items,
+)
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
@@ -49,6 +53,11 @@ _OUTFIT_INTENT_RE = re.compile(
     r"put\s+together|compose\s+(?:a|an))\b",
     re.IGNORECASE,
 )
+# search_node's single-garment set-exclusion gate (2026-07-11 follow-up): a
+# query containing any of these words legitimately wants a multi-piece
+# listing, so the gate is skipped — same "outfit"/"look" words as
+# _OUTFIT_INTENT_RE above, plus explicit set/combo/co-ord words.
+_SET_INTENT_RE = re.compile(r"\bsets?\b|\bcombo\b|\bco-?ord\b", re.IGNORECASE)
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
@@ -498,12 +507,46 @@ _OOC_CATEGORIES: dict[str, list[str]] = {
 }
 
 
+# Intent verbs and shopping glue words that legitimately carry a first message
+# even when no catalogue token is present ("show me something nice"). Garment,
+# colour, and occasion words need no listing here — they all occur in the
+# catalogue search text, so has_any_known_token() already recognises them.
+_SHOPPING_INTENT_WORDS: frozenset[str] = frozenset({
+    "show", "find", "want", "need", "looking", "something", "anything", "nice",
+    "cheap", "cheaper", "budget", "outfit", "outfits", "clothes", "clothing",
+    "wear", "style", "buy", "shopping", "help", "suggest", "recommend",
+    "options", "ideas", "pastel", "bright", "dark", "light",
+})
+
+
+def _is_unrecognized_query(query: str, retriever: "HybridRetriever") -> bool:
+    """True when NO token of a query is recognisable — not in the catalogue's
+    BM25 vocabulary and not a known shopping-intent word. Tokens under 3 chars
+    are ignored (glue like "a"/"of"); a query with no >=3-char alpha token at
+    all is NOT flagged (emoji/short inputs follow the normal path)."""
+    tokens = [t for t in re.findall(r"[a-z]+", query.lower()) if len(t) >= 3]
+    if not tokens:
+        return False
+    if any(t in _SHOPPING_INTENT_WORDS for t in tokens):
+        return False
+    sparse = getattr(retriever, "sparse", None)
+    if sparse is None or not hasattr(sparse, "has_any_known_token"):
+        return False
+    return not sparse.has_any_known_token(" ".join(tokens))
+
+
 def _detect_ooc(query: str) -> str | None:
-    """Return the OOC category label if query contains a known non-clothing keyword, else None."""
+    """Return the OOC category label if query contains a known non-clothing keyword, else None.
+
+    Word-boundary matching, NOT substring: live defect 2026-07-10 — plain `in`
+    matched "tea" inside "ins-tea-d", so the colour refinement "show me pastel
+    colours instead" was refused as a food-and-drink query mid-conversation.
+    """
     q = query.lower()
     for category, words in _OOC_CATEGORIES.items():
-        if any(w in q for w in words):
-            return category
+        for w in words:
+            if re.search(rf"\b{re.escape(w.strip())}\b", q):
+                return category
     return None
 
 _LAST_N_RE = re.compile(r"\blast\s+(two|three|four|five|[2-5])\b", re.IGNORECASE)
@@ -1439,7 +1482,7 @@ def build_graph(
         r"\bwife\b": "Ladieswear", r"\bwives\b": "Ladieswear",
         r"\bgirlfriend\b": "Ladieswear", r"\bher\b": "Ladieswear",
         r"\bhusband\b": "Menswear", r"\bboyfriend\b": "Menswear",
-        r"\bhim\b": "Menswear",
+        r"\bhim\b": "Menswear", r"\bgroom\b": "Menswear", r"\bbride\b": "Ladieswear",
         r"\bkid\b": "Baby/Children", r"\bkids\b": "Baby/Children",
         r"\bchild\b": "Baby/Children", r"\bchildren\b": "Baby/Children",
         r"\bbaby\b": "Baby/Children",
@@ -1484,6 +1527,10 @@ def build_graph(
         (r"\bsalwar\b", "salwar"),
         (r"\bco-?ord\b|\bcoord\b", "coord"),
         (r"\bvest\b|\btank\b", "vest"),
+        # 2026-07-11 catalogue-gap follow-up — see intent_parser._GARMENT_RULES
+        # for the same addition and why (scripts/patch_thin_category_facets.py).
+        (r"\bsherwanis?\b", "sherwani"),
+        (r"\bbandhgalas?\b", "bandhgala"),
     ]
 
     # RED 5b/D: occasion keyword → extra garment-category search terms, appended to
@@ -1587,6 +1634,27 @@ def build_graph(
                     {"search_ooc": {"query": raw_query, "category": ooc_category}}
                 ],
             }
+
+        # Gibberish guard (live defect 2026-07-10, P0-4): a keyboard-mash first
+        # message ("asdfgh qwerty zxcvb") got a confident product rec — dense
+        # similarity over noise still ranks something first. Context-free turns
+        # only (no accumulated filters, no prior search): refinement words like
+        # "cheaper" are legitimately absent from catalogue vocabulary, and a
+        # mid-conversation turn always has context that makes results defensible.
+        is_first_search = not state.get("filters") and not any(
+            "search" in tc or "search_ooc" in tc for tc in state.get("tool_calls", [])
+        )
+        if is_first_search and _is_unrecognized_query(raw_query, retriever):
+            logger.info("[search] unrecognized query -> clarify: %r", raw_query)
+            return {
+                "retrieved_items": [],
+                "new_items_this_turn": False,
+                "out_of_catalogue": True,  # reuses the router's certain fast-path to respond
+                "iteration": state.get("iteration", 0) + 1,
+                "tool_calls": state.get("tool_calls", []) + [
+                    {"search_unrecognized": {"query": raw_query}}
+                ],
+            }
         # Merge accumulated state filters with any new filters the router specified.
         # S3a fix: router_node sets plan["reset_filters"]=True on a genuine
         # garment-type pivot (e.g. "white shirt for men" -> "kurta for sangeet
@@ -1666,7 +1734,20 @@ def build_graph(
         # LLM-emitted filters take precedence (facets already in merged are skipped).
         # Longest value matched first within each facet so "dark blue" beats "blue",
         # "t-shirt" beats "shirt", etc.
-        query_lower = query.lower()
+        # MUST scan raw_query, not `query` — the occasion-term injection above (RED
+        # 5b/D) appends several garment words to `query` purely to broaden dense/BM25
+        # recall for garment-type-less occasion queries ("haldi outfit for women").
+        # Scanning the augmented string here let an INJECTED word win the longest-
+        # match facet search over what the user actually typed: "lehenga for sangeet"
+        # was pinning product_type_name="sherwani" (from the sangeet occasion-term
+        # list) instead of the literal "lehenga" the user asked for, and garment-
+        # type-less occasion queries ("haldi/mehendi outfit for women") were being
+        # hard-filtered to a single injected type ("lehenga") instead of staying
+        # unfiltered across garment types as RED 5b/D intended. Found 2026-07-12 via
+        # a live-URL proof trace, not the strict eval harness (both eval_strict.py
+        # and eval_model.py drive `merged`/filters independently of this code path
+        # for several of their query fixtures).
+        query_lower = raw_query.lower()
         for facet_name, facet_vals in _valid_facet_values.items():
             if facet_name in merged:
                 continue
@@ -1958,6 +2039,70 @@ def build_graph(
                         seen_diverse.add(item["article_id"])
             items_out = diverse[:top_k]
 
+        # Occasion register gate + rerank (relevance quality pass, 2026-07-11):
+        # occasion previously entered plain search ONLY as raw keyword text
+        # appended to the query when no garment type was present
+        # (_OCCASION_QUERY_TERMS above) — "lehenga for sangeet" got zero
+        # occasion signal beyond whatever the embedding happened to catch, so
+        # western items and haldi-inappropriate heavy/dark items could rank
+        # into the top-5 untouched. Reuses the SAME hard register gate
+        # (is_coherent_candidate) and fabric/embellishment rerank
+        # (fabric_score_delta) the outfit composer already applies per-slot —
+        # applied once here to the plain search result list. Pool-underflow
+        # protected: a gate that would empty the list is skipped, never
+        # returns zero results just because every candidate happened to be
+        # off-register.
+        from src.agents.intent_parser import parse_intent as _occ_parse_intent
+        from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
+        from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
+        from src.agents.outfit.slots import is_kids_item as _occ_is_kids_item
+        from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
+
+        _occ_intent = _occ_parse_intent(raw_query)
+        _occ_slug = _occ_intent.occasion or _reconstruct_occasion_from_history(
+            state.get("messages", [])
+        )
+
+        # Single-garment set exclusion (largest remaining strict-eval miss bucket,
+        # 2026-07-11 follow-up): "kurti under 1500" surfaced a "Kaftan Kurta with
+        # Abstract Patchwork Palazzo" — a 2-3 piece SET listing — when the user
+        # named ONE garment type. Reuses the composer's is_multi_piece_set gate
+        # (never reimplemented) on the plain search path. Skipped when the query
+        # itself asks for a set/combo/outfit/look — that legitimizes a multi-piece
+        # result (see _OUTFIT_INTENT_RE above for the same "outfit" word list).
+        if _occ_intent.garment_type and items_out and not (
+            _SET_INTENT_RE.search(raw_query) or _OUTFIT_INTENT_RE.search(raw_query)
+        ):
+            _set_filtered = [
+                it for it in items_out
+                if not _occ_is_multi_piece_set(
+                    it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+                )
+            ]
+            if _set_filtered:  # pool-underflow protected, same discipline as every other gate
+                items_out = _set_filtered
+        if _occ_slug and _occ_slug != "casual" and items_out:
+            _occ_gender = (
+                merged.get("gender")
+                or ("men" if merged.get("index_group_name") == "menswear"
+                    else "women" if merged.get("index_group_name") == "ladieswear"
+                    else "unisex")
+            )
+            # Live-proven 2026-07-11: "sangeet lehenga for women" still surfaced a
+            # "Campana GIRLS ..." kids item — is_coherent_candidate covers ethnic/
+            # western register only, not the kids-leak class the composer already
+            # guards against per-slot. Same discipline applies here.
+            _occ_gated = [
+                it for it in items_out
+                if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
+                and not _occ_is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+            ]
+            if _occ_gated:
+                items_out = _occ_gated
+            items_out = sorted(
+                items_out, key=lambda it: _occ_fabric_delta(it, _occ_slug), reverse=True
+            )
+
         # Colour refinement chips: distinct colours in the result set.
         # Excludes the active colour filter so chips offer genuine alternatives.
         # Falls back to all available colours if nothing else is available (e.g.
@@ -1971,6 +2116,12 @@ def build_graph(
         _chip_colours = [c for c in _all_distinct_colours if c.lower() != _active_colour]
         if not _chip_colours:
             _chip_colours = _all_distinct_colours
+
+        # Shape != size (sweep 2026-07-10, relevance-adjacent): a "pear shaped"
+        # query must not headline explicitly "Plus Size"-branded items — the
+        # user stated a shape, never a size. Stable demotion, never removal;
+        # untouched when the user actually said plus-size/curvy.
+        items_out = demote_size_mismatched_items(items_out, raw_query)
 
         search_meta: dict = {"query": query, "filters": merged}
         if few_gender_results:
@@ -2649,7 +2800,15 @@ def build_graph(
                  if "search_ooc" in tc),
                 "",
             )
-            if ooc_cat:
+            unrecognized = any("search_unrecognized" in tc for tc in state.get("tool_calls", []))
+            if unrecognized:
+                # Gibberish guard: clarify, never a confident recommendation.
+                answer = (
+                    "I didn't quite catch that. Tell me what you're shopping for — "
+                    "a garment, occasion, or budget works (e.g. “saree for a wedding "
+                    "under ₹5000”) — and I'll pull up options."
+                )
+            elif ooc_cat:
                 answer = (
                     f"I don't carry {ooc_cat} products — this catalogue is clothing only. "
                     f"I can help with dresses, tops, trousers, jackets, knitwear, and accessories."
