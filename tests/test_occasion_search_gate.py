@@ -97,3 +97,58 @@ class TestGroomBridePartnerIntentFix:
         # husband/wife/boyfriend/girlfriend are unchanged — only groom/bride moved.
         assert detect_partner_intent("kurta for husband").matched
         assert detect_partner_intent("saree for wife").matched
+
+
+class TestGroomBrideRelationalNounCarveOut:
+    """Live-proven defect (2026-07-12): 'groom's sister outfit ideas' — a
+    first-person wedding-guest query describing herself in relation to the
+    groom — misrouted into partner-styling ("style my partner to match")
+    because "groom" + the styling verb "outfit" co-occurred, same trigger
+    shape as the legitimate "the groom needs a matching look" case. A
+    "groom's"/"bride's" possessive immediately followed by a RELATIONAL noun
+    (sister, brother, mother, family, side, ...) names a THIRD PARTY related
+    to the groom/bride, not the groom/bride being styled, and must not fire
+    partner intent even with a styling verb present."""
+
+    def test_grooms_sister_outfit_ideas_does_not_trigger(self) -> None:
+        result = detect_partner_intent("groom's sister outfit ideas")
+        assert not result.matched
+
+    def test_brides_mother_saree_ideas_with_styling_verb_does_not_trigger(self) -> None:
+        # "saree" alone carries no styling verb (see TestDetectPartnerIntentNegatives
+        # pattern) — rephrase with an explicit styling verb so this actually
+        # exercises the relational-noun carve-out, not just the pre-existing
+        # verb-gate.
+        result = detect_partner_intent("bride's mother wants a matching saree look")
+        assert not result.matched
+
+    def test_grooms_brother_sherwani_ideas_does_not_trigger(self) -> None:
+        result = detect_partner_intent("groom's brother needs a coordinated outfit")
+        assert not result.matched
+
+    def test_grooms_side_outfit_ideas_does_not_trigger(self) -> None:
+        result = detect_partner_intent("what should I wear as part of the groom's side")
+        assert not result.matched
+
+    def test_brides_family_coordinated_look_does_not_trigger(self) -> None:
+        result = detect_partner_intent("bride's family wants a coordinated look")
+        assert not result.matched
+
+    def test_direct_groom_styling_still_triggers(self) -> None:
+        # Pinned: styling the groom HIMSELF ("groom's <garment/styling word>",
+        # no relational noun in between) must still fire — this is the
+        # original 2026-07-11 fix's positive case, unchanged by the carve-out.
+        result = detect_partner_intent("style the groom's outfit to match")
+        assert result.matched
+        assert result.gender_hint == "men"
+
+    def test_direct_bride_styling_still_triggers(self) -> None:
+        result = detect_partner_intent("coordinate the bride's look")
+        assert result.matched
+        assert result.gender_hint == "women"
+
+    def test_plain_groom_query_still_does_not_trigger(self) -> None:
+        # Original bare-groom fix (TestGroomBridePartnerIntentFix) must still
+        # hold with the relational-noun lookahead in place.
+        assert not detect_partner_intent("sherwani for groom").matched
+        assert not detect_partner_intent("lehenga for bride").matched

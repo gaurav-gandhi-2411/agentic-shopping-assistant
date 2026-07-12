@@ -56,8 +56,24 @@ _WOMEN_WORD_RE = re.compile(r"\b(wife|girlfriend)\b", re.IGNORECASE)
 
 # Weaker signal: only counts alongside an explicit styling/coordination verb
 # in the SAME query — mirrors the "for him"/"for her" treatment below.
-_GROOM_RE = re.compile(r"\bgroom\b", re.IGNORECASE)
-_BRIDE_RE = re.compile(r"\bbride\b", re.IGNORECASE)
+# Negative lookahead excludes "groom's"/"bride's" immediately followed by a
+# RELATIONAL noun (sister, brother, mother, ...) — that phrasing names a
+# THIRD PARTY related to the groom/bride ("groom's sister outfit ideas"), not
+# a request to style the groom/bride themselves, and must not be confused
+# with a direct-object garment/styling phrase ("groom's sherwani", "the groom
+# needs a matching look"). Live-proven 2026-07-12: "groom's sister outfit
+# ideas" (a first-person wedding-guest query) misrouted into partner-styling
+# because "groom" + "outfit" co-occurred, same as the direct-styling case.
+_RELATIONAL_NOUN_ALT = (
+    r"sisters?|brothers?|mothers?|fathers?|moms?|dads?|family|friends?|"
+    r"cousins?|siblings?|aunts?|uncles?|side"
+)
+_GROOM_RE = re.compile(
+    rf"\bgroom\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)", re.IGNORECASE
+)
+_BRIDE_RE = re.compile(
+    rf"\bbride\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)", re.IGNORECASE
+)
 
 # Words that name a partner WITHOUT implying a specific gender — resolved
 # against the anchor look's own gender (opposite of it) by resolve_partner_gender.
@@ -112,6 +128,13 @@ def detect_partner_intent(raw_query: str) -> PartnerIntent:
 
     Never fires on ambiguous phrasing with no relationship signal at all —
     e.g. "also show me shirts" or "women's shirts for me too".
+
+    Also never fires on "groom's"/"bride's" immediately followed by a
+    RELATIONAL noun (sister, brother, mother, family, side, ...) — that
+    names a third party related to the groom/bride, not the groom/bride
+    themselves, even with a styling verb in the same query — e.g. "groom's
+    sister outfit ideas" is a first-person wedding-guest query, not a
+    request to style the groom.
     """
     if _HIS_AND_HERS_RE.search(raw_query):
         return PartnerIntent(True, "opposite", "his and hers")
