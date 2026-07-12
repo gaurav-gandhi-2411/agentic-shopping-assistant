@@ -145,6 +145,8 @@ export function LoginForm({ authError }: Props) {
 }
 
 function GoogleIcon() {
+  // exempt from design-token audit: official Google brand-mark colors, not app
+  // design tokens — the four path fills below must match Google's brand guide.
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

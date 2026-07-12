@@ -27,6 +27,8 @@ interface Brand {
 // Backend URLs come from build-time env vars set per-brand in Vercel.
 // If a var is unset the service is not available in this deploy.
 // (Preserved for the shelved per-brand path.)
+// exempt from design-token audit: accentHex values are third-party retailer
+// brand colors (Snitch/Myntra/Flipkart), not this app's design tokens.
 const BRANDS: Brand[] = [
   {
     id: "snitch",

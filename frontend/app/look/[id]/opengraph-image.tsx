@@ -115,6 +115,9 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
 
   // Generic fallback — no look, or a look with no items/image to show. Keeps
   // the static brand card so the route never renders a broken/empty image.
+  // exempt from design-token audit: this is a Satori/next-og render tree, which
+  // runs outside the DOM/CSS runtime and cannot resolve CSS custom properties —
+  // every hex literal below (cream/ink/champagne/muted-taupe) is intentional.
   if (!heroItem?.image_url) {
     return new ImageResponse(
       (
@@ -163,6 +166,9 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
 
   // Real-look card: hero product image on the left, brand + occasion + item
   // details on the right — a preview a link recipient can act on at a glance.
+  // exempt from design-token audit: this is a Satori/next-og render tree, which
+  // runs outside the DOM/CSS runtime and cannot resolve CSS custom properties —
+  // every hex literal below (cream/ink/champagne/muted-taupe) is intentional.
   return new ImageResponse(
     (
       <div
