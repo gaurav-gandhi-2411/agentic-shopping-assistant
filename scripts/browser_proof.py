@@ -654,7 +654,7 @@ PB_FOOTWEAR_TITLE_RE = re.compile(
 # forbidden outright for an office bottom — jeans are casual regardless of
 # how "office" the rest of the query was. Also forbids juniors/girls/boys/kids
 # markers in ANY adult look slot (the same catalogue-mislabeling root cause
-# fixed in src/agents/outfit/slots.py::is_kids_item) — a juniors item is never
+# fixed in src/catalogue/cleaning.py::is_kids_item) — a juniors item is never
 # appropriate for an adult office look regardless of whether its own
 # bottom-type wording happens to look tailored.
 PB_S5_FORBIDDEN_BOTTOM_RE = re.compile(

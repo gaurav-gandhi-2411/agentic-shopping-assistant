@@ -47,13 +47,13 @@ from src.agents.outfit.slots import (
     classify_item,
     is_casual_marker_item,
     is_gender_neutral_accessory,
-    is_kids_item,
     is_multi_piece_set,
     is_novelty_item,
     is_slot_type_allowed,
     is_western_marker_item,
     resolve_look_gender,
 )
+from src.catalogue.cleaning import is_kids_item
 
 UNIFIED_DIR = Path("data/processed/unified")
 

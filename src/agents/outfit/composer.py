@@ -24,13 +24,13 @@ from src.agents.outfit.slots import (
     is_casual_marker_item,
     is_ethnic_item,
     is_gender_neutral_accessory,
-    is_kids_item,
     is_multi_piece_set,
     is_novelty_item,
     is_rugged_footwear_item,
     is_slot_type_allowed,
     is_western_item,
 )
+from src.catalogue.cleaning import is_kids_item
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
