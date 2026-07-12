@@ -519,20 +519,77 @@ _SHOPPING_INTENT_WORDS: frozenset[str] = frozenset({
 })
 
 
+def _looks_like_gibberish(token: str) -> bool:
+    """True for a token shaped like keyboard-mash noise rather than an English
+    word: no vowel at all, or an abnormally long run (>=5) of consecutive
+    non-vowel letters — real English rarely sustains more than ~4 consonants in
+    a row. Only meaningful on tokens >=5 chars (shorter strings are too likely
+    to be legitimate short words/abbreviations to judge this way) and is only
+    ever called on tokens that already failed the vocab/intent-word check (see
+    _is_unrecognized_query) — an empirical scan of the 18k-term production BM25
+    vocabulary (2026-07-12) found every real word this heuristic would flag
+    (e.g. "crystal", "motorcycle") was already a vocab member, so it never
+    reaches this fallback for genuine catalogue terms."""
+    vowels = set("aeiou")
+    if not any(c in vowels for c in token):
+        return True
+    longest_run = 0
+    run = 0
+    for c in token:
+        if c in vowels:
+            run = 0
+        else:
+            run += 1
+            longest_run = max(longest_run, run)
+    return longest_run >= 5
+
+
 def _is_unrecognized_query(query: str, retriever: "HybridRetriever") -> bool:
-    """True when NO token of a query is recognisable — not in the catalogue's
-    BM25 vocabulary and not a known shopping-intent word. Tokens under 3 chars
-    are ignored (glue like "a"/"of"); a query with no >=3-char alpha token at
-    all is NOT flagged (emoji/short inputs follow the normal path)."""
+    """True when a query looks unrecognisable: a MINORITY of its tokens are
+    recognisable (known shopping-intent word or in the catalogue's BM25
+    vocabulary), OR at least one token is shaped like keyboard-mash noise.
+    Tokens under 3 chars are ignored (glue like "a"/"of"); a query with no
+    >=3-char alpha token at all is NOT flagged (emoji/short inputs follow the
+    normal path).
+
+    Was any-token-recognized (OR) before 2026-07-12, P0: that flagged
+    unrecognized only when LITERALLY ZERO tokens were known, so
+    "asdkfjhqwoiuerlkj purple flying shoes" (2 of 4 tokens are real catalogue
+    vocabulary — "purple", "shoes") was judged "recognized" and got a
+    confident LLM recommendation pitch for the one real word, with no
+    acknowledgment that the rest of the query was gibberish.
+
+    Threshold reasoning: recognized tokens must be a STRICT MAJORITY (>50%,
+    i.e. ratio not < 0.5) for the ratio check alone to pass. But the ratio
+    check alone is not sufficient — verified empirically against the real
+    production BM25 vocabulary (18k+ terms drawn from free-text product
+    descriptions), a single garbage token diluted by a few real words often
+    still clears 50% (e.g. this exact repro scores 0.75; a second live repro,
+    "purple flying unicorn shoes qwxyz", scores 0.60) while some genuinely
+    well-formed short queries ("trendy indowestern", "show me sherwanis")
+    score only 0.50 because BM25 vocab membership is a very permissive
+    "is this a common English word anywhere in the corpus" signal, not a
+    catalogue-relevance signal. No single ratio threshold separates the two
+    live bug repros from those legitimate queries. The word-shape check closes
+    that gap directly: it targets tokens that aren't real words at all
+    (independent of whether they happen to sit in a niche product-description
+    corpus), so "asdkfjhqwoiuerlkj" and "qwxyz" are caught even though their
+    surrounding tokens keep the ratio above 50%, while real-but-uncatalogued
+    words like "unicorn" or "indowestern" are correctly left alone."""
     tokens = [t for t in re.findall(r"[a-z]+", query.lower()) if len(t) >= 3]
     if not tokens:
-        return False
-    if any(t in _SHOPPING_INTENT_WORDS for t in tokens):
         return False
     sparse = getattr(retriever, "sparse", None)
     if sparse is None or not hasattr(sparse, "has_any_known_token"):
         return False
-    return not sparse.has_any_known_token(" ".join(tokens))
+    recognized = 0
+    has_gibberish_token = False
+    for t in tokens:
+        if t in _SHOPPING_INTENT_WORDS or sparse.has_any_known_token(t):
+            recognized += 1
+        elif len(t) >= 5 and _looks_like_gibberish(t):
+            has_gibberish_token = True
+    return (recognized / len(tokens)) < 0.5 or has_gibberish_token
 
 
 def _detect_ooc(query: str) -> str | None:

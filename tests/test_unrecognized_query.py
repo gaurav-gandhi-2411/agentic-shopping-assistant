@@ -22,12 +22,32 @@ class _StubRetriever:
         self.sparse = _StubSparse(vocab)
 
 
-_VOCAB = {"lehenga", "saree", "kurta", "sangeet", "wedding", "black", "dress", "cotton"}
+_VOCAB = {
+    "lehenga", "saree", "kurta", "sangeet", "wedding", "black", "dress", "cotton",
+    "purple", "shoes",
+}
 
 
 class TestUnrecognizedQueryGuard:
     def test_keyboard_mash_is_flagged(self) -> None:
         assert _is_unrecognized_query("asdfgh qwerty zxcvb", _StubRetriever(_VOCAB))
+
+    def test_mixed_gibberish_majority_flagged(self) -> None:
+        # Live P0 repro (2026-07-12): "asdkfjhqwoiuerlkj purple flying shoes" — 2 of
+        # 4 tokens ("purple", "shoes") are real catalogue vocabulary, so the OLD
+        # any-token-recognized check judged this "recognized" and the LLM wrote a
+        # confident recommendation pitch with zero acknowledgment that most of the
+        # query was gibberish. Must be flagged for clarification instead.
+        assert _is_unrecognized_query(
+            "asdkfjhqwoiuerlkj purple flying shoes", _StubRetriever(_VOCAB)
+        )
+
+    def test_mixed_gibberish_second_repro_flagged(self) -> None:
+        # Second independent live repro of the same defect: "qwxyz" here is the
+        # obvious keyboard-mash token; "purple"/"shoes" are real catalogue terms.
+        assert _is_unrecognized_query(
+            "purple flying unicorn shoes qwxyz", _StubRetriever(_VOCAB)
+        )
 
     def test_real_shopping_query_passes(self) -> None:
         assert not _is_unrecognized_query(
