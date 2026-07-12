@@ -33,11 +33,15 @@ _FALLBACK_MSGS: dict[str, str] = {
 }
 
 
+_PRICE_GROUNDED_PATTERNS: frozenset[str] = frozenset({r"\bprice\b", r"\bcost\b", r"[\$€£]\d"})
+
+
 def validate_response(
     response: str,
     retrieved_items: list[dict],
     *,
     allow_budget_mentions: bool = False,
+    allow_price_mentions: bool = False,
 ) -> tuple[str, list[str]]:
     """Scan LLM response for ungrounded attribute claims.
 
@@ -54,6 +58,15 @@ def validate_response(
             scrubbed as an ungrounded price claim. Other price words (cost,
             cheaper, expensive, sale, discount) are still scrubbed since
             nothing grounds those as true.
+        allow_price_mentions: when True, exempts the literal "\\bprice\\b"/
+            "\\bcost\\b"/currency-symbol patterns (see _PRICE_GROUNDED_PATTERNS)
+            — used by respond_node now that every retrieved item dict carries a
+            real price_inr value shown to the LLM (Part B fix, 2026-07-13): the
+            word "price" no longer needs to appear verbatim in an item's own
+            field values for a genuine price citation to survive the scrub.
+            Subjective/unsupported price words (cheaper, expensive, affordable,
+            sale, discount) are still scrubbed — a raw price number does not
+            ground a claim that it's a "sale" or "affordable".
     """
     if not response:
         return response, []
@@ -75,6 +88,8 @@ def validate_response(
         for category, patterns in FORBIDDEN_PATTERNS.items():
             for pat in patterns:
                 if allow_budget_mentions and pat == r"\bbudget\b":
+                    continue
+                if allow_price_mentions and pat in _PRICE_GROUNDED_PATTERNS:
                     continue
                 if re.search(pat, s_lower) and not re.search(pat, backing):
                     hit_cat = category
