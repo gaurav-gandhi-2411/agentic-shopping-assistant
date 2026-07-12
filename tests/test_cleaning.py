@@ -16,6 +16,7 @@ from src.catalogue.cleaning import (
     extract_colour,
     fix_mojibake,
     is_fabric_bolt_text,
+    is_loungewear_text,
     reclassify_finished_sarees,
     recompute_derived_columns,
 )
@@ -132,6 +133,58 @@ class TestIsFabricBoltText:
     )
     def test_cases(self, text: str | None, expected: bool) -> None:
         assert is_fabric_bolt_text(text) is expected
+
+
+# ---------------------------------------------------------------------------
+# Loungewear-in-dress-bucket exclusion predicate
+# ---------------------------------------------------------------------------
+
+
+class TestIsLoungewearText:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            # Real catalogue rows (data/processed/unified/catalogue.parquet,
+            # product_type_name="dress", brand=libas) that caused the live
+            # "minimalist wedding guest dress" -> sleepwear-kaftan bug.
+            ("Green Geometric Printed Cotton Kaftan Night Dress", True),
+            ("Maroon Geometric Printed Cotton Kaftan Night Dress", True),
+            ("Blue Printed Cotton Night Dress", True),
+            ("Black Printed Cotton Night Dress", True),
+            ("Yellow Printed Cotton Kaftan Night Dress", True),
+            # Real catalogue rows outside the "dress" bucket that use the same
+            # phrase (product_type_name="kaftan" / "All Products") — the
+            # predicate is text-only and correctly flags these too.
+            ("Pink Cotton Printed Kaftan Nightdress", True),
+            ("Lavender Printed Cotton Nightdress", True),
+            # A genuine formal/wedding dress must not be excluded.
+            ("Black Floral Maxi Dress", False),
+            ("Embellished Wedding Guest Gown", False),
+            # Bare "kaftan" without a sleep/night signal is a legitimate
+            # standalone garment style, verified against the real catalogue:
+            # fashor's "Kaftan Style Midi/Maxi Dress" rows and virgio's
+            # "Kaftan Maxi Dress With Lace" are described in their own
+            # detail_desc as day/eveningwear ("perfect for brunches, getaways,
+            # or breezy evenings"; "intimate gatherings to festive evenings"),
+            # not sleepwear — must NOT match.
+            ("Solid Pleated Floral Cutwork Embroidered Kaftan Style Midi Dress - Blue", False),
+            ("Colorful Ombre Printed Kaftan Style Maxi Dress - Multi", False),
+            ("Vilasini|Viscose Kaftan Maxi Dress With Lace", False),
+            # Other legitimate "kaftan"-garment-noun rows (kurta/top/co-ord)
+            # from the real catalogue, unrelated to loungewear.
+            ("Libas Women Blue & White Geometric Printed Pleated Cotton Kaftan Kurti", False),
+            ("Sangria Mustard Yellow Floral Print Kaftan Top", False),
+            # "Night suit"/"night shorts" are a distinct, already-correctly
+            # tagged nightwear category — must not false-positive on bare
+            # "night" without an adjacent "dress"/"gown".
+            ("Men Solid Brown Night Suit Set", False),
+            ("Solid Men Black Basic Shorts, Night Shorts, Gym Shorts", False),
+            ("", False),
+            (None, False),
+        ],
+    )
+    def test_cases(self, text: str | None, expected: bool) -> None:
+        assert is_loungewear_text(text) is expected
 
 
 # ---------------------------------------------------------------------------
