@@ -202,6 +202,22 @@ python -m eval.run --provider groq
 
 ---
 
+## Performance Budgets (StyleMaitri frontend)
+
+Per-product numeric performance budgets (rule 15e) — measured baseline and artifact in
+`reports/performance-baseline-2026-07-12.md` (Lighthouse 13.4.0, desktop preset, 2026-07-12).
+
+| Budget | Value | Measured baseline |
+|---|---|---|
+| Initial JS bundle | ≤ 350 KB | 269.5 KB |
+| LCP | ≤ 1500 ms | 812 ms |
+| TBT | ≤ 200 ms | 2.5 ms |
+| CLS | ≤ 0.05 | 0 |
+
+"Feels fast" is not a measurement — these numbers are what perf claims about StyleMaitri get checked against going forward, per rule 65b.
+
+---
+
 ## Known limitations
 
 - **Static catalogue snapshot** — the index is a point-in-time snapshot of the catalogue.
