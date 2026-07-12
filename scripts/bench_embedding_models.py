@@ -23,7 +23,6 @@ import argparse
 import logging
 import sys
 import time
-from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -139,6 +138,7 @@ def main() -> None:
     args = parser.parse_args()
 
     from eval_model import _build_components  # noqa: E402
+
     from src.retrieval.dense_search import DenseRetriever  # noqa: E402
     from src.retrieval.hybrid_search import HybridRetriever  # noqa: E402
 
@@ -155,8 +155,8 @@ def main() -> None:
 
     candidate_dense = DenseRetriever.__new__(DenseRetriever)
     candidate_dense.config = config
-    from sentence_transformers import SentenceTransformer
     import faiss
+    from sentence_transformers import SentenceTransformer
     candidate_dense.model = SentenceTransformer(args.model, device="cpu")  # query-time = CPU
     candidate_dense.index = faiss.read_index(str(out_dir / "dense.faiss"))
     candidate_dense.article_ids = np.load(str(out_dir / "dense_article_ids.npy"), allow_pickle=True)

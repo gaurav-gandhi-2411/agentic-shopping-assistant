@@ -38,6 +38,13 @@ jobs:
       - name: Install pip-audit
         run: pip install pip-audit
 
+      - name: Install lint/type-check tools
+        run: pip install ruff mypy
+        # Neither is in requirements.txt (that's runtime deps only) — this step was
+        # missing entirely, so "Lint (ruff)" has been hard-failing CI with
+        # "ruff: command not found" since before this change; only ever worked
+        # locally because dev machines have them installed globally.
+
       - name: Lint (ruff)
         run: ruff check .
 
