@@ -1,0 +1,47 @@
+repos:
+  # Python (backend, repo root) — ruff lint + format, matched to pyproject.toml
+  # ([tool.ruff]: target-version py311, line-length 100, select E/F/I).
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: ^frontend/
+      - id: ruff-format
+        exclude: ^frontend/
+
+  # mypy per [tool.mypy] in pyproject.toml (python_version = "3.11").
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.2.0
+    hooks:
+      - id: mypy
+        exclude: ^frontend/
+
+  # Repo-wide hygiene hooks.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-added-large-files
+
+  # Frontend (Next.js/TypeScript) — reuse the project's own `next lint` (ESLint)
+  # config so pre-commit catches the same findings CI enforces.
+  - repo: local
+    hooks:
+      - id: eslint-frontend
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && npx eslint --fix'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx)$
+        pass_filenames: false
+
+  # Secret scanning — this repo handles API keys/credentials (WIF, Groq/OpenRouter,
+  # Supabase, tenant credentials).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
