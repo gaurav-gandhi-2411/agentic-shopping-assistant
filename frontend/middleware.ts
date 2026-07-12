@@ -40,11 +40,23 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Unauthenticated users may only access /login and /auth/*.
+  // Unauthenticated users may only access /login, /auth/*, /demo/*, /embed/*, /pdp-demo/*, /look/*.
+  // /embed and /pdp-demo are public-facing widget routes — they bootstrap their
+  // own anonymous demo session via POST /demo/session (same as /demo).
+  // /look/[id] is a capability URL (unguessable UUID) for sharing saved looks —
+  // it must be publicly viewable without login, like a shared link.
   if (
     !user &&
     !pathname.startsWith("/login") &&
-    !pathname.startsWith("/auth")
+    !pathname.startsWith("/auth") &&
+    !pathname.startsWith("/demo") &&
+    !pathname.startsWith("/embed") &&
+    !pathname.startsWith("/pdp-demo") &&
+    !pathname.startsWith("/look") &&
+    // Site-wide OG card (app/opengraph-image.tsx): fetched by link-preview
+    // crawlers (WhatsApp/Twitter) with no session — gating it behind auth
+    // serves them the login page instead of the image.
+    !pathname.startsWith("/opengraph-image")
   ) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
@@ -65,7 +77,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals, static files, and common image extensions.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Skip Next.js internals, static files, root-level JS/text/icon assets, and common image extensions.
+    // widget.js must be excluded so anonymous users can load the embed loader script (HTTP 200)
+    // without hitting the auth redirect. The pattern also covers any other root-level .js/.txt/.ico
+    // files that should be publicly accessible without authentication.
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:js|txt|ico|svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

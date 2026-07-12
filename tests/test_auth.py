@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketDisconnect
 
 import api.auth as auth_module
 import api.deps as deps
+from api.auth import exchange_ws_ticket, mint_ws_ticket
 from api.main import app
 from api.session import InMemorySessionStore
 
@@ -140,12 +141,15 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JWT_VERIFICATION_DISABLED", raising=False)
     # Allow all emails by default; individual tests can tighten this.
     monkeypatch.setattr(auth_module, "_check_allowlist", lambda email: True)
+    # Raise rate limit high so tests never trip the sliding-window limiter.
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "10000")
 
 
 @pytest.fixture
 def client() -> TestClient:
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    # Instantiate without context manager so the lifespan is never triggered
+    # and no real index files are required.
+    yield TestClient(app, raise_server_exceptions=True)
 
 
 # ---------------------------------------------------------------------------
@@ -220,3 +224,112 @@ def test_chat_rejects_non_allowlisted_user(
     )
     assert resp.status_code == 401
     assert "allow-list" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/ws-ticket
+# ---------------------------------------------------------------------------
+
+def test_ws_ticket_endpoint_returns_ticket(client: TestClient) -> None:
+    """POST /auth/ws-ticket with a valid JWT must return a non-empty ticket string."""
+    token = _mint_token()
+    resp = client.post(
+        "/auth/ws-ticket",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "ticket" in data
+    assert isinstance(data["ticket"], str)
+    assert len(data["ticket"]) > 10  # URL-safe base64, 32 bytes → ~43 chars
+
+
+def test_ws_ticket_endpoint_rejects_missing_auth(client: TestClient) -> None:
+    """POST /auth/ws-ticket without Authorization header must return 401."""
+    resp = client.post("/auth/ws-ticket")
+    assert resp.status_code == 401
+
+
+def test_ws_ticket_endpoint_rejects_invalid_jwt(client: TestClient) -> None:
+    """POST /auth/ws-ticket with a bad token must return 401."""
+    resp = client.post(
+        "/auth/ws-ticket",
+        headers={"Authorization": "Bearer not.a.jwt"},
+    )
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# WS /chat/stream — ticket auth unit tests (ticket store functions)
+# ---------------------------------------------------------------------------
+
+def test_mint_and_exchange_ticket() -> None:
+    """mint_ws_ticket + exchange_ws_ticket round-trip must return the original user_id."""
+    user_id = "test-user-abc123"
+    nonce = mint_ws_ticket(user_id)
+    assert isinstance(nonce, str) and len(nonce) > 10
+    result = exchange_ws_ticket(nonce)
+    assert result == user_id
+
+
+def test_exchange_ticket_is_single_use() -> None:
+    """A ticket must be consumed on first exchange; second exchange must return None."""
+    nonce = mint_ws_ticket("user-single-use")
+    assert exchange_ws_ticket(nonce) == "user-single-use"
+    assert exchange_ws_ticket(nonce) is None
+
+
+def test_exchange_unknown_ticket_returns_none() -> None:
+    """Exchanging a nonce that was never minted must return None."""
+    assert exchange_ws_ticket("totally-bogus-nonce-xyz") is None
+
+
+def test_exchange_expired_ticket_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ticket that has passed its TTL must not be exchangeable.
+
+    We monkeypatch time.time inside api.auth to simulate expiry without
+    actually waiting 60 seconds.
+    """
+    nonce = mint_ws_ticket("user-expiry")
+    # Advance time past expiry by patching time.time in the auth module.
+    future_time = time.time() + 120
+    monkeypatch.setattr(auth_module.time, "time", lambda: future_time)
+    result = exchange_ws_ticket(nonce)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# WS /chat/stream — ticket-based connection (integration)
+# ---------------------------------------------------------------------------
+
+def test_ws_connects_via_ticket(client: TestClient) -> None:
+    """WebSocket opened with a valid ?ticket= must be accepted (session frame sent)."""
+    token = _mint_token()
+    resp = client.post(
+        "/auth/ws-ticket",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    ticket = resp.json()["ticket"]
+
+    with client.websocket_connect(f"/chat/stream?ticket={ticket}") as ws:
+        ws.send_json({"type": "user_message", "message": "hello"})
+        msg = ws.receive_json()
+        assert msg["type"] == "session"
+
+
+def test_ws_rejects_invalid_ticket(client: TestClient) -> None:
+    """WebSocket opened with an unknown ?ticket= must be closed with code 1008."""
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/chat/stream?ticket=not-a-real-ticket") as ws:
+            ws.receive_text()
+    assert exc_info.value.code == 1008
+
+
+def test_ws_still_accepts_legacy_token(client: TestClient) -> None:
+    """Legacy ?token= path must still work (backward-compat for Streamlit Spaces)."""
+    token = _mint_token()
+    with client.websocket_connect(f"/chat/stream?token={token}") as ws:
+        ws.send_json({"type": "user_message", "message": "hello"})
+        msg = ws.receive_json()
+        assert msg["type"] == "session"

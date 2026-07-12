@@ -1,0 +1,17 @@
+display_name: "Berrylush"
+logo_url: null
+primary_colour: "#D4336E"
+accent_colour: "#FFF5F8"
+tagline: "Contemporary women's fashion"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/berrylush/products.csv"
+pdp_url_template: "https://www.berrylush.com/products/{handle}"
+suggestion_chips:
+  - "Floral midi dress"
+  - "Party dresses under 2000"
+  - "Casual summer dress"
+  - "Crop top and skirt set"
+  - "Black dress for women"

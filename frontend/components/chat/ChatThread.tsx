@@ -13,7 +13,11 @@ import type { ChatMessage, ConversationDetail } from "@/lib/api/types"
 // session stores a single items list, not per-message items.
 function mapHistory(detail: ConversationDetail): ChatMessage[] {
   const msgs: ChatMessage[] = detail.messages.map((m, i) => ({
-    id: `hist-${i}-${m.role}`,
+    // Prefer the DB UUID as the React key when available; fall back to a
+    // stable client-side key for in-memory mode.
+    id: m.id ?? `hist-${i}-${m.role}`,
+    // dbId is the DB UUID used for feedback calls; null in in-memory mode.
+    dbId: m.id ?? null,
     role: m.role,
     content: m.content,
     items: [],

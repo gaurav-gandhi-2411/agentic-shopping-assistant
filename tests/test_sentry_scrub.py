@@ -5,7 +5,6 @@ from urllib.parse import parse_qs, urlparse
 
 from api.main import _scrub_token_from_url, _sentry_before_breadcrumb, _sentry_before_send
 
-
 # ---------------------------------------------------------------------------
 # _scrub_token_from_url
 # ---------------------------------------------------------------------------

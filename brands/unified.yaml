@@ -1,0 +1,28 @@
+display_name: "Style Maitri"
+logo_url: null
+# Deep plum + marigold gold pairing. Marigold (#E8A33D) is the existing
+# Style Maitri brand accent already hardcoded in frontend/components/Logo.tsx
+# and frontend/components/chat/OutfitBoard.tsx; plum is new and chosen to
+# complement it (no existing "brand primary" token found in the frontend).
+primary_colour: "#5B2333"
+accent_colour: "#E8A33D"
+tagline: "Your AI stylist for Indian weddings & occasions"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Cross-store B2C catalogue skews women's-led (sarees, lehengas, sangeet/haldi
+# looks). Session/intent/anchor-derived gender always takes precedence over
+# this — see src/agents/outfit/slots.py:resolve_look_gender — this is only
+# the last-resort fallback when nothing else signals a gender.
+gender_default: "women"
+catalogue_path: "data/processed/catalogue.parquet"
+# Unified mode has no single brand PDP — each result carries its own
+# server-side per-store deep link (see src/retrieval/index_store.py).
+pdp_url_template: ""
+suggestion_chips:
+  - "Sangeet look under ₹8000"
+  - "Haldi outfit — bright & daytime"
+  - "Wedding-guest saree under ₹5000"
+  - "Style my partner for a reception"
+  - "Mehendi look in green"
+  - "What suits my body type?"

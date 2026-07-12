@@ -1,22 +1,23 @@
 """Tests for the four agent tools — pure functions, no LLM required."""
 import sys
 from pathlib import Path
+
 import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.catalogue.loader import load_config
-from src.retrieval.dense_search import DenseRetriever
-from src.retrieval.sparse_search import SparseRetriever
-from src.retrieval.hybrid_search import HybridRetriever
 from src.agents.tools import (
-    search_catalogue,
-    compare_items,
+    VALID_FACET_KEYS,
     apply_filter,
     clarify,
-    VALID_FACET_KEYS,
+    compare_items,
+    search_catalogue,
 )
+from src.catalogue.loader import load_config
+from src.retrieval.dense_search import DenseRetriever
+from src.retrieval.hybrid_search import HybridRetriever
+from src.retrieval.sparse_search import SparseRetriever
 
 SAVE_DIR = Path("data/processed")
 
@@ -42,6 +43,7 @@ def retriever(config, catalogue_df):
 # search_catalogue
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requires_index
 def test_search_tool_returns_items(retriever, config):
     top_k = config["retrieval"]["final_k"]
     result = search_catalogue("black jacket", None, retriever, top_k)
@@ -55,6 +57,7 @@ def test_search_tool_returns_items(retriever, config):
         assert required.issubset(item.keys())
 
 
+@pytest.mark.requires_index
 def test_search_tool_with_filter(retriever, config):
     top_k = config["retrieval"]["final_k"]
     result = search_catalogue("dress", {"colour_group_name": "Black"}, retriever, top_k)
@@ -67,6 +70,7 @@ def test_search_tool_with_filter(retriever, config):
 # compare_items
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requires_index
 def test_compare_tool_handles_2_items(catalogue_df):
     ids = catalogue_df["article_id"].iloc[:2].tolist()
     result = compare_items(ids, catalogue_df)
@@ -77,6 +81,7 @@ def test_compare_tool_handles_2_items(catalogue_df):
         assert "colour" in item
 
 
+@pytest.mark.requires_index
 def test_compare_tool_handles_1_item_gracefully(catalogue_df):
     ids = catalogue_df["article_id"].iloc[:1].tolist()
     result = compare_items(ids, catalogue_df)
@@ -84,12 +89,14 @@ def test_compare_tool_handles_1_item_gracefully(catalogue_df):
     assert result["n_items"] == 1
 
 
+@pytest.mark.requires_index
 def test_compare_tool_truncates_to_5(catalogue_df):
     ids = catalogue_df["article_id"].iloc[:6].tolist()
     result = compare_items(ids, catalogue_df)
     assert result["n_items"] <= 5
 
 
+@pytest.mark.requires_index
 def test_compare_tool_handles_unknown_id(catalogue_df):
     ids = ["DOES_NOT_EXIST_001", catalogue_df["article_id"].iloc[0]]
     result = compare_items(ids, catalogue_df)

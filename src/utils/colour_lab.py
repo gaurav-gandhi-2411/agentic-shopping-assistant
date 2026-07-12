@@ -5,8 +5,8 @@ delta_e_2000 for perceptual distance comparisons.
 """
 import logging
 
-import numpy as np
 import colour as _colour
+import numpy as np
 
 # Hex reference values for every unique colour_group_name in the catalogue.
 # "Other *" and sentinel values (Other, Unknown, Transparent) use plausible

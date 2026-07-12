@@ -1,0 +1,17 @@
+display_name: "Fashor"
+logo_url: null
+primary_colour: "#E91E8C"
+accent_colour: "#2D2D2D"
+tagline: "Fashion for Every Woman"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/fashor/products.csv"
+pdp_url_template: "https://fashor.com/products/{handle}"
+suggestion_chips:
+  - "Build me a sangeet look under ₹5000"
+  - "Festive ethnic coord set"
+  - "Haldi look — cotton and floral"
+  - "Wedding guest lehenga"
+  - "Casual floral dress"

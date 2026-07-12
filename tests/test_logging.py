@@ -83,6 +83,6 @@ def test_contextvar_reset_after_request():
     log.info("after reset")
     _cleanup(log)
 
-    lines = [json.loads(l) for l in buf.getvalue().strip().splitlines()]
+    lines = [json.loads(line) for line in buf.getvalue().strip().splitlines()]
     assert lines[0]["conversation_id"] == "request-1"
     assert "conversation_id" not in lines[1]

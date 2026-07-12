@@ -1,5 +1,4 @@
 """Unit tests for src/utils/colour_lab."""
-import pytest
 import numpy as np
 
 from src.utils.colour_lab import COLOUR_TO_LAB, delta_e_2000

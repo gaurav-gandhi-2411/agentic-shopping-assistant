@@ -10,8 +10,20 @@ retrieval:
   dense_dim: 384
   bm25_tokenizer: "lower_alpha"
   rrf_k: 60
-  top_k: 20
+  top_k: 50
   final_k: 5
+  # Store-diversity re-rank knob (MMR nudge).
+  # 0.0 = pure relevance / current behaviour (safe default; exact same output as before).
+  # Increase to spread results across stores for cross-store-eligible queries.
+  # See src/retrieval/hybrid_search.py::store_diversity_rerank for formula details.
+  # Sweep table confirmed 0.20 passes all gates (rel@10>=0.40, cov@10>=2.0, mono<=0.30).
+  # Owner approved 0.20 (2026-06-14). Keep 0.0 to restore legacy pure-relevance behaviour.
+  store_diversity: 0.20
+  # Hard per-store cap on the candidate pool handed to the LLM reranker (applied
+  # after store_diversity_rerank; backfills from the wider RRF pool when the cap
+  # would otherwise shrink the pool below top_k). 0/None disables the cap.
+  # See src/retrieval/hybrid_search.py::apply_per_store_cap. Phase A (2026-07-06).
+  per_store_cap: 4
 
 llm:
   provider: "ollama"
@@ -39,3 +51,11 @@ api:
   host: "127.0.0.1"
   port: 8080
   cors_origins: ["http://localhost:8501"]
+
+clip:
+  model: "clip-ViT-B-32"
+  batch_size: 64
+  index_dir: "data/processed/clip"
+
+features:
+  image_input_enabled: true

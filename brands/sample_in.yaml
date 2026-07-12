@@ -1,0 +1,17 @@
+display_name: "Desi Drip"
+logo_url: null
+primary_colour: "#FF5A00"
+accent_colour: "#1A1A2E"
+tagline: "Fashion that feels like you"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "mixed"
+catalogue_path: "data/samples/in_feed.csv"
+pdp_url_template: "https://desidrip.in/products/{handle}"
+suggestion_chips:
+  - "Kurtas for office wear"
+  - "Casual western wear under ₹1500"
+  - "Festive outfits for weddings"
+  - "Summer dresses under ₹2000"
+  - "Everyday basics for men"

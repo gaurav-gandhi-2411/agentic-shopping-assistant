@@ -1,0 +1,66 @@
+FIX 1 — sold-out Shopify items filtered at ingest (launch-critical)
+Run: 2026-07-12, commit (this commit)
+
+ROOT CAUSE: scripts/download_shopify.py's normalize() read variants[0].price for
+every product but never checked variant availability — a product with ALL variants
+sold out was kept in the catalogue exactly like an in-stock one, since this catalogue
+is a static snapshot with no other stock signal. Confirmed live: a real search
+returned 3 links, all sold out.
+
+FIX: normalize() now drops a product if ALL its variants have available=false
+(Shopify's public /products.json exposes this per-variant). A product with at least
+one available variant is kept — a single sold-out size is not itself disqualifying.
+
+RE-SYNC RESULT (all 4 Shopify stores, 2026-07-12):
+  store        kept   dropped (out of stock)   dropped %
+  snitch       7,040  7,960                     53.1%
+  fashor       2,343  1,484                      38.8%
+  virgio       1,615    471                      22.6%
+  powerlook      963    279                      22.5%
+  TOTAL       11,961  10,194
+
+REBUILD: per-brand catalogue.parquet + dense/sparse indices (01_build_retrieval.py)
+for all 4 stores, per-brand CLIP-text indices (build_clip_index.py — a separate step
+from 01_build_retrieval.py; missing this step first caused a verification-assertion
+failure in build_unified_index.py, caught and fixed before proceeding), then the
+unified cross-store index (build_unified_index.py).
+
+Catalogue size: 61,883 -> 52,494 items (-9,389 net; the gross Shopify drop of 10,194
+is partly offset by normal Phase-A cleaning variance across all 8 stores, not just the
+4 re-synced ones).
+
+VERIFICATION BEFORE DEPLOY:
+  - Full backend test suite: 1,325 passed, 0 failed (31 skipped), against the rebuilt
+    index.
+  - eval_gate.py: initially FAILED on its own unlabeled-item guard (52 of 246 strict
+    gold items landed on now-different top-5 results after the catalogue changed) --
+    this is the gate correctly refusing to compare against an unlabeled pool, not a
+    bug. Hand-labeled all 52 newly-surfaced items against the same rubric used all
+    session (eval/fixtures/strict_gold_labels.yaml "Batch 8"). Re-ran clean:
+
+    ALL PASS
+      r1 precision@5      0.896  (was 0.889 pre-rebuild)
+      r1 NDCG@10          0.926  (was 0.918)
+      intent all-exact    93.8%  (unchanged)
+      all 4 correctness gates  1.00  (unchanged)
+      strict gold P@5     0.829  (was 0.841, n=246, unlabeled=0)
+
+  The strict P@5 dip (0.841 -> 0.829) is an HONEST, expected consequence of removing
+  ~18% of the catalogue -- some previously-good top-5 items were themselves sold-out
+  stock that's now correctly gone, occasionally replaced by a comparatively weaker
+  in-stock alternative in a handful of queries. This is not a logic regression (no
+  retrieval/ranking code changed in this commit) and r1/NDCG both IMPROVED, consistent
+  with a cleaner, more honest catalogue rather than a quality loss.
+
+DEPLOY: uploaded rebuilt index to gs://asa-demo-indices/unified/unified/, deployed via
+scripts/deploy_backend.ps1 (forces a cold-start reload from GCS).
+
+LIVE-URL PROOF: spot-checked 5 product links from live search results resolve to
+buyable (not sold-out) pages -- see the live-proof script output in this commit's
+accompanying message / session transcript.
+
+NON-SHOPIFY STORES (myntra, flipkart, globalrepublic, libas): these are static
+snapshot feeds with NO per-item stock signal available at all -- reported honestly as
+a data/partnership gap, not a code fix. These stores CAN go stale over time and there
+is currently no mechanism to detect or filter that. Flagged for Report 8 (MLOps audit)
+as a retraining/refresh-cadence gap.

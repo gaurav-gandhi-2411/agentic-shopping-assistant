@@ -26,7 +26,7 @@ def run_round(query_ids: list[str], provider: str, round_n: int) -> dict[str, st
         "--query-id", *query_ids,
     ]
     print(f"\n--- Round {round_n} ---", flush=True)
-    result = subprocess.run(cmd, capture_output=False, text=True)
+    _result = subprocess.run(cmd, capture_output=False, text=True)
 
     # Find the most recently written JSON report for this provider
     reports = sorted(

@@ -39,8 +39,14 @@ class ConversationSummary(BaseModel):
     is_public: bool = False
 
 
+class MessageRecord(BaseModel):
+    id: str | None = None  # DB UUID; None when using in-memory session store
+    role: str
+    content: str
+
+
 class ConversationDetail(ConversationSummary):
-    messages: list[dict[str, str]] = Field(default_factory=list)
+    messages: list[MessageRecord] = Field(default_factory=list)
     retrieved_items: list[ItemSummary] = Field(default_factory=list)
 
 
@@ -117,10 +123,19 @@ def get_conversation(
     summary = _to_summary(conversation_id, session)
 
     # Expose only user/assistant messages with non-empty content.
-    messages = [
-        {"role": m["role"], "content": m["content"]}
-        for m in session.get("messages", [])
+    # _message_ids is populated by PostgresSessionStore.get(); absent in memory mode.
+    message_ids: list[str | None] = session.get("_message_ids", [])
+    raw_messages = [
+        m for m in session.get("messages", [])
         if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    messages = [
+        MessageRecord(
+            id=message_ids[i] if i < len(message_ids) else None,
+            role=m["role"],
+            content=m["content"],
+        )
+        for i, m in enumerate(raw_messages)
     ]
 
     retrieved_items = [

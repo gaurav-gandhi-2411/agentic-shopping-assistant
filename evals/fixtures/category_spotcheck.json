@@ -1,0 +1,282 @@
+[
+  {
+    "prod_name": "Shorts For Under Dresses",
+    "brand": null,
+    "product_type_name": "Dress",
+    "expected_garment_type": "shorts",
+    "expected_confidence": "high",
+    "note": "purpose-clause trap: 'dresses' in 'for under dresses' must not win; barrier fires after earliest match (shorts)"
+  },
+  {
+    "prod_name": "Dress Shirt",
+    "brand": null,
+    "product_type_name": "Shirt",
+    "expected_garment_type": "shirt",
+    "expected_confidence": "high",
+    "note": "compound term: 'dress' is adjective modifier, 'shirt' is the garment noun"
+  },
+  {
+    "prod_name": "Jacket Dress",
+    "brand": null,
+    "product_type_name": "Dress",
+    "expected_garment_type": "dress",
+    "expected_confidence": "high",
+    "note": "rightmost-noun wins: jacket is a modifier here, dress is the head garment type"
+  },
+  {
+    "prod_name": "Mini Skirt",
+    "brand": null,
+    "product_type_name": "Skirt",
+    "expected_garment_type": "skirt",
+    "expected_confidence": "high",
+    "note": "compound table match: 'mini skirt' -> skirt"
+  },
+  {
+    "prod_name": "Co-Ord Set",
+    "brand": null,
+    "product_type_name": "Co-Ord",
+    "expected_garment_type": "coord",
+    "expected_confidence": "high",
+    "note": "compound table: 'co-ord set' -> coord"
+  },
+  {
+    "prod_name": "DressBerry Women Black Shorts",
+    "brand": "DressBerry",
+    "product_type_name": "Dress",
+    "expected_garment_type": "shorts",
+    "expected_confidence": "high",
+    "note": "brand-strip removes 'DressBerry' prefix; residual 'women black shorts' -> shorts"
+  },
+  {
+    "prod_name": "20Dresses Crop Jacket",
+    "brand": "20Dresses",
+    "product_type_name": "Dress",
+    "expected_garment_type": "outerwear",
+    "expected_confidence": "high",
+    "note": "brand '20Dresses' stripped; residual 'crop jacket' -> outerwear; brand store label 'Dress' must not win"
+  },
+  {
+    "prod_name": "DressBerry Sweater Pullover",
+    "brand": "DressBerry",
+    "product_type_name": "Dress",
+    "expected_garment_type": "knitwear",
+    "expected_confidence": "high",
+    "note": "brand-strip + knitwear rule; store label 'Dress' must not override"
+  },
+  {
+    "prod_name": "Floral Maxi Dress",
+    "brand": null,
+    "product_type_name": "Dress",
+    "expected_garment_type": "dress",
+    "expected_confidence": "high",
+    "note": "straightforward dress with adjective modifiers"
+  },
+  {
+    "prod_name": "Printed Kurti For Women",
+    "brand": null,
+    "product_type_name": "Kurti",
+    "expected_garment_type": "kurti",
+    "expected_confidence": "high",
+    "note": "kurti comes before 'For Women'; barrier fires after earliest match (kurti) but kurti is before barrier"
+  },
+  {
+    "prod_name": "Slim Fit Jeans",
+    "brand": null,
+    "product_type_name": "Jeans",
+    "expected_garment_type": "jeans",
+    "expected_confidence": "high",
+    "note": "basic jeans classification"
+  },
+  {
+    "prod_name": "Formal Blazer",
+    "brand": null,
+    "product_type_name": "Blazer",
+    "expected_garment_type": "blazer",
+    "expected_confidence": "high",
+    "note": "blazer rule fires before generic jacket/coat rule"
+  },
+  {
+    "prod_name": "Crop Top",
+    "brand": null,
+    "product_type_name": "Top",
+    "expected_garment_type": "top",
+    "expected_confidence": "high",
+    "note": "top rule matches 'top' as head noun"
+  },
+  {
+    "prod_name": "Anarkali Suit",
+    "brand": null,
+    "product_type_name": "Anarkali",
+    "expected_garment_type": "anarkali",
+    "expected_confidence": "high",
+    "note": "anarkali is the ethnic garment type; 'suit' has no rule match"
+  },
+  {
+    "prod_name": "Palazzo Pants",
+    "brand": null,
+    "product_type_name": "Palazzo",
+    "expected_garment_type": "trousers",
+    "expected_confidence": "high",
+    "note": "rightmost-noun: 'palazzo' fires at pos 0, 'pants' (trousers rule) fires at pos 8; pants/trousers wins as rightmost head noun"
+  },
+  {
+    "prod_name": "Saree With Blouse",
+    "brand": null,
+    "product_type_name": "Saree",
+    "expected_garment_type": "saree",
+    "expected_confidence": "high",
+    "note": "barrier trap: 'with' separates saree from blouse; blouse is after barrier and must be discarded"
+  },
+  {
+    "prod_name": "Wrap Dress",
+    "brand": null,
+    "product_type_name": "Dress",
+    "expected_garment_type": "dress",
+    "expected_confidence": "high",
+    "note": "dress with style modifier"
+  },
+  {
+    "prod_name": "Bodycon Dress",
+    "brand": null,
+    "product_type_name": "Dress",
+    "expected_garment_type": "dress",
+    "expected_confidence": "high",
+    "note": "bodycon is not a garment rule; dress wins"
+  },
+  {
+    "prod_name": "Hooded Sweatshirt",
+    "brand": null,
+    "product_type_name": "Sweatshirt",
+    "expected_garment_type": "knitwear",
+    "expected_confidence": "high",
+    "note": "sweatshirt maps to knitwear category"
+  },
+  {
+    "prod_name": "Bomber Jacket",
+    "brand": null,
+    "product_type_name": "Jacket",
+    "expected_garment_type": "outerwear",
+    "expected_confidence": "high",
+    "note": "bomber is in the outerwear regex alternation"
+  },
+  {
+    "prod_name": "Wide Leg Trousers",
+    "brand": null,
+    "product_type_name": "Trousers",
+    "expected_garment_type": "trousers",
+    "expected_confidence": "high",
+    "note": "trousers rule match"
+  },
+  {
+    "prod_name": "Floral Blouse",
+    "brand": null,
+    "product_type_name": "Blouse",
+    "expected_garment_type": "blouse",
+    "expected_confidence": "high",
+    "note": "blouse rule match"
+  },
+  {
+    "prod_name": "Embroidered Kurta",
+    "brand": null,
+    "product_type_name": "Kurta",
+    "expected_garment_type": "kurta",
+    "expected_confidence": "high",
+    "note": "kurta (men's ethnic) rule match"
+  },
+  {
+    "prod_name": "Silk Saree",
+    "brand": null,
+    "product_type_name": "Saree",
+    "expected_garment_type": "saree",
+    "expected_confidence": "high",
+    "note": "saree rule match with fabric adjective"
+  },
+  {
+    "prod_name": "Party Wear Lehenga",
+    "brand": null,
+    "product_type_name": "Lehenga",
+    "expected_garment_type": "lehenga",
+    "expected_confidence": "high",
+    "note": "lehenga rule match with occasion prefix"
+  },
+  {
+    "prod_name": "Cotton T-Shirt",
+    "brand": null,
+    "product_type_name": "T-Shirt",
+    "expected_garment_type": "top",
+    "expected_confidence": "high",
+    "note": "t-shirt maps to 'top' garment type via knitwear/top rule"
+  },
+  {
+    "prod_name": "High Waist Shorts",
+    "brand": null,
+    "product_type_name": "Shorts",
+    "expected_garment_type": "shorts",
+    "expected_confidence": "high",
+    "note": "shorts rule match with fit descriptor"
+  },
+  {
+    "prod_name": "Midi Skirt",
+    "brand": null,
+    "product_type_name": "Skirt",
+    "expected_garment_type": "skirt",
+    "expected_confidence": "high",
+    "note": "skirt rule match with length modifier"
+  },
+  {
+    "prod_name": "Puffer Jacket",
+    "brand": null,
+    "product_type_name": "Jacket",
+    "expected_garment_type": "outerwear",
+    "expected_confidence": "high",
+    "note": "puffer is in the outerwear alternation pattern"
+  },
+  {
+    "prod_name": "A-Line Dress",
+    "brand": null,
+    "product_type_name": "Dress",
+    "expected_garment_type": "dress",
+    "expected_confidence": "high",
+    "note": "dress rule match with silhouette modifier"
+  },
+  {
+    "prod_name": "Sharara Set",
+    "brand": null,
+    "product_type_name": "Sharara",
+    "expected_garment_type": "sharara",
+    "expected_confidence": "high",
+    "note": "sharara ethnic garment rule match"
+  },
+  {
+    "prod_name": "Dungaree",
+    "brand": null,
+    "product_type_name": "Dungaree",
+    "expected_garment_type": "jumpsuit",
+    "expected_confidence": "high",
+    "note": "dungarees are bib-overall style; mapped to jumpsuit per rule. Ambiguous choice documented: could be 'trousers'; jumpsuit chosen for one-piece nature."
+  },
+  {
+    "prod_name": "Kaftan Dress",
+    "brand": null,
+    "product_type_name": "Kaftan",
+    "expected_garment_type": "dress",
+    "expected_confidence": "high",
+    "note": "ambiguous: kaftan (pos ~0) vs dress (pos ~7); rightmost-noun rule picks 'dress'. Documented choice: 'dress' is the broader garment category; kaftan is a style/silhouette descriptor."
+  },
+  {
+    "prod_name": "Running Shorts",
+    "brand": null,
+    "product_type_name": "Shorts",
+    "expected_garment_type": "shorts",
+    "expected_confidence": "high",
+    "note": "sports shorts classification"
+  },
+  {
+    "prod_name": "Spaghetti Top",
+    "brand": null,
+    "product_type_name": "Top",
+    "expected_garment_type": "top",
+    "expected_confidence": "high",
+    "note": "spaghetti is a style descriptor; top rule fires"
+  }
+]

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,18 +22,25 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import pandas as pd
+import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-import sentry_sdk
-
 import api.deps as deps
 from api.logging_config import setup_logging
+from api.routes.auth import router as auth_router
+from api.routes.brand import router as brand_router
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
 from api.routes.conversations import router as conversations_router
+from api.routes.dashboard import router as dashboard_router
+from api.routes.demo import router as demo_router
+from api.routes.events import router as events_router
+from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
+from api.routes.image_style import router as image_style_router
+from api.routes.looks import router as looks_router
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +65,7 @@ def _build_session_store(llm: Any, config: dict):
             break
 
     from sqlalchemy import create_engine
+
     from src.storage.postgres_session_store import PostgresSessionStore
 
     engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
@@ -141,13 +150,37 @@ async def lifespan(app: FastAPI):
     if os.environ.get("LLM_PROVIDER"):
         config["llm"]["provider"] = os.environ["LLM_PROVIDER"]
 
-    logger.info("Loading retrieval indices from %s", _DATA_DIR)
-    df = pd.read_parquet(_DATA_DIR / "catalogue.parquet")
-    dense = DenseRetriever.load(config, _DATA_DIR)
-    sparse = SparseRetriever.load(config, _DATA_DIR)
+    from src.retrieval.index_store import (
+        UNIFIED_BRAND,
+        download_supplementary_assets,
+        ensure_index_dir,
+    )
+
+    # Determine active brand / mode.
+    # Unified mode: UNIFIED=1 OR BRAND=unified OR BRAND unset (new default for cross-store B2C).
+    # Per-brand mode: BRAND=<slug> with UNIFIED unset/0.
+    _unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
+    _brand_env = os.environ.get("BRAND", "")
+    if _unified_flag or _brand_env == UNIFIED_BRAND or not _brand_env:
+        _brand = UNIFIED_BRAND
+    else:
+        _brand = _brand_env
+
+    _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
+    index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
+
+    # Download CLIP index and Shopify variant map from GCS (same bucket, active brand only).
+    # Failures are non-fatal — each feature degrades gracefully when its assets are absent.
+    if _index_store_uri:
+        download_supplementary_assets(_index_store_uri, _brand, _REPO_ROOT)
+
+    logger.info("Loading retrieval indices from %s (mode=%s)", index_dir, _brand)
+    df = pd.read_parquet(index_dir / "catalogue.parquet")
+    dense = DenseRetriever.load(config, index_dir)
+    sparse = SparseRetriever.load(config, index_dir)
     retriever = HybridRetriever(dense, sparse, df, config)
     n_vectors = dense.index.ntotal if dense.index is not None else 0
-    logger.info("Retrieval ready: %d items, %d dense vectors", len(df), n_vectors)
+    logger.info("Retrieval ready: %d items, %d dense vectors (mode=%s)", len(df), n_vectors, _brand)
 
     logger.info("Initialising LLM client (provider=%s)", config["llm"]["provider"])
     llm = get_llm_client(config)
@@ -165,11 +198,12 @@ async def lifespan(app: FastAPI):
     logger.info("LangSmith tracing %s", "enabled" if tracing else "disabled")
 
     session_store, db_engine = _build_session_store(llm, config)
-    deps._init(retriever, df, llm, config, session_store=session_store)
+    deps._init(retriever, df, llm, config, session_store=session_store, db_engine=db_engine)
 
     # Wire defense-in-depth allow-list checker when a DB is available.
     if db_engine is not None:
         from sqlalchemy import text
+
         import api.auth as _auth
 
         def _db_check_allowlist(email: str) -> bool:
@@ -182,6 +216,22 @@ async def lifespan(app: FastAPI):
 
         _auth._check_allowlist = _db_check_allowlist
         logger.info("Allow-list DB checker wired (check_email_allowed)")
+
+    # DEMO_MODE startup — init guards and wire cost reporter when active.
+    _demo_mode = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
+    if _demo_mode:
+        from api.demo.guards import init_demo_guards, record_cost
+        if db_engine is not None:
+            init_demo_guards(db_engine, _brand)
+
+        def _demo_cost_reporter(usd_cost: float) -> None:
+            if db_engine is not None:
+                record_cost(_brand, usd_cost, db_engine)
+
+        llm.cost_reporter = _demo_cost_reporter
+        logger.info("DEMO_MODE=true: anonymous session endpoint active (brand=%s)", _brand)
+    else:
+        logger.info("DEMO_MODE=false: authenticated path only")
 
     # Auth status — warn loudly if verification is disabled.
     from api.auth import _is_verification_disabled
@@ -203,6 +253,32 @@ async def lifespan(app: FastAPI):
         type(session_store).__name__,
         not _is_verification_disabled(),
     )
+
+    # Warm-load the CLIP stack (FAISS index + encoder) in a background thread.
+    # This is best-effort and non-blocking: it must never delay the health
+    # check or crash startup.  Without this, the FIRST /style/from-image
+    # request pays the full CLIP index read + model instantiation cost on
+    # top of the (now-baked, offline) model load — this warms both away.
+    def _warm_clip_stack() -> None:
+        t0 = time.monotonic()
+        logger.info("CLIP warm-load starting (brand=%s)", _brand)
+        try:
+            from src.agents.outfit.image_anchor import warm as warm_clip
+
+            clip_model_id = str((config.get("clip") or {}).get("model", "clip-ViT-B-32"))
+            loaded = warm_clip(_brand, model_id=clip_model_id)
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            if loaded:
+                logger.info("CLIP warm-load finished in %dms (brand=%s)", elapsed_ms, _brand)
+            else:
+                logger.info(
+                    "CLIP warm-load skipped in %dms (no index for brand=%s)", elapsed_ms, _brand
+                )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - t0) * 1000)
+            logger.warning("CLIP warm-load failed after %dms: %s", elapsed_ms, exc)
+
+    threading.Thread(target=_warm_clip_stack, daemon=True, name="clip-warm-load").start()
 
     yield
 
@@ -247,9 +323,17 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(health_router)
+    app.include_router(image_style_router)
+    app.include_router(brand_router)
+    app.include_router(auth_router)
     app.include_router(chat_router)
     app.include_router(conversations_router)
     app.include_router(catalogue_router)
+    app.include_router(dashboard_router)
+    app.include_router(demo_router)
+    app.include_router(events_router)
+    app.include_router(feedback_router)
+    app.include_router(looks_router)
 
     @app.get("/sentry-debug")
     def sentry_debug():

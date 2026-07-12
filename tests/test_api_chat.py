@@ -15,7 +15,6 @@ import api.deps as deps
 from api.main import app
 from api.session import InMemorySessionStore
 
-
 # ---------------------------------------------------------------------------
 # Mock helpers
 # ---------------------------------------------------------------------------
@@ -96,9 +95,9 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def client():
-    # lifespan="off" skips startup so no real data files are required.
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+    # Instantiate without context manager so the lifespan is never triggered
+    # and no real index files are required.
+    yield TestClient(app, raise_server_exceptions=True)
 
 
 def _make_factory(result: dict[str, Any]):
@@ -202,7 +201,7 @@ def test_items_returned_when_new_items_this_turn(
                 "colour": "Black",
                 "product_type": "Trousers",
                 "department": "Ladieswear",
-                "image_url": None,
+                "image_url": "https://example.com/img/111222333.jpg",
                 "detail_desc": "Slim fit trousers in black.",
                 "score": 0.92,
             }

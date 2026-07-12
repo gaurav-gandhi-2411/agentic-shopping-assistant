@@ -11,9 +11,9 @@ import argparse
 import json
 import os
 import random
+import statistics
 import sys
 import time
-import statistics
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -55,6 +55,7 @@ KNOWN_CHECK_KEYS = {
     "tool_expected",
     "filter_applied",
     "style_criteria",
+    "max_latency_seconds",
 }
 
 
@@ -161,13 +162,12 @@ def dry_run(queries: list[dict], df) -> bool:
 # ── agent component loader ────────────────────────────────────────────────────
 
 def build_components(provider: str | None = None, router: str | None = None):
-    from src.catalogue.loader import load_config
-    from src.retrieval.dense_search import DenseRetriever
-    from src.retrieval.sparse_search import SparseRetriever
-    from src.retrieval.hybrid_search import HybridRetriever
-    from src.llm.client import get_llm_client
-    from src.memory.conversation import ConversationMemory
     from src.agents.graph import build_graph
+    from src.catalogue.loader import load_config
+    from src.llm.client import get_llm_client
+    from src.retrieval.dense_search import DenseRetriever
+    from src.retrieval.hybrid_search import HybridRetriever
+    from src.retrieval.sparse_search import SparseRetriever
 
     config = load_config(_CONFIG_PATH)
     _provider = provider or os.environ.get("LLM_PROVIDER", "groq")
@@ -363,6 +363,11 @@ def evaluate_checks(checks: dict, result: dict, response_text: str) -> dict[str,
         else:
             text_lower = response_text.lower()
             ev["style_criteria"] = any(w.lower() in text_lower for w in checks["style_criteria"])
+
+    # max_latency_seconds: latency_total (main + setup turns) must not exceed this threshold
+    if "max_latency_seconds" in checks:
+        actual = result.get("latency_total", 0.0)
+        ev["max_latency_seconds"] = actual <= float(checks["max_latency_seconds"])
 
     return ev
 

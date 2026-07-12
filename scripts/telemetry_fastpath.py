@@ -13,21 +13,24 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
+
 load_dotenv()
 
-from src.catalogue.loader import load_config
-from src.retrieval.dense_search import DenseRetriever
-from src.retrieval.sparse_search import SparseRetriever
-from src.retrieval.hybrid_search import HybridRetriever
-from src.llm.client import get_llm_client
-from src.memory.conversation import ConversationMemory
-from src.agents.graph import build_graph
+import fastparquet as fp  # noqa: E402
+
+from src.agents.graph import build_graph  # noqa: E402
+from src.catalogue.loader import load_config  # noqa: E402
+from src.llm.client import get_llm_client  # noqa: E402
+from src.memory.conversation import ConversationMemory  # noqa: E402
+from src.retrieval.dense_search import DenseRetriever  # noqa: E402
+from src.retrieval.hybrid_search import HybridRetriever  # noqa: E402
+from src.retrieval.sparse_search import SparseRetriever  # noqa: E402
 
 _DATA_DIR = _ROOT / "data" / "processed"
 _CONFIG_PATH = str(_ROOT / "config.yaml")
@@ -65,8 +68,6 @@ class CountingLLM:
     def call_count(self) -> int:
         return len(self.calls)
 
-
-import fastparquet as fp
 
 def _load_df():
     pf = fp.ParquetFile(str(_DATA_DIR / "catalogue.parquet"))
@@ -194,9 +195,9 @@ def main():
     s1 = R("S1-search",  "show me blue dresses")
     s2 = R("S2-search",  "I want a summer top")
     s3 = R("S3-search",  "looking for a leather jacket")
-    s4 = R("S4-search",  "black trousers please")
-    s5 = R("S5-search",  "casual white trainers")
-    s6 = R("S6-search",  "evening gown for a wedding")
+    _s4 = R("S4-search",  "black trousers please")
+    _s5 = R("S5-search",  "casual white trainers")
+    _s6 = R("S6-search",  "evening gown for a wedding")
     s7 = R("S7-search",  "dark wash denim jeans")
     s8 = R("S8-search",  "cosy chunky knit jumper")
 
@@ -241,12 +242,10 @@ def main():
     # Load baseline for comparison
     baseline_path = _ROOT / "scripts" / "telemetry_stats.json"
     baseline_total = None
-    baseline_mean = None
     if baseline_path.exists():
         with open(baseline_path) as fh:
             bs = json.load(fh)
         baseline_total = bs.get("total_llm_calls")
-        baseline_mean  = bs["per_turn"]["input_tokens"]["mean"]  # not calls, but keep for ref
 
     print(f"\n{'='*64}", flush=True)
     print(f"TELEMETRY FAST-PATH RESULTS  ({n_turns} turns)", flush=True)

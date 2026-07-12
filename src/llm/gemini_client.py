@@ -27,7 +27,14 @@ class GeminiClient:
         self.model_name = llm_cfg.get("gemini_model", "gemini-2.0-flash")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
-        self._client = genai.Client(api_key=api_key)
+        # Explicit per-request HTTP timeout (milliseconds — see google-genai's
+        # HttpOptions.timeout docs) — see GroqClient's identical comment in
+        # src/llm/client.py for why this is added even though the SDK default
+        # is already bounded.
+        _timeout_ms = int(llm_cfg.get("timeout_seconds", 60)) * 1000
+        self._client = genai.Client(
+            api_key=api_key, http_options=_types.HttpOptions(timeout=_timeout_ms)
+        )
         self._types = _types
 
     def _gen_config(self, temperature: float = None, max_tokens: int = None, system: str = None):
