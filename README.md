@@ -4,6 +4,8 @@
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
+> **Product:** [StyleMaitri](https://stylemaitri.vercel.app) — this repo predates the product rebrand. The deployed frontend (`stylemaitri` Vercel project) and Cloud Run backend (`asa-stylist-api`, project `iconic-reactor-496423-m4`) are both built from this repo's `frontend/` and API code respectively.
+
 A multi-turn conversational shopping assistant over the H&M fashion catalogue. Combines hybrid
 retrieval (dense + BM25 via Reciprocal Rank Fusion) with a LangGraph agent loop that orchestrates
 search, compare, filter, and outfit-bundling tools — all streamed through a single-process Streamlit app.
