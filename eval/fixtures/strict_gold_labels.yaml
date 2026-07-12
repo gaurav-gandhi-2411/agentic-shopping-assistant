@@ -961,3 +961,44 @@ labels:
   - {article_id: "14210976", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
   - {article_id: "11999050", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
   - {article_id: "11717870", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+
+# ── Batch 9 (2026-07-13): kids-leak fix's unconditional strip (mirrored into
+# eval_strict.py's _retrieve_pipeline, commit ffec039) changed which items
+# surface in --mode pipeline top-5 for several queries — 13 newly-surfaced
+# items hand-labeled against the same rubric so eval_gate.py runs with zero
+# unlabeled. retrieval_snapshot: commit 3f5cb32, data/processed/unified,
+# eval_strict.py --mode pipeline (mirrors search_node's filter+gate+rerank).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header. None of these 13
+# are kids/children's items — confirms _retrieve_pipeline's mirror stays
+# clean post-fix, consistent with the independent live-browser verification
+# of "red lehenga bridal" / "gold jewellery to go with red lehenga".
+- query_id: gold_002
+  items:
+  - {article_id: "10025796239657", relevant: true, note: "'Maxi Shirt Dress' explicit"}
+- query_id: gold_004
+  items:
+  - {article_id: "8245862072470", relevant: true, note: "'Straight Kurta' explicit"}
+- query_id: gold_013
+  items:
+  - {article_id: "8274559074526", relevant: true, note: "'Black...Dress' explicit"}
+- query_id: gold_014
+  items:
+  - {article_id: "8661207023766", relevant: true, note: "red embellished tissue saree — festive register plausible for wedding"}
+- query_id: gold_016
+  items:
+  - {article_id: "8494541734038", relevant: true, note: "₹649, well under the ₹1500 cap"}
+- query_id: kids_leak_001
+  items:
+  - {article_id: "16190872", relevant: true,
+     note: "red/white printed lehenga choli with dupatta — festive register, colour attribute Red matches"}
+  - {article_id: "17745514", relevant: true,
+     note: "red/green woven-design lehenga choli with dupatta — festive weave, colour attribute Red matches"}
+  - {article_id: "14976120", relevant: true,
+     note: "red/black embroidered mirror-work made-to-measure lehenga — heavily embellished, bridal tier, colour attribute Red matches"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "14122722", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "15293570", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "16190872", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "17745514", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
