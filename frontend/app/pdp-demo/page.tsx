@@ -13,6 +13,8 @@ export const metadata: Metadata = {
   robots: "noindex,nofollow",
 }
 
+// exempt from design-token audit: accentHex values are third-party retailer
+// brand colors (Snitch/Myntra/Flipkart), not this app's design tokens.
 const DEMO_BRANDS = [
   {
     id: "snitch",

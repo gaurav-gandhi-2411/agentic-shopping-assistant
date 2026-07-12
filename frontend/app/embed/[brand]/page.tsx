@@ -25,6 +25,8 @@ interface KnownBrand {
 
 const UNIFIED_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? ""
 
+// exempt from design-token audit: accentHex values are third-party retailer
+// brand colors (Snitch/Myntra/Flipkart), not this app's design tokens.
 const KNOWN_BRANDS: Record<string, KnownBrand> = {
   snitch: {
     id: "snitch",
