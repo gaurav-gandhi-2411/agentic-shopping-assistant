@@ -1001,4 +1001,26 @@ labels:
   - {article_id: "15293570", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
   - {article_id: "16190872", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
   - {article_id: "17745514", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+
+# ── Batch 10 (2026-07-13): batch-2 trust fixes (honest disclosure, price
+# grounding, ranking) + occasion-expansion formality-awareness changed which
+# items surface into top-5 for 3 queries — 4 newly-surfaced items hand-labeled
+# against the same rubric so eval_gate.py runs with zero unlabeled. The 4th
+# (kids_leak_002 rank 5) is the same pre-existing data-ceiling pattern as the
+# other 4 items already labeled for that query (jewellery query, no jewellery
+# in catalogue, lehenga items surface instead).
+# retrieval_snapshot: commit 00c04ae, data/processed/unified, eval_strict.py
+# --mode pipeline (mirrors search_node's filter+gate+rerank).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "8491606311062", relevant: true, note: "desc explicit 'Straight-fit Kurta', product_type kurta, gender women, ₹689"}
+- query_id: multi_010
+  items:
+  - {article_id: "19029826", relevant: false, reason: budget, note: "₹11250 > ₹10000 cap"}
+  - {article_id: "18069518", relevant: false, reason: colour-family,
+     note: "listed colour Lavender, not Pink — query explicitly names pink, not just 'pastel'; Lavender and Pink are distinct pastel shades (cf. line 480 Purple/Lavender-vs-wine precedent); within budget at ₹8471 but colour mismatch alone disqualifies"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
   - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
