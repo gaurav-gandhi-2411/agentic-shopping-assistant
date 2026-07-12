@@ -57,6 +57,18 @@ _COMPOUND_TERMS: dict[str, str] = {
     # "palazzo pants" prevents "pants" (trousers rule) from overriding "palazzo" via
     # rightmost-match logic when both appear in the same two-word phrase.
     "palazzo pants": "palazzo",
+    # 2026-07-13 fix: "kurta pajama"/"pyjama" queries were resolving to
+    # garment_type="nightwear" — "pajama" is rightmost and wins the position
+    # scan over "kurta" (see _GARMENT_RULES's nightwear rule). These are ethnic
+    # kurta-pajama SETS, not nightwear. Deliberately narrow to the kurta-
+    # combination phrases only — bare "pyjama set"/"pajama set" (no "kurta")
+    # must still resolve to nightwear (genuine men's pyjama-only sets).
+    # Mirrored in src/catalogue/normalizer.py's _COMPOUND_TERMS (same algorithm,
+    # see this file's module docstring).
+    "kurta and pyjama": "kurta",
+    "kurta pyjama": "kurta",
+    "kurta pajama": "kurta",
+    "kurta and pajama": "kurta",
 }
 
 _COMPOUND_SORTED: list[tuple[str, str]] = sorted(

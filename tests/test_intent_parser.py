@@ -328,6 +328,38 @@ class TestCompoundGarmentRules:
 
 
 # ---------------------------------------------------------------------------
+# Group 6a: BUG 4 — "kurta pajama"/"pyjama" queries were routing to
+# garment_type="nightwear" instead of "kurta" ("pajama" is rightmost and wins
+# the position scan over "kurta"). See src/catalogue/normalizer.py for the
+# mirrored ingest-time fix.
+# ---------------------------------------------------------------------------
+
+
+class TestKurtaPajamaCompound:
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "kurta pajama for father in law",
+            "kurta pyjama set",
+            "kurta and pyjama set for dad",
+            "kurta and pajama for husband",
+            "white kurta pajama for men",
+        ],
+    )
+    def test_kurta_pajama_resolves_to_kurta_not_nightwear(self, query: str) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == "kurta", (
+            f"query={query!r}: expected garment_type='kurta', got {intent.garment_type!r}"
+        )
+
+    def test_bare_pyjama_still_resolves_to_nightwear(self) -> None:
+        """Without 'kurta', a bare pyjama-set query must stay nightwear —
+        the fix must not blanket-map all pyjama mentions to kurta."""
+        intent = parse_intent("men's pyjama set for sleeping")
+        assert intent.garment_type == "nightwear"
+
+
+# ---------------------------------------------------------------------------
 # Group 7: Budget extraction
 # ---------------------------------------------------------------------------
 
