@@ -103,6 +103,52 @@ def is_kids_item(prod_name: str | None) -> bool:
     return bool(_KIDS_MARKER_RE.search(prod_name or ""))
 
 
+# ---------------------------------------------------------------------------
+# Loungewear-in-dress-bucket exclusion
+# ---------------------------------------------------------------------------
+# Live-proven bug (2026-07-13): "minimalist wedding guest dress" returned
+# "Green Geometric Printed Cotton Kaftan Night Dress" (genuine libas sleepwear)
+# with the assistant's own text calling it "perfect for a wedding celebration".
+# product_type_name is correctly "dress" for these rows — the catalogue simply
+# has sleepwear sitting in the same bucket as formal/wedding dresses, and there
+# was no exclusion mechanism for it (unlike fabric-bolts/kids items above).
+#
+# Verified against data/processed/unified/catalogue.parquet: 15 rows in the
+# "dress" bucket (all brand=libas) contain the literal phrase "Night Dress" /
+# "Nightdress" ("Green Geometric Printed Cotton Kaftan Night Dress", "Blue
+# Printed Cotton Night Dress", etc.) — catalogue-wide this phrase matches
+# exactly 19 rows total, all brand=libas, all genuinely sleepwear (15 in
+# "dress", 3 in "All Products", 1 already correctly tagged product_type_name
+# ="kaftan"): zero false positives anywhere in the catalogue.
+#
+# Deliberately does NOT match on a bare "kaftan" (an initial hypothesis from
+# the bug report, since 2 fashor + 1 virgio "dress"-bucket rows also contain
+# "kaftan" without "night"). Checked those 3 rows' own detail_desc: fashor's
+# "Kaftan Style Midi/Maxi Dress" is described as "Perfect for brunches,
+# getaways, or breezy evenings"; virgio's "Kaftan Maxi Dress With Lace" as
+# transitioning "from intimate gatherings to festive evenings" — genuine
+# day/eveningwear, not sleepwear. A bare "kaftan" is also a legitimate
+# standalone garment noun used on 71 other catalogue rows (kurtas, tops,
+# tunics, co-ords) unrelated to loungewear, so matching on it alone would
+# badly over-exclude. "night dress"/"nightgown" is the precise, calibrated
+# signal — "night suit"/"night shorts" (192 legitimate nightwear-category
+# rows) are unaffected since they never contain the word "dress".
+_LOUNGEWEAR_MARKER_RE = re.compile(
+    r"\bnight\s*dress\b|\bnightgown\b|\bnight\s*gown\b", re.IGNORECASE
+)
+
+
+def is_loungewear_text(text: str | None) -> bool:
+    """Return True when *text* describes a sleepwear/loungewear "night dress".
+
+    NOT wired in as an unconditional hard exclusion (unlike is_fabric_bolt_text
+    and is_kids_item above) — a bare "night dress" query with no wedding/formal
+    occasion signal has a legitimate reason to want these items. Callers must
+    gate this predicate on occasion context before applying it.
+    """
+    return bool(_LOUNGEWEAR_MARKER_RE.search(text or ""))
+
+
 def reclassify_finished_sarees(
     df: pd.DataFrame,
     *,

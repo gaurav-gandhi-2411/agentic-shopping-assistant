@@ -192,6 +192,57 @@ class TestFabricScoreDelta:
         assert fabric_score_delta(item, "sangeet") == pytest.approx(0.0)
 
 
+class TestFabricScoreDeltaFormalityOverride:
+    """formality_override ('minimalist'/'comfortable' — the `formality_softener`
+    value a sibling intent-parser fix surfaces) fixes two live-confirmed bugs:
+    (1) sangeet's base rule unconditionally boosts embellishment even for a
+    "comfortable for dancing" query, with no way to suppress it; (2)
+    wedding_guest has zero embellishment-awareness at all, even when the user
+    explicitly asked for something low-key ("not too flashy")."""
+
+    def test_sangeet_embellished_suppressed_when_comfortable_override(self) -> None:
+        item = {"prod_name": "Heavy Embroidered Bridal Lehenga Choli", "detail_desc": ""}
+        assert fabric_score_delta(
+            item, "sangeet", formality_override="comfortable"
+        ) == pytest.approx(-0.1)
+
+    def test_sangeet_lightweight_favoured_when_comfortable_override(self) -> None:
+        item = {"prod_name": "Cotton Floral Kurti", "detail_desc": ""}
+        assert fabric_score_delta(
+            item, "sangeet", formality_override="comfortable"
+        ) == pytest.approx(0.1)
+
+    def test_wedding_guest_zero_without_override(self) -> None:
+        # Baseline (no signal) behaviour for wedding_guest is intentionally
+        # unchanged — 0.0 regardless of embellishment.
+        item = {"prod_name": "Heavy Embroidered Sequin Gown", "detail_desc": ""}
+        assert fabric_score_delta(item, "wedding_guest") == pytest.approx(0.0)
+
+    def test_wedding_guest_embellished_penalized_with_minimalist_override(self) -> None:
+        item = {"prod_name": "Heavy Embroidered Sequin Gown", "detail_desc": ""}
+        assert fabric_score_delta(
+            item, "wedding_guest", formality_override="minimalist"
+        ) == pytest.approx(-0.1)
+
+    def test_wedding_guest_plain_favoured_with_minimalist_override(self) -> None:
+        item = {"prod_name": "Cotton Floral Kurti", "detail_desc": ""}
+        assert fabric_score_delta(
+            item, "wedding_guest", formality_override="minimalist"
+        ) == pytest.approx(0.1)
+
+    def test_default_signature_backward_compatible(self) -> None:
+        # No override arg passed at all — existing composer.py/graph.py call
+        # sites (fabric_score_delta(item, occasion_slug)) must be unaffected.
+        item = {"prod_name": "Heavy Embroidered Lehenga", "detail_desc": ""}
+        assert fabric_score_delta(item, "sangeet") == pytest.approx(0.1)
+
+    def test_unrecognized_override_value_falls_back_to_base_behaviour(self) -> None:
+        item = {"prod_name": "Heavy Embroidered Lehenga", "detail_desc": ""}
+        assert fabric_score_delta(
+            item, "sangeet", formality_override="statement"
+        ) == pytest.approx(0.1)
+
+
 # ── coherence ──────────────────────────────────────────────────────────────
 
 class TestIsCoherentCandidate:

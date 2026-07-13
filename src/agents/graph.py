@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import statistics
 
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
@@ -18,6 +19,7 @@ from src.agents.outfit.composer import (
     swap_slot_in_look,
 )
 from src.agents.outfit.partner import (
+    _RELATIONAL_NOUN_ALT,
     build_coordinated_with_text,
     compose_couple_look,
     compose_partner_look,
@@ -25,7 +27,7 @@ from src.agents.outfit.partner import (
     resolve_partner_gender,
 )
 from src.agents.outfit.rationale import generate_rationales, template_rationale
-from src.agents.outfit.slots import resolve_look_gender
+from src.agents.outfit.slots import _FORMAL_ETHNIC_OCCASIONS, resolve_look_gender
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import (
@@ -35,11 +37,11 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
-from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item
+from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item, is_loungewear_text
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
-from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
+from src.retrieval.hybrid_search import _RELEVANCE_FLOOR, HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +148,24 @@ _CHEAPER_REFINEMENT_RE = re.compile(
 # result set (not just shaving off the single most expensive item) while still
 # leaving enough inventory to return >=2 items in most categories.
 _CHEAPER_REFINEMENT_FACTOR: float = 0.7
+
+# ---------------------------------------------------------------------------
+# price_qualifier ("cheap"/"expensive", IntentV1.price_qualifier) ranking.
+# Mirrors _CHEAPER_REFINEMENT_FACTOR's shape: computed from the CURRENT
+# candidate pool's own price distribution, never a hardcoded INR threshold
+# (see IntentV1.price_qualifier docstring). Applied at the same call site as
+# fabric_score_delta's occasion sort in search_node.
+# ---------------------------------------------------------------------------
+
+# Outlier-exclusion multiplier for "cheap" queries: an item priced above
+# _CHEAP_OUTLIER_FACTOR times the candidate pool's own MEDIAN price is dropped
+# from the final result set before the ascending-price sort. Calibrated against
+# the real "cheap lehenga" candidate pool (retriever.search, product_type_name=
+# lehenga, gender=women, top_k=20, verified 2026-07-13 against
+# data/processed/unified): median=₹6,899, the pool's single outlier=₹28,900
+# (4.19x median) — a 3x cap (₹20,697) excludes exactly that one outlier while
+# keeping the other 19 genuinely-priced items (₹3,900-₹13,584) intact.
+_CHEAP_OUTLIER_FACTOR: float = 3.0
 
 
 def _normalize_for_anchor_match(s: str) -> str:
@@ -592,6 +612,134 @@ def _is_unrecognized_query(query: str, retriever: "HybridRetriever") -> bool:
     return (recognized / len(tokens)) < 0.5 or has_gibberish_token
 
 
+def _gibberish_check_applies(is_first_search: bool, raw_query: str) -> bool:
+    """True when search_node should even evaluate _is_unrecognized_query this turn.
+
+    Batch 2 fix (2026-07-13): the gibberish guard above was scoped to
+    `is_first_search` only — a gibberish query injected on turn 2+ (accumulated
+    filters or a prior search already in tool_calls) skipped the check entirely
+    and got a confident LLM pitch. Always true on turn 1 (unchanged). On turn
+    2+, only true when parse_intent() extracts ZERO structured signal from the
+    raw query (no garment/occasion/colour/budget/gender) — this is what keeps a
+    legitimate short refinement like "in blue" (extracts colour="blue" despite
+    being short) from ever reaching _is_unrecognized_query's own heuristic,
+    while true nonsense ("asdkfjhqwoiuerlkj", which extracts nothing) still does.
+    """
+    if is_first_search:
+        return True
+    from src.agents.intent_parser import parse_intent as _gib_parse_intent
+
+    intent = _gib_parse_intent(raw_query)
+    return not (
+        intent.garment_type
+        or intent.occasion
+        or intent.colour
+        or intent.budget_max_inr
+        or intent.gender
+    )
+
+
+# ---------------------------------------------------------------------------
+# Low-confidence result-set signal (Part A honest-disclosure, 2026-07-13):
+# cheapest available proxy for "how relevant is this result set, really" —
+# reuses each item's own RRF "score" key (src.retrieval.hybrid_search) relative
+# to the SAME _RELEVANCE_FLOOR that retrieval already uses to drop pure noise.
+#
+# Calibrated against the real unified index (2026-07-13, retriever.search
+# directly, see scratch calibration — not committed): the two confirmed
+# "confidently wrong" live repros scored max=3.76x floor ("footwear for
+# lehenga") and max=3.61x floor ("what's trending for wedding season 2026"),
+# while five real successful queries sampled from the same index (red saree
+# for wedding, black dress for women, kurta for men, cheap lehenga, minimalist
+# wedding guest dress) all scored 4.39x-5.42x floor — a clean separation with
+# zero false positives in this sample. NOT a universal fix: a third confirmed
+# repro ("jacket style lehenga") scores 4.46x floor — ABOVE this threshold —
+# because "lehenga" itself retrieves strongly even though the "jacket style"
+# attribute the user asked for is never actually represented in any candidate.
+# That is an attribute-presence gap, not a relevance-score gap; a score-based
+# signal cannot catch it, and it is a documented residual gap (see PR notes),
+# not silently claimed as fixed.
+_LOW_CONFIDENCE_SCORE_MULT: float = 4.0
+_LOW_CONFIDENCE_MIN_ITEMS: int = 3
+
+
+def _is_low_confidence_result(items: list[dict]) -> bool:
+    """Soft "borderline" signal — items exist but are a weak match: max score
+    doesn't clear _LOW_CONFIDENCE_SCORE_MULT x the relevance floor, or fewer
+    than _LOW_CONFIDENCE_MIN_ITEMS items survived every filter. Used by
+    respond_node to hedge the LLM's prompt rather than presenting a confident
+    exact match. Never true for an EMPTY item list — that is the separate,
+    stronger "no confident match at all" case handled directly in respond_node
+    (mirrors the existing few_gender zero-stock precedent, generalized beyond
+    gender as the cause).
+    """
+    if not items:
+        return False
+    max_score = max((it.get("score") or 0.0) for it in items)
+    return max_score < _LOW_CONFIDENCE_SCORE_MULT * _RELEVANCE_FLOOR or (
+        len(items) < _LOW_CONFIDENCE_MIN_ITEMS
+    )
+
+
+def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
+    """Part E (2026-07-13): strip loungewear/"night dress" items from a formal
+    wedding-tier occasion's result set.
+
+    is_loungewear_text (src.catalogue.cleaning) is the underlying predicate —
+    deliberately narrow, verified zero-false-positive against the real
+    catalogue (see its docstring). Gated on _FORMAL_ETHNIC_OCCASIONS (slots.py
+    — the same set used for "footwear required") so a bare "night dress" query
+    with no formal-occasion context is untouched — it has a legitimate reason
+    to want these items. Deliberately NOT pool-underflow protected (unlike
+    every other gate in search_node): a sleepwear item is never an acceptable
+    formal-occasion result even as a last resort, so this can legitimately
+    empty `items` — the caller's zero_confidence signal is the correct honest
+    reaction to that, not a silently-kept nightgown.
+    """
+    if occasion_slug not in _FORMAL_ETHNIC_OCCASIONS:
+        return items
+    return [
+        it for it in items
+        if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+    ]
+
+
+def _apply_price_qualifier(items: list[dict], price_qualifier: str | None) -> list[dict]:
+    """Part D (2026-07-13): rank/filter `items` per IntentV1.price_qualifier
+    ("cheap"/"expensive"), resolved against THIS pool's OWN price distribution
+    — mirrors _CHEAPER_REFINEMENT_FACTOR's shape, never a hardcoded INR
+    threshold (see IntentV1.price_qualifier docstring).
+
+    "cheap": excludes items priced above _CHEAP_OUTLIER_FACTOR x the pool's own
+    median (pool-underflow protected — skipped if it would leave <2 items),
+    then sorts the survivors ascending by price.
+    "expensive": simple descending price sort, no low-end exclusion (not part
+    of the confirmed bug repros — a symmetric implementation is nice-to-have).
+    Any other value (including None): no-op, returns `items` unchanged.
+    """
+    if price_qualifier == "cheap" and items:
+        priced = [it.get("price_inr") for it in items if it.get("price_inr")]
+        if priced:
+            price_median = statistics.median(priced)
+            cheap_cap = price_median * _CHEAP_OUTLIER_FACTOR
+            cheap_filtered = [it for it in items if (it.get("price_inr") or 0.0) <= cheap_cap]
+            if len(cheap_filtered) >= 2:  # pool-underflow protected
+                items = cheap_filtered
+        return sorted(
+            items,
+            key=lambda it: (
+                it.get("price_inr") if it.get("price_inr") is not None else float("inf")
+            ),
+        )
+    if price_qualifier == "expensive" and items:
+        return sorted(
+            items,
+            key=lambda it: it.get("price_inr") if it.get("price_inr") is not None else -1.0,
+            reverse=True,
+        )
+    return items
+
+
 def _detect_ooc(query: str) -> str | None:
     """Return the OOC category label if query contains a known non-clothing keyword, else None.
 
@@ -783,21 +931,24 @@ when the user's query implies it (e.g. "the blue one from before"). Never invent
 that aren't in the recent conversation or the item attributes.
 
 WHAT NOT TO SAY:
-- Do NOT mention price, cost, discount, sale, affordable, or budget. No price data exists. \
-If the user asked about price OR mentioned a price constraint in their query (e.g. "under $100", \
-"budget", "cheap"), acknowledge it naturally: \
-"I don't have pricing data so couldn't filter by your budget — but here are [items]."
+- Price may be shown below when available — cite it naturally when it helps ("the Riviera \
+dress at ₹2,999") rather than avoiding it. Never invent a price for an item with none listed. \
+If the user stated a budget or price constraint (e.g. "under ₹2000", "cheap") and these \
+results don't clearly satisfy it, acknowledge that honestly in one sentence instead of \
+implying they do — do not silently ignore the mismatch.
 - Do NOT mention size, fit, runs big/small. No size data exists. \
 If the user asked about size OR mentioned a size constraint (e.g. "size M", "petite"), acknowledge it: \
 "I don't have size data so couldn't filter by size — here are the options available."
 - Do NOT claim fabric performance (breathable, sweat-wicking, waterproof, warm, cold) \
 unless those exact words appear in the item description below.
-- Do NOT compare on attributes not listed (no price comparisons, no size comparisons).
+- Do NOT compare on attributes not listed (no size comparisons); price comparisons between \
+listed items are fine since price is shown below when available.
 - Use only facts from the provided item attributes — do not invent or infer.
 
 MISSING ATTRIBUTE HANDLING — if the user asked about something we don't have:
 - fabric / material → "I don't have fabric information — check the product details on the site."
-- price / cost / sale → "I don't have pricing information — check the product page."
+- price / cost / sale → if no price is listed below for the item, say "I don't have pricing \
+information for that one — check the product page." Otherwise cite the price shown.
 - size / fit → "I don't have size or fit information — check the product page."
 - stock / availability → "I don't have stock information — check the product page."
 Follow with one sentence about what IS visible.
@@ -849,11 +1000,19 @@ def _format_items_for_response(items: list[dict]) -> str:
     for item in items[:5]:
         desc = item.get("detail_desc") or ""
         short = desc[:150].rstrip() + "..." if len(desc) > 150 else desc
+        # Part B fix (2026-07-13): price_inr is present on every retrieved item
+        # dict but was previously dropped here — the LLM was told "No price
+        # data exists" while genuinely having none to cite, producing the false
+        # "I don't have pricing information" claim even when a price constraint
+        # was satisfiable. `or ""` blank when missing rather than literal "None".
+        price = item.get("price_inr")
+        price_str = f"₹{price:.0f}" if isinstance(price, (int, float)) else ""
         lines.append(
             f"- display_name: {item.get('display_name', '')}\n"
             f"  colour: {item.get('colour', '')} | "
             f"type: {item.get('product_type', '')} | "
-            f"department: {item.get('department', '')}\n"
+            f"department: {item.get('department', '')} | "
+            f"price: {price_str}\n"
             f"  description: {short}"
         )
     return "\n".join(lines)
@@ -1530,6 +1689,15 @@ def build_graph(
     # Gender keyword → index_group_name value mapping.
     # Applied in search_node before the general auto-facet extractor so
     # gender intent in the query always wins over ambiguous facet matches.
+    # groom/bride entries reuse outfit.partner's _RELATIONAL_NOUN_ALT negative-
+    # lookahead (source of truth: src/agents/outfit/partner.py's _GROOM_RE/
+    # _BRIDE_RE) — this is a SEPARATE, independent gender map from partner.py's
+    # (that one gates cross-gender partner-STYLING intent; this one gates the
+    # plain product-search gender filter), so it needed the same carve-out
+    # applied a second time. Without it, "groom's sister outfit ideas" matched
+    # \bgroom\b inside "groom's" (apostrophe is a non-word char) and hard-set
+    # index_group_name="menswear" even though "groom's" here possessively
+    # modifies "sister", not the wearer. Live-proven 2026-07-13.
     _GENDER_MAP: dict[str, str] = {
         r"\bmen\b": "Menswear", r"\bmens\b": "Menswear",
         r"\bman\b": "Menswear", r"\bmale\b": "Menswear",
@@ -1539,7 +1707,9 @@ def build_graph(
         r"\bwife\b": "Ladieswear", r"\bwives\b": "Ladieswear",
         r"\bgirlfriend\b": "Ladieswear", r"\bher\b": "Ladieswear",
         r"\bhusband\b": "Menswear", r"\bboyfriend\b": "Menswear",
-        r"\bhim\b": "Menswear", r"\bgroom\b": "Menswear", r"\bbride\b": "Ladieswear",
+        r"\bhim\b": "Menswear",
+        rf"\bgroom\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)": "Menswear",
+        rf"\bbride\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)": "Ladieswear",
         r"\bkid\b": "Baby/Children", r"\bkids\b": "Baby/Children",
         r"\bchild\b": "Baby/Children", r"\bchildren\b": "Baby/Children",
         r"\bbaby\b": "Baby/Children",
@@ -1595,12 +1765,27 @@ def build_graph(
     # wedding") retrieve ethnic/occasion-appropriate garments. Order matters — more
     # specific occasions (sangeet, haldi/mehendi) are checked before the broader
     # "wedding"/"traditional" fallbacks would otherwise also match on shared words.
-    _OCCASION_QUERY_TERMS: list[tuple[str, str]] = [
-        (r"\bsangeet\b", "lehenga sherwani kurta embellished festive"),
-        (r"\b(?:haldi|mehendi)\b", "kurta kurti lehenga cotton floral yellow festive"),
-        (r"\b(?:puja|festive)\b", "kurta kurti anarkali festive ethnic"),
-        (r"\bwedding\b", "lehenga saree anarkali kurta sherwani ethnic wedding wear"),
-        (r"\btraditional\b|\bethnic\b", "saree lehenga kurta traditional ethnic"),
+    #
+    # Third tuple element (2026-07-13, formality-aware retrieval fix): an optional
+    # comfortable/minimalist-variant terms string, substituted for the default when
+    # formality_softener requests low embellishment (e.g. "something comfortable for
+    # sangeet dancing"). Without this, sangeet's default terms baked the literal word
+    # "embellished" into the dense/BM25 retrieval query itself — the candidate POOL
+    # returned was already 100% embellishment-biased before fabric_score_delta's
+    # downstream sort ever ran, so every candidate scored the same -0.1 and the
+    # stable sort had nothing lightweight to promote. Only sangeet's default terms
+    # contain an embellishment word; the other entries below were audited and are
+    # already occasion-neutral (no bias to counter), so they keep a single string.
+    _OCCASION_QUERY_TERMS: list[tuple[str, str, str | None]] = [
+        (
+            r"\bsangeet\b",
+            "lehenga sherwani kurta embellished festive",
+            "lehenga sherwani kurta lightweight comfortable festive",
+        ),
+        (r"\b(?:haldi|mehendi)\b", "kurta kurti lehenga cotton floral yellow festive", None),
+        (r"\b(?:puja|festive)\b", "kurta kurti anarkali festive ethnic", None),
+        (r"\bwedding\b", "lehenga saree anarkali kurta sherwani ethnic wedding wear", None),
+        (r"\btraditional\b|\bethnic\b", "saree lehenga kurta traditional ethnic", None),
     ]
 
     # Bolt-good / fabric SKU types — not finished wearable garments.
@@ -1694,14 +1879,20 @@ def build_graph(
 
         # Gibberish guard (live defect 2026-07-10, P0-4): a keyboard-mash first
         # message ("asdfgh qwerty zxcvb") got a confident product rec — dense
-        # similarity over noise still ranks something first. Context-free turns
-        # only (no accumulated filters, no prior search): refinement words like
-        # "cheaper" are legitimately absent from catalogue vocabulary, and a
-        # mid-conversation turn always has context that makes results defensible.
+        # similarity over noise still ranks something first. Turn 1 always
+        # checked (no context to lean on). Turn 2+ is gated by
+        # _gibberish_check_applies (Batch 2, 2026-07-13): a mid-conversation
+        # turn USUALLY has enough context to make results defensible (e.g.
+        # "cheaper" is a legitimate refinement word absent from catalogue
+        # vocabulary), but a gibberish fragment injected mid-conversation with
+        # NO structured signal at all must still be caught — see that
+        # function's docstring for why "in blue" is never a false positive here.
         is_first_search = not state.get("filters") and not any(
             "search" in tc or "search_ooc" in tc for tc in state.get("tool_calls", [])
         )
-        if is_first_search and _is_unrecognized_query(raw_query, retriever):
+        if _gibberish_check_applies(is_first_search, raw_query) and _is_unrecognized_query(
+            raw_query, retriever
+        ):
             logger.info("[search] unrecognized query -> clarify: %r", raw_query)
             return {
                 "retrieved_items": [],
@@ -1780,11 +1971,25 @@ def build_graph(
         # never reaches the LLM router, so the LLM's own SEASONAL/OCCASION QUERY
         # REWRITING prompt guidance never applied here — this closes that gap without
         # depending on the LLM at all.
+        #
+        # Formality-aware terms (2026-07-13): "something comfortable for sangeet
+        # dancing" must not inject the word "embellished" into the retrieval query
+        # itself — see _OCCASION_QUERY_TERMS' docstring above for why that biased
+        # the candidate pool before fabric_score_delta's downstream sort ever ran.
         if "product_type_name" not in merged:
+            from src.agents.intent_parser import parse_intent as _occterm_parse_intent
+
             raw_lower = raw_query.lower()
-            for pattern, occasion_terms in _OCCASION_QUERY_TERMS:
+            _occterm_formality = _occterm_parse_intent(raw_query).formality_softener
+            for pattern, occasion_terms, comfortable_terms in _OCCASION_QUERY_TERMS:
                 if re.search(pattern, raw_lower, re.IGNORECASE):
-                    query = f"{query} {occasion_terms}"
+                    _terms = (
+                        comfortable_terms
+                        if comfortable_terms
+                        and _occterm_formality in ("comfortable", "minimalist")
+                        else occasion_terms
+                    )
+                    query = f"{query} {_terms}"
                     break
 
         # Auto-extract facet filters from the query when the LLM omitted them.
@@ -2171,9 +2376,30 @@ def build_graph(
             ]
             if _occ_gated:
                 items_out = _occ_gated
+
+            # Part E: see _apply_loungewear_gate docstring — fixes "minimalist
+            # wedding guest dress" surfacing a literal nightgown.
+            items_out = _apply_loungewear_gate(items_out, _occ_slug)
+
+            # Part C (formality_softener ranking wiring, 2026-07-13): passes
+            # the sibling intent-parser signal ("something comfortable for
+            # sangeet dancing" / "not too flashy") through to fabric_score_
+            # delta's formality_override — see that function's docstring for
+            # how it OVERRIDES the base occasion-driven embellishment sign
+            # (including for wedding_guest, which has no base sign of its own).
+            # This gate (_occ_slug != "casual") already covers wedding_guest,
+            # so no gate-loosening is needed here — only the missing kwarg.
             items_out = sorted(
-                items_out, key=lambda it: _occ_fabric_delta(it, _occ_slug), reverse=True
+                items_out,
+                key=lambda it: _occ_fabric_delta(
+                    it, _occ_slug, formality_override=_occ_intent.formality_softener
+                ),
+                reverse=True,
             )
+
+        # Part D: see _apply_price_qualifier docstring — fixes "cheap lehenga"
+        # (cheapest item ranking 3rd of 5, an 11x-median outlier included).
+        items_out = _apply_price_qualifier(items_out, _occ_intent.price_qualifier)
 
         # Colour refinement chips: distinct colours in the result set.
         # Excludes the active colour filter so chips offer genuine alternatives.
@@ -2201,6 +2427,14 @@ def build_graph(
             search_meta["gender_group"] = merged.get("index_group_name", "")
         if thin_category:
             search_meta["thin_category"] = True
+        # Part A honest-disclosure: thread the low-confidence signal through
+        # the SAME tool_calls["search"] mechanism as few_gender_results/
+        # thin_category above (mirrored, not reinvented) so respond_node can
+        # react without recomputing anything from raw items.
+        if not items_out:
+            search_meta["zero_confidence"] = True
+        elif _is_low_confidence_result(items_out):
+            search_meta["low_confidence"] = True
         update: dict = {
             "retrieved_items": items_out,
             "new_items_this_turn": True,
@@ -2575,6 +2809,17 @@ def build_graph(
                 state.get("messages", [])
             )
 
+        # Part C (formality_softener ranking wiring, 2026-07-13): current-turn
+        # signal only (no cross-turn carry-forward, unlike body_type above —
+        # kept intentionally narrow for this wave; a "make it less flashy"
+        # follow-up turn re-stating the softener still works, it just isn't
+        # remembered silently across turns the way body type is). Threaded
+        # through compose_outfit_tool/compose_outfit_variants/compose_biased_
+        # look/swap_slot_in_look below exactly like body_type.
+        from src.agents.intent_parser import parse_intent as _outfit_parse_intent
+
+        _formality_override = _outfit_parse_intent(state["user_query"]).formality_softener
+
         # "Owned anchor" feature: if the resolved seed IS the session's image-upload
         # anchor AND that anchor is owned by the user (not for sale), re-compose
         # must preserve ownership — otherwise a follow-up "Style this <item>" /
@@ -2627,6 +2872,7 @@ def build_graph(
                 budget_inr=budget_inr,
                 body_type=body_type,
                 body_modifiers=body_modifiers,
+                formality_override=_formality_override,
             )
 
             if _new_look is None:
@@ -2699,6 +2945,7 @@ def build_graph(
             owned_anchor=owned_anchor,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            formality_override=_formality_override,
         )
         if probe.get("seed_item") is None:
             answer = (
@@ -2730,6 +2977,7 @@ def build_graph(
                 owned_anchor=owned_anchor,
                 body_type=body_type,
                 body_modifiers=body_modifiers,
+                formality_override=_formality_override,
             )
         except Exception as _ve:
             logger.warning("[outfit] compose_outfit_variants failed (%s) — using probe", _ve)
@@ -2781,6 +3029,7 @@ def build_graph(
                     owned_anchor=owned_anchor,
                     body_type=body_type,
                     body_modifiers=body_modifiers,
+                    formality_override=_formality_override,
                 )
             except Exception as _ee:
                 logger.warning("[outfit] compose_biased_look ethnic_shift failed (%s)", _ee)
@@ -2932,6 +3181,46 @@ def build_graph(
                 "messages": [{"role": "assistant", "content": answer}],
             }
 
+        # Part A honest-disclosure — general "no confident match at all" case:
+        # generalizes the few_gender zero-stock branch above beyond gender as
+        # the cause (e.g. a facet like "footwear" genuinely has ~zero catalogue
+        # coverage and every retrieval fallback still came up empty). Skip the
+        # LLM entirely rather than let it improvise a confident, fabricated
+        # pitch over an empty result set — same bias-toward-the-safer-template
+        # pattern as every other canned branch here. Never invents fabricated
+        # specifics (no "we don't have size 7 footwear" false precision).
+        zero_confidence = any(
+            tc.get("search", {}).get("zero_confidence") for tc in state.get("tool_calls", [])
+        )
+        if zero_confidence and not items:
+            answer = (
+                "I couldn't find a good match for that in this catalogue right now. "
+                "Try describing the item, occasion, or budget a little differently "
+                "and I'll take another look."
+            )
+            if streaming_mode:
+                return {
+                    "current_plan": json.dumps({"action": "pending_answer", "text": answer}),
+                    "final_answer": None,
+                    "messages": [],
+                }
+            return {
+                "final_answer": answer,
+                "messages": [{"role": "assistant", "content": answer}],
+            }
+
+        # Part A honest-disclosure — "borderline" case: items exist but are a
+        # weak match (see _is_low_confidence_result). Codebase's own evidence
+        # (the gibberish-guard investigation) is that an LLM does not reliably
+        # self-police into hedging just because it's told to — but a full
+        # template-only short-circuit here would also suppress genuinely
+        # useful, honestly-presented results, so this stays a PROMPT
+        # instruction (mirrors the existing few_gender hedge below), not a
+        # hard short-circuit; the empty-result case above is the hard one.
+        low_confidence = any(
+            tc.get("search", {}).get("low_confidence") for tc in state.get("tool_calls", [])
+        )
+
         # Stylist-quality reply (2-3 sentences) for BOTH product-search and
         # conversational turns — the one-sentence cap previously used for successful
         # searches produced canned, context-blind lines. Recent conversation history
@@ -2949,6 +3238,14 @@ def build_graph(
                 f"\n\nNote: this catalogue has limited {gender_group} stock. "
                 f"Mention this briefly at the end of your response."
             )
+        if low_confidence:
+            prompt += (
+                "\n\nNote: these results are a weak match for the query — the catalogue "
+                "may not carry exactly what was asked for. Be upfront about this rather "
+                "than presenting the items as an exact match: describe what IS shown "
+                "honestly, and note in one brief sentence that it's the closest available "
+                "match rather than a precise one. Do not invent a reason it's a perfect fit."
+            )
         if streaming_mode:
             # In streaming mode the app streams the LLM call; store the prompt for pickup.
             return {
@@ -2957,7 +3254,10 @@ def build_graph(
                 "messages": [],
             }
         answer = llm.generate(prompt)
-        answer, flags = validate_response(answer, items)
+        # allow_price_mentions=True: items now legitimately carry price_inr (Part
+        # B fix) — see validate_response's docstring for why the literal word
+        # "price"/"cost" no longer needs to appear in an item's own field values.
+        answer, flags = validate_response(answer, items, allow_price_mentions=True)
         if flags:
             logger.warning("[grounding] flags=%s query=%r", flags, state["user_query"])
         return {

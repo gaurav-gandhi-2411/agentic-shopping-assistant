@@ -319,3 +319,37 @@ def test_brand_false_positive_cases(
         f"expected {expected_gt!r}, got {result.garment_type!r}"
     )
     assert result.type_confidence == expected_conf
+
+
+# ---------------------------------------------------------------------------
+# BUG 4 — "kurta and pyjama"/"kurta pajama" SET titles were misclassified as
+# nightwear ("pyjama"/"pajama" is rightmost and wins the position scan over
+# "kurta"). Confirmed live: 40 catalogue rows like "Men Kurta and Pyjama Set
+# Dupion Silk" were tagged product_type_name="nightwear". Mirrored in
+# src/agents/intent_parser.py's _COMPOUND_TERMS (query-parse-time fix).
+# ---------------------------------------------------------------------------
+
+KURTA_PAJAMA_CASES: list[str] = [
+    "Men Kurta and Pyjama Set Jacquard",
+    "Men Kurta and Pyjama Set Dupion Silk",
+    "Men Kurta and Pyjama Set Pure Cotton",
+    "Men Kurta Pyjama Set Cotton Blend",
+    "Kurta Pajama Set",
+]
+
+
+@pytest.mark.parametrize("prod_name", KURTA_PAJAMA_CASES)
+def test_kurta_pajama_set_resolves_to_kurta_not_nightwear(prod_name: str) -> None:
+    """Ethnic kurta-pajama sets must classify as 'kurta', not 'nightwear'."""
+    result = normalize_garment_type(prod_name)
+    assert result.garment_type == "kurta", (
+        f"'{prod_name}': expected garment_type='kurta', got {result.garment_type!r}"
+    )
+    assert result.type_confidence == "high"
+
+
+def test_bare_pyjama_set_still_classifies_as_nightwear() -> None:
+    """Without 'kurta', a bare pyjama-only set must stay nightwear — the fix
+    must not blanket-map all pyjama mentions to kurta."""
+    result = normalize_garment_type("Men Pyjama Set Cotton")
+    assert result.garment_type == "nightwear"

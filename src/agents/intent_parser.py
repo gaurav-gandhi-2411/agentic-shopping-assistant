@@ -38,6 +38,16 @@ class IntentV1:
     # ("what suits my body type") — routes to a deterministic clarify message
     # rather than product search (see graph.py's router_node short-circuit).
     wants_body_type_guidance: bool = False
+    # Vague price adjective ("cheap lehenga", "expensive saree") that carries no
+    # literal INR number — see _extract_budget's docstring for why this is a
+    # separate field rather than a guessed threshold. A downstream consumer
+    # (graph.py) resolves this against the retrieved candidate pool's own price
+    # distribution rather than a hardcoded cutoff.
+    price_qualifier: str | None = None  # "cheap" | "expensive" | None
+    # Formality/embellishment softener ("not too flashy", "minimalist saree") —
+    # signal for a downstream ranking consumer (graph.py, next wave) to penalize
+    # heavily embellished items. Extraction only; no ranking wiring here.
+    formality_softener: str | None = None  # "flashy" | "minimalist" | "comfortable" | None
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +67,18 @@ _COMPOUND_TERMS: dict[str, str] = {
     # "palazzo pants" prevents "pants" (trousers rule) from overriding "palazzo" via
     # rightmost-match logic when both appear in the same two-word phrase.
     "palazzo pants": "palazzo",
+    # 2026-07-13 fix: "kurta pajama"/"pyjama" queries were resolving to
+    # garment_type="nightwear" — "pajama" is rightmost and wins the position
+    # scan over "kurta" (see _GARMENT_RULES's nightwear rule). These are ethnic
+    # kurta-pajama SETS, not nightwear. Deliberately narrow to the kurta-
+    # combination phrases only — bare "pyjama set"/"pajama set" (no "kurta")
+    # must still resolve to nightwear (genuine men's pyjama-only sets).
+    # Mirrored in src/catalogue/normalizer.py's _COMPOUND_TERMS (same algorithm,
+    # see this file's module docstring).
+    "kurta and pyjama": "kurta",
+    "kurta pyjama": "kurta",
+    "kurta pajama": "kurta",
+    "kurta and pajama": "kurta",
 }
 
 _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
@@ -229,6 +251,15 @@ _COLOUR_MAP: dict[str, str] = {
     "olive": "Olive",
     "teal": "Teal",
     "rust": "Rust",
+    # 2026-07-13 fix: "pastel" is a family adjective, not a specific hue, so it
+    # maps to its own synthetic canonical "Pastel" (deliberately NOT reusing an
+    # existing catalogue value like "Light Pink" here — that would also widen
+    # genuine "light pink" queries via the _COLOUR_FAMILY entry below). See
+    # _COLOUR_FAMILY for the widened retrieval-filter tuple; all six member
+    # colours verified present in the catalogue's colour_group_name column
+    # (data/processed/unified/catalogue.parquet): Light Pink=418, Light Blue=425,
+    # Lavender=128, Cream=243, Light Beige=16, White=2838 items.
+    "pastel": "Pastel",
 }
 
 _COLOUR_SORTED: list[tuple[str, str]] = sorted(
@@ -253,6 +284,7 @@ _COLOUR_FAMILY: dict[str, tuple[str, ...]] = {
     "Teal": ("Teal", "Turquoise", "Turquoise Blue"),
     "Cream": ("Cream", "Light Beige"),
     "Lavender": ("Lavender", "Purple"),
+    "Pastel": ("Light Pink", "Light Blue", "Lavender", "Cream", "Light Beige", "White"),
 }
 
 
@@ -403,6 +435,39 @@ _BUDGET_APPROX_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
+# Price qualifier — vague adjectives with no literal INR number attached
+# (see IntentV1.price_qualifier docstring). Checked independently of
+# _BUDGET_EXACT_RE/_BUDGET_APPROX_RE — a query can carry both ("cheap lehenga
+# under 3000" keeps its exact budget_max_inr AND price_qualifier="cheap").
+# ---------------------------------------------------------------------------
+
+_PRICE_QUALIFIER_CHEAP_RE = re.compile(
+    r"\bcheap\b|\bbudget[\s-]friendly\b|\binexpensive\b|\baffordable\b",
+    re.IGNORECASE,
+)
+_PRICE_QUALIFIER_EXPENSIVE_RE = re.compile(
+    r"\bexpensive\b|\bpremium\b|\bhigh[\s-]end\b|\bluxury\b",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Formality softener — "not too flashy"/"minimalist" style phrases signalling
+# the wearer wants low embellishment/heaviness (see IntentV1.formality_softener
+# docstring). "not too X" phrases are checked before bare "flashy" so
+# "not too flashy" resolves to "minimalist", not "flashy".
+# ---------------------------------------------------------------------------
+
+_FORMALITY_MINIMALIST_RE = re.compile(
+    r"\bnot\s+too\s+flashy\b|\bminimalist\b|\bsimple\b|\bunderstated\b|\bsubtle\b",
+    re.IGNORECASE,
+)
+_FORMALITY_COMFORTABLE_RE = re.compile(
+    r"\bnot\s+too\s+heavy\b|\bcomfortable\b",
+    re.IGNORECASE,
+)
+_FORMALITY_FLASHY_RE = re.compile(r"\bflashy\b", re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
 # Product-query signals
 # ---------------------------------------------------------------------------
 
@@ -545,6 +610,33 @@ def _extract_budget(raw_query: str) -> int | None:
     return None
 
 
+def _extract_price_qualifier(text_lower: str) -> str | None:
+    """Return "cheap"/"expensive" for vague price adjectives, else None.
+
+    Unlike _extract_budget, this carries no INR number — see IntentV1.
+    price_qualifier docstring for why a fixed threshold is not invented here.
+    """
+    if _PRICE_QUALIFIER_CHEAP_RE.search(text_lower):
+        return "cheap"
+    if _PRICE_QUALIFIER_EXPENSIVE_RE.search(text_lower):
+        return "expensive"
+    return None
+
+
+def _extract_formality_softener(text_lower: str) -> str | None:
+    """Return "minimalist"/"comfortable"/"flashy" for embellishment-related
+    phrases, else None. "not too X" negations are checked first so "not too
+    flashy" resolves to "minimalist" rather than "flashy".
+    """
+    if _FORMALITY_MINIMALIST_RE.search(text_lower):
+        return "minimalist"
+    if _FORMALITY_COMFORTABLE_RE.search(text_lower):
+        return "comfortable"
+    if _FORMALITY_FLASHY_RE.search(text_lower):
+        return "flashy"
+    return None
+
+
 def _extract_stores(text_lower: str) -> list[str]:
     """Return list of store names mentioned in the query (whole-word match)."""
     found: list[str] = []
@@ -609,6 +701,8 @@ def parse_intent(raw_query: str) -> IntentV1:
     is_product = _is_product_query(text_lower, garment_type, occasion, store_filter)
     body_type, body_modifiers = _extract_body_type(text_lower)
     wants_body_type_guidance = bool(_BODY_TYPE_QUESTION_RE.search(text_lower))
+    price_qualifier = _extract_price_qualifier(text_lower)
+    formality_softener = _extract_formality_softener(text_lower)
 
     return IntentV1(
         garment_type=garment_type,
@@ -622,6 +716,8 @@ def parse_intent(raw_query: str) -> IntentV1:
         body_type=body_type,
         body_modifiers=body_modifiers,
         wants_body_type_guidance=wants_body_type_guidance,
+        price_qualifier=price_qualifier,
+        formality_softener=formality_softener,
     )
 
 
@@ -629,7 +725,8 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     """Merge a new turn's intent with accumulated session context.
 
     Fields carried forward from session_context when the new intent does not
-    specify them: garment_type, gender, colour, occasion, budget_max_inr.
+    specify them: garment_type, gender, colour, occasion, budget_max_inr,
+    price_qualifier, formality_softener.
 
     Never overwrites a field already populated by the new intent.
     Always preserves raw_query from the new intent.
@@ -641,8 +738,9 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     session_context:
         Dict with keys "garment_type", "gender", "colour", "occasion",
         "budget_max_inr" (all str | None, budget_max_inr is int | None),
-        "body_type" (str | None), "body_modifiers" (list[str] | None) from
-        the prior resolved intent.
+        "body_type" (str | None), "body_modifiers" (list[str] | None),
+        "price_qualifier" (str | None), "formality_softener" (str | None)
+        from the prior resolved intent.
 
     Returns
     -------
@@ -676,4 +774,10 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         if intent.body_modifiers
         else (session_context.get("body_modifiers") or []),
         wants_body_type_guidance=intent.wants_body_type_guidance,
+        price_qualifier=intent.price_qualifier
+        if intent.price_qualifier is not None
+        else session_context.get("price_qualifier"),
+        formality_softener=intent.formality_softener
+        if intent.formality_softener is not None
+        else session_context.get("formality_softener"),
     )

@@ -53,6 +53,19 @@ _COMPOUND_TERMS: dict[str, str] = {
     "dress shirt": "shirt",
     "co-ord": "coord",
     "unstitched": "fabric_material",      # any "unstitched X" title = raw material
+    # 2026-07-13 fix: "kurta and pyjama"/"pajama" SET titles (e.g. "Men Kurta and
+    # Pyjama Set Dupion Silk") were resolving to garment_type="nightwear" —
+    # "pyjama"/"pajama" is rightmost and wins the position scan over "kurta"
+    # (see _GARMENT_RULES's nightwear rule). These are ethnic kurta-pajama sets,
+    # not nightwear. Deliberately narrow to the kurta-combination phrases only —
+    # bare "pyjama set"/"pajama set" (no "kurta") must still resolve to
+    # nightwear (genuine men's pyjama-only sets). Mirrored in
+    # src/agents/intent_parser.py's _COMPOUND_TERMS (same algorithm — see this
+    # module's docstring).
+    "kurta and pyjama": "kurta",
+    "kurta pyjama": "kurta",
+    "kurta pajama": "kurta",
+    "kurta and pajama": "kurta",
 }
 
 # Pre-sorted longest → shortest so the first match wins when phrases overlap
