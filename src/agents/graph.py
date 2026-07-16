@@ -3137,7 +3137,14 @@ def build_graph(
         empty_slots = result.get("empty_slots", [])
 
         items_out = ([seed] if seed else []) + complements
-        answer = f"**Outfit suggestion**\n\n{base_rationale}"
+        # Fix #13 (2026-07-16): base_rationale used to be appended in full here
+        # AND set on update["outfit_rationale"] below — MessageBubble.tsx
+        # renders the chat-bubble "answer" text AND OutfitBoard.tsx renders
+        # outfit_rationale in its own "Stylist's note" box, so the same
+        # sentence appeared twice in one turn. outfit_rationale remains the
+        # SOLE place the full rationale text appears; the bubble gets a short
+        # intro only.
+        answer = "**Outfit suggestion**"
         if empty_slots:
             for _slot in empty_slots:
                 if _slot == "footwear" and budget_inr:
