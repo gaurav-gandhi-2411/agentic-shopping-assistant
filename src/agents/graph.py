@@ -434,24 +434,27 @@ def _compose_couple_from_scratch(
     _pt_seed = partner_look.get("seed_item")
     _pt_complements = partner_look.get("complements", [])
     _partner_items_out = ([_pt_seed] if _pt_seed else []) + _pt_complements
-    _partner_empty_slots = partner_look.get("empty_slots", [])
 
-    answer = f"**{_gendered_look_title(primary_gender)}**\n\n{_primary_rationale}"
+    # Fix #14a (2026-07-16): this used to embed BOTH the primary AND partner
+    # rationale/title/coordinated_with text into ONE combined `answer` string
+    # before either look's items were attached — that whole blob rendered as
+    # a single chat bubble before ANY product images appeared. frontend's
+    # useChatStream.ts already builds a SEPARATE assistant message for the
+    # partner board (short `**{look_title}**` intro + its own outfitRationale
+    # box, driven by the partner_* fields this function sets below) whenever
+    # a partner look was actually composed (_pt_seed is not None) — so partner
+    # content is dropped from `answer` entirely in that case to avoid it
+    # appearing twice. The `_pt_seed is None` honest-suppression branch is the
+    # ONE case with no second message (partner_retrieved_items ends up empty,
+    # so useChatStream never creates that bubble) — the explanatory note stays
+    # here since it has no other channel to reach the user.
+    answer = f"**{_gendered_look_title(primary_gender)}**"
     for _slot in _primary_empty_slots:
         answer += (
             f"\n\n_Note: I couldn't find suitable {_slot} to complete "
             f"this look in the current catalogue._"
         )
-    if _pt_seed is not None:
-        answer += f"\n\n**{_gendered_look_title(partner_gender)}**\n\n{_partner_rationale}"
-        if _coordinated_with:
-            answer += f"\n\n_{_coordinated_with}_"
-        for _slot in _partner_empty_slots:
-            answer += (
-                f"\n\n_Note: I couldn't find suitable {_slot} to complete "
-                f"this look in the current catalogue._"
-            )
-    else:
+    if _pt_seed is None:
         answer += f"\n\n_{_partner_rationale}_"
 
     update: dict = {
