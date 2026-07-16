@@ -154,6 +154,9 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
         <div className="flex-1 flex flex-col gap-1">
           <textarea
             ref={textareaRef}
+            id="chat-message-input"
+            name="message"
+            autoComplete="off"
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
@@ -198,6 +201,7 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             className="shrink-0 h-9 px-2.5"
           >
             <ImagePlus className="h-4 w-4" />
+            <span className="hidden sm:inline text-xs">Photo</span>
           </Button>
         )}
 

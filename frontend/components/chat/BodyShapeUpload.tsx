@@ -132,6 +132,7 @@ export function BodyShapeUpload({ onSend, disabled }: Props) {
         className="shrink-0 h-9 px-2.5"
       >
         <PersonStanding className="h-4 w-4" />
+        <span className="hidden sm:inline text-xs">Shape</span>
       </Button>
 
       {/* Expanded panel — floats above the composer so it doesn't disturb the
