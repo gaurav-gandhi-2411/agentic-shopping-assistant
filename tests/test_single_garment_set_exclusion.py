@@ -29,6 +29,17 @@ class TestSetIntentRegex:
         # search_node checks both regexes with OR — either legitimizes a set.
         assert _OUTFIT_INTENT_RE.search("style me a kurti under 1500")
 
+    def test_pajama_pyjama_detected_as_inherent_set_signal(self) -> None:
+        # 2026-07-16 fix: "kurta pajama"/"kurta pyjama" queries name an
+        # inherent two-piece combo even with no literal "set"/"combo" word —
+        # garment_type resolves to "kurta" via intent_parser's _COMPOUND_TERMS
+        # (kurta pajama -> kurta), so the set-exclusion gate above was wrongly
+        # stripping the only genuine "Men Kurta and Pyjama Set..." matches.
+        assert _SET_INTENT_RE.search("kurta pajama for father in law")
+        assert _SET_INTENT_RE.search("kurta pyjama for men")
+        assert _SET_INTENT_RE.search("men's pajamas")
+        assert _SET_INTENT_RE.search("women's pyjamas set")
+
 
 class TestIsMultiPieceSetCatchesTheLiveEscape:
     """The catalogue's dominant multi-piece naming convention is "<garment>

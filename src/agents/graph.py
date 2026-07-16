@@ -59,7 +59,16 @@ _OUTFIT_INTENT_RE = re.compile(
 # query containing any of these words legitimately wants a multi-piece
 # listing, so the gate is skipped — same "outfit"/"look" words as
 # _OUTFIT_INTENT_RE above, plus explicit set/combo/co-ord words.
-_SET_INTENT_RE = re.compile(r"\bsets?\b|\bcombo\b|\bco-?ord\b", re.IGNORECASE)
+# 2026-07-16 fix: "pajama"/"pyjama" added — "kurta pajama"/"kurta pyjama"
+# queries resolve garment_type="kurta" via intent_parser's _COMPOUND_TERMS
+# (they are inherently two-piece combos), but this regex had no awareness of
+# that and only reacted to literal "set"/"combo"/"co-ord", so the gate was
+# wrongly stripping the only genuine "Men Kurta and Pyjama Set..." matches
+# for "kurta pajama for father in law" while "...kurta pajama set..." (which
+# happens to also contain the literal word "set") worked correctly.
+_SET_INTENT_RE = re.compile(
+    r"\bsets?\b|\bcombo\b|\bco-?ord\b|\bpaja?mas?\b|\bpyjamas?\b", re.IGNORECASE
+)
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
