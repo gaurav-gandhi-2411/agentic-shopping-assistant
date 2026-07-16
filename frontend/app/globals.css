@@ -41,7 +41,8 @@
     --secondary-foreground: 10.9 10.3% 21.0%;
 
     --muted: 10.0 60.0% 96.1%; /* blush-50 wash — assistant bubble */
-    --muted-foreground: 20.0 9.5% 49.4%; /* warm taupe, legible on cream/white */
+    --muted-foreground: 20.0 9.5% 42.0%; /* warm taupe, darkened from 49.4% for WCAG AA
+      (was 3.82:1 on background / 4.11:1 on card, below 4.5:1) — now 5.01:1 / 5.38:1 */
 
     --accent: 108.0 18.5% 94.7%; /* sage-50 wash — hover states */
     --accent-foreground: 10.9 10.3% 21.0%;
