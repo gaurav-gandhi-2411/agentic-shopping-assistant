@@ -23,6 +23,43 @@ const DEFAULT_BACKEND =
   process.env.NEXT_PUBLIC_SNITCH_BACKEND_URL ??
   "http://localhost:8000"
 
+// Satori's built-in fallback font has no glyph for ₹ (U+20B9) — it rendered
+// as a tofu box in the live share preview (found 2026-07-16 live-proof of
+// batch 3). Fetching a Noto Sans subset explicitly covering the glyphs this
+// route actually emits (ASCII + ₹ + the ellipsis/middle-dot template chars)
+// guarantees Satori always has the glyph, regardless of what product name
+// text happens to come back from the catalogue.
+const OG_FONT_CHARS =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" +
+  " .,'&-:%()/₹…·"
+
+type OgFontFace = { weight: 400 | 700; data: ArrayBuffer }
+
+async function loadOgFonts(): Promise<OgFontFace[]> {
+  try {
+    const cssRes = await fetch(
+      `https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&text=${encodeURIComponent(OG_FONT_CHARS)}`,
+      { headers: { "User-Agent": "Mozilla/5.0 (compatible; Satori font fetch)" } }
+    )
+    const css = await cssRes.text()
+    const faces: OgFontFace[] = []
+    for (const block of css.split("@font-face").slice(1)) {
+      const weightMatch = block.match(/font-weight:\s*(400|700)/)
+      const urlMatch = block.match(/src: url\(([^)]+)\) format\('(?:opentype|truetype)'\)/)
+      if (!weightMatch || !urlMatch) continue
+      const fontRes = await fetch(urlMatch[1])
+      if (!fontRes.ok) continue
+      faces.push({
+        weight: Number(weightMatch[1]) as 400 | 700,
+        data: await fontRes.arrayBuffer(),
+      })
+    }
+    return faces
+  } catch {
+    return []
+  }
+}
+
 function formatOccasion(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
@@ -65,6 +102,17 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
   const heroItem = items.find((it) => it.slot_role === "seed") ?? items[0] ?? null
   const heroName = heroItem?.prod_name ?? heroItem?.display_name ?? null
 
+  const ogFontFaces = await loadOgFonts()
+  const fonts = ogFontFaces.length
+    ? ogFontFaces.map((f) => ({
+        name: "Noto Sans",
+        data: f.data,
+        style: "normal" as const,
+        weight: f.weight,
+      }))
+    : undefined
+  const fontFamily = ogFontFaces.length ? "Noto Sans" : "sans-serif"
+
   // Generic fallback — no look, or a look with no items/image to show. Keeps
   // the static brand card so the route never renders a broken/empty image.
   if (!heroItem?.image_url) {
@@ -79,7 +127,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: "#FAF6F1",
-            fontFamily: "sans-serif",
+            fontFamily,
           }}
         >
           <MarigoldMark size={120} />
@@ -109,7 +157,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
           )}
         </div>
       ),
-      { ...size }
+      { ...size, fonts }
     )
   }
 
@@ -123,7 +171,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
           height: "100%",
           display: "flex",
           backgroundColor: "#FAF6F1",
-          fontFamily: "sans-serif",
+          fontFamily,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- next/image
@@ -201,6 +249,6 @@ export default async function OpengraphImage({ params }: { params: Promise<{ id:
         </div>
       </div>
     ),
-    { ...size }
+    { ...size, fonts }
   )
 }
