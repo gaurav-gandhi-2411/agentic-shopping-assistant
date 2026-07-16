@@ -492,14 +492,16 @@ class TestLiveRepros:
         budget/gender) must still be caught by search_node's own gibberish
         check, not silently searched with a confident pitch.
 
-        NOTE: a query with NEITHER buy-signal intent NOR any structured signal
-        at all (e.g. bare "asdkfjhqwoiuerlkj zzxxccvv") never reaches
-        search_node in the first place on turn 2+ — router_node's own
-        upstream is_product_query gate (intent_parser._is_product_query)
-        routes it straight to conversational "respond" before search_node's
-        gibberish check would ever run. That is a separate, pre-existing
-        routing path outside search_node's gibberish guard and outside this
-        batch's assigned scope (search_node's is_first_search-scoped check).
+        A query with NEITHER buy-signal intent NOR any structured signal at
+        all (e.g. bare "asdkfjhqwoiuerlkj zzxxccvv") previously never reached
+        search_node at all on turn 2+ — router_node's own upstream
+        is_product_query gate routed it straight to conversational "respond"
+        with the PRIOR turn's stale retrieved_items, before search_node's own
+        gibberish check could ever run. Fixed 2026-07-16: router_node's
+        is_product_query=False branch now itself checks _is_unrecognized_query
+        before falling to "respond" — see
+        test_pure_gibberish_no_buy_signal_on_turn_two_gets_clarify below for
+        that specific case.
         """
         retriever, catalogue_df = _unified_index
         llm = _CapturingLLM()
@@ -514,6 +516,57 @@ class TestLiveRepros:
 
         assert turn2_result.get("out_of_catalogue") is True
         assert "didn't quite catch that" in turn2_result.get("final_answer", "")
+
+    def test_pure_gibberish_no_buy_signal_on_turn_two_gets_clarify(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Batch 2 residual gap, fixed 2026-07-16: a query with NEITHER
+        buy-signal intent NOR any structured signal at all
+        ("asdkfjhqwoiuerlkj zzxxccvv") is not is_product_query, so it never
+        reached search_node's own gibberish guard on turn 2+ — router_node
+        routed it straight to "respond" over the PRIOR turn's stale
+        retrieved_items, producing a confident LLM pitch for an unrelated
+        item set. router_node's is_product_query=False branch now runs the
+        same _is_unrecognized_query check before falling through to respond,
+        routing true gibberish through the SAME deterministic
+        search -> out_of_catalogue -> honest-clarify path search_node's own
+        guard already used.
+        """
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        turn1_result = agent.invoke(_blank_state("red saree for wedding", memory))
+        assert turn1_result.get("retrieved_items"), "precondition: turn 1 returns items"
+
+        turn2_state = _next_turn_state(turn1_result, "asdkfjhqwoiuerlkj zzxxccvv", memory)
+        turn2_result = agent.invoke(turn2_state)
+
+        assert turn2_result.get("out_of_catalogue") is True
+        assert "didn't quite catch that" in turn2_result.get("final_answer", "")
+
+    def test_conversational_reply_on_turn_two_not_treated_as_gibberish(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Explicit non-regression for the router_node-level gibberish check
+        added alongside test_pure_gibberish_no_buy_signal_on_turn_two_gets_
+        clarify above: genuine conversational replies that merely lack
+        product signal (real English words, not keyboard-mash) must still
+        reach the normal conversational "respond" path, not the clarify
+        template."""
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        turn1_result = agent.invoke(_blank_state("red saree for wedding", memory))
+        assert turn1_result.get("retrieved_items"), "precondition: turn 1 returns items"
+
+        turn2_state = _next_turn_state(turn1_result, "thank you", memory)
+        turn2_result = agent.invoke(turn2_state)
+
+        assert turn2_result.get("out_of_catalogue") is not True
 
     def test_in_blue_refinement_on_turn_two_not_treated_as_gibberish(
         self, _unified_index: tuple[HybridRetriever, pd.DataFrame]

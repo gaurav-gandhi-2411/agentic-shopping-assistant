@@ -1637,8 +1637,28 @@ def build_graph(
         # Merge new intent with session context (carries forward unspecified fields)
         merged_intent = merge_with_context(intent, session_context)
 
-        # Non-product conversational query → respond (LLM writes prose, no cards)
+        # Non-product conversational query → respond (LLM writes prose, no cards).
+        # Batch 2 gap (2026-07-16): a query with NEITHER buy-signal intent NOR
+        # any structured signal at all (e.g. bare "asdkfjhqwoiuerlkj zzxxccvv")
+        # landed here unconditionally on turn 2+ and got a confident LLM pitch
+        # over the PRIOR turn's stale retrieved_items — search_node's own
+        # is_first_search-scoped gibberish guard never even runs for this path
+        # (see test_gibberish_on_turn_two_still_gets_clarify's docstring, which
+        # documented this exact gap as out of that batch's scope). Route true
+        # gibberish through the SAME deterministic search → out_of_catalogue →
+        # honest-clarify path search_node's own guard already uses, rather than
+        # building a second canned-message mechanism here.
         if not merged_intent.is_product_query:
+            if _is_unrecognized_query(raw_q, retriever):
+                logger.info(
+                    "[router/intent] conversational-but-gibberish → search | query=%r",
+                    raw_q[:60],
+                )
+                plan = {"action": "search", "query": raw_q, "filters": {}}
+                return {
+                    "current_plan": json.dumps(plan),
+                    "tool_calls": state.get("tool_calls", []) + [{"router_decision": plan}],
+                }
             logger.info(
                 "[router/intent] conversational → respond | query=%r",
                 raw_q[:60],
