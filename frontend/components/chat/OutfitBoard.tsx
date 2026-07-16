@@ -259,6 +259,12 @@ export function OutfitBoard({
     : displayItems.slice(1)
   const allOutfitItems = seed ? [seed, ...complements] : complements
 
+  // Column count tracks actual item count, not just viewport breakpoints: a fixed
+  // 3-column desktop track reserves a full empty column beside a 2-item look (design
+  // review, wave 7). 2 items never expand past 2 columns at any breakpoint; 3+ items
+  // keep the existing 2-col mobile / 3-col desktop behaviour and wrap normally.
+  const gridColsClass = allOutfitItems.length <= 2 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"
+
   // Per-item link map — resolves each rendered card's buy URL. Built once so
   // "Open all items" and the individual slot cards always agree.
   const itemLinkMap = new Map<string, string>(
@@ -508,7 +514,7 @@ export function OutfitBoard({
     .filter(Boolean) as string[]
 
   return (
-    <div className="w-full rounded-xl border bg-card p-4 space-y-3">
+    <div className="w-full max-w-3xl mx-auto rounded-xl border bg-card p-4 space-y-3">
       {/* Partner-look heading — board-level badge + title + coordination note.
           Rendered only when the backend marks this board look_role === "partner";
           primary boards render their own <h3> below instead. */}
@@ -575,7 +581,7 @@ export function OutfitBoard({
       )}
 
       {/* Slot grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className={cn("grid gap-2", gridColsClass)}>
         {allOutfitItems.map((item) => (
           <SlotCard
             key={item.article_id}
