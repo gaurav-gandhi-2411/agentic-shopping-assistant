@@ -84,8 +84,11 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
           isLatestAssistant={index === lastAssistantIndex}
         />
       ))}
-      {/* Typing indicator while the agent is running but no token yet */}
-      {isSending && !messages.some((m) => m.isStreaming) && (
+      {/* Typing indicator while the agent is running but no token yet. Keep showing
+          the dots as long as the streaming placeholder (inserted on the WS "session"
+          frame) has no real content — otherwise the dots vanish the instant the
+          placeholder is added, well before any text exists (#18). */}
+      {isSending && !messages.some((m) => m.isStreaming && m.content.length > 0) && (
         <div className="flex items-start">
           <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3">
             <div className="flex gap-1 items-center h-4">

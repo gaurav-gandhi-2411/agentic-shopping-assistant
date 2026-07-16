@@ -87,6 +87,15 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
 export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Props) {
   const isUser = message.role === "user"
 
+  // While the assistant placeholder exists (inserted on the WS "session" frame,
+  // before any token has arrived) but has no content yet, render nothing here —
+  // the MessageList typing dots are the sole "responding" indicator during this
+  // window. Without this guard the placeholder renders as a near-empty bubble
+  // (just the blink cursor) stacked alongside the dots (#18).
+  if (!isUser && message.isStreaming && message.content.length === 0) {
+    return null
+  }
+
   return (
     <div
       className={cn(
