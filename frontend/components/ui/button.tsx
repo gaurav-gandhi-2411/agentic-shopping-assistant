@@ -24,6 +24,11 @@ const buttonVariants = cva(
         sm: "h-9 rounded-md px-3",
         lg: "h-11 rounded-md px-8",
         icon: "h-10 w-10",
+        // Compact pill for dense chat-card chrome (e.g. ItemCard action row).
+        // min-h-11/min-w-11 (44px) keeps the tap target WCAG-compliant even
+        // though the visible text/padding stay small — flex centering
+        // absorbs the gap. min-w matters for short labels like "View".
+        chip: "min-h-11 min-w-11 px-2.5 py-1 text-[11px] gap-1",
       },
     },
     defaultVariants: {
