@@ -55,7 +55,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
         onClick={() => handleRate(1)}
         disabled={pending}
         className={cn(
-          "rounded px-1.5 py-0.5 text-sm transition-colors",
+          "inline-flex items-center justify-center min-h-11 min-w-11 rounded px-1.5 py-0.5 text-sm transition-colors",
           selected === 1
             ? "bg-emerald-100 text-emerald-700 opacity-100"
             : "text-muted-foreground opacity-40 hover:opacity-80 hover:bg-muted"
@@ -68,7 +68,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
         onClick={() => handleRate(-1)}
         disabled={pending}
         className={cn(
-          "rounded px-1.5 py-0.5 text-sm transition-colors",
+          "inline-flex items-center justify-center min-h-11 min-w-11 rounded px-1.5 py-0.5 text-sm transition-colors",
           selected === -1
             ? "bg-rose-100 text-rose-700 opacity-100"
             : "text-muted-foreground opacity-40 hover:opacity-80 hover:bg-muted"
@@ -217,7 +217,7 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
               <button
                 key={`${chip}-${i}`}
                 onClick={() => onSend(chip)}
-                className="rounded-full border border-champagne/40 bg-background text-xs px-3 py-1 text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+                className="inline-flex items-center justify-center min-h-11 min-w-11 rounded-full border border-champagne/40 bg-background text-xs px-3 py-1 text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
               >
                 {chip}
               </button>

@@ -51,7 +51,7 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
               <button
                 key={chip}
                 onClick={() => onSendSuggestion(chip)}
-                className="text-xs px-3 py-1.5 rounded-full border border-champagne/40 bg-background text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+                className="inline-flex items-center justify-center min-h-11 min-w-11 text-xs px-3 py-1.5 rounded-full border border-champagne/40 bg-background text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
               >
                 {chip}
               </button>
