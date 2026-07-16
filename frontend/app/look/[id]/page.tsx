@@ -13,6 +13,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { ExternalLink, ShoppingBag, Sparkles } from "lucide-react"
 import { Logo } from "@/components/Logo"
+import { getStoreDisplayName } from "@/lib/stores"
 import type { ItemLink, LookSnapshot, SharedLook } from "@/lib/api/types"
 
 // Default backend — the looks table is shared, any service can answer.
@@ -63,9 +64,17 @@ export async function generateMetadata({
   const look = await fetchSharedLook(id)
 
   if (!look) {
+    const title = "Style Maitri look"
+    const description = "A saved outfit look from Style Maitri — your AI stylist for fashion discovery."
     return {
-      title: "Style Maitri look",
-      description: "A saved outfit look from Style Maitri — your AI stylist for fashion discovery.",
+      title,
+      description,
+      // Explicit openGraph/twitter overrides — without these, Next's shallow
+      // per-key metadata merge falls back to the ENTIRE parent layout object
+      // (generic "Style Maitri" branding) instead of this page's own title/
+      // description. See the populated-look branch below for the real case.
+      openGraph: { title, description },
+      twitter: { title, description },
     }
   }
 
@@ -73,10 +82,13 @@ export async function generateMetadata({
   const itemCount = look.snapshot?.items?.length ?? 0
   const titlePrefix = occasion ? formatOccasion(occasion) : "Saved Look"
   const description = `A ${itemCount}-item ${occasion ? formatOccasion(occasion).toLowerCase() + " " : ""}look styled with Style Maitri.`
+  const title = `${titlePrefix} — Style Maitri look`
 
   return {
-    title: `${titlePrefix} — Style Maitri look`,
+    title,
     description,
+    openGraph: { title, description },
+    twitter: { title, description },
   }
 }
 
@@ -131,9 +143,14 @@ export default async function SharedLookPage({
   const complements = items.filter((it) => it.slot_role === "complement")
   const allItems = seed ? [seed, ...complements] : complements
 
+  // Buy-button store label — mirrors ItemCard.tsx's "Buy at {store}" convention.
+  // "unified" is the composer's internal cross-store brand tag, not a real
+  // store name (same exclusion as the footer's "Styled with" line below).
+  const buyStoreDisplay = brand && brand !== "unified" ? getStoreDisplayName(brand) : null
+
   return (
-    <main className="min-h-screen bg-background">
-      <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+    <main className="min-h-screen bg-background flex items-center justify-center">
+      <div className="w-full max-w-lg lg:max-w-3xl mx-auto px-4 py-8 space-y-6">
         {/* Brand */}
         <Logo className="mb-2" />
 
@@ -180,8 +197,12 @@ export default async function SharedLookPage({
               const cardClassName =
                 "rounded-lg border bg-card overflow-hidden hover:shadow-md transition-shadow"
 
-              const cardContent = (
-                <>
+              // The card itself is a plain div, not a link — a visible "Buy at
+              // {store}" button below carries the buy action instead (matches
+              // ItemCard.tsx's convention; also avoids nesting an <a> inside
+              // an <a> now that the card has its own buy anchor).
+              return (
+                <div key={item.article_id} className={cardClassName}>
                   <div className="relative aspect-[4/5] bg-muted">
                     {item.image_url ? (
                       <Image
@@ -201,39 +222,27 @@ export default async function SharedLookPage({
                       {slotLabel}
                     </span>
                   </div>
-                  <div className="p-1.5">
+                  <div className="p-1.5 space-y-1">
                     <p className="text-xs font-medium leading-tight line-clamp-2">
                       {item.prod_name ?? item.display_name ?? ""}
                     </p>
                     {item.price_inr != null && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground">
                         ₹{item.price_inr.toLocaleString("en-IN")}
                       </p>
                     )}
+                    {buyUrl && (
+                      <a
+                        href={buyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block w-full text-center text-[11px] font-medium px-2 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                      >
+                        Buy at {buyStoreDisplay ?? "Shop"}
+                      </a>
+                    )}
                   </div>
-                </>
-              )
-
-              // No resolvable URL (e.g. a bare pdp_handle would have been a broken
-              // link) — render the card without a link rather than a dead anchor.
-              if (!buyUrl) {
-                return (
-                  <div key={item.article_id} className={cardClassName}>
-                    {cardContent}
-                  </div>
-                )
-              }
-
-              return (
-                <a
-                  key={item.article_id}
-                  href={buyUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cardClassName}
-                >
-                  {cardContent}
-                </a>
+                </div>
               )
             })}
           </div>
