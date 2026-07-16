@@ -412,6 +412,8 @@ export function OutfitBoard({
         price_inr: item.price_inr ?? null,
         pdp_handle: item.pdp_handle ?? null,
         buy_url: buyUrl ?? null,
+        store: item.store ?? null,
+        store_display: item.store_display ?? null,
       }
     })
 

@@ -143,11 +143,6 @@ export default async function SharedLookPage({
   const complements = items.filter((it) => it.slot_role === "complement")
   const allItems = seed ? [seed, ...complements] : complements
 
-  // Buy-button store label — mirrors ItemCard.tsx's "Buy at {store}" convention.
-  // "unified" is the composer's internal cross-store brand tag, not a real
-  // store name (same exclusion as the footer's "Styled with" line below).
-  const buyStoreDisplay = brand && brand !== "unified" ? getStoreDisplayName(brand) : null
-
   return (
     <main className="min-h-screen bg-background flex items-center justify-center">
       <div className="w-full max-w-lg lg:max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -194,6 +189,16 @@ export default async function SharedLookPage({
               // use it as an href fallback. If no real URL is available, render
               // the item card without a link.
               const buyUrl = itemLinkMap.get(item.article_id) ?? item.buy_url ?? null
+              // Per-item store label — mirrors ItemCard.tsx's "Buy at {store}" convention.
+              // Unified cross-store mode mixes stores within one look, so the buy
+              // button must read each item's own store, not the page-level brand
+              // (which is "unified" — a composer tag, not a real store name).
+              // Legacy single-brand saves have no item.store; fall back to the
+              // page-level brand there (excluding the "unified" sentinel).
+              const itemStoreDisplay =
+                item.store_display ??
+                getStoreDisplayName(item.store) ??
+                (brand && brand !== "unified" ? getStoreDisplayName(brand) : null)
               const cardClassName =
                 "rounded-lg border bg-card overflow-hidden hover:shadow-md transition-shadow"
 
@@ -238,7 +243,7 @@ export default async function SharedLookPage({
                         rel="noopener noreferrer"
                         className="block w-full text-center text-[11px] font-medium px-2 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                       >
-                        Buy at {buyStoreDisplay ?? "Shop"}
+                        Buy at {itemStoreDisplay ?? "Shop"}
                       </a>
                     )}
                   </div>
