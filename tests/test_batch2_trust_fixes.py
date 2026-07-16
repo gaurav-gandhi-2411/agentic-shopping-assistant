@@ -31,6 +31,7 @@ from src.agents.graph import (
     _format_items_for_response,
     _gibberish_check_applies,
     _is_low_confidence_result,
+    _query_names_unsupported_attribute,
     build_graph,
 )
 from src.agents.grounding import validate_response
@@ -102,6 +103,34 @@ class TestLowConfidenceResultSignal:
     def test_missing_score_key_treated_as_zero(self) -> None:
         items = [{}, {}, {}]
         assert _is_low_confidence_result(items) is True
+
+
+class TestQueryNamesUnsupportedAttribute:
+    """Fix #8: "jacket style lehenga" retrieves lehengas strongly enough to
+    clear _is_low_confidence_result's score threshold (see that function's
+    own docstring — a documented residual gap), so this is a SEPARATE,
+    independent query-attribute-presence signal feeding the same hedge path,
+    not a change to the score-based function."""
+
+    def test_named_attribute_absent_from_all_items_is_unsupported(self) -> None:
+        items = [
+            {"detail_desc": "A flowy embroidered lehenga skirt", "display_name": "Lehenga"},
+            {"detail_desc": "Silk lehenga with dupatta", "display_name": "Lehenga Set"},
+        ]
+        assert _query_names_unsupported_attribute("jacket style lehenga", items) is True
+
+    def test_named_attribute_present_in_backing_text_is_supported(self) -> None:
+        items = [
+            {"detail_desc": "Jacket style lehenga with embroidered blazer", "display_name": ""},
+        ]
+        assert _query_names_unsupported_attribute("jacket style lehenga", items) is False
+
+    def test_no_structural_attribute_named_never_flagged(self) -> None:
+        items = [{"detail_desc": "Silk lehenga", "display_name": "Lehenga"}]
+        assert _query_names_unsupported_attribute("embellished lehenga", items) is False
+
+    def test_empty_items_never_flagged(self) -> None:
+        assert _query_names_unsupported_attribute("jacket style lehenga", []) is False
 
 
 # ── Part B: price_inr shown to the LLM + grounding exemption ───────────────

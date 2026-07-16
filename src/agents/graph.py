@@ -693,6 +693,40 @@ def _is_low_confidence_result(items: list[dict]) -> bool:
     )
 
 
+# Structural/construction attribute phrases that HTML/BM25 relevance scoring
+# cannot detect an absence of: "jacket style lehenga" retrieves lehengas
+# strongly (the noun match dominates the score) even when zero candidates
+# actually have a jacket-style construction, so _is_low_confidence_result's
+# score-based signal (see its docstring) scores this query ABOVE its
+# threshold — a confirmed, documented residual gap. This is a query-attribute-
+# presence check, independent of relevance score: does the raw query name a
+# specific structural attribute that no candidate's own text backs up.
+_STRUCTURAL_ATTRIBUTE_VOCAB: frozenset[str] = frozenset({
+    "jacket style", "cape style", "off shoulder", "off-shoulder", "halter",
+    "backless", "peplum", "cold shoulder", "one shoulder", "high low",
+    "high-low", "asymmetric", "cowl neck", "cape sleeve",
+})
+
+
+def _query_names_unsupported_attribute(raw_query: str, items: list[dict]) -> bool:
+    """True when the raw query names a structural attribute from
+    _STRUCTURAL_ATTRIBUTE_VOCAB that none of the retrieved items' own text
+    (detail_desc/display_name/prod_name) actually backs up. Feeds the SAME
+    low_confidence hedge-prompt path in respond_node as
+    _is_low_confidence_result — this is a separate, independent signal (query
+    names an attribute vs. weak relevance score), not a replacement or a
+    change to that function's own threshold math."""
+    q_lower = raw_query.lower()
+    matched = [p for p in _STRUCTURAL_ATTRIBUTE_VOCAB if p in q_lower]
+    if not matched or not items:
+        return False
+    backing = " ".join(
+        " ".join(str(it.get(f) or "") for f in ("detail_desc", "display_name", "prod_name"))
+        for it in items
+    ).lower()
+    return any(phrase not in backing for phrase in matched)
+
+
 def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
     """Part E (2026-07-13): strip loungewear/"night dress" items from a formal
     wedding-tier occasion's result set.
@@ -3231,7 +3265,7 @@ def build_graph(
         # hard short-circuit; the empty-result case above is the hard one.
         low_confidence = any(
             tc.get("search", {}).get("low_confidence") for tc in state.get("tool_calls", [])
-        )
+        ) or _query_names_unsupported_attribute(state["user_query"], items)
 
         # Stylist-quality reply (2-3 sentences) for BOTH product-search and
         # conversational turns — the one-sentence cap previously used for successful
