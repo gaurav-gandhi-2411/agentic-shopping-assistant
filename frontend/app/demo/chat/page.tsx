@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
+import { Bookmark } from "lucide-react"
 import { useChatStream } from "@/hooks/useChatStream"
 import { MessageList } from "@/components/chat/MessageList"
 import { ChatInput } from "@/components/chat/ChatInput"
@@ -52,7 +54,7 @@ export default function DemoChatPage() {
       {/* Header — Style Maitri alone in unified mode, "Style Maitri x <Brand>" for a
           brand-specific demo (brandId is only set in the shelved per-brand path).
           Airy premium treatment: cream bg, hairline gold bottom border, generous height. */}
-      <header className="border-b border-border bg-background px-6 py-4 flex items-center shrink-0">
+      <header className="border-b border-border bg-background px-6 py-4 flex items-center justify-between shrink-0">
         {brandId ? (
           <span className="inline-flex items-center gap-2">
             <Logo showWordmark={false} iconClassName="h-6 w-6 text-champagne shrink-0" />
@@ -63,6 +65,13 @@ export default function DemoChatPage() {
         ) : (
           <Logo />
         )}
+        <Link
+          href="/saved-looks"
+          className="inline-flex min-h-11 items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Bookmark className="h-4 w-4" />
+          Saved looks
+        </Link>
       </header>
 
       {/* Chat area */}
