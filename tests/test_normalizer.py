@@ -353,3 +353,152 @@ def test_bare_pyjama_set_still_classifies_as_nightwear() -> None:
     must not blanket-map all pyjama mentions to kurta."""
     result = normalize_garment_type("Men Pyjama Set Cotton")
     assert result.garment_type == "nightwear"
+
+
+# ---------------------------------------------------------------------------
+# Men's-ethnic-depth wave (2026-07-19) — sherwani/bandhgala/jodhpuri-suit/
+# indo-western were entirely absent from _GARMENT_RULES prior to this wave,
+# so real titles from the new inventory (rathore, bhasinbrothers, mohanlalsons,
+# vastramay, kisah) resolved to garment_type=None, category="unknown".
+# ---------------------------------------------------------------------------
+
+WEDDING_ETHNIC_CASES: list[tuple[str, str, str]] = [
+    # (prod_name, expected_garment_type, expected_category)
+    ("Men Wedding Sherwani Set", "sherwani", "apparel"),
+    ("MLS Embroidered Sherwani", "sherwani", "apparel"),
+    ("Indowestern Sherwani Achkan", "sherwani", "apparel"),  # rightmost noun wins
+    ("Black Bandhgala", "bandhgala", "apparel"),
+    ("Grey Bandgala Suit", "bandhgala", "apparel"),  # alternate spelling
+    ("Jodhpuri Suit", "jodhpuri_suit", "apparel"),
+    ("Men Jodhpuri Suits", "jodhpuri_suit", "apparel"),  # plural
+    ("Indo Western", "indowestern", "apparel"),
+    ("Wedding Indo Western Set", "indowestern", "apparel"),  # rightmost noun wins
+    ("Indowestern", "indowestern", "apparel"),  # no separator, no space
+]
+
+
+@pytest.mark.parametrize("prod_name,expected_gt,expected_cat", WEDDING_ETHNIC_CASES)
+def test_wedding_ethnic_garment_types(prod_name: str, expected_gt: str, expected_cat: str) -> None:
+    """Sherwani/bandhgala/jodhpuri-suit/indo-western must resolve, not fall to unknown."""
+    result = normalize_garment_type(prod_name)
+    assert result.garment_type == expected_gt, (
+        f"'{prod_name}': expected garment_type={expected_gt!r}, got {result.garment_type!r}"
+    )
+    assert result.category == expected_cat, (
+        f"'{prod_name}': expected category={expected_cat!r}, got {result.category!r}"
+    )
+    assert result.type_confidence == "high"
+
+
+# ---------------------------------------------------------------------------
+# Ethnic-footwear brands wave (2026-07-19) — jutti/mojari/kolhapuri/chappal were
+# entirely absent from the footwear rule, so real titles from kraftojodhpur,
+# houseofvian, 5-elements, taurjuttis, and fizzygoblet mis-resolved: "sherwani"
+# outranked the unrecognized "jutti" as the only known noun (39/96 kraftojodhpur
+# rows), a trailing "clutch"/"handbag" noun in combo listings won the rightmost
+# scan over the leading jutti/kolhapuri noun (7 houseofvian + 11 5-elements
+# rows), and the fabric descriptor "denim" outranked the unrecognized "jutti"
+# (1 taurjuttis + 1 fizzygoblet row, live titles "Denim Leaves Jutti" and
+# "Denim Darling : Juttis").
+# ---------------------------------------------------------------------------
+
+FOOTWEAR_ETHNIC_CASES: list[tuple[str, str, str]] = [
+    # (prod_name, expected_garment_type, expected_category)
+    ("Amber Jute Men's Sherwani Jutti", "footwear", "footwear"),  # rightmost noun wins
+    ("Firdaus Juttis & Clutch Combo", "footwear", "footwear"),  # footwear-led combo override
+    ("Denim Casual Jutti", "footwear", "footwear"),  # rightmost noun wins over fabric descriptor
+    ("Denim Leaves Jutti", "footwear", "footwear"),  # live taurjuttis title
+    ("Denim Darling : Juttis", "footwear", "footwear"),  # live fizzygoblet title
+    ("Kolhapuri Chappal", "footwear", "footwear"),
+    ("Mojari", "footwear", "footwear"),
+    ("Rangeela Kolhapuris & Handbag Combo", "footwear", "footwear"),  # live 5-elements title
+]
+
+
+@pytest.mark.parametrize("prod_name,expected_gt,expected_cat", FOOTWEAR_ETHNIC_CASES)
+def test_footwear_ethnic_garment_types(prod_name: str, expected_gt: str, expected_cat: str) -> None:
+    """Jutti/mojari/kolhapuri/chappal titles must resolve to footwear, not apparel/bag/jeans."""
+    result = normalize_garment_type(prod_name)
+    assert result.garment_type == expected_gt, (
+        f"'{prod_name}': expected garment_type={expected_gt!r}, got {result.garment_type!r}"
+    )
+    assert result.category == expected_cat, (
+        f"'{prod_name}': expected category={expected_cat!r}, got {result.category!r}"
+    )
+    assert result.type_confidence == "high"
+
+
+# ---------------------------------------------------------------------------
+# Jewellery-inventory-gap wave (2026-07-19) — BUG 1: "short"/"shirt"/"saree"
+# apparel-fragment keywords collided with dedicated-jewellery titles where the
+# real garment noun (necklace/jhumka/pin/clip/etc.) never existed in the rule
+# set. Confirmed live: theamethyststore (1,488 "Short Necklace Set" rows ->
+# "shorts", 60 "Shirt Button Clip" rows -> "shirt", 9 "Saree Pin" rows ->
+# "saree"), southtemplejewellery (57 "Short Necklace Set" variant rows ->
+# "shorts", including via the store's own "Short Necklaces" product_type_name
+# label being re-scanned by the fallback path), daivik (56 "... Short ...
+# Necklace/Haram ..." rows -> "shorts", 11 "Saree Pin" rows -> "saree").
+# ---------------------------------------------------------------------------
+
+JEWELLERY_COLLISION_CASES: list[tuple[str, str, str]] = [
+    # (prod_name, expected_garment_type, expected_category)
+    ("Simrath Short Necklace Set", "necklace", "accessories"),
+    ("Sherinka Nagas Short Necklace", "necklace", "accessories"),
+    ("Shimmering S Letter Shirt Button Clip", "jewellery", "accessories"),
+    ("James Shirt Button Clip", "jewellery", "accessories"),
+    ("Laksmi Lotus Saree Pin", "jewellery", "accessories"),
+    ("Unique Kundan Saree Pin", "jewellery", "accessories"),
+    ("Short Necklace Set", "necklace", "accessories"),
+    ("Antique Necklace Set V-751", "necklace", "accessories"),
+    # Jewellery noun BEFORE the fragment word — the rightmost-noun scan alone
+    # would pick "short"/"top" here without the Step 3.5 precedence override.
+    ("Antique Gold-Plated Temple Necklace Set - Bridal Short Design K-1835", "necklace", "accessories"),
+    ("South Indian Laxmi Jhumkas - Gold-Plated Ruby Floral Top R-2733", "jhumka", "accessories"),
+    # "with"-barrier real-world daivik title: "necklace" sits before "with", the
+    # trailing "earrings" is barred, and "short" must still lose to "necklace".
+    ("Victorian Bridal Short and Long Combo Necklace with Earrings", "necklace", "accessories"),
+    ("Antique Lakshmi Coin Short and Long Necklace with Earrings", "necklace", "accessories"),
+    ("Lakshmi Short JadaBillai with Green beads Mattal", "jewellery", "accessories"),
+]
+
+
+@pytest.mark.parametrize("prod_name,expected_gt,expected_cat", JEWELLERY_COLLISION_CASES)
+def test_jewellery_apparel_fragment_collision(
+    prod_name: str, expected_gt: str, expected_cat: str
+) -> None:
+    """Jewellery titles containing 'short'/'shirt'/'saree'/'top' must resolve to the
+    real jewellery noun, not the coincidental apparel-fragment keyword."""
+    result = normalize_garment_type(prod_name)
+    assert result.garment_type == expected_gt, (
+        f"'{prod_name}': expected garment_type={expected_gt!r}, got {result.garment_type!r}"
+    )
+    assert result.category == expected_cat, (
+        f"'{prod_name}': expected category={expected_cat!r}, got {result.category!r}"
+    )
+    assert result.type_confidence == "high"
+
+
+def test_short_necklace_via_store_label_fallback() -> None:
+    """A store's own product_type_name label ('Short Necklaces') must not be
+    re-scanned into 'shorts' by the fallback path — southtemplejewellery live
+    pattern where prod_name has no garment noun at all and only the label does."""
+    result = normalize_garment_type("Antique Necklace Set N-861N", product_type_name="Short Necklaces")
+    assert result.garment_type == "necklace"
+    assert result.category == "accessories"
+
+
+def test_genuine_shorts_unaffected_by_jewellery_precedence() -> None:
+    """A real shorts listing with no jewellery noun anywhere must still resolve
+    to 'shorts' — the Step 3.5 override only fires when a jewellery noun is
+    also present."""
+    result = normalize_garment_type("DressBerry Women Black Shorts", brand="DressBerry")
+    assert result.garment_type == "shorts"
+    assert result.category == "apparel"
+
+
+def test_genuine_shirt_unaffected_by_jewellery_precedence() -> None:
+    """A real shirt listing with no jewellery noun anywhere must still resolve
+    to 'shirt'."""
+    result = normalize_garment_type("Formal Shirt")
+    assert result.garment_type == "shirt"
+    assert result.category == "apparel"

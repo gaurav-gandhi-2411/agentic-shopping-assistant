@@ -74,8 +74,8 @@ def test_unified_catalogue_has_store_column(unified_df: pd.DataFrame) -> None:
     assert unified_df["store"].notna().all(), "Some rows have null store"
 
 
-def test_unified_catalogue_spans_all_8_live_stores(unified_df: pd.DataFrame) -> None:
-    """All 8 live stores must be present in the on-disk index; H&M/berrylush must be absent.
+def test_unified_catalogue_spans_all_live_stores(unified_df: pd.DataFrame) -> None:
+    """All live stores must be present in the on-disk index; H&M/berrylush must be absent.
 
     Phase A (2026-07-06): berrylush is now excluded ENTIRELY at build time (dropped
     from ``UNIFIED_STORES`` in ``scripts/build_unified_index.py``), not merely
@@ -83,11 +83,12 @@ def test_unified_catalogue_spans_all_8_live_stores(unified_df: pd.DataFrame) -> 
     Re-enabling berrylush now requires re-running the build script, not just
     flipping its ``active`` flag in ``src/config/stores.py`` (see
     ``test_hm_and_berrylush_not_in_unified_catalogue`` below).
+
+    Wave 7 (2026-07-19): 31 new Shopify brands were added to ``UNIFIED_STORES``
+    (men's-ethnic depth, footwear, and jewellery wedges), bringing the live roster
+    from 8 to 39 stores. See ``_VALID_STORES`` below for the full current roster.
     """
-    expected = {
-        "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
-        "globalrepublic", "libas",
-    }
+    expected = _VALID_STORES
     actual = set(unified_df["store"].unique())
     assert expected == actual, (
         f"Store set mismatch. Missing: {expected - actual}. Unexpected: {actual - expected}"
@@ -166,13 +167,21 @@ def test_unified_clip_ids_aligned(unified_df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 
-# Active/live stores — the 8 stores present in the on-disk unified index (see
-# test_unified_catalogue_spans_all_8_live_stores). hm and berrylush are both excluded
-# entirely at build time (Phase A, 2026-07-06) so they can never appear in results;
+# Active/live stores — the 39 stores present in the on-disk unified index (see
+# test_unified_catalogue_spans_all_live_stores). Must mirror UNIFIED_STORES in
+# scripts/build_unified_index.py. hm and berrylush are both excluded entirely at
+# build time (Phase A, 2026-07-06) so they can never appear in results;
 # _INACTIVE_STORES is kept as a belt-and-suspenders assertion set.
 _VALID_STORES = frozenset({
     "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
-    "globalrepublic", "libas",
+    "globalrepublic", "libas", "vastramay", "kisah", "mohanlalsons",
+    "kraftojodhpur", "coralhaze", "houseofvian",
+    "sukkhi", "priyaasi", "voylla", "ishhaara",
+    "theamethyststore", "southtemplejewellery", "daivik", "mortantra", "thejewelbox",
+    "kalpraag", "jompers", "jadeblue", "tjori",
+    "rathore", "bhasinbrothers",
+    "korakari", "juttichooindia", "shopkop", "irasoles", "chappers",
+    "5-elements", "taurjuttis", "vhaan", "fizzygoblet", "kalapuri",
 })
 _INACTIVE_STORES = frozenset({"hm", "berrylush"})
 

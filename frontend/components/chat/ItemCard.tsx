@@ -3,10 +3,11 @@
 import { useState } from "react"
 import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
-import { Store, Tag } from "lucide-react"
+import { ShoppingBag, Tag } from "lucide-react"
 import { api } from "@/lib/api/client"
 import type { ItemSummary, PriceMatch } from "@/lib/api/types"
 import { ProductImage } from "@/components/ProductImage"
+import { Button } from "@/components/ui/button"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 
@@ -37,7 +38,7 @@ export function ItemCard({ item, onSend }: Props) {
     >
       {/* Image — the hero. Tall editorial aspect ratio, subtly rounded top
           (inherited from the card's own overflow-hidden + rounded-lg). */}
-      <div className="relative w-full aspect-[4/5] shrink-0 bg-muted">
+      <div className="relative w-full aspect-[4/5] shrink-0 bg-muted overflow-hidden group">
         <ProductImage
           src={item.image_url}
           alt={item.prod_name}
@@ -45,15 +46,19 @@ export function ItemCard({ item, onSend }: Props) {
         />
       </div>
 
-      {/* Minimal chrome below the image */}
-      <div className="flex flex-col gap-1 p-3">
+      {/* Minimal chrome below the image. flex-1 + mt-auto on the button row
+          below keeps that row bottom-aligned across cards in the same grid
+          row even when the title wraps to 1 vs 2 lines (grid stretches every
+          card to the tallest sibling; without this the row would float at
+          different heights). */}
+      <div className="flex flex-col gap-1 p-3 flex-1">
         <p className="text-sm font-medium leading-tight line-clamp-2 text-foreground">
           {item.prod_name}
         </p>
         <p className="text-xs text-muted-foreground truncate">
           {storeDisplay && (
             <>
-              <Store className="inline h-3 w-3 mr-1 -mt-0.5" aria-hidden />
+              <ShoppingBag className="inline h-3 w-3 mr-1 -mt-0.5" aria-hidden />
               {storeDisplay}
               {" · "}
             </>
@@ -72,31 +77,32 @@ export function ItemCard({ item, onSend }: Props) {
           </p>
         )}
 
-        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap mt-auto pt-1.5">
           {onSend && (
-            <button
-              className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            <Button
+              variant="ghost"
+              size="chip"
+              className="border border-border text-muted-foreground"
               onClick={() => onSend(`Style this ${item.prod_name}`)}
             >
               Style this
-            </button>
+            </Button>
           )}
-          <button
-            className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          <Button
+            variant="ghost"
+            size="chip"
+            className="border border-border text-muted-foreground"
             onClick={() => setShowSimilar((v) => !v)}
             aria-expanded={showSimilar}
           >
             {showSimilar ? "Hide similar" : "More like this"}
-          </button>
+          </Button>
           {buyUrl && (
-            <a
-              href={buyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block text-xs font-medium px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 ml-auto"
-            >
-              Buy at {storeDisplay ?? "Shop"}
-            </a>
+            <Button asChild variant="default" size="chip" className="shrink-0 ml-auto">
+              <a href={buyUrl} target="_blank" rel="noopener noreferrer">
+                Buy at {storeDisplay ?? "Shop"}
+              </a>
+            </Button>
           )}
         </div>
       </div>
@@ -179,7 +185,7 @@ function SimilarItemRow({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium truncate leading-tight">
+        <p className="text-xs font-medium truncate leading-tight" title={item.prod_name}>
           {item.prod_name}
         </p>
         <p className="text-[10px] text-muted-foreground truncate">
@@ -189,12 +195,14 @@ function SimilarItemRow({
         </p>
       </div>
       {onSend && (
-        <button
-          className="text-[10px] text-primary hover:text-primary/80 underline underline-offset-2 transition-colors shrink-0"
+        <Button
+          variant="link"
+          size="chip"
+          className="text-[10px] text-primary hover:text-primary/80 underline underline-offset-2 shrink-0"
           onClick={() => onSend(`Style this ${item.prod_name}`)}
         >
           Style this
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -228,14 +236,11 @@ function PriceMatchPanel({ matches }: { matches: PriceMatch[] }) {
               )}
             </div>
             {m.pdp_url && (
-              <a
-                href={m.pdp_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shrink-0"
-              >
-                View
-              </a>
+              <Button asChild variant="secondary" size="chip" className="text-[10px] shrink-0">
+                <a href={m.pdp_url} target="_blank" rel="noopener noreferrer">
+                  View
+                </a>
+              </Button>
             )}
           </div>
         ))}

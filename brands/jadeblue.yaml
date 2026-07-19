@@ -1,0 +1,17 @@
+display_name: "JadeBlue"
+logo_url: null
+primary_colour: "#0F4C5C"
+accent_colour: "#DCEEF0"
+tagline: "Established men's fashion chain — Virasana kurta-pyjama, shirts & sherwanis"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/jadeblue/products.csv"
+pdp_url_template: "https://jadeblue.com/products/{handle}"
+suggestion_chips:
+  - "Kurta pajama for men"
+  - "Sherwani for wedding"
+  - "Bandhgala jacket"
+  - "Formal shirt for men"
+  - "Jodhpuri suit for men"

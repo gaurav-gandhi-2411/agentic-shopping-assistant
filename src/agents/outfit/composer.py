@@ -29,6 +29,7 @@ from src.agents.outfit.slots import (
     is_rugged_footwear_item,
     is_slot_type_allowed,
     is_western_item,
+    split_accessory_query_by_family,
 )
 from src.catalogue.cleaning import is_kids_item
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
@@ -151,7 +152,21 @@ def compose_outfit(
         if _bt_tokens:
             anchor_query = f"{anchor_query} {_bt_tokens}"
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
-        candidates = retriever.search(anchor_query, top_k=10, filters=anchor_filters)
+        # 2026-07-19 fix (39-store catalogue regression): the default top_k=10
+        # anchor window is budget-BLIND — it is filled by relevance score alone,
+        # so a handful of newly-added premium-tier brands (much higher-priced,
+        # equally or more relevant for occasion terms like "reception") can
+        # monopolize the top 10 and push every genuinely-affordable anchor
+        # candidate out of the window before the budget gate below ever sees
+        # them (live-proven: "reception outfit under ₹15000" — 0/10 anchors
+        # were within budget at top_k=10, but 2/50 were once the window
+        # widened). Mirrors the same truncate-before-filter defect graph.py's
+        # search_node fixed for price_qualifier/formality_softener (commit
+        # 2c78af9) — widen the pre-filter pool whenever a budget constraint is
+        # present so the budget gate has a meaningfully larger pool to draw
+        # from. No-op (top_k stays 10) when no budget is stated.
+        _anchor_top_k = 30 if budget_inr is not None else 10
+        candidates = retriever.search(anchor_query, top_k=_anchor_top_k, filters=anchor_filters)
         # Filter by occasion coherence AND gender compatibility. S5 fix: also
         # reject juniors/girls/boys/kids items as a look ANCHOR — the same
         # catalogue mislabeling that lets them fill complement slots (see
@@ -1000,7 +1015,32 @@ def _find_best_candidate(
     # conservative "never guess gender in" rule as gender_allowed() below, now
     # enforced on the retrieval window itself, not just on whatever slipped
     # through unfiltered.
-    candidates = retriever.search(query, top_k=40, filters={"gender": gender})
+    #
+    # Multi-family accessory split (2026-07-19 bridal jewellery fix): when the
+    # accessory slot's own query spans more than one accessory family (e.g.
+    # the bridal "dupatta jewellery clutch ethnic accessory" query spans
+    # DUPATTA + BAG + JEWELLERY), retrieving it as ONE combined query lets
+    # whichever family dominates lexical/semantic overlap crowd every other
+    # family out of the retrieval window entirely (live-proven: jewellery
+    # never appeared even in a top-500 window for that combined query — see
+    # split_accessory_query_by_family's docstring). Issue one retrieval call
+    # per matched family instead and merge the pools (dedup by article_id)
+    # so every family gets a genuine, undiluted shot at being scored below —
+    # a no-op (single retriever.search call, identical to before) for every
+    # single-family accessory query and every non-accessory slot.
+    family_queries = (
+        split_accessory_query_by_family(query) if slot_name == "accessory" else []
+    )
+    if family_queries:
+        candidates = []
+        _seen_candidate_ids: set[str] = set()
+        for family_query in family_queries:
+            for item in retriever.search(family_query, top_k=40, filters={"gender": gender}):
+                if item["article_id"] not in _seen_candidate_ids:
+                    candidates.append(item)
+                    _seen_candidate_ids.add(item["article_id"])
+    else:
+        candidates = retriever.search(query, top_k=40, filters={"gender": gender})
 
     # Gender-neutral accessory fallback: fires ONLY when the gendered search
     # above returned nothing for an accessory slot.  Widens to an unfiltered

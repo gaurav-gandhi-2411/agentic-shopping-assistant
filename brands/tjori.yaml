@@ -1,0 +1,23 @@
+# NOTE (2026-07-19): tjori.com's catalogue is genuinely mixed, not menswear-only —
+# ~22/50 sampled items are men's Suit & Sets / Nehru Jacket, the rest is women's
+# ethnic wear + jewellery (earrings, necklaces, bangles) and a Rakhi range, with
+# some women's items under the sub-brand "SAAGAH". gender_default is deliberately
+# "mixed" (not "men") so src/catalogue/adapter.py's per-item keyword-based gender
+# inference (derive_item_gender) does the real work instead of being overridden.
+display_name: "Tjori"
+logo_url: null
+primary_colour: "#A65E2E"
+accent_colour: "#FAF3E8"
+tagline: "Ethnic fashion & jewellery — men's Nehru jackets, kurta sets & women's accessories"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/tjori/products.csv"
+pdp_url_template: "https://www.tjori.com/products/{handle}"
+suggestion_chips:
+  - "Nehru jacket with kurta"
+  - "Kurta pyjama set for men"
+  - "Suit and set for men"
+  - "Ethnic jewellery"
+  - "Kurta with palazzo"

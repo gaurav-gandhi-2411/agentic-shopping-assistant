@@ -27,7 +27,12 @@ from src.agents.outfit.partner import (
     resolve_partner_gender,
 )
 from src.agents.outfit.rationale import generate_rationales, template_rationale
-from src.agents.outfit.slots import _FORMAL_ETHNIC_OCCASIONS, resolve_look_gender
+from src.agents.outfit.slots import (
+    _FORMAL_ETHNIC_OCCASIONS,
+    FORMALITY_SOFTENER_VALUES,
+    SANGEET_EMBELLISHMENT_KEYWORDS,
+    resolve_look_gender,
+)
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import (
@@ -59,7 +64,16 @@ _OUTFIT_INTENT_RE = re.compile(
 # query containing any of these words legitimately wants a multi-piece
 # listing, so the gate is skipped — same "outfit"/"look" words as
 # _OUTFIT_INTENT_RE above, plus explicit set/combo/co-ord words.
-_SET_INTENT_RE = re.compile(r"\bsets?\b|\bcombo\b|\bco-?ord\b", re.IGNORECASE)
+# 2026-07-16 fix: "pajama"/"pyjama" added — "kurta pajama"/"kurta pyjama"
+# queries resolve garment_type="kurta" via intent_parser's _COMPOUND_TERMS
+# (they are inherently two-piece combos), but this regex had no awareness of
+# that and only reacted to literal "set"/"combo"/"co-ord", so the gate was
+# wrongly stripping the only genuine "Men Kurta and Pyjama Set..." matches
+# for "kurta pajama for father in law" while "...kurta pajama set..." (which
+# happens to also contain the literal word "set") worked correctly.
+_SET_INTENT_RE = re.compile(
+    r"\bsets?\b|\bcombo\b|\bco-?ord\b|\bpaja?mas?\b|\bpyjamas?\b", re.IGNORECASE
+)
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
@@ -425,24 +439,27 @@ def _compose_couple_from_scratch(
     _pt_seed = partner_look.get("seed_item")
     _pt_complements = partner_look.get("complements", [])
     _partner_items_out = ([_pt_seed] if _pt_seed else []) + _pt_complements
-    _partner_empty_slots = partner_look.get("empty_slots", [])
 
-    answer = f"**{_gendered_look_title(primary_gender)}**\n\n{_primary_rationale}"
+    # Fix #14a (2026-07-16): this used to embed BOTH the primary AND partner
+    # rationale/title/coordinated_with text into ONE combined `answer` string
+    # before either look's items were attached — that whole blob rendered as
+    # a single chat bubble before ANY product images appeared. frontend's
+    # useChatStream.ts already builds a SEPARATE assistant message for the
+    # partner board (short `**{look_title}**` intro + its own outfitRationale
+    # box, driven by the partner_* fields this function sets below) whenever
+    # a partner look was actually composed (_pt_seed is not None) — so partner
+    # content is dropped from `answer` entirely in that case to avoid it
+    # appearing twice. The `_pt_seed is None` honest-suppression branch is the
+    # ONE case with no second message (partner_retrieved_items ends up empty,
+    # so useChatStream never creates that bubble) — the explanatory note stays
+    # here since it has no other channel to reach the user.
+    answer = f"**{_gendered_look_title(primary_gender)}**"
     for _slot in _primary_empty_slots:
         answer += (
             f"\n\n_Note: I couldn't find suitable {_slot} to complete "
             f"this look in the current catalogue._"
         )
-    if _pt_seed is not None:
-        answer += f"\n\n**{_gendered_look_title(partner_gender)}**\n\n{_partner_rationale}"
-        if _coordinated_with:
-            answer += f"\n\n_{_coordinated_with}_"
-        for _slot in _partner_empty_slots:
-            answer += (
-                f"\n\n_Note: I couldn't find suitable {_slot} to complete "
-                f"this look in the current catalogue._"
-            )
-    else:
+    if _pt_seed is None:
         answer += f"\n\n_{_partner_rationale}_"
 
     update: dict = {
@@ -681,6 +698,40 @@ def _is_low_confidence_result(items: list[dict]) -> bool:
     )
 
 
+# Structural/construction attribute phrases that HTML/BM25 relevance scoring
+# cannot detect an absence of: "jacket style lehenga" retrieves lehengas
+# strongly (the noun match dominates the score) even when zero candidates
+# actually have a jacket-style construction, so _is_low_confidence_result's
+# score-based signal (see its docstring) scores this query ABOVE its
+# threshold — a confirmed, documented residual gap. This is a query-attribute-
+# presence check, independent of relevance score: does the raw query name a
+# specific structural attribute that no candidate's own text backs up.
+_STRUCTURAL_ATTRIBUTE_VOCAB: frozenset[str] = frozenset({
+    "jacket style", "cape style", "off shoulder", "off-shoulder", "halter",
+    "backless", "peplum", "cold shoulder", "one shoulder", "high low",
+    "high-low", "asymmetric", "cowl neck", "cape sleeve",
+})
+
+
+def _query_names_unsupported_attribute(raw_query: str, items: list[dict]) -> bool:
+    """True when the raw query names a structural attribute from
+    _STRUCTURAL_ATTRIBUTE_VOCAB that none of the retrieved items' own text
+    (detail_desc/display_name/prod_name) actually backs up. Feeds the SAME
+    low_confidence hedge-prompt path in respond_node as
+    _is_low_confidence_result — this is a separate, independent signal (query
+    names an attribute vs. weak relevance score), not a replacement or a
+    change to that function's own threshold math."""
+    q_lower = raw_query.lower()
+    matched = [p for p in _STRUCTURAL_ATTRIBUTE_VOCAB if p in q_lower]
+    if not matched or not items:
+        return False
+    backing = " ".join(
+        " ".join(str(it.get(f) or "") for f in ("detail_desc", "display_name", "prod_name"))
+        for it in items
+    ).lower()
+    return any(phrase not in backing for phrase in matched)
+
+
 def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
     """Part E (2026-07-13): strip loungewear/"night dress" items from a formal
     wedding-tier occasion's result set.
@@ -737,6 +788,50 @@ def _apply_price_qualifier(items: list[dict], price_qualifier: str | None) -> li
             key=lambda it: it.get("price_inr") if it.get("price_inr") is not None else -1.0,
             reverse=True,
         )
+    return items
+
+
+def _apply_formality_softener(items: list[dict], formality_softener: str | None) -> list[dict]:
+    """2026-07-19 fix: hard-filter embellishment-heavy items when the query carries
+    a negated-formality softener ("not too flashy"/"minimalist", "not too heavy"/
+    "comfortable" — see IntentV1.formality_softener docstring and
+    FORMALITY_SOFTENER_VALUES).
+
+    Applied on the WIDE pre-rerank candidate pool, not the already-top_k
+    items_out the downstream fabric_score_delta sort operates on: dense/BM25
+    retrieval scores the RAW query text including the negated adjective itself
+    ("flashy" in "not too flashy") — a known embedding-negation-blindness
+    failure mode — so embellished items can rank UP the pool before any
+    downstream rerank ever gets a chance to correct it. A keyword-based hard
+    filter here is independent of embedding relevance ordering entirely.
+
+    Reuses SANGEET_EMBELLISHMENT_KEYWORDS (slots.py) verbatim — the same
+    embellishment vocabulary fabric_score_delta already scans — rather than
+    inventing a second list.
+
+    Unlike fabric_score_delta's caller in search_node, this is NOT gated behind
+    occasion detection: a bare "something not too flashy" with no named
+    occasion must still demote embellished items.
+
+    Pool-underflow protected: skipped if it would leave <2 items (same
+    discipline as _apply_price_qualifier's cheap-outlier exclusion above).
+    """
+    if formality_softener not in FORMALITY_SOFTENER_VALUES or not items:
+        return items
+
+    def _has_embellishment(it: dict) -> bool:
+        text = (
+            (it.get("prod_name") or "")
+            + " "
+            + (it.get("display_name") or "")
+            + " "
+            + (it.get("detail_desc") or "")
+        ).lower()
+        return any(kw in text for kw in SANGEET_EMBELLISHMENT_KEYWORDS)
+
+    filtered = [it for it in items if not _has_embellishment(it)]
+    if len(filtered) >= 2:
+        return filtered
     return items
 
 
@@ -1591,8 +1686,28 @@ def build_graph(
         # Merge new intent with session context (carries forward unspecified fields)
         merged_intent = merge_with_context(intent, session_context)
 
-        # Non-product conversational query → respond (LLM writes prose, no cards)
+        # Non-product conversational query → respond (LLM writes prose, no cards).
+        # Batch 2 gap (2026-07-16): a query with NEITHER buy-signal intent NOR
+        # any structured signal at all (e.g. bare "asdkfjhqwoiuerlkj zzxxccvv")
+        # landed here unconditionally on turn 2+ and got a confident LLM pitch
+        # over the PRIOR turn's stale retrieved_items — search_node's own
+        # is_first_search-scoped gibberish guard never even runs for this path
+        # (see test_gibberish_on_turn_two_still_gets_clarify's docstring, which
+        # documented this exact gap as out of that batch's scope). Route true
+        # gibberish through the SAME deterministic search → out_of_catalogue →
+        # honest-clarify path search_node's own guard already uses, rather than
+        # building a second canned-message mechanism here.
         if not merged_intent.is_product_query:
+            if _is_unrecognized_query(raw_q, retriever):
+                logger.info(
+                    "[router/intent] conversational-but-gibberish → search | query=%r",
+                    raw_q[:60],
+                )
+                plan = {"action": "search", "query": raw_q, "filters": {}}
+                return {
+                    "current_plan": json.dumps(plan),
+                    "tool_calls": state.get("tool_calls", []) + [{"router_decision": plan}],
+                }
             logger.info(
                 "[router/intent] conversational → respond | query=%r",
                 raw_q[:60],
@@ -2063,6 +2178,22 @@ def build_graph(
         # pool still has enough items for the reranker (excluded colour may dominate).
         fetch_k = 40 if excluded_colours else 20
 
+        # 2026-07-19 fix: price_qualifier ("cheap"/"expensive") and formality_softener
+        # ("minimalist"/"comfortable") only ever RE-SORTED or RE-FILTERED whatever pool
+        # had already survived rerank()'s top_k truncation (see _apply_price_qualifier /
+        # _apply_formality_softener below) — a genuinely qualifying item sitting outside
+        # the default fetch_k window could never be recovered by a downstream sort.
+        # Widen the pre-truncation retrieval window whenever either signal is present so
+        # the filter/sort applied just before rerank() (below) has a meaningfully larger
+        # pool to draw from.
+        from src.agents.intent_parser import parse_intent as _qualifier_parse_intent
+
+        _qualifier_intent = _qualifier_parse_intent(raw_query)
+        if _qualifier_intent.price_qualifier or (
+            _qualifier_intent.formality_softener in FORMALITY_SOFTENER_VALUES
+        ):
+            fetch_k = max(fetch_k, 80)
+
         # Buy-similar: anchor-based dense retrieval when anchor_article_id is in plan.
         # Uses the anchor item's FAISS embedding to find visually/contextually similar
         # items, then applies the same catalogue filters as normal search.
@@ -2267,6 +2398,15 @@ def build_graph(
             if len(colour_filtered) >= 2:
                 candidates = colour_filtered
 
+        # 2026-07-19 fix: apply price_qualifier/formality_softener on the WIDE
+        # candidate pool (widened above) BEFORE rerank() truncates to top_k — see
+        # _apply_price_qualifier / _apply_formality_softener docstrings for why
+        # applying these only AFTER truncation (as items_out further below still
+        # does, as a secondary re-sort) could never recover a qualifying item that
+        # rerank()'s LLM step hadn't already picked into its top_k.
+        candidates = _apply_price_qualifier(candidates, _qualifier_intent.price_qualifier)
+        candidates = _apply_formality_softener(candidates, _qualifier_intent.formality_softener)
+
         items_out = rerank(query, candidates, llm, top_k=top_k)
 
         # Dedup by (prod_name, colour): H&M lists same product in many colours;
@@ -2381,18 +2521,24 @@ def build_graph(
             # wedding guest dress" surfacing a literal nightgown.
             items_out = _apply_loungewear_gate(items_out, _occ_slug)
 
-            # Part C (formality_softener ranking wiring, 2026-07-13): passes
-            # the sibling intent-parser signal ("something comfortable for
-            # sangeet dancing" / "not too flashy") through to fabric_score_
-            # delta's formality_override — see that function's docstring for
-            # how it OVERRIDES the base occasion-driven embellishment sign
-            # (including for wedding_guest, which has no base sign of its own).
-            # This gate (_occ_slug != "casual") already covers wedding_guest,
-            # so no gate-loosening is needed here — only the missing kwarg.
+        # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
+        # removed 2026-07-19): previously nested inside "if _occ_slug and
+        # _occ_slug != 'casual'" above — that gated a bare "something not too
+        # flashy" query with NO named occasion out of embellishment-awareness
+        # entirely, even though fabric_score_delta's own formality_override
+        # branch already ignores occasion_slug completely once set (see its
+        # docstring) — the occasion gate was never a requirement of the
+        # underlying function, just an accident of where this call happened to
+        # be nested. Runs unconditionally whenever the query carries the
+        # signal, occasion or not. (_apply_formality_softener above already
+        # hard-filtered the wide pre-rerank pool; this re-sorts whatever
+        # survived rerank() as a secondary pass — belt and braces, not the
+        # primary fix.)
+        if items_out and _occ_intent.formality_softener in FORMALITY_SOFTENER_VALUES:
             items_out = sorted(
                 items_out,
                 key=lambda it: _occ_fabric_delta(
-                    it, _occ_slug, formality_override=_occ_intent.formality_softener
+                    it, _occ_slug or "", formality_override=_occ_intent.formality_softener
                 ),
                 reverse=True,
             )
@@ -3071,7 +3217,14 @@ def build_graph(
         empty_slots = result.get("empty_slots", [])
 
         items_out = ([seed] if seed else []) + complements
-        answer = f"**Outfit suggestion**\n\n{base_rationale}"
+        # Fix #13 (2026-07-16): base_rationale used to be appended in full here
+        # AND set on update["outfit_rationale"] below — MessageBubble.tsx
+        # renders the chat-bubble "answer" text AND OutfitBoard.tsx renders
+        # outfit_rationale in its own "Stylist's note" box, so the same
+        # sentence appeared twice in one turn. outfit_rationale remains the
+        # SOLE place the full rationale text appears; the bubble gets a short
+        # intro only.
+        answer = "**Outfit suggestion**"
         if empty_slots:
             for _slot in empty_slots:
                 if _slot == "footwear" and budget_inr:
@@ -3219,7 +3372,7 @@ def build_graph(
         # hard short-circuit; the empty-result case above is the hard one.
         low_confidence = any(
             tc.get("search", {}).get("low_confidence") for tc in state.get("tool_calls", [])
-        )
+        ) or _query_names_unsupported_attribute(state["user_query"], items)
 
         # Stylist-quality reply (2-3 sentences) for BOTH product-search and
         # conversational turns — the one-sentence cap previously used for successful

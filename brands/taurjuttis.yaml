@@ -1,0 +1,23 @@
+display_name: "Taur Juttis"
+logo_url: null
+primary_colour: "#C77C1F"
+accent_colour: "#FFF6E5"
+tagline: "Budget-friendly Punjabi jutti in floral and mirror-work styles"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): 0/209 rows carry an explicit "women" token and only
+# 3/209 carry an explicit "men" token ("Men Shoes", "Men's Jutti"). Titles
+# are overwhelmingly decorative and feminine (Zardozi, Rose Gold Tilla,
+# Pearl White, Gold Flower), so the catalogue is evidence-backed women's,
+# with the 3 men's rows resolved correctly per-item
+# (src.catalogue.adapter.derive_item_gender) regardless of the brand default.
+gender_default: "women"
+catalogue_path: "data/raw/shopify/taurjuttis/products.csv"
+pdp_url_template: "https://taurjuttis.com/products/{handle}"
+suggestion_chips:
+  - "Floral jutti under 2000"
+  - "Mirror-work Punjabi jutti for festive wear"
+  - "Men's leather jutti"
+  - "Gold embroidered jutti for wedding"
+  - "Comfortable jutti for daily wear"

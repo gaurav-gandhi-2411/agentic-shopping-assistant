@@ -1,0 +1,17 @@
+display_name: "South Temple Jewellery"
+logo_url: null
+primary_colour: "#A6631B"
+accent_colour: "#FCF3E3"
+tagline: "Kemp & temple jewellery for South Indian traditions"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/southtemplejewellery/products.csv"
+pdp_url_template: "https://southtemplejewellery.com/products/{handle}"
+suggestion_chips:
+  - "Temple jewellery set"
+  - "Kemp bangles"
+  - "Antique gold necklace"
+  - "Maang tikka"
+  - "Kundan choker"

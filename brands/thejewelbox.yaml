@@ -1,0 +1,17 @@
+display_name: "The Jewelbox"
+logo_url: null
+primary_colour: "#B25050"
+accent_colour: "#FDF0E9"
+tagline: "Budget oxidised, antique & kundan-pearl jewellery"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/thejewelbox/products.csv"
+pdp_url_template: "https://thejewelbox.in/products/{handle}"
+suggestion_chips:
+  - "Oxidised earrings"
+  - "Antique jhumka"
+  - "Kundan pearl earrings"
+  - "Earrings under ₹500"
+  - "German silver bangles"

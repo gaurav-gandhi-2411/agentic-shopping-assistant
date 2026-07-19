@@ -1,0 +1,27 @@
+display_name: "Fizzy Goblet"
+logo_url: null
+primary_colour: "#E0457A"
+accent_colour: "#FDF1F6"
+tagline: "Jootis, heels, sliders and potli bags with a playful edge"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# The Shopify "vendor" field is used unconventionally on this store -- it
+# holds a sub-category label (e.g. "Heels", "Juttis", "Lounge Slippers")
+# rather than a real vendor name, so it was NOT used as the source for
+# display_name (the actual store name "Fizzy Goblet" appears in only 12/338
+# vendor rows and in product titles like "Fizzy Goblet : Gift Card"; that
+# was used instead). One row ("Gift Note" priced Rs.0.01) was dropped as an
+# order-addon artifact, not a real product. Footwear types (Heels, Wedges,
+# Mules, Ballet Flats, Jootis) are women's-dominant; only 7/338 rows carry
+# an explicit "men" token ("Mens Juttis", "Men Kolhas", "Men Sandals"), so
+# gender_default is evidence-backed "women".
+gender_default: "women"
+catalogue_path: "data/raw/shopify/fizzygoblet/products.csv"
+pdp_url_template: "https://fizzygoblet.com/products/{handle}"
+suggestion_chips:
+  - "Jootis for festive wear"
+  - "Block heels under 3000"
+  - "Men's Kolhapuri sliders"
+  - "Potli bag for wedding season"
+  - "Comfortable sliders for daily wear"

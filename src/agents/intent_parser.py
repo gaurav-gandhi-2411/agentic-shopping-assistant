@@ -123,7 +123,18 @@ _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bvest\b|\btank\b", "vest"),
     (
         r"\bfootwear\b|\bshoe\b|\bshoes\b|\bsandal\b|\bsandals\b|\bsneaker\b|\bsneakers\b"
-        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b",
+        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b"
+        # 2026-07-19 fix: "juttis for a lehenga" was resolving garment_type=
+        # "lehenga" instead of the actually-requested footwear item — jutti/
+        # mojari/kolhapuri/chappal (ethnic footwear nouns, real inventory per
+        # src/catalogue/normalizer.py's identical 2026-07-19 fix) were entirely
+        # absent from this rule, so a query naming both a footwear noun and an
+        # ethnic-wear noun ("lehenga") had only the ethnic noun as a candidate
+        # match and it won by default. Mirrored from normalizer.py's
+        # _GARMENT_RULES footwear rule (same terms, same reasoning) — these two
+        # files' rule sets are meant to stay in sync (see module docstring).
+        r"|\bjutti\b|\bjuttis\b|\bmojari\b|\bmojaris\b|\bkolhapuri\b|\bkolhapuris\b"
+        r"|\bchappal\b|\bchappals\b",
         "footwear",
     ),
     (r"\bhandbag\b|\btote\b|\bcrossbody\b|\bpurse\b|\bclutch\b|\bbag\b", "bag"),

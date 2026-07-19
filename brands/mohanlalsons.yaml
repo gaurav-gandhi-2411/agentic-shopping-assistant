@@ -1,0 +1,17 @@
+display_name: "Mohanlal Sons"
+logo_url: null
+primary_colour: "#2C1810"
+accent_colour: "#C9A227"
+tagline: "Dedicated sherwani house — sherwanis, Jodhpuri suits & Jawahar jackets"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/mohanlalsons/products.csv"
+pdp_url_template: "https://www.mohanlalsons.com/products/{handle}"
+suggestion_chips:
+  - "Sherwani for wedding"
+  - "Bandhgala jacket"
+  - "Jodhpuri suit for men"
+  - "Kurta pyjama set for men"
+  - "Jawahar jacket"

@@ -360,6 +360,46 @@ class TestKurtaPajamaCompound:
 
 
 # ---------------------------------------------------------------------------
+# Group 6b: live bug — "juttis for a lehenga" was resolving garment_type=
+# "lehenga" instead of the actually-requested footwear item. Root cause:
+# jutti/mojari/kolhapuri/chappal (ethnic footwear nouns with real inventory —
+# see src/catalogue/normalizer.py's identical 2026-07-19 fix) were entirely
+# absent from the footwear rule, so a query naming both a footwear noun and an
+# ethnic-wear noun had only the ethnic noun as a candidate match and it won by
+# default (not a rightmost-match or precedence issue — the footwear noun was
+# never even a candidate). Mirrors normalizer.py's footwear rule fix.
+# ---------------------------------------------------------------------------
+
+
+class TestJuttiFootwearRecognition:
+    @pytest.mark.parametrize(
+        "query, expected_garment",
+        [
+            ("juttis for a lehenga", "footwear"),
+            ("footwear for my lehenga", "footwear"),  # already worked; guards no regression
+            ("juttis", "footwear"),
+            ("jutti", "footwear"),
+            ("mojaris for a sherwani", "footwear"),
+            ("mojari", "footwear"),
+            ("kolhapuris for a saree", "footwear"),
+            ("kolhapuri", "footwear"),
+            ("chappals for a kurta", "footwear"),
+        ],
+    )
+    def test_jutti_family_resolves_to_footwear(self, query: str, expected_garment: str) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == expected_garment, (
+            f"query={query!r}: expected garment={expected_garment!r}, got {intent.garment_type!r}"
+        )
+
+    def test_bare_lehenga_still_resolves_to_lehenga(self) -> None:
+        """The fix must not blanket-suppress lehenga — a query naming ONLY
+        the ethnic-wear noun (no footwear word) must still resolve to it."""
+        intent = parse_intent("lehenga for a wedding")
+        assert intent.garment_type == "lehenga"
+
+
+# ---------------------------------------------------------------------------
 # Group 7: Budget extraction
 # ---------------------------------------------------------------------------
 

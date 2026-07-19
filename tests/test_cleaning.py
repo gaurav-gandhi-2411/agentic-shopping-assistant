@@ -12,11 +12,13 @@ import pytest
 from src.catalogue.cleaning import (
     backfill_colours,
     clean_mojibake_columns,
+    drop_religious_decor_items,
     drop_true_fabric_material,
     extract_colour,
     fix_mojibake,
     is_fabric_bolt_text,
     is_loungewear_text,
+    is_religious_decor_item,
     reclassify_finished_sarees,
     recompute_derived_columns,
 )
@@ -108,6 +110,78 @@ class TestDropTrueFabricMaterial:
     def test_no_fabric_rows_is_noop(self) -> None:
         df = pd.DataFrame({"product_type_name": ["dress", "saree"]})
         out, n = drop_true_fabric_material(df)
+        assert n == 0
+        assert len(out) == 2
+
+
+# ---------------------------------------------------------------------------
+# Religious decor exclusion (BUG 2, jewellery-inventory-gap wave 2026-07-19)
+# ---------------------------------------------------------------------------
+
+
+class TestIsReligiousDecorItem:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            # Real theamethyststore rows (type="Silver Idols").
+            ("Balaji Temple Statue", True),
+            ("Venkateswara 3D Idol", True),
+            ("Perumal 3D Idol", True),
+            ("Shivling With Snake 3D Solid Idol", True),
+            # Real theamethyststore rows (type="Kum Kum Box").
+            ("Beautiful Kum Kum Box", True),
+            ("Vishaka 3D Spl Kum Kum Box", True),
+            # Real theamethyststore rows (type="Fashion", mixed with genuine
+            # jewellery in the same bucket) — religious photo frames.
+            ("Lakshmi Frame", True),
+            ("Lord Murugan Frame With Peacock 3D SPL", True),
+            # Genuine jewellery sharing the "Fashion" type bucket must NOT match.
+            ("Stunnig Brooch Pin", False),
+            ("Unique Kundan Saree Pin", False),
+            ("Style Charm Kundan Waist Charm", False),
+            # Genuine jewellery elsewhere must NOT match.
+            ("Simrath Short Necklace Set", False),
+            ("Precious Silver Rakhi", False),
+            # Real daivik rows — "Non Idol"/"Non-Idol" is a genuine jewellery
+            # style descriptor (no deity-idol motif), not a religious statue.
+            ("Antique Non Idol Purple Long Necklace with Earrings", False),
+            ("Non idol kemp Peacock Earcuff with Jhumkas", False),
+            ("Non-Idol Gold Polish Earrings", False),
+            ("AD Non Idol Jada/Hair accessory", False),
+            # A genuine idol/bell decor item must still be excluded even when
+            # it also mentions jewellery-adjacent deity names.
+            (
+                "Premium Temple Style Antique Brass Bell with Lakshmi, Hanuman & Ganesha Idols (Price for Each)",
+                True,
+            ),
+            ("", False),
+            (None, False),
+        ],
+    )
+    def test_cases(self, text: str | None, expected: bool) -> None:
+        assert is_religious_decor_item(text) is expected
+
+
+class TestDropReligiousDecorItems:
+    def test_drops_idol_statue_kumkum_frame_rows(self) -> None:
+        df = pd.DataFrame(
+            {
+                "prod_name": [
+                    "Balaji Temple Statue",
+                    "Venkateswara 3D Idol",
+                    "Beautiful Kum Kum Box",
+                    "Lakshmi Frame",
+                    "Simrath Short Necklace Set",
+                ],
+            }
+        )
+        out, n = drop_religious_decor_items(df)
+        assert n == 4
+        assert out["prod_name"].tolist() == ["Simrath Short Necklace Set"]
+
+    def test_no_decor_rows_is_noop(self) -> None:
+        df = pd.DataFrame({"prod_name": ["Simrath Short Necklace Set", "James Shirt Button Clip"]})
+        out, n = drop_religious_decor_items(df)
         assert n == 0
         assert len(out) == 2
 

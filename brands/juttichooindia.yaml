@@ -1,0 +1,24 @@
+display_name: "Juttichoo"
+logo_url: null
+primary_colour: "#C24B7C"
+accent_colour: "#FDF0F5"
+tagline: "Punjabi jutti specialists with floral and mirror-work designs"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): across all 62 rows, title+type carry zero explicit
+# "men"/"woman"/"ladies" word-boundary matches -- titles are floral/feminine
+# names ("Enchanting Dream", "Blush", "Naaz") and descriptions consistently
+# frame juttis in feminine terms ("elegance", "wardrobe", floral prints).
+# The brief only described this as a "Punjabi jutti specialist" with no
+# gender note; the actual catalogue is evidence-backed women's-only, so
+# "women" is used directly rather than "mixed".
+gender_default: "women"
+catalogue_path: "data/raw/shopify/juttichooindia/products.csv"
+pdp_url_template: "https://juttichooindia.com/products/{handle}"
+suggestion_chips:
+  - "Floral Punjabi jutti for women"
+  - "Mirror-work jutti for festive occasions"
+  - "Handcrafted leather jutti under 3000"
+  - "Traditional jutti for sangeet"
+  - "Comfortable Punjabi jutti for everyday wear"

@@ -1,0 +1,24 @@
+display_name: "Coral Haze"
+logo_url: null
+primary_colour: "#FF6F61"
+accent_colour: "#FFF1EC"
+tagline: "Ethnic juttis with a contemporary edge"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Catalogue mixes a dominant women's jutti/flats/heels line (220/270, 81%)
+# with a men's loafer/mule/lounger line (48/270, 18%); the store's own "type"
+# field already carries explicit "Women's X" / "Men X" labels for nearly every
+# row, so per-item gender resolves correctly from title+type keyword scan
+# (src.catalogue.adapter.derive_item_gender) without brand_default doing the
+# real work. "mixed" leaves the 2 genuinely unlabeled rows (a gift card, a
+# gift box) as "unknown" instead of forcing them to one gender.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/coralhaze/products.csv"
+pdp_url_template: "https://coralhaze.com/products/{handle}"
+suggestion_chips:
+  - "Embroidered jutti for women"
+  - "Kolhapuri flats under 3000"
+  - "Men's loafers for festive wear"
+  - "Comfortable jutti for sangeet"
+  - "Ethnic flats for haldi function"

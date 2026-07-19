@@ -41,6 +41,9 @@ export interface LookSnapshot {
     price_inr?: number | null
     pdp_handle?: string | null
     buy_url?: string | null
+    /** Cross-store fields — populated in unified mode; null in legacy per-brand mode. */
+    store?: string | null
+    store_display?: string | null
   }>
   rationale?: string | null
   cart_url?: string | null

@@ -124,14 +124,15 @@ export function BodyShapeUpload({ onSend, disabled }: Props) {
       <Button
         type="button"
         variant="outline"
-        size="sm"
+        size="chip"
         onClick={() => setStage(stage === "idle" ? "intro" : "idle")}
         disabled={disabled}
         title="Body shape suggestion (optional)"
         aria-label="Body shape suggestion (optional)"
-        className="shrink-0 h-9 px-2.5"
+        className="shrink-0"
       >
         <PersonStanding className="h-4 w-4" />
+        <span className="hidden sm:inline text-xs">Shape</span>
       </Button>
 
       {/* Expanded panel — floats above the composer so it doesn't disturb the

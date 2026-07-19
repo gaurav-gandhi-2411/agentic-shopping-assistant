@@ -31,6 +31,7 @@ from src.agents.graph import (
     _format_items_for_response,
     _gibberish_check_applies,
     _is_low_confidence_result,
+    _query_names_unsupported_attribute,
     build_graph,
 )
 from src.agents.grounding import validate_response
@@ -104,6 +105,34 @@ class TestLowConfidenceResultSignal:
         assert _is_low_confidence_result(items) is True
 
 
+class TestQueryNamesUnsupportedAttribute:
+    """Fix #8: "jacket style lehenga" retrieves lehengas strongly enough to
+    clear _is_low_confidence_result's score threshold (see that function's
+    own docstring — a documented residual gap), so this is a SEPARATE,
+    independent query-attribute-presence signal feeding the same hedge path,
+    not a change to the score-based function."""
+
+    def test_named_attribute_absent_from_all_items_is_unsupported(self) -> None:
+        items = [
+            {"detail_desc": "A flowy embroidered lehenga skirt", "display_name": "Lehenga"},
+            {"detail_desc": "Silk lehenga with dupatta", "display_name": "Lehenga Set"},
+        ]
+        assert _query_names_unsupported_attribute("jacket style lehenga", items) is True
+
+    def test_named_attribute_present_in_backing_text_is_supported(self) -> None:
+        items = [
+            {"detail_desc": "Jacket style lehenga with embroidered blazer", "display_name": ""},
+        ]
+        assert _query_names_unsupported_attribute("jacket style lehenga", items) is False
+
+    def test_no_structural_attribute_named_never_flagged(self) -> None:
+        items = [{"detail_desc": "Silk lehenga", "display_name": "Lehenga"}]
+        assert _query_names_unsupported_attribute("embellished lehenga", items) is False
+
+    def test_empty_items_never_flagged(self) -> None:
+        assert _query_names_unsupported_attribute("jacket style lehenga", []) is False
+
+
 # ── Part B: price_inr shown to the LLM + grounding exemption ───────────────
 
 
@@ -125,6 +154,9 @@ class TestPriceGroundingExemption:
     the literal word "price" never appeared in an item's own field values."""
 
     _ITEMS = [{"display_name": "Red Saree", "price_inr": 2999.0, "colour": "red"}]
+    _ITEMS_KURTA = [
+        {"display_name": "Men Solid Cotton Kurta", "price_inr": 449.0, "colour": "white"}
+    ]
 
     def test_price_word_scrubbed_without_exemption(self) -> None:
         resp = "The Red Saree is a great pick. The price is around 2999 rupees."
@@ -143,6 +175,40 @@ class TestPriceGroundingExemption:
         # "affordable" — those stay scrubbed even with allow_price_mentions.
         resp = "The Red Saree is on sale and very affordable."
         cleaned, flags = validate_response(resp, self._ITEMS, allow_price_mentions=True)
+        assert flags
+        assert "I don't have pricing information" in cleaned
+
+    # 2026-07-19 fix (live bug: "cheap kurta for men" response falsely claimed
+    # "I don't have pricing information" despite price_inr populated on every
+    # returned item). Mechanism: "This affordable kurta at ₹449 is a great
+    # pick" was scrubbed wholesale because "affordable" doesn't appear verbatim
+    # in any item's field values — even though the SAME sentence cites a real
+    # price (₹449) genuinely belonging to a returned item. A sentence whose own
+    # rupee figure matches a real item price is now price-grounded outright,
+    # regardless of which price vocabulary ("affordable"/"budget"/"cheaper"/
+    # "on sale"/"discount") it's phrased with.
+    def test_real_price_citation_survives_alongside_subjective_word(self) -> None:
+        resp = "This affordable kurta at ₹449 is a great budget pick for everyday wear."
+        cleaned, flags = validate_response(resp, self._ITEMS_KURTA, allow_price_mentions=True)
+        assert flags == []
+        assert "₹449" in cleaned
+        assert "I don't have pricing information" not in cleaned
+
+    def test_real_price_citation_still_scrubbed_without_price_mentions_flag(self) -> None:
+        # The exemption is gated behind allow_price_mentions (respond_node's
+        # existing opt-in) so validate_rationale's separate contract — cost/
+        # cheaper/expensive/sale/discount stay scrubbed unconditionally there
+        # (see its docstring) — is never silently loosened by this fix.
+        resp = "This affordable kurta at ₹449 is a great budget pick for everyday wear."
+        cleaned, flags = validate_response(resp, self._ITEMS_KURTA)
+        assert flags
+        assert "I don't have pricing information" in cleaned
+
+    def test_fabricated_price_not_matching_any_item_still_scrubbed(self) -> None:
+        # Guards against a hallucinated number: citing a rupee figure that does
+        # NOT match any real item price must not be treated as grounded.
+        resp = "This affordable kurta is only ₹99, a steal."
+        cleaned, flags = validate_response(resp, self._ITEMS_KURTA, allow_price_mentions=True)
         assert flags
         assert "I don't have pricing information" in cleaned
 
@@ -463,14 +529,16 @@ class TestLiveRepros:
         budget/gender) must still be caught by search_node's own gibberish
         check, not silently searched with a confident pitch.
 
-        NOTE: a query with NEITHER buy-signal intent NOR any structured signal
-        at all (e.g. bare "asdkfjhqwoiuerlkj zzxxccvv") never reaches
-        search_node in the first place on turn 2+ — router_node's own
-        upstream is_product_query gate (intent_parser._is_product_query)
-        routes it straight to conversational "respond" before search_node's
-        gibberish check would ever run. That is a separate, pre-existing
-        routing path outside search_node's gibberish guard and outside this
-        batch's assigned scope (search_node's is_first_search-scoped check).
+        A query with NEITHER buy-signal intent NOR any structured signal at
+        all (e.g. bare "asdkfjhqwoiuerlkj zzxxccvv") previously never reached
+        search_node at all on turn 2+ — router_node's own upstream
+        is_product_query gate routed it straight to conversational "respond"
+        with the PRIOR turn's stale retrieved_items, before search_node's own
+        gibberish check could ever run. Fixed 2026-07-16: router_node's
+        is_product_query=False branch now itself checks _is_unrecognized_query
+        before falling to "respond" — see
+        test_pure_gibberish_no_buy_signal_on_turn_two_gets_clarify below for
+        that specific case.
         """
         retriever, catalogue_df = _unified_index
         llm = _CapturingLLM()
@@ -485,6 +553,57 @@ class TestLiveRepros:
 
         assert turn2_result.get("out_of_catalogue") is True
         assert "didn't quite catch that" in turn2_result.get("final_answer", "")
+
+    def test_pure_gibberish_no_buy_signal_on_turn_two_gets_clarify(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Batch 2 residual gap, fixed 2026-07-16: a query with NEITHER
+        buy-signal intent NOR any structured signal at all
+        ("asdkfjhqwoiuerlkj zzxxccvv") is not is_product_query, so it never
+        reached search_node's own gibberish guard on turn 2+ — router_node
+        routed it straight to "respond" over the PRIOR turn's stale
+        retrieved_items, producing a confident LLM pitch for an unrelated
+        item set. router_node's is_product_query=False branch now runs the
+        same _is_unrecognized_query check before falling through to respond,
+        routing true gibberish through the SAME deterministic
+        search -> out_of_catalogue -> honest-clarify path search_node's own
+        guard already used.
+        """
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        turn1_result = agent.invoke(_blank_state("red saree for wedding", memory))
+        assert turn1_result.get("retrieved_items"), "precondition: turn 1 returns items"
+
+        turn2_state = _next_turn_state(turn1_result, "asdkfjhqwoiuerlkj zzxxccvv", memory)
+        turn2_result = agent.invoke(turn2_state)
+
+        assert turn2_result.get("out_of_catalogue") is True
+        assert "didn't quite catch that" in turn2_result.get("final_answer", "")
+
+    def test_conversational_reply_on_turn_two_not_treated_as_gibberish(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        """Explicit non-regression for the router_node-level gibberish check
+        added alongside test_pure_gibberish_no_buy_signal_on_turn_two_gets_
+        clarify above: genuine conversational replies that merely lack
+        product signal (real English words, not keyboard-mash) must still
+        reach the normal conversational "respond" path, not the clarify
+        template."""
+        retriever, catalogue_df = _unified_index
+        llm = _CapturingLLM()
+        memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+        agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+
+        turn1_result = agent.invoke(_blank_state("red saree for wedding", memory))
+        assert turn1_result.get("retrieved_items"), "precondition: turn 1 returns items"
+
+        turn2_state = _next_turn_state(turn1_result, "thank you", memory)
+        turn2_result = agent.invoke(turn2_state)
+
+        assert turn2_result.get("out_of_catalogue") is not True
 
     def test_in_blue_refinement_on_turn_two_not_treated_as_gibberish(
         self, _unified_index: tuple[HybridRetriever, pd.DataFrame]

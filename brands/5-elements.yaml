@@ -1,0 +1,26 @@
+display_name: "5 Elements"
+logo_url: null
+primary_colour: "#7D2248"
+accent_colour: "#FDEEF1"
+tagline: "Premium bridal jutti, heels and ethnic lifestyle pieces"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# The brief described this store as footwear-focused ("premium bridal jutti/
+# heel"), but the full catalogue (1,537 rows after in-stock/price filtering)
+# is a much broader ethnic lifestyle brand -- footwear (jutti, Kolhapuri,
+# mules, wedges, heels: ~454 rows) sits alongside potlis, kaftans, kurta
+# sets, sarees, and jewellery. Only 4/1537 rows carry an explicit "men"
+# token vs 34 explicit women tokens (saree/kurti/lehenga/women), and the
+# footwear line itself uses decorative feminine names ("Ghungroo Orange
+# Love", "Mirror Love Pink"), so "women" is the evidence-backed default
+# rather than treating this as a footwear-only store.
+gender_default: "women"
+catalogue_path: "data/raw/shopify/5-elements/products.csv"
+pdp_url_template: "https://5-elements.co.in/products/{handle}"
+suggestion_chips:
+  - "Bridal jutti with mirror work"
+  - "Premium heels for wedding reception"
+  - "Kolhapuri wedges under 5000"
+  - "Ethnic potli bag for festive wear"
+  - "Mule heels for sangeet"

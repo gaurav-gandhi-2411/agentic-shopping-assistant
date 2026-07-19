@@ -55,7 +55,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
         onClick={() => handleRate(1)}
         disabled={pending}
         className={cn(
-          "rounded px-1.5 py-0.5 text-sm transition-colors",
+          "inline-flex items-center justify-center min-h-11 min-w-11 rounded px-1.5 py-0.5 text-sm transition-colors",
           selected === 1
             ? "bg-emerald-100 text-emerald-700 opacity-100"
             : "text-muted-foreground opacity-40 hover:opacity-80 hover:bg-muted"
@@ -68,7 +68,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
         onClick={() => handleRate(-1)}
         disabled={pending}
         className={cn(
-          "rounded px-1.5 py-0.5 text-sm transition-colors",
+          "inline-flex items-center justify-center min-h-11 min-w-11 rounded px-1.5 py-0.5 text-sm transition-colors",
           selected === -1
             ? "bg-rose-100 text-rose-700 opacity-100"
             : "text-muted-foreground opacity-40 hover:opacity-80 hover:bg-muted"
@@ -87,6 +87,15 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
 export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Props) {
   const isUser = message.role === "user"
 
+  // While the assistant placeholder exists (inserted on the WS "session" frame,
+  // before any token has arrived) but has no content yet, render nothing here —
+  // the MessageList typing dots are the sole "responding" indicator during this
+  // window. Without this guard the placeholder renders as a near-empty bubble
+  // (just the blink cursor) stacked alongside the dots (#18).
+  if (!isUser && message.isStreaming && message.content.length === 0) {
+    return null
+  }
+
   return (
     <div
       className={cn(
@@ -98,6 +107,9 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
       <div
         className={cn(
           "max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
+          // Cap assistant prose at a readable line length on wide desktop viewports
+          // (the 80% cap alone is 1000px+ wide at 1440px, ~150+ chars/line) (P3-3).
+          !isUser && "lg:max-w-xl",
           isUser
             ? "bg-primary text-primary-foreground rounded-br-sm"
             : "bg-muted text-foreground rounded-bl-sm"
@@ -184,12 +196,18 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
             </div>
           )
         }
-        // Full-width responsive grid: the old max-w-[80%] two-column cap left
+        // Full-width responsive layout: the old max-w-[80%] two-column cap left
         // ~60% of a desktop viewport empty with giant cards (sweep 2026-07-10, P2-9).
+        // Flex-wrap with a fixed basis (instead of CSS Grid) so a partial last row
+        // grows to fill the remaining width rather than leaving empty grid tracks
+        // (e.g. 5 items on xl no longer strands 1 lonely card beside 3 empty
+        // columns) (P3-2).
         return (
-          <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="w-full flex flex-wrap gap-4">
             {message.items.map((item) => (
-              <ItemCard key={item.article_id} item={item} onSend={onSend} />
+              <div key={item.article_id} className="flex-1 basis-[240px] min-w-[220px] max-w-[320px]">
+                <ItemCard item={item} onSend={onSend} />
+              </div>
             ))}
           </div>
         )
@@ -208,7 +226,7 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
               <button
                 key={`${chip}-${i}`}
                 onClick={() => onSend(chip)}
-                className="rounded-full border border-champagne/40 bg-background text-xs px-3 py-1 text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+                className="inline-flex items-center justify-center min-h-11 min-w-11 rounded-full border border-champagne/40 bg-background text-xs px-3 py-1 text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
               >
                 {chip}
               </button>

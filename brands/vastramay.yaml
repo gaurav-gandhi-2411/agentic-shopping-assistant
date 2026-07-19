@@ -1,0 +1,17 @@
+display_name: "Vastramay"
+logo_url: null
+primary_colour: "#8B1E3F"
+accent_colour: "#FDF3E7"
+tagline: "Men's ethnic wear — kurtas, sherwanis & Nehru jackets"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/vastramay/products.csv"
+pdp_url_template: "https://vastramay.com/products/{handle}"
+suggestion_chips:
+  - "Sherwani for wedding"
+  - "Kurta pyjama set for men"
+  - "Nehru jacket with kurta"
+  - "Jodhpuri suit for men"
+  - "Kurta dhoti set"

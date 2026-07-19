@@ -1,0 +1,17 @@
+display_name: "Kalpraag"
+logo_url: null
+primary_colour: "#3B1E54"
+accent_colour: "#F5E6C8"
+tagline: "Premium men's ethnic wear — luxury sherwanis, kurta sets & Jodhpuri suits"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/kalpraag/products.csv"
+pdp_url_template: "https://kalpraag.com/products/{handle}"
+suggestion_chips:
+  - "Sherwani for wedding"
+  - "Premium kurta set for men"
+  - "Jodhpuri suit for men"
+  - "Indowestern set"
+  - "Jacket kurta set"
