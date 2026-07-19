@@ -261,9 +261,16 @@ export function OutfitBoard({
 
   // Column count tracks actual item count, not just viewport breakpoints: a fixed
   // 3-column desktop track reserves a full empty column beside a 2-item look (design
-  // review, wave 7). 2 items never expand past 2 columns at any breakpoint; 3+ items
-  // keep the existing 2-col mobile / 3-col desktop behaviour and wrap normally.
-  const gridColsClass = allOutfitItems.length <= 2 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"
+  // review, wave 7), and a fixed 2-column track leaves a dead empty cell beside a
+  // single-item look. 1 item never expands past 1 column, 2 items never expand past
+  // 2 columns, at any breakpoint; 3+ items keep the existing 2-col mobile / 3-col
+  // desktop behaviour and wrap normally.
+  const gridColsClass =
+    allOutfitItems.length === 1
+      ? "grid-cols-1"
+      : allOutfitItems.length === 2
+        ? "grid-cols-2"
+        : "grid-cols-2 sm:grid-cols-3"
 
   // Per-item link map — resolves each rendered card's buy URL. Built once so
   // "Open all items" and the individual slot cards always agree.
