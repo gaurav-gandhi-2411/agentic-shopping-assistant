@@ -27,7 +27,12 @@ from src.agents.outfit.partner import (
     resolve_partner_gender,
 )
 from src.agents.outfit.rationale import generate_rationales, template_rationale
-from src.agents.outfit.slots import _FORMAL_ETHNIC_OCCASIONS, resolve_look_gender
+from src.agents.outfit.slots import (
+    _FORMAL_ETHNIC_OCCASIONS,
+    FORMALITY_SOFTENER_VALUES,
+    SANGEET_EMBELLISHMENT_KEYWORDS,
+    resolve_look_gender,
+)
 from src.agents.reranker import rerank
 from src.agents.state import AgentState
 from src.agents.tools import (
@@ -783,6 +788,50 @@ def _apply_price_qualifier(items: list[dict], price_qualifier: str | None) -> li
             key=lambda it: it.get("price_inr") if it.get("price_inr") is not None else -1.0,
             reverse=True,
         )
+    return items
+
+
+def _apply_formality_softener(items: list[dict], formality_softener: str | None) -> list[dict]:
+    """2026-07-19 fix: hard-filter embellishment-heavy items when the query carries
+    a negated-formality softener ("not too flashy"/"minimalist", "not too heavy"/
+    "comfortable" — see IntentV1.formality_softener docstring and
+    FORMALITY_SOFTENER_VALUES).
+
+    Applied on the WIDE pre-rerank candidate pool, not the already-top_k
+    items_out the downstream fabric_score_delta sort operates on: dense/BM25
+    retrieval scores the RAW query text including the negated adjective itself
+    ("flashy" in "not too flashy") — a known embedding-negation-blindness
+    failure mode — so embellished items can rank UP the pool before any
+    downstream rerank ever gets a chance to correct it. A keyword-based hard
+    filter here is independent of embedding relevance ordering entirely.
+
+    Reuses SANGEET_EMBELLISHMENT_KEYWORDS (slots.py) verbatim — the same
+    embellishment vocabulary fabric_score_delta already scans — rather than
+    inventing a second list.
+
+    Unlike fabric_score_delta's caller in search_node, this is NOT gated behind
+    occasion detection: a bare "something not too flashy" with no named
+    occasion must still demote embellished items.
+
+    Pool-underflow protected: skipped if it would leave <2 items (same
+    discipline as _apply_price_qualifier's cheap-outlier exclusion above).
+    """
+    if formality_softener not in FORMALITY_SOFTENER_VALUES or not items:
+        return items
+
+    def _has_embellishment(it: dict) -> bool:
+        text = (
+            (it.get("prod_name") or "")
+            + " "
+            + (it.get("display_name") or "")
+            + " "
+            + (it.get("detail_desc") or "")
+        ).lower()
+        return any(kw in text for kw in SANGEET_EMBELLISHMENT_KEYWORDS)
+
+    filtered = [it for it in items if not _has_embellishment(it)]
+    if len(filtered) >= 2:
+        return filtered
     return items
 
 
@@ -2129,6 +2178,22 @@ def build_graph(
         # pool still has enough items for the reranker (excluded colour may dominate).
         fetch_k = 40 if excluded_colours else 20
 
+        # 2026-07-19 fix: price_qualifier ("cheap"/"expensive") and formality_softener
+        # ("minimalist"/"comfortable") only ever RE-SORTED or RE-FILTERED whatever pool
+        # had already survived rerank()'s top_k truncation (see _apply_price_qualifier /
+        # _apply_formality_softener below) — a genuinely qualifying item sitting outside
+        # the default fetch_k window could never be recovered by a downstream sort.
+        # Widen the pre-truncation retrieval window whenever either signal is present so
+        # the filter/sort applied just before rerank() (below) has a meaningfully larger
+        # pool to draw from.
+        from src.agents.intent_parser import parse_intent as _qualifier_parse_intent
+
+        _qualifier_intent = _qualifier_parse_intent(raw_query)
+        if _qualifier_intent.price_qualifier or (
+            _qualifier_intent.formality_softener in FORMALITY_SOFTENER_VALUES
+        ):
+            fetch_k = max(fetch_k, 80)
+
         # Buy-similar: anchor-based dense retrieval when anchor_article_id is in plan.
         # Uses the anchor item's FAISS embedding to find visually/contextually similar
         # items, then applies the same catalogue filters as normal search.
@@ -2333,6 +2398,15 @@ def build_graph(
             if len(colour_filtered) >= 2:
                 candidates = colour_filtered
 
+        # 2026-07-19 fix: apply price_qualifier/formality_softener on the WIDE
+        # candidate pool (widened above) BEFORE rerank() truncates to top_k — see
+        # _apply_price_qualifier / _apply_formality_softener docstrings for why
+        # applying these only AFTER truncation (as items_out further below still
+        # does, as a secondary re-sort) could never recover a qualifying item that
+        # rerank()'s LLM step hadn't already picked into its top_k.
+        candidates = _apply_price_qualifier(candidates, _qualifier_intent.price_qualifier)
+        candidates = _apply_formality_softener(candidates, _qualifier_intent.formality_softener)
+
         items_out = rerank(query, candidates, llm, top_k=top_k)
 
         # Dedup by (prod_name, colour): H&M lists same product in many colours;
@@ -2447,18 +2521,24 @@ def build_graph(
             # wedding guest dress" surfacing a literal nightgown.
             items_out = _apply_loungewear_gate(items_out, _occ_slug)
 
-            # Part C (formality_softener ranking wiring, 2026-07-13): passes
-            # the sibling intent-parser signal ("something comfortable for
-            # sangeet dancing" / "not too flashy") through to fabric_score_
-            # delta's formality_override — see that function's docstring for
-            # how it OVERRIDES the base occasion-driven embellishment sign
-            # (including for wedding_guest, which has no base sign of its own).
-            # This gate (_occ_slug != "casual") already covers wedding_guest,
-            # so no gate-loosening is needed here — only the missing kwarg.
+        # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
+        # removed 2026-07-19): previously nested inside "if _occ_slug and
+        # _occ_slug != 'casual'" above — that gated a bare "something not too
+        # flashy" query with NO named occasion out of embellishment-awareness
+        # entirely, even though fabric_score_delta's own formality_override
+        # branch already ignores occasion_slug completely once set (see its
+        # docstring) — the occasion gate was never a requirement of the
+        # underlying function, just an accident of where this call happened to
+        # be nested. Runs unconditionally whenever the query carries the
+        # signal, occasion or not. (_apply_formality_softener above already
+        # hard-filtered the wide pre-rerank pool; this re-sorts whatever
+        # survived rerank() as a secondary pass — belt and braces, not the
+        # primary fix.)
+        if items_out and _occ_intent.formality_softener in FORMALITY_SOFTENER_VALUES:
             items_out = sorted(
                 items_out,
                 key=lambda it: _occ_fabric_delta(
-                    it, _occ_slug, formality_override=_occ_intent.formality_softener
+                    it, _occ_slug or "", formality_override=_occ_intent.formality_softener
                 ),
                 reverse=True,
             )
