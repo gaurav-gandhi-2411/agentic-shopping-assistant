@@ -193,12 +193,12 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="chip"
             onClick={handleImagePickerClick}
             disabled={disabled}
             title="Style what you own"
             aria-label="Style what you own"
-            className="shrink-0 h-9 px-2.5"
+            className="shrink-0"
           >
             <ImagePlus className="h-4 w-4" />
             <span className="hidden sm:inline text-xs">Photo</span>
@@ -215,18 +215,18 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="chip"
             onClick={onCancel}
-            className="shrink-0 h-9 px-3"
+            className="shrink-0"
           >
             Stop
           </Button>
         ) : (
           <Button
             type="submit"
-            size="sm"
+            size="chip"
             disabled={!canSend || disabled}
-            className="shrink-0 h-9 px-3"
+            className="shrink-0"
           >
             Send
           </Button>
