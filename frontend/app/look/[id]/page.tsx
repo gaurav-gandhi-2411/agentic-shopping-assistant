@@ -241,7 +241,7 @@ export default async function SharedLookPage({
                         href={buyUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block w-full text-center text-[11px] font-medium px-2 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        className="flex w-full items-center justify-center min-h-11 text-center text-[11px] font-medium px-2 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                       >
                         Buy at {itemStoreDisplay ?? "Shop"}
                       </a>
@@ -290,7 +290,7 @@ export default async function SharedLookPage({
                     href={link.buy_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-between rounded-lg border px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground transition-colors"
+                    className="flex items-center justify-between min-h-11 rounded-lg border px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground transition-colors"
                   >
                     <span className="truncate mr-2">{link.name}</span>
                     <ExternalLink className="h-3 w-3 shrink-0" />
