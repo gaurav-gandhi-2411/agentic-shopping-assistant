@@ -1,0 +1,17 @@
+display_name: "Kisah"
+logo_url: null
+primary_colour: "#0E6E55"
+accent_colour: "#FBF7EE"
+tagline: "Contemporary men's ethnic wear — kurtas, sherwanis & indowestern sets"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/kisah/products.csv"
+pdp_url_template: "https://kisah.in/products/{handle}"
+suggestion_chips:
+  - "Sherwani for wedding"
+  - "Bandhgala jacket"
+  - "Kurta pyjama set for men"
+  - "Indowestern sherwani"
+  - "Kurta jacket set"

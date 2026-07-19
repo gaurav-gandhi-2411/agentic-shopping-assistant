@@ -1,0 +1,17 @@
+display_name: "Ishhaara"
+logo_url: null
+primary_colour: "#8B0000"
+accent_colour: "#FFF8E7"
+tagline: "Bridal & kundan jewellery for Indian weddings"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/ishhaara/products.csv"
+pdp_url_template: "https://ishhaara.com/products/{handle}"
+suggestion_chips:
+  - "Kundan choker"
+  - "Maang tikka for wedding"
+  - "Bridal jewellery set"
+  - "Polki kundan necklace"
+  - "Haathphool for bride"

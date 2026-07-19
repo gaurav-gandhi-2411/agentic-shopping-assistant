@@ -1,0 +1,17 @@
+display_name: "The Amethyst Store"
+logo_url: null
+primary_colour: "#4A2545"
+accent_colour: "#F3E8EE"
+tagline: "Premium bridal temple & kundan jewellery"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/theamethyststore/products.csv"
+pdp_url_template: "https://theamethyststore.com/products/{handle}"
+suggestion_chips:
+  - "Temple jewellery set"
+  - "Kundan choker"
+  - "Bridal necklace set"
+  - "Nakshi jewellery"
+  - "Oxidised earrings"

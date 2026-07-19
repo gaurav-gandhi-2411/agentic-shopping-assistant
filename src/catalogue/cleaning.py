@@ -198,6 +198,71 @@ def drop_true_fabric_material(
 
 
 # ---------------------------------------------------------------------------
+# Religious decor exclusion (idols / statues / frames / puja items)
+# ---------------------------------------------------------------------------
+# Jewellery-inventory-gap wave (2026-07-19): theamethyststore.com was added
+# specifically to close the fashion-jewellery gap in the catalogue, but its
+# feed also carries a "Silver Idols" product line (25 rows, e.g. "Balaji
+# Temple Statue" @ Rs 19,79,480 — the single highest-priced item in the
+# ENTIRE theamethyststore catalogue — and "Venkateswara 3D Idol" @ Rs
+# 4,85,520), a "Kum Kum Box" line (9 rows, vermilion-powder puja
+# containers), and 4 rows of religious photo frames ("Lakshmi Frame",
+# "Ganesha Frame", "Perumal Frame", "Lord Murugan Frame With Peacock 3D
+# SPL") mixed into the store's generic "Fashion" type bucket. These are
+# temple/home decor, not wearable fashion jewellery — the entire premise
+# this brand was onboarded for — and their outlier prices (idols alone:
+# mean Rs 1,63,077 vs Rs 36,155 catalogue-wide) would skew price-based
+# search/ranking and surface non-jewellery results if left in.
+#
+# Matched on title text, not the store's own "type" label, because "Fashion"
+# also holds genuine jewellery (brooch pins, saree pins, waist charms) that
+# must NOT be excluded — a type-label filter would either miss the frames or
+# over-exclude real jewellery sharing the same label.
+#
+# "idol"/"idols" must NOT match when preceded by "non " / "non-": daivik uses
+# "Non Idol"/"Non-Idol" as a genuine jewellery style descriptor (temple
+# jewellery that does NOT feature a deity-idol motif, as opposed to "idol"-
+# style pieces that do) — e.g. "Antique Non Idol Purple Long Necklace with
+# Earrings", "Non-Idol Gold Polish Earrings", "AD Non Idol Jada/Hair
+# accessory" (11 real daivik rows, all product_type_name Necklace/EARRINGS/
+# BANGLES/OTHER ESSENTIALS — genuine jewellery, not decor). The negative
+# lookbehind is fixed-width (4 chars: "non " / "non-") so it works with
+# Python's `re` module without a variable-width-lookbehind library.
+_RELIGIOUS_DECOR_RE = re.compile(
+    r"(?:(?<!non )(?<!non-)\bidols?\b)|\bstatues?\b|\bkum\s*kum\s*box\b|\bframes?\b",
+    re.IGNORECASE,
+)
+
+
+def is_religious_decor_item(prod_name: str | None) -> bool:
+    """Return True when *prod_name* is a religious statue/idol/frame/puja item.
+
+    Not fashion jewellery or apparel — see module comment above
+    _RELIGIOUS_DECOR_RE for the theamethyststore rows that motivated this.
+    """
+    return bool(_RELIGIOUS_DECOR_RE.search(prod_name or ""))
+
+
+def drop_religious_decor_items(
+    df: pd.DataFrame,
+    *,
+    name_col: str = "prod_name",
+) -> tuple[pd.DataFrame, int]:
+    """Drop rows that are religious decor (idols/statues/frames/puja items).
+
+    These are removed entirely from the index (not merely filtered at query
+    time) since a jewellery/fashion shopping assistant has no legitimate use
+    for temple statues or puja containers regardless of query context.
+
+    Returns (df, n_dropped).
+    """
+    is_decor = df[name_col].fillna("").astype(str).apply(is_religious_decor_item)
+    n = int(is_decor.sum())
+    out = df.loc[~is_decor].reset_index(drop=True)
+    return out, n
+
+
+# ---------------------------------------------------------------------------
 # Colour backfill
 # ---------------------------------------------------------------------------
 

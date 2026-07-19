@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from src.catalogue.adapter import adapt_feed
+from src.catalogue.cleaning import drop_religious_decor_items
 from src.catalogue.loader import (
     KEEP_COLUMNS,
     build_searchable_text,
@@ -155,6 +156,16 @@ def _load_brand_df(
             print(f"Brand preset '{brand_preset}' (col={_brand_col}): {before:,} -> {len(df_raw):,} rows")
 
     df = adapt_feed(df_raw, brand_config)
+
+    # Jewellery-inventory-gap wave (2026-07-19): drop religious decor rows
+    # (idols/statues/frames/puja items) — see cleaning.drop_religious_decor_items
+    # docstring. theamethyststore was onboarded specifically to close the
+    # fashion-jewellery gap; temple statues/puja boxes are out of scope and
+    # skew price-based search/ranking with non-jewellery outlier prices.
+    df, n_decor_dropped = drop_religious_decor_items(df)
+    if n_decor_dropped:
+        print(f"Dropped {n_decor_dropped} religious-decor rows (idols/statues/frames/puja items)")
+
     df = df.dropna(subset=["detail_desc"]).reset_index(drop=True)
 
     # Optionally validate PDP links (only when VALIDATE_PDP_LINKS=1 — makes HTTP requests)

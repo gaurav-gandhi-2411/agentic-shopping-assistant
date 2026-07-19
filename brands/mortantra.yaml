@@ -1,0 +1,17 @@
+display_name: "Mortantra"
+logo_url: null
+primary_colour: "#1F5C4A"
+accent_colour: "#EAF4EF"
+tagline: "Jadau kundan bridal jewellery with a moissanite edge"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/mortantra/products.csv"
+pdp_url_template: "https://mortantra.com/products/{handle}"
+suggestion_chips:
+  - "Jadau kundan necklace set"
+  - "Kundan choker"
+  - "Bridal necklace set"
+  - "Moissanite earrings"
+  - "Maang tikka for wedding"

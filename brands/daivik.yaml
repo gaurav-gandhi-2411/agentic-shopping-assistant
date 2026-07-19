@@ -1,0 +1,17 @@
+display_name: "Daivik"
+logo_url: null
+primary_colour: "#7A1F2B"
+accent_colour: "#FBEDE2"
+tagline: "South Indian temple & antique jewellery"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/daivik/products.csv"
+pdp_url_template: "https://daivik.in/products/{handle}"
+suggestion_chips:
+  - "Temple jewellery set"
+  - "Kemp choker"
+  - "Antique necklace"
+  - "Palakka earrings"
+  - "Oxidised bangles"

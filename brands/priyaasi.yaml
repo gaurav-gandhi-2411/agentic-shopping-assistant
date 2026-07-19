@@ -1,0 +1,17 @@
+display_name: "Priyaasi"
+logo_url: null
+primary_colour: "#C08497"
+accent_colour: "#FFF0F3"
+tagline: "Everyday fashion jewellery, made for her"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/priyaasi/products.csv"
+pdp_url_template: "https://priyaasi.com/products/{handle}"
+suggestion_chips:
+  - "Drop earrings for party"
+  - "Jhumkas for wedding"
+  - "Matha patti"
+  - "Jewellery set for saree"
+  - "Chandbali earrings"

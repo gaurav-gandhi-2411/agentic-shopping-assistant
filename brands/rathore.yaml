@@ -1,0 +1,17 @@
+display_name: "Raghavendra Rathore Jodhpur"
+logo_url: null
+primary_colour: "#5A1E1E"
+accent_colour: "#F4E9D8"
+tagline: "Premium designer menswear — bandhgala jackets, achkans & Jodhpuri tailoring"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/rathore/products.csv"
+pdp_url_template: "https://rathore.com/products/{handle}"
+suggestion_chips:
+  - "Bandhgala jacket for wedding"
+  - "Sherwani for groom"
+  - "Achkan for men"
+  - "Jodhpuri suit for men"
+  - "Designer kurta for wedding"

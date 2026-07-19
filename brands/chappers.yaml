@@ -1,0 +1,26 @@
+display_name: "Chappers"
+logo_url: null
+primary_colour: "#34495E"
+accent_colour: "#EAF0F4"
+tagline: "Handmade leather Kolhapuri sandals and loafers"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# One row -- a placeholder titled "Testing" priced at Rs.11 -- was dropped
+# before writing the CSV as a clear data-entry test listing, not a real
+# product (sanity-checked against the rest of the price distribution, which
+# starts at Rs.149 for a legitimate low-cost leather-care item). Of the
+# remaining 176 rows, 13 carry an explicit "women" token and 8 an explicit
+# "men" token; the rest use branded style names (Aztec Vira, Casablanca,
+# Zeus) with no gender word. Per-item scan
+# (src.catalogue.adapter.derive_item_gender) resolves the explicit rows;
+# "mixed" leaves the branded-name remainder as "unknown".
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/chappers/products.csv"
+pdp_url_template: "https://chappers.in/products/{handle}"
+suggestion_chips:
+  - "Handmade leather Kolhapuri sandals"
+  - "Women's leather loafers under 3000"
+  - "Men's leather sandals for daily wear"
+  - "Kolhapuri chappal for festive wear"
+  - "Leather slides for summer"

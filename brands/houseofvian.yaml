@@ -1,0 +1,26 @@
+display_name: "House Of Vian"
+logo_url: null
+primary_colour: "#9B2242"
+accent_colour: "#F8E9D2"
+tagline: "Festive juttis, kolhapuris & embellished bridal footwear"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): across all 380 rows, title+type carry zero "men"/
+# "man"/"male" word-boundary matches and product_type_name never mentions a
+# gender (Juttis, Heels, Mule Heels, Wedges, Clutches, Kolhapuri Flats, Potlis,
+# Belts -- all classic women's Indian ethnic footwear/accessories categories).
+# 11 rows explicitly say "women"/"woman" and several descriptions reference
+# "bride"/"bridal". Despite the brief's framing suggesting a men's mix, this
+# store's actual catalogue is effectively women's-only, so "women" (not
+# "mixed") is the evidence-backed default -- per-item scan still overrides it
+# on any future SKU that adds an explicit men's line.
+gender_default: "women"
+catalogue_path: "data/raw/shopify/houseofvian/products.csv"
+pdp_url_template: "https://www.houseofvian.com/products/{handle}"
+suggestion_chips:
+  - "Embellished jutti for wedding"
+  - "Kolhapuri flats for haldi"
+  - "Bridal heels with pearls"
+  - "Festive mules under 5000"
+  - "Gold jutti for reception"

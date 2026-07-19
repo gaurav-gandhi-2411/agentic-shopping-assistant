@@ -1,0 +1,17 @@
+display_name: "Voylla"
+logo_url: null
+primary_colour: "#6A1B4D"
+accent_colour: "#FDF2F8"
+tagline: "Fashion jewellery for every Indian occasion"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/voylla/products.csv"
+pdp_url_template: "https://www.voylla.com/products/{handle}"
+suggestion_chips:
+  - "Gold jewellery set"
+  - "Earrings for wedding"
+  - "Necklace set under ₹2000"
+  - "Party wear earrings"
+  - "Kundan necklace set"
