@@ -52,6 +52,7 @@ from src.agents.outfit.slots import (
     is_slot_type_allowed,
     is_western_marker_item,
     resolve_look_gender,
+    split_accessory_query_by_family,
 )
 from src.catalogue.cleaning import is_kids_item
 
@@ -187,6 +188,58 @@ class TestAccessoryQueryMatches:
 
     def test_unrecognised_query_is_permissive(self) -> None:
         assert accessory_query_matches("some unrelated query text", "bag", "Sling Bag") is True
+
+
+# ---------------------------------------------------------------------------
+# 2b. split_accessory_query_by_family — bridal jewellery retrieval-pool fix
+# ---------------------------------------------------------------------------
+
+
+class TestSplitAccessoryQueryByFamily:
+    """2026-07-19 bridal jewellery gap fix: a combined multi-family accessory
+    query (e.g. the bridal ethnic_one_piece slot's own "dupatta jewellery
+    clutch ethnic accessory") never surfaced a single jewellery candidate in
+    retrieval, even at a top-500 window, because dupatta/clutch listings'
+    own catalogue text so heavily overlaps the shared query terms
+    ("ethnic"/"embroidered"/"accessory") that they crowd out every other
+    family. See the function's docstring for the live-index evidence.
+    """
+
+    def test_bridal_query_splits_into_three_family_queries(self) -> None:
+        sub_queries = split_accessory_query_by_family(
+            "dupatta jewellery clutch ethnic accessory festive embroidered"
+        )
+        assert len(sub_queries) == 3
+        # Each sub-query keeps ONLY its own family's word(s) plus every
+        # non-family (register/occasion) word — never another family's word.
+        joined = " ".join(sub_queries)
+        dupatta_query = next(q for q in sub_queries if "dupatta" in q)
+        jewellery_query = next(q for q in sub_queries if "jewellery" in q)
+        clutch_query = next(q for q in sub_queries if "clutch" in q)
+        assert "jewellery" not in dupatta_query and "clutch" not in dupatta_query
+        assert "dupatta" not in jewellery_query and "clutch" not in jewellery_query
+        assert "dupatta" not in clutch_query and "jewellery" not in clutch_query
+        # Register/occasion tokens are preserved in every split sub-query.
+        for q in sub_queries:
+            assert "ethnic" in q and "accessory" in q
+            assert "festive" in q and "embroidered" in q
+        assert joined  # sanity: non-empty
+
+    def test_single_family_query_is_not_split(self) -> None:
+        # "dupatta ethnic dupatta" only ever matches the DUPATTA family —
+        # every single-family accessory SlotSpec must be a full no-op here.
+        assert split_accessory_query_by_family("dupatta ethnic dupatta") == []
+        assert split_accessory_query_by_family(
+            "pocket square safa ethnic accessory"
+        ) == []
+
+    def test_unrecognised_query_is_not_split(self) -> None:
+        assert split_accessory_query_by_family("some unrelated query text") == []
+
+    def test_two_family_menswear_default_query_splits(self) -> None:
+        # The default men's accessory query spans BELT_WATCH + EYEWEAR_CAP.
+        sub_queries = split_accessory_query_by_family("belt watch cap men accessory")
+        assert len(sub_queries) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1424,3 +1477,60 @@ class TestOfflineRealIndexCompositionEvidence:
                     f"({variants[j].get('variant_label')}) must have disjoint complement "
                     f"ids, overlap={overlap}"
                 )
+
+    def test_bridal_wedding_look_has_a_real_shot_at_jewellery(self, _unified_index: tuple) -> None:
+        """2026-07-19 bridal jewellery gap fix — root-cause regression test.
+
+        Live-proven bug: a "complete bridal wedding look" composition (lehenga/
+        saree/anarkali anchor -> ethnic_one_piece -> single "accessory" slot
+        shared by dupatta/clutch/jewellery) NEVER surfaced a jewellery item
+        across 3 live phrasing variants, despite 18,796 real jewellery rows in
+        the unified catalogue — because the combined accessory retrieval query
+        ("dupatta jewellery clutch ethnic accessory") let dupatta/clutch
+        vocabulary crowd every jewellery candidate out of the retrieval window
+        entirely (see composer._find_best_candidate / slots.
+        split_accessory_query_by_family for the mechanism).
+
+        This test composes several independent wedding_guest looks (excluding
+        each prior seed + accessory so each trial draws a genuinely different
+        candidate pool) and asserts jewellery wins the accessory slot at least
+        once — a real, non-zero shot, not a guarantee it always wins (dupatta/
+        clutch remain legitimate, frequently-correct choices too).
+        """
+        retriever, catalogue_df = _unified_index
+        exclude_ids: set[str] = set()
+        jewellery_wins = 0
+        accessory_fill_count = 0
+        n_trials = 12
+
+        for _ in range(n_trials):
+            look = compose_outfit(
+                catalogue_df, retriever,
+                seed_article_id=None, occasion_slug="wedding_guest", gender="women",
+                brand_gender_default="women", exclude_ids=exclude_ids,
+            )
+            seed = look.get("seed_item")
+            if seed is not None:
+                exclude_ids.add(seed["article_id"])
+            accessory = next(
+                (c for c in look.get("complements", []) if c.get("_slot") == "accessory"), None
+            )
+            if accessory is None:
+                continue
+            accessory_fill_count += 1
+            exclude_ids.add(accessory["article_id"])
+            text = (
+                (accessory.get("product_type") or "") + " " + (accessory.get("prod_name") or "")
+            ).lower()
+            if any(w in text for w in ("jewel", "necklace", "earring", "bangle", "jhumka")):
+                jewellery_wins += 1
+
+        print(f"\n=== bridal wedding_guest accessory slot: {n_trials} trials ===")
+        print(f"accessory slot filled: {accessory_fill_count}/{n_trials}")
+        print(f"jewellery wins: {jewellery_wins}/{accessory_fill_count}")
+
+        assert accessory_fill_count > 0, "accessory slot was never filled across any trial"
+        assert jewellery_wins > 0, (
+            "jewellery must win the bridal accessory slot at least once across "
+            f"{accessory_fill_count} filled trials — got 0 (the live-proven bug)"
+        )

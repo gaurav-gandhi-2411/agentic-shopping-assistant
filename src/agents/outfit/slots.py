@@ -207,6 +207,64 @@ def accessory_query_matches(query: str, product_type: str, prod_name: str) -> bo
     return any(any(_contains_word(combined, kw) for kw in fam) for fam in matched_families)
 
 
+def split_accessory_query_by_family(query: str) -> list[str]:
+    """Split a multi-family accessory SlotSpec.search_query into one retrieval
+    sub-query per accessory family it spans, each retaining that family's own
+    matched keyword(s) plus every non-family (register/occasion/gender) word
+    from the original query.
+
+    Root-cause fix (2026-07-19, bridal-look jewellery gap): a single accessory
+    slot's search_query frequently mixes multiple families in one string —
+    e.g. the bridal ethnic_one_piece slot's "dupatta jewellery clutch ethnic
+    accessory" spans the DUPATTA + BAG + JEWELLERY families at once.
+    Retrieving that combined text as ONE query lets whichever family's
+    vocabulary has the strongest lexical/semantic overlap with the query text
+    dominate the retrieval window so completely that the other families'
+    candidates never enter even a very wide pool — live-proven: the combined
+    bridal accessory query returned ZERO jewellery items in the top 500 dense
+    hits and top 300 sparse hits against the real unified catalogue, despite
+    18,796 real jewellery rows existing and the literal word "jewellery"
+    being IN the query (dupatta/clutch listings very often literally repeat
+    "ethnic"/"embroidered"/"accessory" in their own catalogue text, so they
+    win on lexical/embedding overlap alone). This is a retrieval-POOL defect,
+    not a downstream gating defect — accessory_query_matches() already
+    permits every one of these families through the slot-type gate; they
+    just never arrive as candidates in the first place.
+
+    Splitting into one sub-query per matched family (verified offline: an
+    isolated "jewellery ethnic accessory festive embroidered" query surfaces
+    18/40 genuine jewellery hits where the combined query surfaced 0/40) and
+    merging the resulting pools before scoring gives every family a genuine,
+    undiluted retrieval shot. The existing scoring formula in
+    _score_candidates (colour/fabric/body-type deltas, occasion register)
+    still picks the actual winner — jewellery is never forced to win, only
+    given a fair chance to compete.
+
+    Returns an empty list (signalling "no split needed — use the query
+    text as-is") when the query matches 0 or 1 accessory family — every
+    existing single-family accessory SlotSpec (e.g. "dupatta ethnic dupatta",
+    "pocket square safa ethnic accessory") is therefore fully unaffected by
+    this function; only genuinely multi-family queries are split.
+    """
+    q = query.lower()
+    matched: list[tuple[frozenset[str], list[str]]] = []
+    residual = q
+    for family in _ACCESSORY_FAMILIES:
+        words_present = [kw for kw in family if _contains_word(q, kw)]
+        if words_present:
+            matched.append((family, words_present))
+            for w in words_present:
+                residual = re.sub(rf"\b{re.escape(w)}\b", " ", residual)
+
+    if len(matched) <= 1:
+        return []
+
+    residual = re.sub(r"\s+", " ", residual).strip()
+    return [
+        " ".join(words) + (f" {residual}" if residual else "") for _, words in matched
+    ]
+
+
 def is_gender_neutral_accessory(product_type: str, prod_name: str = "") -> bool:
     """Return True for accessory sub-types that are genuinely unisex in this
     catalogue (sunglasses, belts, watches, caps).
