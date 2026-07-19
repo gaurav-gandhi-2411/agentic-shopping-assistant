@@ -154,6 +154,9 @@ class TestPriceGroundingExemption:
     the literal word "price" never appeared in an item's own field values."""
 
     _ITEMS = [{"display_name": "Red Saree", "price_inr": 2999.0, "colour": "red"}]
+    _ITEMS_KURTA = [
+        {"display_name": "Men Solid Cotton Kurta", "price_inr": 449.0, "colour": "white"}
+    ]
 
     def test_price_word_scrubbed_without_exemption(self) -> None:
         resp = "The Red Saree is a great pick. The price is around 2999 rupees."
@@ -172,6 +175,40 @@ class TestPriceGroundingExemption:
         # "affordable" — those stay scrubbed even with allow_price_mentions.
         resp = "The Red Saree is on sale and very affordable."
         cleaned, flags = validate_response(resp, self._ITEMS, allow_price_mentions=True)
+        assert flags
+        assert "I don't have pricing information" in cleaned
+
+    # 2026-07-19 fix (live bug: "cheap kurta for men" response falsely claimed
+    # "I don't have pricing information" despite price_inr populated on every
+    # returned item). Mechanism: "This affordable kurta at ₹449 is a great
+    # pick" was scrubbed wholesale because "affordable" doesn't appear verbatim
+    # in any item's field values — even though the SAME sentence cites a real
+    # price (₹449) genuinely belonging to a returned item. A sentence whose own
+    # rupee figure matches a real item price is now price-grounded outright,
+    # regardless of which price vocabulary ("affordable"/"budget"/"cheaper"/
+    # "on sale"/"discount") it's phrased with.
+    def test_real_price_citation_survives_alongside_subjective_word(self) -> None:
+        resp = "This affordable kurta at ₹449 is a great budget pick for everyday wear."
+        cleaned, flags = validate_response(resp, self._ITEMS_KURTA, allow_price_mentions=True)
+        assert flags == []
+        assert "₹449" in cleaned
+        assert "I don't have pricing information" not in cleaned
+
+    def test_real_price_citation_still_scrubbed_without_price_mentions_flag(self) -> None:
+        # The exemption is gated behind allow_price_mentions (respond_node's
+        # existing opt-in) so validate_rationale's separate contract — cost/
+        # cheaper/expensive/sale/discount stay scrubbed unconditionally there
+        # (see its docstring) — is never silently loosened by this fix.
+        resp = "This affordable kurta at ₹449 is a great budget pick for everyday wear."
+        cleaned, flags = validate_response(resp, self._ITEMS_KURTA)
+        assert flags
+        assert "I don't have pricing information" in cleaned
+
+    def test_fabricated_price_not_matching_any_item_still_scrubbed(self) -> None:
+        # Guards against a hallucinated number: citing a rupee figure that does
+        # NOT match any real item price must not be treated as grounded.
+        resp = "This affordable kurta is only ₹99, a steal."
+        cleaned, flags = validate_response(resp, self._ITEMS_KURTA, allow_price_mentions=True)
         assert flags
         assert "I don't have pricing information" in cleaned
 

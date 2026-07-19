@@ -75,6 +75,33 @@ def validate_response(
         " ".join(str(v or "") for v in it.values()) for it in retrieved_items
     ).lower()
 
+    # 2026-07-19 fix (live bug: "cheap kurta for men" response falsely claimed
+    # "I don't have pricing information" despite every returned item carrying a
+    # real price_inr): a sentence like "This affordable kurta at ₹449 is a great
+    # pick" was wholesale replaced by the price fallback purely because it used
+    # a subjective price adjective ("affordable") that doesn't appear verbatim in
+    # any item's field values — even though the SAME sentence cited a real price
+    # (₹449) that genuinely belongs to a returned item. allow_price_mentions only
+    # exempted the literal words "price"/"cost"/a bare currency-symbol pattern
+    # (_PRICE_GROUNDED_PATTERNS), not adjectives like affordable/cheaper/budget/
+    # sale/discount — exactly the vocabulary an LLM naturally reaches for when
+    # asked about a "cheap" item. A sentence whose own rupee figure matches one
+    # of this pool's actual prices is now price-grounded outright, regardless of
+    # which price vocabulary it's phrased with — but ONLY when the caller has
+    # already opted into allow_price_mentions (respond_node's contract per the
+    # 2026-07-13 Part B fix: items visibly carry real price_inr for this call).
+    # Gated behind the same flag validate_rationale deliberately does NOT pass
+    # (its docstring guarantees cost/cheaper/expensive/sale/discount stay
+    # scrubbed unconditionally there) so this fix cannot silently loosen that
+    # separate contract.
+    item_prices: set[float] = set()
+    if allow_price_mentions:
+        item_prices = {
+            round(float(it["price_inr"]), 2)
+            for it in retrieved_items
+            if isinstance(it.get("price_inr"), (int, float))
+        }
+
     sentences = re.split(r"(?<=[.!?])\s+", response.strip())
     cleaned: list[str] = []
     flags: list[str] = []
@@ -85,7 +112,13 @@ def validate_response(
         hit_cat: str | None = None
         hit_pat: str | None = None
 
+        sentence_price_grounded = item_prices and any(
+            abs(amt - p) < 1.0 for amt in _extract_rupee_amounts(sentence) for p in item_prices
+        )
+
         for category, patterns in FORBIDDEN_PATTERNS.items():
+            if category == "price" and sentence_price_grounded:
+                continue
             for pat in patterns:
                 if allow_budget_mentions and pat == r"\bbudget\b":
                     continue

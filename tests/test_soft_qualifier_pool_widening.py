@@ -252,3 +252,46 @@ class TestCheapLehengaWidenedPoolExcludesOutlier:
         # mirrors _apply_price_qualifier's own _CHEAP_OUTLIER_FACTOR contract.
         median = sorted(prices)[len(prices) // 2]
         assert all(p <= median * 3 for p in prices)
+
+
+@pytest.mark.requires_index
+class TestCheapKurtaForMenMeasurablyCheaperThanBareQuery:
+    """Live-proven defect (2026-07-19): "cheap kurta for men" returned an
+    almost-identical result set (avg ~1071 INR, including the SAME item, "Men
+    Blue Floral Kurta" @ 1249) as the plain "kurta for men" (avg ~1067.5 INR) —
+    i.e. the price qualifier had no measurable effect for this bare-garment
+    +gender phrasing (no occasion clause), unlike the occasion-anchored "cheap
+    lehenga for a wedding" case above. IntentParser correctly extracts
+    price_qualifier="cheap" for this phrasing (see tests/test_intent_parser.py)
+    — this test proves the qualifier also has a real ranking effect end-to-end
+    once passed through the widened pre-rerank pool.
+    """
+
+    def test_cheap_kurta_for_men_has_lower_avg_price_than_bare_query(
+        self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
+    ) -> None:
+        retriever, catalogue_df = _unified_index
+
+        def _run(query: str) -> list[dict]:
+            llm = _CapturingLLM()
+            memory = ConversationMemory(llm, _MINIMAL_CONFIG)
+            agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
+            result = agent.invoke(_blank_state(query, memory))
+            return result.get("retrieved_items", [])
+
+        cheap_items = _run("cheap kurta for men")
+        bare_items = _run("kurta for men")
+
+        cheap_prices = [it["price_inr"] for it in cheap_items if it.get("price_inr")]
+        bare_prices = [it["price_inr"] for it in bare_items if it.get("price_inr")]
+
+        assert cheap_prices, "precondition: 'cheap kurta for men' returns priced items"
+        assert bare_prices, "precondition: 'kurta for men' returns priced items"
+        assert cheap_prices == sorted(cheap_prices), "expected ascending price order"
+
+        avg_cheap = sum(cheap_prices) / len(cheap_prices)
+        avg_bare = sum(bare_prices) / len(bare_prices)
+        assert avg_cheap < avg_bare, (
+            f"'cheap kurta for men' avg price {avg_cheap} was not lower than "
+            f"'kurta for men' avg price {avg_bare} — price qualifier had no effect"
+        )
