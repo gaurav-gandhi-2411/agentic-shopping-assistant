@@ -254,7 +254,13 @@ def compose_partner_look(
     palette = couple_harmony_palette(anchor_colour)
     seed_query = _partner_seed_query(occasion_slug, partner_gender, palette)
 
-    candidates = retriever.search(seed_query, top_k=15, filters={"gender": partner_gender})
+    # 2026-07-19 fix: mirror composer.compose_outfit's anchor-window widening
+    # for the same budget-blind-truncation defect — a fixed top_k here would
+    # let a handful of newly-added premium-tier brands crowd out affordable
+    # in-budget seed candidates before the budget gate below ever sees them.
+    # No-op (top_k stays 15) when no budget is stated.
+    _seed_top_k = 30 if budget_inr is not None else 15
+    candidates = retriever.search(seed_query, top_k=_seed_top_k, filters={"gender": partner_gender})
     valid = [
         c
         for c in candidates

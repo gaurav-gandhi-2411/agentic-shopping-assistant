@@ -151,7 +151,21 @@ def compose_outfit(
         if _bt_tokens:
             anchor_query = f"{anchor_query} {_bt_tokens}"
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
-        candidates = retriever.search(anchor_query, top_k=10, filters=anchor_filters)
+        # 2026-07-19 fix (39-store catalogue regression): the default top_k=10
+        # anchor window is budget-BLIND — it is filled by relevance score alone,
+        # so a handful of newly-added premium-tier brands (much higher-priced,
+        # equally or more relevant for occasion terms like "reception") can
+        # monopolize the top 10 and push every genuinely-affordable anchor
+        # candidate out of the window before the budget gate below ever sees
+        # them (live-proven: "reception outfit under ₹15000" — 0/10 anchors
+        # were within budget at top_k=10, but 2/50 were once the window
+        # widened). Mirrors the same truncate-before-filter defect graph.py's
+        # search_node fixed for price_qualifier/formality_softener (commit
+        # 2c78af9) — widen the pre-filter pool whenever a budget constraint is
+        # present so the budget gate has a meaningfully larger pool to draw
+        # from. No-op (top_k stays 10) when no budget is stated.
+        _anchor_top_k = 30 if budget_inr is not None else 10
+        candidates = retriever.search(anchor_query, top_k=_anchor_top_k, filters=anchor_filters)
         # Filter by occasion coherence AND gender compatibility. S5 fix: also
         # reject juniors/girls/boys/kids items as a look ANCHOR — the same
         # catalogue mislabeling that lets them fill complement slots (see
