@@ -19,6 +19,7 @@ import re
 from typing import TYPE_CHECKING
 
 from src.agents.grounding import validate_rationale
+from src.agents.intent_parser import _COLOUR_MAP as _INTENT_COLOUR_MAP
 from src.agents.outfit.body_type import (
     BASE_SHAPES,
     POSITIVE_TEMPLATES,
@@ -67,14 +68,44 @@ _PLURAL_NOUNS: frozenset[str] = frozenset({
     "oxfords", "boots", "sneakers", "juttis", "mojaris", "shoes", "earrings",
 })
 
-# Colour words as they appear in real product names — multi-word first.
-_NOTE_COLOUR_WORDS: tuple[str, ...] = (
-    "navy blue", "off white", "sea green", "dark red", "dark green", "dark blue",
-    "light beige", "light pink", "wine", "maroon", "burgundy", "rust", "teal",
-    "olive", "mustard", "lavender", "peach", "cream", "beige", "khaki",
-    "charcoal", "turquoise", "navy", "black", "white", "grey", "gold", "silver",
-    "red", "blue", "green", "purple", "pink", "orange", "yellow", "brown",
-)
+# Colour words as they appear in real product names — multi-word first (order
+# doesn't affect correctness, see _first_vocab_match's tie-break, but is kept
+# for readability).
+#
+# 2026-07-23 fix: a "Pastel Seafoam Embroidered Kurta Pajama | TULA" item
+# (data/processed/unified/catalogue.parquet: colour_group_name mislabeled
+# "Red" for that exact row) was narrated as "the red kurta anchors this eid
+# look" — "pastel" was entirely missing from this vocabulary, so the name-scan
+# below found no match and _display_colour silently fell back to the
+# catalogue's (wrong) colour_group_name field. Catalogue-wide this is not a
+# one-item fluke: 140 rows say "pastel" in prod_name, but only 54 carry
+# colour_group_name="Pastel" — the other 86 carry a mismatched single-hue
+# field value.
+#
+# The mechanism fix: UNION this file's own catalogue-display words (some,
+# like "gold"/"silver"/"sea green", are common jewellery/product colours with
+# no intent_parser query-side equivalent) with intent_parser._COLOUR_MAP's
+# keys — reusing the SAME source of truth intent-parsing already uses,
+# mirroring src.catalogue.cleaning's identical pattern for catalogue-side
+# colour backfill ("reusing the intent-parser colour vocabulary so query-side
+# and catalogue-side colour matching share one source of truth"). This closes
+# the "pastel" gap and any future intent_parser colour synonym automatically,
+# rather than requiring a parallel hand-edit here every time. Preferring the
+# NAME's own colour word over the catalogue's colour_group_name field is
+# already this module's established behaviour (see _display_colour's
+# docstring) — the residual gap this fix narrows is vocabulary coverage, not
+# the preference logic itself. tuple(sorted(...)) rather than a bare set for
+# deterministic iteration order (rule: determinism over convenience).
+_NOTE_COLOUR_WORDS: tuple[str, ...] = tuple(sorted(
+    {
+        "navy blue", "off white", "sea green", "dark red", "dark green", "dark blue",
+        "light beige", "light pink", "wine", "maroon", "burgundy", "rust", "teal",
+        "olive", "mustard", "lavender", "peach", "cream", "beige", "khaki",
+        "charcoal", "turquoise", "navy", "black", "white", "grey", "gold", "silver",
+        "red", "blue", "green", "purple", "pink", "orange", "yellow", "brown",
+    }
+    | set(_INTENT_COLOUR_MAP.keys())
+))
 
 
 def _first_vocab_match(text: str, vocab: tuple[str, ...]) -> str | None:

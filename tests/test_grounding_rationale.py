@@ -9,11 +9,15 @@ Covers:
 - template_rationale produces grounded output.
 - build_fact_sheet extracts only real attributes.
 - generate_rationales falls back to template on LLM failure.
+- _display_colour colour-grounding: prefers the product NAME's own colour
+  word over a contradicting/mislabeled catalogue colour_group_name field
+  (2026-07-23 fix — see TestDisplayColourGrounding below).
 """
 from __future__ import annotations
 
 from src.agents.grounding import validate_rationale
 from src.agents.outfit.rationale import (
+    _display_colour,
     build_fact_sheet,
     generate_rationales,
     template_rationale,
@@ -241,6 +245,69 @@ class TestTemplateRationale:
         result = template_rationale(look)
         # At least the seed colour/type should appear
         assert "red" in result.lower() or "kurta" in result.lower()
+
+
+# ── _display_colour grounding tests (2026-07-23 fix) ────────────────────────────
+#
+# Live-proven bug: an "eid outfit for men" look whose hero item was "Pastel
+# Seafoam Embroidered Kurta Pajama | TULA" (data/processed/unified/
+# catalogue.parquet: colour_group_name mislabeled "Red" for this exact row)
+# got the stylist note "The red kurta anchors this eid look" — the item is
+# seafoam/pastel, not red. Root cause: "pastel" was entirely missing from
+# _NOTE_COLOUR_WORDS, so the name-scan found no match and silently fell back
+# to the catalogue's (wrong) colour_group_name field.
+
+
+class TestDisplayColourGrounding:
+    def test_prefers_name_colour_over_contradicting_field(self) -> None:
+        """The exact live-repro shape: name says pastel, field says a
+        completely different, contradicting colour."""
+        result = _display_colour("Red", "Pastel Seafoam Embroidered Kurta Pajama | TULA")
+        assert result == "pastel"
+        assert result != "red"
+
+    def test_synthetic_contradicting_item_trusts_name(self) -> None:
+        """A synthetic item whose colour field contradicts its own name —
+        the general class this fix protects, not just the one live item."""
+        result = _display_colour("Black", "Pastel Lavender Anarkali Gown")
+        assert result == "pastel"
+        assert result != "black"
+
+    def test_name_colour_still_wins_when_field_agrees(self) -> None:
+        """No regression to the already-correct case: name and field agree,
+        name still wins (established prior behaviour, unchanged)."""
+        result = _display_colour("Red", "Red Embroidered Kurta")
+        assert result == "red"
+
+    def test_falls_back_to_field_when_name_has_no_recognised_colour_word(self) -> None:
+        """Established prior behaviour, unchanged: a name with NO recognised
+        colour word at all still falls back to the (trusted, unverifiable-
+        otherwise) catalogue field."""
+        result = _display_colour("Blue", "Technical Stretch Stitchless Shirt")
+        assert result == "blue"
+
+    def test_pastel_family_words_all_recognised(self) -> None:
+        """Catalogue-wide: 140 rows say "pastel" in prod_name but only 54
+        carry colour_group_name="Pastel" — every one of the other 86 must now
+        resolve to the name's own word, not a mismatched field value (the
+        field colour deliberately does NOT appear in the name text, mirroring
+        the real live-repro row where "Red" and "Pastel Seafoam" share no
+        words at all)."""
+        for field_colour in ("Pink", "Green", "Yellow", "Grey", "Blue", "Black"):
+            result = _display_colour(field_colour, "Pastel Georgette Saree")
+            assert result == "pastel"
+
+    def test_generate_rationales_template_fallback_never_asserts_wrong_colour(self) -> None:
+        """End-to-end through the deterministic template path (no LLM):
+        the mislabeled item's rationale must say "pastel", never "red"."""
+        look = _make_look(
+            seed_colour="Red", seed_type="kurta pajama",
+            occasion="eid", gender="men",
+        )
+        look["seed_item"]["prod_name"] = "Pastel Seafoam Embroidered Kurta Pajama | TULA"
+        result = template_rationale(look)
+        assert "red" not in result.lower()
+        assert "pastel" in result.lower()
 
 
 # ── build_fact_sheet tests ──────────────────────────────────────────────────────
