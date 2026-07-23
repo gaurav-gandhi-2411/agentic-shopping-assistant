@@ -85,7 +85,8 @@ _OUTFIT_OCCASION_RE = re.compile(
     r"party|festive|puja|traditional|ethnic|"
     r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
     r"raksha\s+bandhan|rakhi|eid|"
-    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation|"
+    r"gym|workout|work\s+out|athleisure|yoga)\b",
     re.IGNORECASE,
 )
 
@@ -103,7 +104,8 @@ _OCCASION_LOOK_RE = re.compile(
     r"party|festive|puja|traditional|ethnic|"
     r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
     r"raksha\s+bandhan|rakhi|eid|"
-    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation|"
+    r"gym|workout|work\s+out|athleisure|yoga)"
     r"\s+look\b",
     re.IGNORECASE,
 )
@@ -742,22 +744,38 @@ def _query_names_unsupported_attribute(raw_query: str, items: list[dict]) -> boo
     return any(phrase not in backing for phrase in matched)
 
 
+# Wave 9 (2026-07-23, gym occasion): _apply_loungewear_gate's trigger set,
+# extended beyond _FORMAL_ETHNIC_OCCASIONS. gym is NOT added to
+# _FORMAL_ETHNIC_OCCASIONS itself (that set also drives "footwear required",
+# and a gym look's footwear stays OPTIONAL — see slots.py's
+# _FORMAL_ETHNIC_OCCASIONS docstring and coherence.py's athletic-register
+# gate for the real footwear-honesty mechanism), but the loungewear risk is
+# real and independent of formality: sports bras/leggings/joggers sit in a
+# similar retrieval neighbourhood to loungewear in embedding space, and both
+# categories share soft/comfortable/casual vocabulary. A "night suit"/
+# "nightwear" item is never an acceptable gym-look result, exactly as it is
+# never acceptable for a formal ethnic occasion.
+_LOUNGEWEAR_GATE_OCCASIONS: frozenset[str] = _FORMAL_ETHNIC_OCCASIONS | frozenset({"gym"})
+
+
 def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
     """Part E (2026-07-13): strip loungewear/"night dress" items from a formal
     wedding-tier occasion's result set.
 
     is_loungewear_text (src.catalogue.cleaning) is the underlying predicate —
     deliberately narrow, verified zero-false-positive against the real
-    catalogue (see its docstring). Gated on _FORMAL_ETHNIC_OCCASIONS (slots.py
-    — the same set used for "footwear required") so a bare "night dress" query
-    with no formal-occasion context is untouched — it has a legitimate reason
-    to want these items. Deliberately NOT pool-underflow protected (unlike
-    every other gate in search_node): a sleepwear item is never an acceptable
-    formal-occasion result even as a last resort, so this can legitimately
-    empty `items` — the caller's zero_confidence signal is the correct honest
-    reaction to that, not a silently-kept nightgown.
+    catalogue (see its docstring). Gated on _LOUNGEWEAR_GATE_OCCASIONS (=
+    _FORMAL_ETHNIC_OCCASIONS, the same set used for "footwear required",
+    PLUS "gym" — see that constant's docstring above) so a bare "night dress"
+    query with no formal-occasion/gym context is untouched — it has a
+    legitimate reason to want these items. Deliberately NOT pool-underflow
+    protected (unlike every other gate in search_node): a sleepwear item is
+    never an acceptable formal-occasion OR gym result even as a last resort,
+    so this can legitimately empty `items` — the caller's zero_confidence
+    signal is the correct honest reaction to that, not a silently-kept
+    nightgown.
     """
-    if occasion_slug not in _FORMAL_ETHNIC_OCCASIONS:
+    if occasion_slug not in _LOUNGEWEAR_GATE_OCCASIONS:
         return items
     return [
         it for it in items

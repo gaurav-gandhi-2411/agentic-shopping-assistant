@@ -211,6 +211,7 @@ _OCCASION_REGISTER_HINTS: dict[str, str] = {
     "karva_chauth": "traditional red ceremony",
     "raksha_bandhan": "casual festive family occasion",
     "eid": "elegant festive gathering",
+    "gym": "casual athletic workout",
 }
 
 

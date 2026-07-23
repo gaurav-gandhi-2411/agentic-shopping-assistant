@@ -37,6 +37,15 @@ OCCASIONS: dict[str, Occasion] = {
     # Casual-festive, not heavy ethnic — either register is acceptable.
     "raksha_bandhan":      Occasion("raksha_bandhan",      2, EITHER),
     "eid":                 Occasion("eid",                 4, ETHNIC_HEAVY),
+    # Wave 9 (2026-07-23): activewear/gym expansion. formality=1 (most
+    # casual, tied with "casual" itself) and EITHER-lean — the dataclass has
+    # no dedicated "western_only" value, so EITHER is the closest fit; the
+    # actual non-ethnic enforcement is done by coherence.py's dedicated
+    # athletic-register gate (is_coherent_candidate gate 5), not by
+    # ethnic_lean here. "yoga" deliberately shares this slug rather than
+    # getting its own — thin yoga-specific catalogue depth, same casual-
+    # athletic register.
+    "gym":                 Occasion("gym",                 1, EITHER),
 }
 
 # Legacy slug aliases — kept in ONE place so a persisted session's occasion

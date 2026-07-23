@@ -49,6 +49,8 @@ class TestGetOccasion:
             # not replacements (see occasions.py for the formality/ethnic_lean
             # rationale on each).
             "diwali", "navratri", "karva_chauth", "raksha_bandhan", "eid",
+            # Wave 9 activewear/gym expansion (see occasions.py's "gym" entry).
+            "gym",
         }
         assert set(OCCASIONS.keys()) == expected
 

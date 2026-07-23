@@ -371,6 +371,19 @@ _OCCASION_MAP: dict[str, str] = {
     "formal": "office",
     "beach": "casual",
     "brunch": "casual",
+    # Wave 9 (2026-07-23): activewear/gym expansion — checked against
+    # _GARMENT_RULES/_COMPOUND_TERMS/_BODY_TYPE_MAP: none of these six
+    # phrases collide (body_type's "athletic frame"/"athletic build" are
+    # distinct longer phrases that never match on "athletic wear" alone;
+    # occasion/body_type are independent IntentV1 fields regardless). "yoga"
+    # deliberately resolves to the same "gym" slug rather than a dedicated
+    # one — see occasions.py's "gym" entry docstring.
+    "gym": "gym",
+    "workout": "gym",
+    "work out": "gym",
+    "athleisure": "gym",
+    "athletic wear": "gym",
+    "yoga": "gym",
 }
 
 _OCCASION_SORTED: list[tuple[str, str]] = sorted(
