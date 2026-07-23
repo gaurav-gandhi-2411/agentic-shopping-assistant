@@ -104,6 +104,60 @@ def is_kids_item(prod_name: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Occasion-merchandise leak exclusion
+# ---------------------------------------------------------------------------
+# Live-proven bug (2026-07-23): "what should I wear for raksha bandhan" (an
+# apparel-intent occasion query, no garment noun) returned 3 of 5 items as
+# literal Rakhi threads/gift objects (product_type_name="Rakhi", e.g. "Ram
+# Mandir Blessings Rakhi") because BM25/dense retrieval on "raksha bandhan"
+# text naturally ranks the 635 catalogue rows literally named "Rakhi" ahead of
+# apparel — there was no exclusion mechanism for occasion-keyword text also
+# matching non-apparel occasion merchandise (unlike kids items/fabric bolts
+# above).
+#
+# Grounded in a full catalogue audit (data/processed/unified/catalogue.parquet,
+# rows whose prod_name/detail_desc contain each occasion's keyword):
+#   raksha_bandhan (1096 matches): Rakhi=635, Silver Rakhi=19, Rakhi Hamper=4,
+#     Rakhi Gift Hamper=5, Gift Hamper=6 -- 669 non-apparel merchandise rows.
+#   diwali (1757 matches): Gift Hamper=6, Rakhi/Rakhi Gift Hamper=11 (Diwali
+#     hampers are catalogued generically), Idols=1, Others=19 (all idols/
+#     showpieces/tealight-holders on inspection, e.g. "Gift of Grace Lord
+#     Ganesha Idol", "Festive Decorative Tealight Holder").
+#   navratri (545 matches): Idols=1.
+#   karva_chauth (24 matches): Gift Hamper=3.
+#   eid (658 matches): Rakhi=1.
+#
+# Deliberately narrow to these product_type_name values (not a broader
+# "anything non-apparel" heuristic):
+#   - "Potli"/"Potlis" bags DO appear in the diwali-matching set (11 rows) but
+#     are legitimately styled as accessories in real looks (see the composer's
+#     accessory slot) -- kept, not excluded.
+#   - Jewellery (Earrings/Necklace/Bangles/Rings/jhumka/...) is apparel-
+#     adjacent and must NEVER be excluded here -- it dominates every
+#     occasion's keyword-matching set by volume and is exactly what the
+#     2026-07-23 multi-family accessory-retrieval fix (commit 1717265) exists
+#     to surface correctly for bridal/festive looks.
+_OCCASION_MERCHANDISE_TYPES: frozenset[str] = frozenset({
+    "rakhi", "rakhi hamper", "rakhi gift hamper", "silver rakhi",
+    "gift hamper", "idols",
+})
+
+
+def is_occasion_merchandise_type(product_type_name: str | None) -> bool:
+    """Return True if `product_type_name` is occasion merchandise (Rakhi
+    threads, gift hampers, religious idols/showpieces), not a wearable
+    garment or apparel-adjacent accessory.
+
+    Callers must gate this on apparel-intent occasion context (see
+    src.agents.graph._apply_occasion_merchandise_gate) -- an explicit request
+    FOR the merchandise itself ("rakhi for my brother", "gift for raksha
+    bandhan") must still surface it; this predicate only identifies the
+    product-type class, it does not decide when to apply it.
+    """
+    return (product_type_name or "").strip().lower() in _OCCASION_MERCHANDISE_TYPES
+
+
+# ---------------------------------------------------------------------------
 # Loungewear-in-dress-bucket exclusion
 # ---------------------------------------------------------------------------
 # Live-proven bug (2026-07-13): "minimalist wedding guest dress" returned

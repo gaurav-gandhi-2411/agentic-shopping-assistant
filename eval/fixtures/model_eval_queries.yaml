@@ -9325,4 +9325,110 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+# ---------------------------------------------------------------------------
+# 2026-07-23 fix: occasion-merchandise leak (category="search", no `gates`
+# block, mirroring search_014's existing precedent for a plain-search-path
+# occasion query -- every OTHER occasion entry in this file sets
+# `gates.compose: true`, which routes Stage 3 through compose_outfit and
+# never exercises search_node, where this bug and its fix both live). Live-
+# proven bug: "what should I wear for raksha bandhan" (no garment noun)
+# returned 3 of 5 items as literal Rakhi thread/gift products
+# (product_type_name="Rakhi"). See src.catalogue.cleaning.
+# is_occasion_merchandise_type and src.agents.graph.
+# _apply_occasion_merchandise_gate; tests/test_occasion_merchandise_leak.py
+# is the primary (deterministic, always-run) regression guard -- these
+# entries are best-effort supplementary coverage for the r1/e2e eval stages,
+# not exhaustive (e2e stratified-samples "occasion"/"search" categories
+# rather than running every query every time).
+# ---------------------------------------------------------------------------
+- id: search_061
+  category: search
+  turns:
+  - what should I wear for raksha bandhan
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      - kurti
+      - saree
+      - lehenga
+      - sherwani
+      - dupatta
+      - indowestern
+      - necklace
+      - earrings
+      - jhumka
+      - bangles
+      - jewellery
+- id: search_062
+  category: search
+  turns:
+  - rakhi for my brother
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - rakhi
+- id: search_063
+  category: search
+  turns:
+  - what should I wear for diwali
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      - kurti
+      - saree
+      - lehenga
+      - sherwani
+      - dupatta
+      - indowestern
+      - necklace
+      - earrings
+      - jhumka
+      - bangles
+      - jewellery
+- id: search_064
+  category: search
+  turns:
+  - karva chauth gift hamper
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - hamper
   data_ceiling_tags: []

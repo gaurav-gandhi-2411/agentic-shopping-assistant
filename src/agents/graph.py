@@ -42,7 +42,12 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
-from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item, is_loungewear_text
+from src.catalogue.cleaning import (
+    is_fabric_bolt_text,
+    is_kids_item,
+    is_loungewear_text,
+    is_occasion_merchandise_type,
+)
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
@@ -756,6 +761,61 @@ def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
     return [
         it for it in items
         if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+    ]
+
+
+# Occasion-merchandise leak fix (2026-07-23): an explicit ask FOR the
+# merchandise itself must still surface it — "rakhi for my brother", "gift
+# for raksha bandhan", "buy a rakhi", "diwali gift hamper" are legitimate
+# merchandise requests, not bugs. See is_occasion_merchandise_type's
+# docstring for the excluded product-type set and its catalogue grounding.
+# Deliberately keyed on literal "rakhi"/"gift"/"hamper"/"idol" nouns rather
+# than the occasion keyword itself ("raksha bandhan", "diwali") — those
+# occasion words alone carry no merchandise-vs-apparel signal (that's the
+# whole ambiguity this gate resolves), so only an EXPLICIT product-noun
+# mention bypasses the exclusion.
+_OCCASION_MERCHANDISE_REQUEST_RE = re.compile(
+    r"\brakhi\b|\brakhis\b|\bhamper\b|\bidol\b|\bidols\b|\bgift\b|\bgifts\b",
+    re.IGNORECASE,
+)
+
+
+def _apply_occasion_merchandise_gate(
+    items: list[dict], occasion_slug: str | None, garment_type: str | None, raw_query: str
+) -> list[dict]:
+    """Strip occasion-merchandise items (Rakhi threads, gift hampers, idols)
+    from a bare occasion query's result set.
+
+    Live-proven bug: "what should I wear for raksha bandhan" (occasion
+    keyword, no garment noun, "wear" apparel intent) returned Rakhi thread
+    products ranked above apparel, and the LLM's rationale celebrated them as
+    gifts. Root cause: BM25/dense retrieval on occasion text naturally ranks
+    the catalogue's literal "Rakhi"/"Gift Hamper"/"Idols" rows highly since
+    they legitimately match the occasion keyword lexically.
+
+    Gated on:
+      - occasion_slug being set (no-op for non-occasion queries).
+      - garment_type is None — a query that already named a garment noun
+        ("kurti for raksha bandhan") hard-filters retrieval to that
+        product_type_name, so Rakhi-typed items were never in the candidate
+        pool to begin with; re-checking here would be a no-op on the
+        primary path and is skipped for that reason (mirrors is_kids_item's
+        "kids-item filtering ... dead code" comment above).
+      - the raw query not being an explicit merchandise request (see
+        _OCCASION_MERCHANDISE_REQUEST_RE) — "rakhi for my brother" must
+        still surface rakhis.
+
+    Deliberately NOT pool-underflow protected, same discipline as
+    _apply_loungewear_gate — an occasion-merchandise item is never an
+    acceptable substitute for apparel, even as a last resort.
+    """
+    if not occasion_slug or garment_type is not None:
+        return items
+    if _OCCASION_MERCHANDISE_REQUEST_RE.search(raw_query.lower()):
+        return items
+    return [
+        it for it in items
+        if not is_occasion_merchandise_type(it.get("product_type"))
     ]
 
 
@@ -2524,6 +2584,13 @@ def build_graph(
             # Part E: see _apply_loungewear_gate docstring — fixes "minimalist
             # wedding guest dress" surfacing a literal nightgown.
             items_out = _apply_loungewear_gate(items_out, _occ_slug)
+
+            # 2026-07-23 fix: see _apply_occasion_merchandise_gate docstring —
+            # fixes "what should I wear for raksha bandhan" surfacing Rakhi
+            # thread products instead of apparel.
+            items_out = _apply_occasion_merchandise_gate(
+                items_out, _occ_slug, _occ_intent.garment_type, raw_query
+            )
 
         # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
         # removed 2026-07-19): previously nested inside "if _occ_slug and
