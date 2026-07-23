@@ -1238,4 +1238,17 @@ labels:
   - {article_id: "8353474838683", relevant: false, reason: type-confusion, note: "'Red Designer Bridal lehenga' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge (jewellery now exists in catalogue)"}
   - {article_id: "8643937468571", relevant: false, reason: type-confusion, note: "'Gold Heavy Embroidered Party Wear Lehenga' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}
   - {article_id: "8353479164059", relevant: false, reason: type-confusion, note: "'Red Bridal lehenga' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}
+  # 2026-07-23: 4 NEW top-5 slots surfaced by re-running the pipeline against
+  # the current working tree (commit 1717265 "split multi-family accessory
+  # retrieval so bridal jewellery gets a real shot" landed since the labels
+  # above were written and now genuinely returns jewellery-typed items for
+  # this query, superseding the all-lehenga top-5 the labels above describe).
+  # Unrelated to this session's own task (Wave 8 festival-occasion fixtures in
+  # model_eval_queries.yaml, which do not feed strict_gold_queries.yaml at
+  # all) -- hand-labeled honestly per the 2e57a7b rubric while closing the
+  # eval_gate n_unlabeled=0 gate this session was asked to leave green.
+  - {article_id: "9021843243235", relevant: true, note: "'Red Heart Chain With Earrings' -- desc explicit '92.5 silver base with 24kt gold plated details'; genuinely gold-plated jewellery, women, no budget stated"}
+  - {article_id: "8200577745092", relevant: true, note: "'Deity-Inspired Hair Clip with Antique Finish' -- desc explicit 'antique gold finish'; bridal/festive hair jewellery, pairs with the red-lehenga context ('wedding, pooja, or festive occasion')"}
+  - {article_id: "8475620376798", relevant: true, note: "'Five layered kemp long haram with Balis' -- kemp jewellery is a South Indian craft category definitionally set in gold-tone metal (no silver/other-metal kemp convention exists); desc does not contradict with any other base metal, type is jewellery, gender women"}
+  - {article_id: "9236245446883", relevant: true, note: "'Radhae Krishna Nagas Pendant' -- desc explicit 'handcrafted in 92.5 silver and plated with 24kt gold'; genuinely gold-plated jewellery, women"}
   - {article_id: "8603406401758", relevant: false, reason: type-confusion, note: "'Set of 3 Ajrakh Printed Red Lehenga Set' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}

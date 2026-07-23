@@ -27,6 +27,16 @@ OCCASIONS: dict[str, Occasion] = {
     "sangeet":             Occasion("sangeet",             5, ETHNIC_ONLY),
     "traditional_ethnic":  Occasion("traditional_ethnic",  5, ETHNIC_ONLY),
     "reception":           Occasion("reception",           5, ETHNIC_HEAVY),
+    # Wave 8 festival-occasion expansion — siblings of festive_puja, not
+    # replacements (see festive_puja docstring note above OCCASIONS).
+    "diwali":              Occasion("diwali",              4, ETHNIC_HEAVY),
+    # Distinct from sangeet (a wedding event): navratri/garba is a standalone
+    # dance-festival occasion, so ETHNIC_ONLY at formality 3, not 5.
+    "navratri":            Occasion("navratri",            3, ETHNIC_ONLY),
+    "karva_chauth":        Occasion("karva_chauth",        4, ETHNIC_ONLY),
+    # Casual-festive, not heavy ethnic — either register is acceptable.
+    "raksha_bandhan":      Occasion("raksha_bandhan",      2, EITHER),
+    "eid":                 Occasion("eid",                 4, ETHNIC_HEAVY),
 }
 
 # Legacy slug aliases — kept in ONE place so a persisted session's occasion

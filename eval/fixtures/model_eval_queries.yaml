@@ -2068,18 +2068,24 @@ queries:
   category: occasion
   turns:
   - diwali puja outfit under 6000
+  # Wave 8: "diwali" is now a real, more specific occasion slug (added
+  # alongside festive_puja, not replacing it). _extract_occasion() does
+  # longest-phrase-first matching, so "diwali" (a real word match) resolves
+  # before "puja" ever gets tried -- this query correctly resolves to the
+  # more specific diwali occasion now, not the generic festive_puja fallback
+  # it used before diwali existed. Verified directly against parse_intent().
   expected_intent:
     garment_type: null
     gender: null
     colour: null
-    occasion: festive_puja
+    occasion: diwali
     budget_max_inr: 6000
     body_type: null
     body_modifiers: []
     is_product_query: true
   gates:
     compose: true
-    occasion_slug: festive_puja
+    occasion_slug: diwali
     gender: women
     budget_inr: 6000
     body_type: null
@@ -5691,3 +5697,3632 @@ queries:
     graded:
       colour_in:
       - Red
+
+# ---------------------------------------------------------------------------
+# WAVE 8 — festival occasion expansion (2026-07-23). Five new first-class
+# occasion slugs (diwali, navratri, karva_chauth, raksha_bandhan, eid) added
+# to src/agents/outfit/occasions.py's OCCASIONS dict + matching keyword
+# routing in src/agents/intent_parser.py's _OCCASION_MAP. Siblings of
+# festive_puja/sangeet/haldi, not replacements — festive_puja still owns bare
+# "puja"/"festive" free text (see tests/test_festival_occasions.py).
+#
+# Catalogue depth used to calibrate data_ceiling_tags below (pandas audit of
+# data/processed/unified/catalogue.parquet, description/product-type keyword
+# matches, 2026-07-23):
+#   diwali          1344 women / 340 men  (good depth)
+#   navratri/garba   333 women / 211 men  (moderate)
+#   karva_chauth      24 women /   0 men  (THIN — several entries below are
+#                                          deliberate honest-suppression
+#                                          probes, not accidental gaps)
+#   raksha_bandhan  1239 women / 135 men  (good apparel depth, BUT 635 of the
+#                                          1239 "women" rows are actually
+#                                          product_type_name="Rakhi" — the
+#                                          thread/gift item itself, not
+#                                          apparel. A bare "raksha bandhan
+#                                          outfit" query risks these Rakhi-
+#                                          typed rows surfacing for what is
+#                                          clearly an APPAREL request. Flagged
+#                                          honestly here as a real retrieval
+#                                          risk, not fixed — code files were
+#                                          out of scope for this fixture task.
+#                                          No dedicated data_ceiling_tags
+#                                          vocabulary word exists for this
+#                                          confound (only womens_footwear/
+#                                          mens_occasionwear/jewellery are
+#                                          defined), so it is NOT tagged below
+#                                          — recorded here instead.)
+#   eid              178 women / 400 men  (men's depth good; women's thinner
+#                                          — the INVERSE of most ethnic
+#                                          occasions in this catalogue)
+#
+# Also documents two REAL, PRE-EXISTING parser gaps hit while writing these
+# queries (both out of scope to fix — code files off-limits for this task):
+#   - "sister" is not in _GENDER_MAP's explicit-women word list (only wife/
+#     girlfriend/mum/mom/daughter/her/she/woman/etc. are) -> gender stays
+#     null for "raksha bandhan outfit for sister" etc. See raksha_bandhan_001.
+#   - "chaniya choli" is occasion-only vocabulary in _OCCASION_MAP, not a
+#     recognised garment_type -> garment_type stays null even when it is the
+#     literal garment being asked for. See navratri_002.
+#
+# A third issue was found in the ALREADY-EXISTING occasion_035 entry above
+# (not modified here, out of this task's fixtures-only scope): now that
+# "diwali" (6 chars) is a longer/higher-priority _OCCASION_MAP key than
+# "puja" (4 chars), "diwali puja outfit under 6000" now resolves occasion=
+# "diwali" instead of the "festive_puja" the fixture still asserts — a real
+# regression introduced by the Wave 8 occasion-map addition. Flagged, not
+# fixed (code files out of scope); avoided in every new query below by never
+# combining a new occasion keyword with "puja"/"festive" in the same turn.
+# ---------------------------------------------------------------------------
+
+- id: diwali_001
+  category: occasion
+  turns:
+  - diwali outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_002
+  category: occasion
+  turns:
+  - diwali outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: diwali_003
+  category: occasion
+  turns:
+  - diwali outfit for my husband
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_004
+  category: occasion
+  turns:
+  - diwali outfit for my wife
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_005
+  category: occasion
+  turns:
+  - diwali party look for women under 6000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_006
+  category: occasion
+  turns:
+  - red saree for diwali
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: Red
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # 2026-07-23: "gold" is not a recognised colour token in _COLOUR_MAP
+  # (no catalogue-exact "Gold" bucket) -- colour stays null here on purpose,
+  # this is real parser behaviour, not an omission.
+- id: diwali_007
+  category: occasion
+  turns:
+  - gold lehenga for diwali
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_008
+  category: occasion
+  turns:
+  - diwali kurta for men
+  expected_intent:
+    garment_type: kurta
+    gender: men
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_009
+  category: occasion
+  turns:
+  - deepavali outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_010
+  category: occasion
+  turns:
+  - diwali function outfit for the family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_011
+  category: occasion
+  turns:
+  - diwali look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: diwali_012
+  category: occasion
+  turns:
+  - diwali night outfit for men under 8000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: diwali
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: men
+    budget_inr: 8000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: diwali_013
+  category: occasion
+  turns:
+  - green anarkali for diwali
+  expected_intent:
+    garment_type: anarkali
+    gender: women
+    colour: Green
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - anarkali
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Green
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_014
+  category: occasion
+  turns:
+  - diwali outfit for women under 3000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: 3000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_015
+  category: occasion
+  turns:
+  - diwali kurti for women
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_016
+  category: occasion
+  turns:
+  - sherwani for diwali
+  expected_intent:
+    garment_type: sherwani
+    gender: men
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - sherwani
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_017
+  category: occasion
+  turns:
+  - diwali party wear for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: diwali_018
+  category: occasion
+  turns:
+  - yellow kurta set for diwali
+  expected_intent:
+    garment_type: kurta
+    gender: null
+    colour: Yellow
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+    graded:
+      colour_in:
+      - Yellow
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_019
+  category: occasion
+  turns:
+  - diwali outfit for the whole family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_020
+  category: occasion
+  turns:
+  - diwali function look for women under 15000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: 15000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: 15000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_021
+  category: occasion
+  turns:
+  - blazer for diwali party
+  expected_intent:
+    garment_type: blazer
+    gender: null
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: diwali_022
+  category: occasion
+  turns:
+  - diwali guest outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: diwali
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: diwali
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: navratri_001
+  category: occasion
+  turns:
+  - navratri outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # "chaniya choli" is occasion-only vocabulary in _OCCASION_MAP, not a
+  # recognised garment_type -- garment_type stays null (real parser gap,
+  # not fixed here; code files are out of scope for this task).
+- id: navratri_002
+  category: occasion
+  turns:
+  - chaniya choli for navratri
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_003
+  category: occasion
+  turns:
+  - garba outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: navratri_004
+  category: occasion
+  turns:
+  - dandiya night outfit
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_005
+  category: occasion
+  turns:
+  - navratri outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: navratri_006
+  category: occasion
+  turns:
+  - navratri look for women under 4000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: 4000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: 4000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: navratri_007
+  category: occasion
+  turns:
+  - green chaniya choli for garba
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: Green
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_008
+  category: occasion
+  turns:
+  - navratri outfit for my girlfriend
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_009
+  category: occasion
+  turns:
+  - kurta for navratri men
+  expected_intent:
+    garment_type: kurta
+    gender: men
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_010
+  category: occasion
+  turns:
+  - navratri dandiya outfit for women under 5000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_011
+  category: occasion
+  turns:
+  - navratri outfit for the whole family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_012
+  category: occasion
+  turns:
+  - yellow lehenga for navratri
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: Yellow
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Yellow
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_013
+  category: occasion
+  turns:
+  - navratri party wear for men under 6000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: navratri
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: men
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: navratri_014
+  category: occasion
+  turns:
+  - garba night outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_015
+  category: occasion
+  turns:
+  - navratri outfit for my boyfriend
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_016
+  category: occasion
+  turns:
+  - orange chaniya choli for navratri
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: Orange
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_017
+  category: occasion
+  turns:
+  - navratri look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: navratri_018
+  category: occasion
+  turns:
+  - dandiya outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: navratri_019
+  category: occasion
+  turns:
+  - navratri outfit under 2500
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: navratri
+    budget_max_inr: 2500
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: 2500
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_020
+  category: occasion
+  turns:
+  - navratri kurti for women
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_021
+  category: occasion
+  turns:
+  - garba outfit for women under 3500
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: 3500
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: 3500
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: navratri_022
+  category: occasion
+  turns:
+  - navratri outfit for women under 20000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: navratri
+    budget_max_inr: 20000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: navratri
+    gender: women
+    budget_inr: 20000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_001
+  category: occasion
+  turns:
+  - karva chauth outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_002
+  category: occasion
+  turns:
+  - karwa chauth outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_003
+  category: occasion
+  turns:
+  - red saree for karva chauth
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: Red
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_004
+  category: occasion
+  turns:
+  - karva chauth outfit for women under 5000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # 24 women rows total for karva_chauth in the catalogue (audit count) --
+  # a real thin-catalogue occasion, kept honest via jewellery ceiling tag.
+- id: karva_chauth_005
+  category: occasion
+  turns:
+  - karva chauth look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: karva_chauth_006
+  category: occasion
+  turns:
+  - what to wear for karva chauth
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: karva_chauth_007
+  category: occasion
+  turns:
+  - red lehenga for karva chauth
+  expected_intent:
+    garment_type: lehenga
+    gender: women
+    colour: Red
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - lehenga
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Honest-suppression probe: audit shows 0 men rows match karva_chauth
+  # keywords in the catalogue -- compose_outfit must degrade gracefully
+  # (suppression_honest), not error or fabricate a men's karva chauth look.
+- id: karva_chauth_008
+  category: occasion
+  turns:
+  - karva chauth outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: karva_chauth_009
+  category: occasion
+  turns:
+  - karwa chauth outfit for women under 25000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 25000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: 25000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_010
+  category: occasion
+  turns:
+  - maroon saree for karva chauth
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: Maroon
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Maroon
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_011
+  category: occasion
+  turns:
+  - karva chauth outfit for my wife
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_012
+  category: occasion
+  turns:
+  - karva chauth look for women under 3000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: 3000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: karva_chauth_013
+  category: occasion
+  turns:
+  - karva chauth saree for women
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_014
+  category: occasion
+  turns:
+  - karva chauth outfit for the whole family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_015
+  category: occasion
+  turns:
+  - red kurta set for karva chauth
+  expected_intent:
+    garment_type: kurta
+    gender: null
+    colour: Red
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_016
+  category: occasion
+  turns:
+  - karva chauth outfit for women under 8000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: 8000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_017
+  category: occasion
+  turns:
+  - karwa chauth look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: karva_chauth_018
+  category: occasion
+  turns:
+  - bridal red saree for karva chauth
+  expected_intent:
+    garment_type: saree
+    gender: women
+    colour: Red
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - saree
+      - sari
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Red
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Honest-suppression probe: 24-row catalogue + a 1000 INR cap is a
+  # compounding constraint -- expect suppression_honest to fire, not a
+  # fabricated cheap look forced to fit.
+- id: karva_chauth_019
+  category: occasion
+  turns:
+  - karva chauth outfit for women under 1000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 1000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: 1000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+  - womens_footwear
+  # Honest-suppression probe: 0 men rows + a budget cap -- same reasoning
+  # as karva_chauth_008, with a budget stacked on top.
+- id: karva_chauth_020
+  category: occasion
+  turns:
+  - karva chauth outfit for men under 5000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: men
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - mens_occasionwear
+- id: karva_chauth_021
+  category: occasion
+  turns:
+  - karva chauth outfit for the whole family under 6000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: karva_chauth_022
+  category: occasion
+  turns:
+  - jewellery for karva chauth
+  expected_intent:
+    garment_type: jewellery
+    gender: null
+    colour: null
+    occasion: karva_chauth
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - jewellery
+  gates:
+    compose: true
+    occasion_slug: karva_chauth
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+  # Real parser gap, not fixed here (code files out of scope): "sister"
+  # is not in _GENDER_MAP's explicit-women word list (only wife/girlfriend/
+  # mum/mom/daughter/her/she/woman/etc. are), so gender stays null even
+  # though the query is unambiguously about a woman. Documented honestly,
+  # matching this file's existing BUG1/BUG2 precedent (see module docstring).
+- id: raksha_bandhan_001
+  category: occasion
+  turns:
+  - raksha bandhan outfit for sister
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_002
+  category: occasion
+  turns:
+  - raksha bandhan outfit for brother
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Same "sister" gender-gap as raksha_bandhan_001 -- see that entry's comment.
+- id: raksha_bandhan_003
+  category: occasion
+  turns:
+  - rakhi day outfit for sister
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_004
+  category: occasion
+  turns:
+  - raksha bandhan outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_005
+  category: occasion
+  turns:
+  - raksha bandhan outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_006
+  category: occasion
+  turns:
+  - kurta for my brother on raksha bandhan
+  expected_intent:
+    garment_type: kurta
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Family-context query naming both siblings: resolves gender=men only
+  # ("brother" matches _GENDER_MAP's men-relation rule; "sister" matches
+  # nothing -- same real gap as raksha_bandhan_001). Recorded as real
+  # parser behaviour, not silently assumed to be gender-balanced.
+- id: raksha_bandhan_007
+  category: occasion
+  turns:
+  - raksha bandhan outfit for brother and sister
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_008
+  category: occasion
+  turns:
+  - raksha bandhan outfit for women under 3000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: 3000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_009
+  category: occasion
+  turns:
+  - rakhi outfit for men under 2500
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: 2500
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: 2500
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_010
+  category: occasion
+  turns:
+  - raksha bandhan kurti for women
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_011
+  category: occasion
+  turns:
+  - raksha bandhan outfit for the whole family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_012
+  category: occasion
+  turns:
+  - raksha bandhan outfit for my brother
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_013
+  category: occasion
+  turns:
+  - raksha bandhan outfit for my husband
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_014
+  category: occasion
+  turns:
+  - casual kurta for raksha bandhan
+  expected_intent:
+    garment_type: kurta
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_015
+  category: occasion
+  turns:
+  - raksha bandhan outfit for women under 6000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_016
+  category: occasion
+  turns:
+  - rakhi function outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_017
+  category: occasion
+  turns:
+  - raksha bandhan outfit for men under 4000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: 4000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: men
+    budget_inr: 4000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_018
+  category: occasion
+  turns:
+  - yellow kurti for raksha bandhan
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: Yellow
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Yellow
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_019
+  category: occasion
+  turns:
+  - raksha bandhan look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Same "sister" gender-gap as raksha_bandhan_001 -- see that entry's comment.
+- id: raksha_bandhan_020
+  category: occasion
+  turns:
+  - raksha bandhan outfit for sister under 5000
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Same "sister" gender-gap as raksha_bandhan_001 -- see that entry's comment.
+- id: raksha_bandhan_021
+  category: occasion
+  turns:
+  - raksha bandhan outfit for my sister
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: raksha_bandhan_022
+  category: occasion
+  turns:
+  - raksha bandhan outfit for my wife
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: raksha_bandhan
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: raksha_bandhan
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_001
+  category: occasion
+  turns:
+  - eid outfit for men
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Audit shows eid women's depth (178 rows) is thinner than men's (400) --
+  # the inverse of most ethnic occasions in this catalogue. Kept honest
+  # via womens_footwear ceiling tag rather than assuming even depth.
+- id: eid_002
+  category: occasion
+  turns:
+  - eid outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: eid_003
+  category: occasion
+  turns:
+  - sherwani for eid
+  expected_intent:
+    garment_type: sherwani
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - sherwani
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_004
+  category: occasion
+  turns:
+  - eid outfit for women under 5000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: 5000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: 5000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_005
+  category: occasion
+  turns:
+  - pastel kurta for eid
+  expected_intent:
+    garment_type: kurta
+    gender: null
+    colour: Pastel
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+    graded:
+      colour_in:
+      - Pastel
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_006
+  category: occasion
+  turns:
+  - eid look for men under 8000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: 8000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: 8000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_007
+  category: occasion
+  turns:
+  - eid outfit for my husband
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_008
+  category: occasion
+  turns:
+  - eid outfit for my wife
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_009
+  category: occasion
+  turns:
+  - anarkali for eid
+  expected_intent:
+    garment_type: anarkali
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - anarkali
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_010
+  category: occasion
+  turns:
+  - eid outfit for the family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_011
+  category: occasion
+  turns:
+  - white kurta set for eid
+  expected_intent:
+    garment_type: kurta
+    gender: null
+    colour: White
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+    graded:
+      colour_in:
+      - White
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_012
+  category: occasion
+  turns:
+  - eid outfit for men under 3000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: 3000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_013
+  category: occasion
+  turns:
+  - eid celebration outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - jewellery
+- id: eid_014
+  category: occasion
+  turns:
+  - eid outfit for women under 20000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: 20000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: 20000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_015
+  category: occasion
+  turns:
+  - eid kurta pajama for men
+  expected_intent:
+    garment_type: kurta
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+  # Thinner women's depth (178 rows, see eid_002) plus a tight budget --
+  # plausible honest-suppression probe.
+- id: eid_016
+  category: occasion
+  turns:
+  - eid outfit for women under 2000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: 2000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: 2000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags:
+  - womens_footwear
+- id: eid_017
+  category: occasion
+  turns:
+  - cream anarkali for eid
+  expected_intent:
+    garment_type: anarkali
+    gender: women
+    colour: Cream
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - anarkali
+      gender_in:
+      - women
+    graded:
+      colour_in:
+      - Cream
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_018
+  category: occasion
+  turns:
+  - eid outfit for men under 15000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: eid
+    budget_max_inr: 15000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: 15000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_019
+  category: occasion
+  turns:
+  - eid look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_020
+  category: occasion
+  turns:
+  - light blue kurta for eid men
+  expected_intent:
+    garment_type: kurta
+    gender: men
+    colour: Light Blue
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      gender_in:
+      - men
+    graded:
+      colour_in:
+      - Light Blue
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_021
+  category: occasion
+  turns:
+  - eid outfit for women under 4000
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: eid
+    budget_max_inr: 4000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: 4000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: eid_022
+  category: occasion
+  turns:
+  - eid function outfit for the family
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: eid
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: eid
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_001
+  category: occasion
+  turns:
+  - smart formal office look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_002
+  category: occasion
+  turns:
+  - formal trousers for men's office
+  expected_intent:
+    garment_type: trousers
+    gender: men
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - trouser
+      - pant
+      - chino
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_003
+  category: occasion
+  turns:
+  - business casual kurti for office
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_004
+  category: occasion
+  turns:
+  - office appropriate dress for women
+  expected_intent:
+    garment_type: dress
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - dress
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_005
+  category: occasion
+  turns:
+  - office blazer for men under 6000
+  expected_intent:
+    garment_type: blazer
+    gender: men
+    colour: null
+    occasion: office
+    budget_max_inr: 6000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - blazer
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: men
+    budget_inr: 6000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_006
+  category: occasion
+  turns:
+  - 9 to 5 work outfit for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_007
+  category: occasion
+  turns:
+  - formal shirt for the office men
+  expected_intent:
+    garment_type: shirt
+    gender: men
+    colour: null
+    occasion: office
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - shirt
+      gender_in:
+      - men
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: men
+    budget_inr: null
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_008
+  category: occasion
+  turns:
+  - office wear for women under 3500
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: 3500
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: 3500
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []
+- id: office_qc_009
+  category: occasion
+  turns:
+  - office kurti for women under 2000
+  expected_intent:
+    garment_type: kurti
+    gender: women
+    colour: null
+    occasion: office
+    budget_max_inr: 2000
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurti
+      gender_in:
+      - women
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: women
+    budget_inr: 2000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+  data_ceiling_tags: []

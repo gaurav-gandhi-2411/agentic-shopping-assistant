@@ -247,6 +247,28 @@ def colour_score(
     the ethnic_heavy _JEWEL_TONES tier below rather than inventing new scoring
     machinery); pale/light casual tones score low — an evening indo-western
     reception look should read glam, not light-daytime pastel.
+
+    Diwali palette override: gold/red/maroon/jewel-glam tones score highest
+    (festival-of-lights register); black and pastel-family tones score low.
+
+    Navratri palette override: bright, saturated multicolour scores highest —
+    a loud, dance-friendly garba palette, deliberately distinct from sangeet's
+    generic jewel-tone-embellished register (navratri gets its OWN override
+    rather than falling into the generic ethnic branch below); muted/earthy
+    tones and black score low.
+
+    Karva Chauth palette override: red/maroon/traditional-bridal-adjacent
+    tones score highest (red carries real cultural significance for this
+    occasion); black/white/pastel-family tones score low.
+
+    Eid palette override: pastels/white/soft-metallic tones score highest;
+    dark/jewel-glam tones (including diwali's gold/red palette) score low —
+    deliberately the visual INVERSE of the diwali override above so the two
+    festivals never bleed into each other's colour bias.
+
+    Raksha Bandhan: no dedicated override — formality 2/EITHER-lean, so it
+    falls through to the generic western/EITHER branch below like casual/
+    party_evening.
     """
     occasion = get_occasion(occasion_slug)
     c_lower = candidate_colour.lower()
@@ -282,6 +304,54 @@ def colour_score(
             return 0.3
         if c_lower == a_lower:
             return 0.85
+        return 0.6
+
+    # Diwali override
+    if occasion_slug == "diwali":
+        _diwali_palette = {"gold", "red", "dark red", "maroon", "burgundy", "wine",
+                            "orange", "dark orange"}
+        _diwali_low = {"black", "light pink", "light blue", "lavender", "cream",
+                        "light beige", "white", "off white", "light grey"}
+        if c_lower in _diwali_palette:
+            return 1.0
+        if c_lower in _diwali_low:
+            return 0.2
+        return 0.6
+
+    # Navratri override — bright saturated multicolour, not muted/earthy
+    if occasion_slug == "navratri":
+        _navratri_palette = {"red", "dark red", "pink", "dark pink", "orange",
+                              "dark orange", "yellow", "dark yellow", "green",
+                              "dark green", "blue", "dark blue", "purple",
+                              "dark purple", "turquoise", "dark turquoise"}
+        _navratri_low = _MUTED_COORDINATING_COLOURS | {"black", "dark grey", "charcoal"}
+        if c_lower in _navratri_palette:
+            return 1.0
+        if c_lower in _navratri_low:
+            return 0.2
+        return 0.6
+
+    # Karva Chauth override — red bears real cultural significance here
+    if occasion_slug == "karva_chauth":
+        _karva_chauth_palette = {"red", "dark red", "maroon", "burgundy", "wine", "gold"}
+        _karva_chauth_low = {"black", "white", "off white", "light pink",
+                              "light blue", "lavender", "light grey"}
+        if c_lower in _karva_chauth_palette:
+            return 1.0
+        if c_lower in _karva_chauth_low:
+            return 0.2
+        return 0.6
+
+    # Eid override — pastels/white/soft-metallic; deliberate visual inverse of
+    # diwali's gold/red palette so the two festivals never bleed together.
+    if occasion_slug == "eid":
+        _eid_palette = {"white", "off white", "cream", "light beige", "light pink",
+                         "light blue", "lavender", "silver", "light grey"}
+        _eid_low = {"black", "dark red", "maroon", "gold", "dark orange", "burgundy"}
+        if c_lower in _eid_palette:
+            return 1.0
+        if c_lower in _eid_low:
+            return 0.2
         return 0.6
 
     # Ethnic festive occasions: no clash penalty; jewel tones co-star

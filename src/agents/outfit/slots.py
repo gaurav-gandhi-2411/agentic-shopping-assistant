@@ -507,9 +507,14 @@ def resolve_look_gender(
     return "women" if resolved_default not in ("men", "women") else resolved_default
 
 # Occasions where footwear is required (formality >= 3, ethnic)
+# Wave 8: diwali/navratri/karva_chauth/eid added (all formality >= 3, ethnic
+# events warrant required footwear). raksha_bandhan deliberately excluded —
+# formality 2/EITHER, casual-festive register, footwear stays optional like
+# casual/smart_casual/party_evening.
 _FORMAL_ETHNIC_OCCASIONS: frozenset[str] = frozenset({
     "sangeet", "haldi", "mehendi", "festive_puja", "wedding_guest",
     "traditional_ethnic", "reception", "engagement",
+    "diwali", "navratri", "karva_chauth", "eid",
 })
 
 # Women-only ethnic categories — hard reject for men's looks regardless of gender field
@@ -608,6 +613,11 @@ def _occasion_register_tokens(occasion_slug: str) -> str:
     colour+fabric bias (colour_score, fabric_score_delta) that would conflict
     with "embroidered" (haldi/mehendi favour light, undone-up looks). reception
     gets its own embellished-evening register, mirroring sangeet's bias.
+
+    Wave 8: diwali/navratri/karva_chauth/raksha_bandhan/eid each get a
+    dedicated register mirroring their own colour_score palette override
+    above, so retrieval query text and colour scoring stay aligned (same
+    pattern as haldi/mehendi/reception).
     """
     if occasion_slug == "haldi":
         return "cotton floral"
@@ -617,6 +627,16 @@ def _occasion_register_tokens(occasion_slug: str) -> str:
         return "embellished formal evening"
     if occasion_slug == "engagement":
         return "elegant festive"
+    if occasion_slug == "diwali":
+        return "festive glam gold embellished"
+    if occasion_slug == "navratri":
+        return "chaniya choli bright colourful dance"
+    if occasion_slug == "karva_chauth":
+        return "red traditional bridal ethnic"
+    if occasion_slug == "raksha_bandhan":
+        return "casual festive light"
+    if occasion_slug == "eid":
+        return "pastel elegant festive"
     occ = get_occasion(occasion_slug)
     if occ.ethnic_lean in (ETHNIC_HEAVY, ETHNIC_ONLY):
         return "festive embroidered"
@@ -803,9 +823,16 @@ def fabric_score_delta(
     """Return a score adjustment based on fabric/embellishment keywords for haldi vs sangeet.
 
     Base behaviour (formality_override absent — unchanged, backward compatible):
-    - sangeet/reception: embellished items score +0.1; lightweight items score -0.1.
-    - haldi/mehendi: lightweight/floral items score +0.1; embellished items score -0.1.
-    - all other occasions (including wedding_guest): 0.0.
+    - sangeet/reception/diwali: embellished items score +0.1; lightweight items
+      score -0.1. Diwali joins this group (Wave 8) — a festival-of-lights
+      evening register reads closer to sangeet/reception's embellished-glam
+      bias than haldi/mehendi's undone-up daytime bias.
+    - haldi/mehendi/raksha_bandhan: lightweight/floral items score +0.1;
+      embellished items score -0.1. Raksha Bandhan joins this group (Wave 8) —
+      formality 2/casual-festive reads closer to haldi's light, low-key bias.
+    - all other occasions (including wedding_guest, navratri, karva_chauth,
+      eid): 0.0 — these have their own dedicated colour_score palette overrides
+      instead, and no strong embellishment-vs-lightweight signal.
 
     formality_override ("minimalist" | "comfortable", see FORMALITY_SOFTENER_VALUES —
     the `formality_softener` value a sibling intent-parser fix surfaces from
@@ -837,15 +864,17 @@ def fabric_score_delta(
             return 0.1
         return 0.0
 
-    if occasion_slug not in ("sangeet", "haldi", "mehendi", "reception"):
+    if occasion_slug not in (
+        "sangeet", "haldi", "mehendi", "reception", "diwali", "raksha_bandhan",
+    ):
         return 0.0
 
-    if occasion_slug in ("sangeet", "reception"):
+    if occasion_slug in ("sangeet", "reception", "diwali"):
         if has_embellishment:
             return 0.1
         if has_lightweight:
             return -0.1
-    else:  # haldi, mehendi
+    else:  # haldi, mehendi, raksha_bandhan
         if has_lightweight:
             return 0.1
         if has_embellishment:

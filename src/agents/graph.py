@@ -77,6 +77,8 @@ _SET_INTENT_RE = re.compile(
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
+    r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
+    r"raksha\s+bandhan|rakhi|eid|"
     r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
     re.IGNORECASE,
 )
@@ -93,6 +95,8 @@ _OUTFIT_OCCASION_RE = re.compile(
 _OCCASION_LOOK_RE = re.compile(
     r"\b(?:sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
+    r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
+    r"raksha\s+bandhan|rakhi|eid|"
     r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)"
     r"\s+look\b",
     re.IGNORECASE,

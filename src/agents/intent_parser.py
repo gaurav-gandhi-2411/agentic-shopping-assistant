@@ -346,6 +346,21 @@ _OCCASION_MAP: dict[str, str] = {
     "sagai": "engagement",
     "puja": "festive_puja",
     "festive": "festive_puja",
+    # Wave 8 festival-occasion expansion — siblings of festive_puja/sangeet,
+    # not replacements. "chaniya choli"/"rakhi" also appear as garment/product
+    # nouns elsewhere in the catalogue, but this dict is occasion-only and
+    # independent of _GARMENT_RULES/_COMPOUND_TERMS, so no collision.
+    "deepavali": "diwali",
+    "diwali": "diwali",
+    "navratri": "navratri",
+    "garba": "navratri",
+    "dandiya": "navratri",
+    "chaniya choli": "navratri",
+    "karwa chauth": "karva_chauth",
+    "karva chauth": "karva_chauth",
+    "raksha bandhan": "raksha_bandhan",
+    "rakhi": "raksha_bandhan",
+    "eid": "eid",
     "ethnic": "traditional_ethnic",
     "traditional": "traditional_ethnic",
     "party": "party_evening",

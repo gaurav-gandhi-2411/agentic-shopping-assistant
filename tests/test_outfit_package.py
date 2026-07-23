@@ -40,11 +40,15 @@ class TestGetOccasion:
         occ = get_occasion("haldi_mehendi")
         assert occ.slug == "haldi"
 
-    def test_all_12_occasions_present(self) -> None:
+    def test_all_occasions_present(self) -> None:
         expected = {
             "casual", "smart_casual", "office", "haldi", "mehendi",
             "party_evening", "festive_puja", "wedding_guest", "engagement",
             "sangeet", "traditional_ethnic", "reception",
+            # Wave 8 festival-occasion expansion — siblings of festive_puja,
+            # not replacements (see occasions.py for the formality/ethnic_lean
+            # rationale on each).
+            "diwali", "navratri", "karva_chauth", "raksha_bandhan", "eid",
         }
         assert set(OCCASIONS.keys()) == expected
 

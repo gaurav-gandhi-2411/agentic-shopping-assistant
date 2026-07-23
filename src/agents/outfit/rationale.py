@@ -175,6 +175,11 @@ _OCCASION_REGISTER_HINTS: dict[str, str] = {
     "mehendi": "green-themed daytime ceremony",
     "reception": "glamorous evening event",
     "engagement": "elegant semi-formal ceremony",
+    "diwali": "festive-glam evening",
+    "navratri": "dance-friendly festive daytime",
+    "karva_chauth": "traditional red ceremony",
+    "raksha_bandhan": "casual festive family occasion",
+    "eid": "elegant festive gathering",
 }
 
 

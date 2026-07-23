@@ -1326,6 +1326,27 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
             else "lehenga anarkali saree wedding ethnic formal"
         ),
         "traditional_ethnic": "saree lehenga traditional ethnic",
+        "diwali": (
+            "kurta bandhgala festive gold embellished"
+            if is_men
+            else "lehenga saree anarkali gold embellished festive glam"
+        ),
+        "navratri": (
+            "kurta bright colourful festive dance"
+            if is_men
+            else "chaniya choli lehenga bright colourful dance garba"
+        ),
+        "karva_chauth": (
+            "kurta red traditional ethnic"
+            if is_men
+            else "red saree lehenga traditional bridal ethnic"
+        ),
+        "raksha_bandhan": ("kurta casual festive light" if is_men else "kurti casual festive light"),
+        "eid": (
+            "kurta pajama pastel elegant festive"
+            if is_men
+            else "anarkali kurta set pastel elegant festive"
+        ),
         "party_evening": ("shirt formal party" if is_men else "dress evening party top formal"),
         "office": ("shirt formal office" if is_men else "top blouse formal shirt"),
         "smart_casual": ("shirt casual" if is_men else "top casual blouse"),
