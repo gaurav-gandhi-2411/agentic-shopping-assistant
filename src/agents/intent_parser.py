@@ -138,6 +138,23 @@ _GARMENT_RULES: list[tuple[str, str]] = [
         "footwear",
     ),
     (r"\bhandbag\b|\btote\b|\bcrossbody\b|\bpurse\b|\bclutch\b|\bbag\b", "bag"),
+    # 2026-07-23 fix: "gold jewellery for a wedding" was resolving garment_type=
+    # None (no jewellery noun recognised at all) so merge_with_context() silently
+    # inherited the PRIOR turn's garment_type from session context instead —
+    # live-proven: after "juttis for a lehenga" (garment_type="footwear"), the
+    # very next turn "gold jewellery for a wedding" hard-filtered to
+    # product_type_name="footwear" and returned juttis again. "necklace"/
+    # "earrings"/"jhumka" use the exact garment_type strings that are also real,
+    # distinct catalogue product_type_name facet values (see
+    # src/catalogue/normalizer.py's identical jewellery-noun rule, which this
+    # mirrors per this file's module docstring); "jewellery"/"jewelry" maps to
+    # the catalogue's own generic "jewellery" bucket, matching the auto-facet
+    # extractor's (graph.py search_node) independent literal-value match that
+    # already resolves a FRESH "gold jewellery for a wedding" turn correctly.
+    (r"\bnecklaces?\b", "necklace"),
+    (r"\bearrings?\b", "earrings"),
+    (r"\bjhumkas?\b", "jhumka"),
+    (r"\bjewellery\b|\bjewelry\b", "jewellery"),
     (r"\bco-?ord\b", "coord"),
     (r"\bkaftan\b", "kaftan"),
     (r"\bbodysuit\b|\blingerie\b|\bbra\b", "innerwear"),

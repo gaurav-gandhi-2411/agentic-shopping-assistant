@@ -400,6 +400,51 @@ class TestJuttiFootwearRecognition:
 
 
 # ---------------------------------------------------------------------------
+# Group 6c: live bug — "gold jewellery for a wedding" was resolving
+# garment_type=None (no jewellery noun recognised at all), so a 2-turn session
+# where turn 1 was "juttis for a lehenga" silently inherited garment_type=
+# "footwear" from session context via merge_with_context() and hard-filtered
+# turn 2 to footwear too — returning MORE juttis instead of jewellery. See
+# tests/test_ws_jewellery_category_carryover.py for the full 2-turn graph-level
+# regression test. "necklace"/"earrings"/"jhumka" use the exact garment_type
+# strings that are also real catalogue product_type_name facet values (mirrors
+# src/catalogue/normalizer.py's identical jewellery-noun rule).
+# ---------------------------------------------------------------------------
+
+
+class TestJewelleryRecognition:
+    @pytest.mark.parametrize(
+        "query, expected_garment",
+        [
+            ("gold jewellery for a wedding", "jewellery"),
+            ("jewelry for a wedding", "jewellery"),
+            ("necklace for a saree", "necklace"),
+            ("necklaces for a saree", "necklace"),
+            ("earrings for a lehenga", "earrings"),
+            ("earring for a lehenga", "earrings"),
+            ("jhumkas for a saree", "jhumka"),
+            ("jhumka", "jhumka"),
+        ],
+    )
+    def test_jewellery_noun_resolves_to_expected_garment(
+        self, query: str, expected_garment: str
+    ) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == expected_garment, (
+            f"query={query!r}: expected garment={expected_garment!r}, "
+            f"got {intent.garment_type!r}"
+        )
+
+    def test_jewellery_query_is_a_garment_pivot_against_footwear_context(self) -> None:
+        """The exact seam of the live bug: merge_with_context() must NEVER
+        let a stale prior-turn garment_type ("footwear") survive onto a turn
+        that names an explicit, different product noun ("jewellery")."""
+        intent = parse_intent("gold jewellery for a wedding")
+        merged = merge_with_context(intent, {"garment_type": "footwear", "gender": "women"})
+        assert merged.garment_type == "jewellery"
+
+
+# ---------------------------------------------------------------------------
 # Group 7: Budget extraction
 # ---------------------------------------------------------------------------
 
