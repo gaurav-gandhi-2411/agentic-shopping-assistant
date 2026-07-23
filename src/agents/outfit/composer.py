@@ -51,6 +51,36 @@ FLYWHEEL_MIN_SIGNALS: int = 10
 # still be picked; near-tied candidates from a new store win instead.
 STORE_DIVERSITY_PENALTY: float = 0.85
 
+# Absurd price-outlier guard (2026-07-23): an UNBUDGETED look must never
+# include a slot item priced far above the look's own hero (anchor) price.
+# Live-proven bug: an "eid outfit for men" anchored on a ₹12,632 "Pastel
+# Seafoam Embroidered Kurta Pajama" picked "THE SHEHENSHAH TRADITIONAL NEHRU
+# WAISTCOAT" (store=rathore) at ₹3,19,999 for the outerwear slot — 25.3x the
+# anchor price, pushing the look total to ₹3,33,979 for a demo user who gave
+# no budget signal at all.
+#
+# A per-product-type percentile cap (the other option the spec considered)
+# does NOT catch this: the offending row's product_type_name is mislabeled
+# "Fashion" (not "waistcoat"), and that catalogue-wide bucket (7,628 rows,
+# mixing ₹300 earrings with ₹12+ lakh luxury pieces) has its own p99 of
+# ₹3,76,729 — the item sits INSIDE that bucket's "normal" range, so a
+# type-relative cap is defeated by the same mislabeling that let the item
+# through in the first place. Anchoring the cap to THIS LOOK's own hero price
+# instead is robust to that mislabeling and mirrors _CHEAP_OUTLIER_FACTOR's
+# established shape (graph.py) — a multiplier of the look's own price signal,
+# never a hardcoded INR threshold.
+#
+# Calibrated well below the real repro's 25.3x ratio so ordinary pricier
+# complements (a sherwani/bandhgala accent piece) still survive: verified
+# against data/processed/unified/catalogue.parquet medians — sherwani
+# ₹18,999 (~9.5x a ₹1,999-median kurta), footwear ₹2,400, dupatta ₹1,999,
+# jewellery ₹12,370 — all comfortably under an 8x cap relative to a
+# typical anchor. Skipped entirely (see compose_outfit) when the user gave
+# an explicit budget — budget_remaining's own gate already bounds price
+# there, and an explicit high budget is an intentional request for
+# expensive items.
+_PRICE_OUTLIER_FACTOR: float = 8.0
+
 
 @dataclass
 class PairingStat:
@@ -251,6 +281,16 @@ def compose_outfit(
     # the start, as before.
     running_total = 0.0 if owned_anchor else (seed_item.get("price_inr") or 0.0)
 
+    # Absurd price-outlier guard (2026-07-23) — see _PRICE_OUTLIER_FACTOR's
+    # module-level docstring for the full rationale. Skipped when the user
+    # gave an explicit budget (budget_remaining already bounds price there,
+    # and a stated budget is an intentional request) or when the anchor has
+    # no catalogue price to anchor against (owned/uploaded seed item).
+    _anchor_price_for_cap = seed_item.get("price_inr") or 0.0
+    price_outlier_cap: float | None = None
+    if budget_inr is None and _anchor_price_for_cap > 0:
+        price_outlier_cap = _anchor_price_for_cap * _PRICE_OUTLIER_FACTOR
+
     for slot_spec in fill_slots:
         candidate = _find_best_candidate(
             query=slot_spec.search_query,
@@ -268,6 +308,7 @@ def compose_outfit(
             body_type=body_type,
             body_modifiers=body_modifiers,
             formality_override=formality_override,
+            price_outlier_cap=price_outlier_cap,
         )
         if candidate is None and slot_spec.slot_name == "bottom" and effective_gender == "men":
             # Live defect 2026-07-10: the men's ethnic bottom query (churidar/
@@ -292,6 +333,7 @@ def compose_outfit(
                 body_type=body_type,
                 body_modifiers=body_modifiers,
                 formality_override=formality_override,
+                price_outlier_cap=price_outlier_cap,
             )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
@@ -871,6 +913,7 @@ def _score_candidates(
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
     formality_override: str | None = None,
+    price_outlier_cap: float | None = None,
 ) -> list[tuple[float, dict]]:
     """Run every hard gate + score every surviving candidate.
 
@@ -887,6 +930,13 @@ def _score_candidates(
     formality_override: Batch 2 (2026-07-13) — passed straight to
     fabric_score_delta (see that function's docstring). Same "nudge, never a
     gate" treatment as body_type above.
+
+    price_outlier_cap: 2026-07-23 — see _PRICE_OUTLIER_FACTOR's module-level
+    docstring. A hard gate (unlike body_type/formality_override above): any
+    candidate priced above this cap is rejected outright, never merely
+    nudged, mirroring _apply_loungewear_gate's "never an acceptable
+    substitute" discipline in graph.py. None (the default, and always the
+    value passed when the user gave an explicit budget) is a full no-op.
     """
     scored: list[tuple[float, dict]] = []
     for item in candidates:
@@ -967,6 +1017,11 @@ def _score_candidates(
             price = item.get("price_inr") or 0.0
             if price > budget_remaining:
                 continue
+        # Absurd price-outlier guard — see _PRICE_OUTLIER_FACTOR docstring.
+        if price_outlier_cap is not None:
+            price = item.get("price_inr") or 0.0
+            if price > price_outlier_cap:
+                continue
 
         base_score = item.get("score") or 0.5
         c_score = colour_score(item.get("colour") or "", anchor_colour, occasion_slug)
@@ -1005,6 +1060,7 @@ def _find_best_candidate(
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
     formality_override: str | None = None,
+    price_outlier_cap: float | None = None,
 ) -> dict | None:
     # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
     # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
@@ -1076,6 +1132,7 @@ def _find_best_candidate(
         body_type=body_type,
         body_modifiers=body_modifiers,
         formality_override=formality_override,
+        price_outlier_cap=price_outlier_cap,
     )
 
     # Phase B pool-underflow fallback (live-proven: "office look for women"
@@ -1126,6 +1183,7 @@ def _find_best_candidate(
                 body_type=body_type,
                 body_modifiers=body_modifiers,
                 formality_override=formality_override,
+                price_outlier_cap=price_outlier_cap,
             )
 
     if not scored:
