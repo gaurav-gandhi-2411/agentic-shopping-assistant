@@ -1,0 +1,22 @@
+display_name: "Silvertraq"
+logo_url: null
+primary_colour: "#0F3D3E"
+accent_colour: "#D9F0D8"
+tagline: "Women's activewear and travel-ready athleisure — leggings, sports bras, joggers"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): 0/309 rows carry an explicit "men" token; 15 rows carry
+# an explicit "Women's" label ("Women's Ath Runner Zip Neck ..."). The dominant
+# categories are exclusively women's silhouettes (sports bras: 71 rows, leggings:
+# 68 rows) with no men's line in the raw feed at all -- "women" is the
+# evidence-backed default, same pattern as blissclub.
+gender_default: "women"
+catalogue_path: "data/raw/shopify/silvertraq/products.csv"
+pdp_url_template: "https://silvertraq.com/products/{handle}"
+suggestion_chips:
+  - "Sports bra for gym"
+  - "High waist leggings for workout"
+  - "Track pants for gym"
+  - "Cycling shorts for running"
+  - "Gym tee for women"

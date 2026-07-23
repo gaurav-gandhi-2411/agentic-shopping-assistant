@@ -1252,3 +1252,30 @@ labels:
   - {article_id: "8475620376798", relevant: true, note: "'Five layered kemp long haram with Balis' -- kemp jewellery is a South Indian craft category definitionally set in gold-tone metal (no silver/other-metal kemp convention exists); desc does not contradict with any other base metal, type is jewellery, gender women"}
   - {article_id: "9236245446883", relevant: true, note: "'Radhae Krishna Nagas Pendant' -- desc explicit 'handcrafted in 92.5 silver and plated with 24kt gold'; genuinely gold-plated jewellery, women"}
   - {article_id: "8603406401758", relevant: false, reason: type-confusion, note: "'Set of 3 Ajrakh Printed Red Lehenga Set' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}
+
+# ── Batch 11 (2026-07-23): Wave 8 activewear ingestion (blissclub +
+# silvertraq added, catalogue 109,871 -> 110,358) changed which items surface
+# into top-5 for 5 queries -- 5 newly-surfaced items hand-labeled against the
+# same rubric so eval_gate.py runs with zero unlabeled. Only 1 of the 5
+# (gold_011) is actually a new-store item; the other 4 are pre-existing items
+# whose rank shifted because a larger unified index changes top-5 competition
+# for some queries -- an expected side-effect of any catalogue rebuild, not a
+# retrieval-logic change.
+# retrieval_snapshot: data/processed/unified rebuilt 2026-07-23 (41 stores),
+# eval_strict.py --mode pipeline (mirrors search_node's filter+gate+rerank).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_002
+  items:
+  - {article_id: "7712093765718", relevant: true, note: "'Ethnic Printed & Embroidered A-Line Plated Maxi Dress' -- desc explicit 'A-line maxi dress', product_type dress, gender women, no budget stated"}
+- query_id: gold_011
+  items:
+  - {article_id: "9136755704064", relevant: true, note: "'Ultimate Stretch Pencil Skirt' (blissclub, new store) -- title explicit 'Pencil Skirt', product_type skirt, gender women, direct literal match"}
+- query_id: gold_029
+  items:
+  - {article_id: "9959089013033", relevant: true, note: "'Aanya|Cotton Denim Jacket' -- title/desc explicit 'classic denim jacket', product_type outerwear, gender women"}
+- query_id: gold_032
+  items:
+  - {article_id: "8567191928987", relevant: false, reason: budget, note: "'White shirt with floral design' -- query states 'under 2000', item price ₹5,995; direct budget contradiction, formal-shirt/men/white attributes otherwise match"}
+- query_id: occ_adv_003
+  items:
+  - {article_id: "7553272545502", relevant: false, reason: occasion-register, note: "'Women Navy Blue Round Neck Hosiery T-Shirt' -- 'office wear' mention in desc is generic templated boilerplate ('Women's tops are a versatile and essential wardrobe staple...ideal for casual outings, office wear, travel, and daily activities' -- same stock phrase pattern likely reused across many unrelated tee listings, not an item-specific claim); a basic round-neck hosiery tee is casual register, doesn't match this app's office occasion's smart-casual/formal western_register gate"}

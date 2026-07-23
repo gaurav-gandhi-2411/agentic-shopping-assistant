@@ -16,6 +16,12 @@ Mandatory spot-check results (verified by test_normalizer.py):
     "DressBerry Sweater"                -> knitwear   (high)  [brand-strip]
     "Black Floral Maxi Dress"           -> dress      (high)
     "Kurti For Women"                   -> kurti      (high)  [barrier before "For Women" stops no garment noun]
+    "Ultimate Printed Leggings"         -> leggings   (high)
+    "High Impact Action Sports Bra"     -> sports_bra (high)  [compound table]
+    "TraqLite Track Pants Black"        -> track_pants (high) [compound table]
+    "TraqPace Cargo Pants Lilac"        -> cargo_pants (high) [compound table]
+    "TraqEase Sweatpants Black"         -> joggers    (high)  [synonym merge]
+    "The Do-It All Skorts"              -> skort      (high)
 """
 
 from __future__ import annotations
@@ -66,6 +72,15 @@ _COMPOUND_TERMS: dict[str, str] = {
     "kurta pyjama": "kurta",
     "kurta pajama": "kurta",
     "kurta and pajama": "kurta",
+    # 2026-07-23 activewear wave (blissclub.com, silvertraq.com — closing the
+    # gym-query catalogue gap). These three must be compound-table entries, not
+    # position-scan rules, because the bare noun ("pants"/"bra") they end in is
+    # already claimed by an existing generic rule (trousers' "\bpants\b",
+    # innerwear's "\bbra\b") which would otherwise win the rightmost-noun scan —
+    # same reason "dress shirt" -> "shirt" is a compound entry above.
+    "sports bra": "sports_bra",
+    "track pants": "track_pants",
+    "cargo pants": "cargo_pants",
 }
 
 # Pre-sorted longest → shortest so the first match wins when phrases overlap
@@ -80,10 +95,25 @@ _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
 _GARMENT_RULES: list[tuple[str, str, str]] = [
     # Bottoms & shorts — specific first so "under dresses" purpose clause doesn't win
     (r"\bshorts?\b", "shorts", "apparel"),
+    # Skort ("skirt" + "shorts" hybrid) is a distinct noun in real titles
+    # (blissclub/silvertraq "Skort(s)") — does not share a substring with the
+    # "shorts" rule above, so no collision/compound entry needed.
+    (r"\bskorts?\b", "skort", "apparel"),
     (r"\bminiskirt\b|\bmini skirt\b", "skirt", "apparel"),
     (r"\bskirt\b", "skirt", "apparel"),
     (r"\btrouser\b|\btrousers\b|\bpants\b|\bchino\b|\bchinos\b", "trousers", "apparel"),
     (r"\bjean\b|\bjeans\b|\bdenim\b", "jeans", "apparel"),
+    # Activewear (2026-07-23, blissclub.com/silvertraq.com gym-query gap wave).
+    # "leggings" never collides with the generic "\bpants\b" rule above (distinct
+    # word), so it's a plain position-scan rule. "joggers"/"sweatpants" are
+    # synonyms in this data (silvertraq's own store label groups "TraqEase
+    # Sweatpants" under product_type "Joggers") — merged into one canonical
+    # value rather than spawning a "sweatpants" type for a distinction the
+    # catalogue itself doesn't make. "sports bra"/"track pants"/"cargo pants"
+    # are handled above in _COMPOUND_TERMS (they collide with existing generic
+    # bare-noun rules and need the compound short-circuit).
+    (r"\bleggings?\b", "leggings", "apparel"),
+    (r"\bjoggers?\b|\bsweatpants?\b", "joggers", "apparel"),
     # Ethnic
     (r"\bsarees?\b|\bsari\b", "saree", "apparel"),
     (r"\blehenga\b", "lehenga", "apparel"),

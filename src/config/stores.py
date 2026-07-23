@@ -193,6 +193,18 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
         "pdp_url_template": "https://thejewelbox.in/products/{handle}",
         "active": True,
     },
+    # Activewear/gym-query inventory gap (2026-07-23). pdp_url_template mirrors
+    # each brand's brands/<slug>.yaml file.
+    "blissclub": {
+        "display_name": "BlissClub",
+        "pdp_url_template": "https://blissclub.com/products/{handle}",
+        "active": True,
+    },
+    "silvertraq": {
+        "display_name": "Silvertraq",
+        "pdp_url_template": "https://silvertraq.com/products/{handle}",
+        "active": True,
+    },
 }
 
 # ---------------------------------------------------------------------------

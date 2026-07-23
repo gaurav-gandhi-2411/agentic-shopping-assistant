@@ -502,3 +502,59 @@ def test_genuine_shirt_unaffected_by_jewellery_precedence() -> None:
     result = normalize_garment_type("Formal Shirt")
     assert result.garment_type == "shirt"
     assert result.category == "apparel"
+
+
+# ---------------------------------------------------------------------------
+# Activewear wave (2026-07-23) — blissclub.com/silvertraq.com onboarding to
+# close the gym-query catalogue gap (women's sports bras, leggings, joggers).
+# "sports bra"/"track pants"/"cargo pants" needed compound-table entries
+# because the bare noun they end in ("bra"/"pants") is already claimed by an
+# existing generic rule (innerwear's "\bbra\b", trousers' "\bpants\b") that
+# would otherwise win the rightmost-noun scan. Live titles below are drawn
+# directly from the two stores' /products.json downloads.
+# ---------------------------------------------------------------------------
+
+ACTIVEWEAR_CASES: list[tuple[str, str, str]] = [
+    # (prod_name, expected_garment_type, expected_category)
+    ("Ultimate Printed Leggings", "leggings", "apparel"),  # live blissclub title
+    ("Contour Shaper Leggings Black", "leggings", "apparel"),  # live silvertraq title
+    ("Strappy Racerback Sports Bra", "sports_bra", "apparel"),  # live blissclub title
+    ("High Impact Action Sports Bra Lilac", "sports_bra", "apparel"),  # live silvertraq title
+    ("Keyhole Back Sports bra with Clasp Berry Kiss", "sports_bra", "apparel"),  # lowercase "bra"
+    ("Ultimate Cuffed Joggers", "joggers", "apparel"),  # live blissclub title
+    ("TraqEase Sweatpants Black", "joggers", "apparel"),  # synonym merge, live silvertraq title
+    ("TraqLite Track Pants Black", "track_pants", "apparel"),  # live silvertraq title
+    ("TraqPace Cargo Pants Lilac", "cargo_pants", "apparel"),  # live silvertraq title
+    ("The Do-It All Skorts", "skort", "apparel"),  # live blissclub title
+    ("TraqFlex Skort White", "skort", "apparel"),  # live silvertraq title
+]
+
+
+@pytest.mark.parametrize("prod_name,expected_gt,expected_cat", ACTIVEWEAR_CASES)
+def test_activewear_garment_types(prod_name: str, expected_gt: str, expected_cat: str) -> None:
+    """Leggings/sports_bra/joggers/track_pants/cargo_pants/skort must resolve,
+    not fall through to a generic bottoms/innerwear type or unknown."""
+    result = normalize_garment_type(prod_name)
+    assert result.garment_type == expected_gt, (
+        f"'{prod_name}': expected garment_type={expected_gt!r}, got {result.garment_type!r}"
+    )
+    assert result.category == expected_cat, (
+        f"'{prod_name}': expected category={expected_cat!r}, got {result.category!r}"
+    )
+    assert result.type_confidence == "high"
+
+
+def test_generic_pants_unaffected_by_activewear_rules() -> None:
+    """A plain trousers listing with no activewear noun must still resolve to
+    'trousers' — the new compound entries only fire on their exact phrases."""
+    result = normalize_garment_type("Linen Tapered Pants Beige")
+    assert result.garment_type == "trousers"
+    assert result.category == "apparel"
+
+
+def test_generic_bra_unaffected_by_sports_bra_rule() -> None:
+    """A plain bra listing with no 'sports' modifier must still resolve to
+    'innerwear' — the sports_bra compound entry only fires on 'sports bra'."""
+    result = normalize_garment_type("Absolute Invisible Bra")
+    assert result.garment_type == "innerwear"
+    assert result.category == "apparel"
