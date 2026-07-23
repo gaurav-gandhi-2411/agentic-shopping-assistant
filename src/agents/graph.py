@@ -46,6 +46,7 @@ from src.catalogue.cleaning import (
     is_fabric_bolt_text,
     is_kids_item,
     is_loungewear_text,
+    is_occasion_merchandise_name,
     is_occasion_merchandise_type,
 )
 from src.config.brand import BrandConfig, get_brand_config
@@ -793,6 +794,17 @@ def _apply_occasion_merchandise_gate(
     the catalogue's literal "Rakhi"/"Gift Hamper"/"Idols" rows highly since
     they legitimately match the occasion keyword lexically.
 
+    Applies BOTH is_occasion_merchandise_type (a dedicated non-apparel
+    product_type_name) AND is_occasion_merchandise_name (a merchandise-
+    suggestive name under a GENERIC catalog bucket, e.g. "Fashion"/"Others")
+    — 2026-07-23 live-proof (revision asa-stylist-api-00084-7t4) found a
+    residual leak the type-only check missed: "White And Pink Beautiful
+    Floral Designer Bhaiya Bhabhi Rakhi Set" (store=ishhaara,
+    product_type_name="Fashion") ranked #1 of only 2 results. See
+    is_occasion_merchandise_name's docstring for why a genuine apparel item
+    like "Men's ... Kurta Rakhi Gift Box for Brother" (typed "kurta") is
+    never excluded by the name check.
+
     Gated on:
       - occasion_slug being set (no-op for non-occasion queries).
       - garment_type is None — a query that already named a garment noun
@@ -816,6 +828,9 @@ def _apply_occasion_merchandise_gate(
     return [
         it for it in items
         if not is_occasion_merchandise_type(it.get("product_type"))
+        and not is_occasion_merchandise_name(
+            it.get("prod_name") or it.get("display_name"), it.get("product_type")
+        )
     ]
 
 

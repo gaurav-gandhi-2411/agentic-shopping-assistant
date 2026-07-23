@@ -28,13 +28,24 @@ Fixes verified here:
   C. End-to-end: the plain search path (search_node) never surfaces
      occasion-merchandise for a bare apparel-intent occasion query, against
      the real unified catalogue.
+  D. 2026-07-23 FOLLOW-UP (live-proof on revision asa-stylist-api-00084-7t4):
+     is_occasion_merchandise_name (src.catalogue.cleaning) — a NAME-level
+     complement to A, catching merchandise a store tagged with a GENERIC
+     catalog bucket ("Fashion"/"Others"/"Article"/...) instead of a
+     dedicated "Rakhi"/"Idols" type. Live-proven residual leak: "White And
+     Pink Beautiful Floral Designer Bhaiya Bhabhi Rakhi Set" (store=ishhaara,
+     product_type_name="Fashion") ranked #1 of only 2 results for "what
+     should I wear for raksha bandhan" — A's type-only check missed it. A
+     genuine apparel item whose name ALSO mentions rakhi/gift ("Men's Yellow
+     Lehariya Cotton Kurta Rakhi Gift Box for Brother", typed "kurta") is
+     never excluded — its type is real apparel, not a generic bucket.
 """
 from __future__ import annotations
 
 import pytest
 
 from src.agents.graph import _apply_occasion_merchandise_gate
-from src.catalogue.cleaning import is_occasion_merchandise_type
+from src.catalogue.cleaning import is_occasion_merchandise_name, is_occasion_merchandise_type
 
 # ---------------------------------------------------------------------------
 # A. is_occasion_merchandise_type
@@ -165,6 +176,111 @@ class TestApplyOccasionMerchandiseGate:
             items, "raksha_bandhan", None, "what should I wear for raksha bandhan"
         )
         assert out == []
+
+    def test_generic_typed_rakhi_set_stripped(self) -> None:
+        """The exact live-proof residual leak (revision
+        asa-stylist-api-00084-7t4): a Fashion-typed rakhi set that
+        is_occasion_merchandise_type's type-only check alone would miss."""
+        items = [_GENERIC_RAKHI_SET_ITEM, _KURTA_ITEM]
+        out = _apply_occasion_merchandise_gate(
+            items, "raksha_bandhan", None, "what should I wear for raksha bandhan"
+        )
+        assert _GENERIC_RAKHI_SET_ITEM not in out
+        assert _KURTA_ITEM in out
+
+    def test_generic_typed_rakhi_gift_box_kurta_never_stripped(self) -> None:
+        """A REAL kurta bundled with a rakhi ("... Kurta Rakhi Gift Box for
+        Brother", typed "kurta") must survive — the name mentions rakhi/gift
+        but the type IS real apparel, not a generic bucket."""
+        items = [_KURTA_RAKHI_GIFT_BOX_ITEM]
+        out = _apply_occasion_merchandise_gate(
+            items, "raksha_bandhan", None, "what should I wear for raksha bandhan"
+        )
+        assert out == items
+
+
+# ---------------------------------------------------------------------------
+# D. is_occasion_merchandise_name — the generic-type NAME-level complement
+# ---------------------------------------------------------------------------
+
+_GENERIC_RAKHI_SET_ITEM = {
+    "article_id": "g1", "product_type": "Fashion",
+    "prod_name": "White And Pink Beautiful Floral Designer Bhaiya Bhabhi Rakhi Set",
+}
+_KURTA_RAKHI_GIFT_BOX_ITEM = {
+    "article_id": "kg1", "product_type": "kurta",
+    "prod_name": "Men's Yellow Lehariya Cotton Kurta Rakhi Gift Box for Brother",
+}
+
+
+class TestIsOccasionMerchandiseName:
+    def test_generic_typed_rakhi_set_flagged(self) -> None:
+        """The exact live-proof residual item."""
+        assert is_occasion_merchandise_name(
+            "White And Pink Beautiful Floral Designer Bhaiya Bhabhi Rakhi Set", "Fashion"
+        ) is True
+
+    def test_generic_typed_bare_occasion_phrase_flagged(self) -> None:
+        """No literal "rakhi" word, but the bare occasion phrase alone under
+        a generic type is still merchandise (the 1 residual raksha_bandhan
+        row this pattern was audited against)."""
+        assert is_occasion_merchandise_name("Raksha Bandhan Gift For Brother", "Fashion") is True
+
+    def test_generic_typed_idol_flagged(self) -> None:
+        assert is_occasion_merchandise_name(
+            "Voylla 92.5 Sterling Silver Kamdhenu Sacred Cow Idol", "Article"
+        ) is True
+
+    def test_generic_typed_tealight_holder_flagged(self) -> None:
+        assert is_occasion_merchandise_name("Festive Decorative Tealight Holder", "Others") is True
+
+    def test_generic_typed_showpiece_flagged(self) -> None:
+        assert is_occasion_merchandise_name("Divine Bond Festive Showpiece", "Others") is True
+
+    def test_kurta_typed_rakhi_gift_box_never_flagged(self) -> None:
+        """The critical negative case: a REAL kurta whose name mentions
+        rakhi/gift must NEVER be excluded — its type IS real apparel."""
+        assert is_occasion_merchandise_name(
+            "Men's Yellow Lehariya Cotton Kurta Rakhi Gift Box for Brother", "kurta"
+        ) is False
+
+    def test_nightwear_typed_rakhi_gift_box_never_flagged(self) -> None:
+        assert is_occasion_merchandise_name(
+            "Men's Red Bandhni Rayon Kurta & Pyjama Rakhi Gift Box for Brother", "nightwear"
+        ) is False
+
+    def test_bracelets_typed_rakhi_bracelet_never_flagged(self) -> None:
+        """Jewellery carve-out: "Bracelets" is a real accessory type, not a
+        generic bucket — a literal "Rakhi Bracelet" stays included."""
+        assert is_occasion_merchandise_name(
+            "Multicolor Gold-Plated Jadau Kundan Rakhi Bracelet", "Bracelets"
+        ) is False
+
+    def test_tie_set_typed_gift_set_never_flagged(self) -> None:
+        """"gift" alone under a real accessory type ("Tie Set") is not
+        merchandise — only rakhi/idol/hamper/showpiece/tealight/raksha-
+        bandhan words trigger this predicate, and only under a generic type."""
+        assert is_occasion_merchandise_name(
+            "Classic Dot Pattern Tie and Cufflink Gift Set", "Tie Set"
+        ) is False
+
+    def test_generic_type_with_no_merchandise_word_not_flagged(self) -> None:
+        assert is_occasion_merchandise_name("Chand Shaped Pachi Kundan Studded Earchains", "Fashion") is False
+
+    def test_none_prod_name_safe(self) -> None:
+        assert is_occasion_merchandise_name(None, "Fashion") is False
+
+    def test_none_product_type_treated_as_generic(self) -> None:
+        """A missing product_type_name (None) is itself a "no apparel
+        signal" case — treated as generic, per _GENERIC_PRODUCT_TYPES
+        including the empty string."""
+        assert is_occasion_merchandise_name("Rakhi Combo", None) is True
+
+    def test_none_product_type_with_no_merchandise_word_safe(self) -> None:
+        assert is_occasion_merchandise_name("Blue Cotton Kurta", None) is False
+
+    def test_empty_strings_safe(self) -> None:
+        assert is_occasion_merchandise_name("", "") is False
 
 
 # ---------------------------------------------------------------------------
