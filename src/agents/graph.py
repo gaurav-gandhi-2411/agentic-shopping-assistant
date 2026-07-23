@@ -13,6 +13,7 @@ from src.agents.outfit.body_type import (
     body_type_clarify_message,
     demote_size_mismatched_items,
 )
+from src.agents.outfit.coherence import is_athletic_register_occasion
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
@@ -31,6 +32,7 @@ from src.agents.outfit.slots import (
     _FORMAL_ETHNIC_OCCASIONS,
     FORMALITY_SOFTENER_VALUES,
     SANGEET_EMBELLISHMENT_KEYWORDS,
+    is_athletic_footwear_item,
     resolve_look_gender,
 )
 from src.agents.reranker import rerank
@@ -849,6 +851,57 @@ def _apply_occasion_merchandise_gate(
         and not is_occasion_merchandise_name(
             it.get("prod_name") or it.get("display_name"), it.get("product_type")
         )
+    ]
+
+
+def _apply_athletic_footwear_gate(
+    items: list[dict], occasion_slug: str | None, garment_type: str | None
+) -> list[dict]:
+    """Strip non-athletic footwear from a gym-occasion, explicit-footwear
+    plain-search result set.
+
+    Live-proven bug (2026-07-24, revision asa-stylist-api-00086-5qh): "gym
+    shoes for women under 1500" (garment_type="footwear" + occasion="gym", no
+    "look"/"outfit" framing) returned literal formal heels ("Black Sierra
+    Heels", "Sarah Tie-up Heels", store=houseofvian) — the LLM's own reply
+    even called them "a bit of a stretch for a gym shoe search" while still
+    presenting them as legitimate results. Contrast: "gym look for women
+    under 1500" (same budget/gender/occasion, no garment noun) already routes
+    through compose_outfit instead and correctly, honestly suppresses
+    footwear via coherence.py's gate 5 (is_athletic_register_occasion +
+    is_athletic_footwear_item, commit a2b67c9).
+
+    Root cause: gate 5 is wired ONLY into compose_outfit's candidate scoring
+    (is_coherent_candidate -> composer._find_best_candidate). A query naming
+    an explicit garment noun ("shoes") hard-filters retrieval to that
+    product_type and skips compose_outfit entirely — the SAME established
+    convention _apply_occasion_merchandise_gate's docstring documents for the
+    mirror-image case (garment_type SET -> compose_outfit never runs) — so a
+    garment_type="footwear" + occasion="gym" plain search never passed
+    through any athletic-footwear check at all.
+
+    Reuses is_athletic_footwear_item (slots.py, already defined for gate 5 —
+    never reimplemented here) and is_athletic_register_occasion (coherence.py)
+    so this gate and gate 5 always key off the exact same occasion set.
+    Gated on BOTH occasion_slug being athletic-register AND garment_type
+    being "footwear" — a bare "gym shoes" query with no gym occasion
+    resolved, or a gym query for a non-footwear garment, is untouched.
+
+    Deliberately NOT pool-underflow protected, same discipline as
+    _apply_loungewear_gate / _apply_occasion_merchandise_gate: a non-athletic
+    shoe is never an acceptable gym-shoe result even as a last resort
+    (catalogue audit: ~0 women's, ~20 men's genuine athletic-footwear rows —
+    see is_athletic_footwear_item's docstring), so this can legitimately
+    empty `items` and drive the same honest zero_confidence signal the
+    plain-search pipeline already uses for genuinely-empty result sets.
+    """
+    if not (occasion_slug and is_athletic_register_occasion(occasion_slug)):
+        return items
+    if garment_type != "footwear":
+        return items
+    return [
+        it for it in items
+        if is_athletic_footwear_item(it.get("prod_name") or it.get("display_name") or "")
     ]
 
 
@@ -2623,6 +2676,16 @@ def build_graph(
             # thread products instead of apparel.
             items_out = _apply_occasion_merchandise_gate(
                 items_out, _occ_slug, _occ_intent.garment_type, raw_query
+            )
+
+            # 2026-07-24 fix: see _apply_athletic_footwear_gate docstring —
+            # fixes "gym shoes for women under 1500" surfacing formal heels.
+            # The _occ_gated coherence check just above always calls
+            # is_coherent_candidate with slot_name="top", so gate 5's
+            # footwear-specific rule never fires on this path — this gate is
+            # the fix, not a duplicate of that check.
+            items_out = _apply_athletic_footwear_gate(
+                items_out, _occ_slug, _occ_intent.garment_type
             )
 
         # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate

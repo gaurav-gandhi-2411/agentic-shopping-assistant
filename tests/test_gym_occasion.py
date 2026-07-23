@@ -56,6 +56,7 @@ from src.agents.graph import (
     _OCCASION_LOOK_RE,
     _OUTFIT_INTENT_RE,
     _OUTFIT_OCCASION_RE,
+    _apply_athletic_footwear_gate,
 )
 from src.agents.intent_parser import parse_intent
 from src.agents.outfit.coherence import (
@@ -518,6 +519,169 @@ class TestGymFootwearHonestSuppressionRealIndex:
             occasion_slug="gym", gender="men", budget_inr=None,
         )
         self._assert_honest_footwear(look)
+
+
+# ── (n) _apply_athletic_footwear_gate — plain-search path fix ───────────────
+#
+# Live-proven bug (2026-07-24, revision asa-stylist-api-00086-5qh): "gym shoes
+# for women under 1500" (garment_type="footwear" + occasion="gym", no "look"/
+# "outfit" framing) routes through search_node's PLAIN SEARCH path, not
+# compose_outfit — and that path's own coherence check (_occ_gated in
+# graph.py's search_node) always calls is_coherent_candidate with
+# slot_name="top", so gate 5's footwear-specific athletic-only rule never
+# fired. It returned literal formal heels ("Black Sierra Heels", "Sarah
+# Tie-up Heels", store=houseofvian) and the LLM's own reply called them "a
+# bit of a stretch for a gym shoe search" while still showing them.
+# _apply_athletic_footwear_gate (graph.py) closes this gap by reusing
+# is_athletic_footwear_item directly, keyed on garment_type=="footwear" +
+# occasion=="gym" (via is_athletic_register_occasion).
+
+
+_HEEL_ITEM = {"product_type": "footwear", "prod_name": "Black Sierra Heels", "gender": "women"}
+_TIEUP_HEEL_ITEM = {"product_type": "footwear", "prod_name": "Sarah Tie-up Heels", "gender": "women"}
+_JUTTI_ITEM = {"product_type": "footwear", "prod_name": "Golden Embroidered Juttis", "gender": "women"}
+_SNEAKER_ITEM = {"product_type": "footwear", "prod_name": "Sneakers For Men (Black)", "gender": "men"}
+_RUNNING_SHOE_ITEM = {
+    "product_type": "footwear", "prod_name": "RS-5006 Running Shoes For Men (Black, Yellow)",
+    "gender": "men",
+}
+
+
+class TestApplyAthleticFootwearGate:
+    def test_gym_footwear_query_strips_non_athletic(self) -> None:
+        """The exact live-reproduced item shapes: formal heels stripped,
+        genuine athletic shoes survive."""
+        items = [_HEEL_ITEM, _TIEUP_HEEL_ITEM, _JUTTI_ITEM, _SNEAKER_ITEM, _RUNNING_SHOE_ITEM]
+        out = _apply_athletic_footwear_gate(items, "gym", "footwear")
+        assert _HEEL_ITEM not in out
+        assert _TIEUP_HEEL_ITEM not in out
+        assert _JUTTI_ITEM not in out
+        assert _SNEAKER_ITEM in out
+        assert _RUNNING_SHOE_ITEM in out
+
+    def test_non_athletic_register_occasion_is_noop(self) -> None:
+        items = [_HEEL_ITEM]
+        out = _apply_athletic_footwear_gate(items, "office", "footwear")
+        assert out == items
+
+    def test_none_occasion_is_noop(self) -> None:
+        items = [_HEEL_ITEM]
+        out = _apply_athletic_footwear_gate(items, None, "footwear")
+        assert out == items
+
+    def test_gym_non_footwear_garment_type_is_noop(self) -> None:
+        """A gym query for a non-footwear garment (e.g. "gym top") must never
+        be touched by this gate — it is footwear-slot-specific only."""
+        items = [{"product_type": "top", "prod_name": "Quirky Printed Gym Tank Top"}]
+        out = _apply_athletic_footwear_gate(items, "gym", "top")
+        assert out == items
+
+    def test_gym_no_garment_type_is_noop(self) -> None:
+        """garment_type=None (no explicit footwear noun, e.g. "gym look for
+        women") is the compose_outfit path's territory, already covered by
+        coherence.py's gate 5 — this gate deliberately no-ops so it never
+        double-applies or interferes with that path."""
+        items = [_HEEL_ITEM]
+        out = _apply_athletic_footwear_gate(items, "gym", None)
+        assert out == items
+
+    def test_pool_not_underflow_protected(self) -> None:
+        """Mirrors _apply_loungewear_gate / _apply_occasion_merchandise_gate's
+        discipline: a non-athletic shoe is never an acceptable gym-shoe
+        result even as a last resort — this MAY legitimately empty the
+        result list."""
+        items = [_HEEL_ITEM, _JUTTI_ITEM]
+        out = _apply_athletic_footwear_gate(items, "gym", "footwear")
+        assert out == []
+
+
+# ── (o) POINT 1 (fix 1): real-index end-to-end plain-search regression ──────
+
+
+class TestAthleticFootwearGateRealIndex:
+    """Reproduces the live bug end-to-end against the real unified catalogue,
+    mirroring tests/test_occasion_merchandise_leak.py's / this file's own
+    TestLoungewearGateCoversGymRealIndex's real-WS harness pattern.
+    """
+
+    @staticmethod
+    def _run_search(query: str):
+        from src.agents.graph import build_graph
+        from src.memory.conversation import ConversationMemory
+        from src.retrieval.dense_search import DenseRetriever
+        from src.retrieval.hybrid_search import HybridRetriever
+        from src.retrieval.sparse_search import SparseRetriever
+
+        unified_dir = "data/processed/unified"
+        config: dict = {
+            "agent": {"max_iterations": 3},
+            "memory": {"recent_turns": 6, "summary_trigger_turns": 12},
+            "retrieval": {
+                "dense_model": "sentence-transformers/all-MiniLM-L6-v2",
+                "dense_dim": 384,
+                "rrf_k": 60,
+                "top_k": 50,
+                "final_k": 10,
+                "store_diversity": 0.2,
+            },
+        }
+        dense = DenseRetriever.load(config, unified_dir)
+        sparse = SparseRetriever.load(config, unified_dir)
+        catalogue_df = pd.read_parquet(f"{unified_dir}/catalogue.parquet")
+        retriever = HybridRetriever(dense, sparse, catalogue_df, config)
+
+        llm = _RealIndexMockLLM(["Here you go."] * 5)
+        memory = ConversationMemory(llm, config)
+        agent = build_graph(retriever, catalogue_df, llm, config, streaming_mode=True)
+
+        state = {
+            "messages": [{"role": "user", "content": query}],
+            "user_query": query,
+            "current_plan": None,
+            "tool_calls": [],
+            "retrieved_items": [],
+            "filters": {},
+            "final_answer": None,
+            "iteration": 0,
+            "new_items_this_turn": False,
+            "out_of_catalogue": False,
+            "excluded_colours": None,
+            "anchor_article_id": None,
+            "outfit_rationale": None,
+            "outfit_variants": None,
+            "_memory": memory,
+        }
+        return agent.invoke(state)
+
+    @pytest.mark.requires_index
+    def test_gym_shoes_for_women_under_1500_no_non_athletic_footwear(self) -> None:
+        """The exact live-reproduced query. Verified offline (see this
+        module's docstring/commit) that the catalogue carries ~0 genuine
+        women's athletic-footwear rows, so the honest outcome is zero items
+        — never a non-athletic substitute like the live-proven heels."""
+        result = self._run_search("gym shoes for women under 1500")
+        items = result.get("retrieved_items", [])
+        non_athletic = [
+            it for it in items
+            if not is_athletic_footwear_item(it.get("prod_name") or it.get("display_name") or "")
+        ]
+        assert not non_athletic, (
+            f"non-athletic footwear leaked into 'gym shoes for women under "
+            f"1500': {[it.get('prod_name') for it in non_athletic]}"
+        )
+
+    @pytest.mark.requires_index
+    def test_gym_shoes_unbudgeted_men_returns_genuine_athletic_inventory(self) -> None:
+        """The contrast case this fix must not regress: men's side has real
+        athletic-footwear depth (~20 rows, store=flipkart) — the gate must be
+        a genuine-athletic-only filter, never a blanket suppressor."""
+        result = self._run_search("gym shoes for men")
+        items = result.get("retrieved_items", [])
+        assert items, "expected genuine athletic footwear results for 'gym shoes for men'"
+        for it in items:
+            assert is_athletic_footwear_item(it.get("prod_name") or it.get("display_name") or ""), (
+                f"non-athletic item surfaced for men's gym shoes: {it.get('prod_name')!r}"
+            )
 
 
 class _RealIndexMockLLM:
