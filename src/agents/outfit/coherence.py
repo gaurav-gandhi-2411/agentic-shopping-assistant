@@ -42,6 +42,25 @@ _ATHLETIC_REGISTER_OCCASIONS: frozenset[str] = frozenset({"gym"})
 # same conservative style as _WESTERN_MARKER_KEYWORDS in slots.py.
 _FESTIVE_MARKER_RE = re.compile(r"\b(quirky|festive)\b", re.IGNORECASE)
 
+# Wave 9 fix 2 (2026-07-24 live-proof): a "workout outfit for men" look's
+# outerwear slot filled with a "Regular Fit Knitted Polo Cardigan"
+# (store=snitch) — not gym-appropriate. Gate 5's ethnic/festive rejection has
+# no equivalent for FORMAL/DRESSY western outerwear. Unlike footwear (see
+# is_athletic_footwear_item's docstring), this catalogue's outerwear
+# inventory has no clean "genuinely athletic" INCLUSION signal (0 hoodie/
+# track-jacket/windbreaker-labeled rows), so this is a conservative
+# EXCLUSION of unambiguously formal/dressy markers instead — same shape as
+# _FESTIVE_MARKER_RE above. Catalogue audit (data/processed/unified/
+# catalogue.parquet, classify_item()=="outerwear", 3256 rows): 1204 rows
+# carry one of these markers; a hand-audit of the 5 bare "suit" matches found
+# zero false positives ("2 Piece Solid Men Suit", "Men's Beige Wedding Tuxedo
+# Suit with Blazer", etc. — all genuinely formal). No genuine athletic
+# tracksuit is caught here: Track-Suit listings are multi-piece SETS, already
+# excluded by is_multi_piece_set before gate 5 ever runs.
+_FORMAL_OUTERWEAR_MARKER_RE = re.compile(
+    r"\b(blazer|cardigan|waistcoat|coat|suit)\b", re.IGNORECASE
+)
+
 
 def is_western_register_occasion(occasion_slug: str) -> bool:
     """Return True if `occasion_slug` is one of the western-register
@@ -257,10 +276,17 @@ def is_coherent_candidate(
     # When no candidate survives this, composer._find_best_candidate returns
     # None and the slot goes through honest suppression
     # (composer._suppression_reason) instead of a wrong substitute.
+    # FURTHER ADDITIONALLY (outerwear-specific, 2026-07-24 live-proof — see
+    # _FORMAL_OUTERWEAR_MARKER_RE's docstring): a gym look's outerwear slot
+    # must never accept an unambiguously formal/dressy item (blazer/
+    # cardigan/waistcoat/coat/suit) — a knitted polo cardigan is not
+    # gym-appropriate.
     if occasion_slug in _ATHLETIC_REGISTER_OCCASIONS:
         if is_ethnic_item(pt, name) or _FESTIVE_MARKER_RE.search(name):
             return False
         if slot_name == "footwear" and not is_athletic_footwear_item(name):
+            return False
+        if slot_name == "outerwear" and _FORMAL_OUTERWEAR_MARKER_RE.search(name):
             return False
 
     return True

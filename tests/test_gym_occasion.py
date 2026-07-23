@@ -285,6 +285,71 @@ class TestIsAthleticFootwearItem:
         assert is_athletic_footwear_item("") is False
 
 
+# ── (i2) coherence gate 5: outerwear-specific formal-marker exclusion (fix 2) ─
+#
+# Live-proven (2026-07-24, revision asa-stylist-api-00086-5qh): a men's
+# "workout outfit for men" compose_outfit look filled its outerwear slot with
+# a "Regular Fit Knitted Polo Cardigan" (store=snitch) — not gym-appropriate.
+# Unlike footwear, this catalogue's outerwear inventory has no clean
+# "genuinely athletic" inclusion signal, so this is a conservative EXCLUSION
+# of unambiguously formal/dressy markers (blazer/cardigan/waistcoat/coat/
+# suit) — see coherence.py's _FORMAL_OUTERWEAR_MARKER_RE docstring for the
+# catalogue audit backing this list.
+
+
+class TestGymOuterwearFormalMarkerGate:
+    def test_cardigan_rejected_from_gym_outerwear(self) -> None:
+        """The exact live-reproduced item."""
+        item = {"product_type": "knitwear", "prod_name": "Regular Fit Knitted Polo Cardigan",
+                "gender": "men"}
+        assert not is_coherent_candidate(item, "gym", "men", "outerwear")
+
+    def test_blazer_rejected_from_gym_outerwear(self) -> None:
+        item = {"product_type": "outerwear", "prod_name": "Navy Blue Slim Fit Blazer",
+                "gender": "men"}
+        assert not is_coherent_candidate(item, "gym", "men", "outerwear")
+
+    def test_waistcoat_rejected_from_gym_outerwear(self) -> None:
+        item = {"product_type": "outerwear", "prod_name": "White Cotton Embroidered Waist Coat",
+                "gender": "men"}
+        assert not is_coherent_candidate(item, "gym", "men", "outerwear")
+
+    def test_winter_coat_rejected_from_gym_outerwear(self) -> None:
+        item = {"product_type": "outerwear", "prod_name": "Black Long Wool-Blend Winter Coat",
+                "gender": "women"}
+        assert not is_coherent_candidate(item, "gym", "women", "outerwear")
+
+    def test_formal_suit_rejected_from_gym_outerwear(self) -> None:
+        item = {"product_type": "outerwear", "prod_name": "2 Piece Solid Men Suit",
+                "gender": "men"}
+        assert not is_coherent_candidate(item, "gym", "men", "outerwear")
+
+    def test_sports_jacket_accepted(self) -> None:
+        item = {"product_type": "outerwear", "prod_name": "Full Sleeve Colorblock Men Sports Jacket",
+                "gender": "men"}
+        assert is_coherent_candidate(item, "gym", "men", "outerwear")
+
+    def test_bomber_jacket_accepted(self) -> None:
+        item = {"product_type": "outerwear", "prod_name": "Ribbed Bomber Jacket",
+                "gender": "men"}
+        assert is_coherent_candidate(item, "gym", "men", "outerwear")
+
+    def test_non_outerwear_slot_unaffected_by_formal_marker_rule(self) -> None:
+        """Scoped to slot_name=="outerwear" only — a "suit"-mentioning item in
+        another slot must never be rejected by this rule."""
+        item = {"product_type": "sports_bra", "prod_name": "Ultimate Printed Comfort Sports Bra",
+                "gender": "women"}
+        assert is_coherent_candidate(item, "gym", "women", "top")
+
+    def test_office_occasion_outerwear_unaffected(self) -> None:
+        """The formal-marker exclusion is scoped to ATHLETIC_REGISTER
+        occasions only — office's own blazer-friendly register must be
+        untouched (a blazer is exactly what an office look wants)."""
+        item = {"product_type": "outerwear", "prod_name": "Navy Blue Slim Fit Blazer",
+                "gender": "men"}
+        assert is_coherent_candidate(item, "office", "men", "outerwear")
+
+
 # ── (j) loungewear gate trigger set includes gym ─────────────────────────────
 
 
@@ -519,6 +584,78 @@ class TestGymFootwearHonestSuppressionRealIndex:
             occasion_slug="gym", gender="men", budget_inr=None,
         )
         self._assert_honest_footwear(look)
+
+
+# ── (m2) POINT 4 (fix 2): real-index outerwear formal-marker regression ─────
+
+
+class TestGymOuterwearFormalMarkerRealIndex:
+    """Composes a real "workout outfit for men" look against the real
+    unified catalogue and asserts the outerwear slot (if filled) never
+    carries a formal/dressy marker — the exact live-proven bug (revision
+    asa-stylist-api-00086-5qh): a "Regular Fit Knitted Polo Cardigan"
+    (store=snitch) filled a men's gym outerwear slot.
+    """
+
+    UNIFIED_DIR = "data/processed/unified"
+    _CONFIG: dict = {
+        "retrieval": {
+            "dense_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "dense_dim": 384,
+            "rrf_k": 60,
+            "top_k": 50,
+            "final_k": 10,
+            "store_diversity": 0.2,
+        },
+    }
+
+    @pytest.fixture(scope="class")
+    def _unified_index(self):
+        from src.retrieval.dense_search import DenseRetriever
+        from src.retrieval.hybrid_search import HybridRetriever
+        from src.retrieval.sparse_search import SparseRetriever
+
+        dense = DenseRetriever.load(self._CONFIG, self.UNIFIED_DIR)
+        sparse = SparseRetriever.load(self._CONFIG, self.UNIFIED_DIR)
+        catalogue_df = pd.read_parquet(f"{self.UNIFIED_DIR}/catalogue.parquet")
+        retriever = HybridRetriever(dense, sparse, catalogue_df, self._CONFIG)
+        return retriever, catalogue_df
+
+    @pytest.mark.requires_index
+    def test_mens_gym_look_outerwear_never_formal(self, _unified_index) -> None:
+        from src.agents.outfit.coherence import _FORMAL_OUTERWEAR_MARKER_RE
+        from src.agents.outfit.composer import compose_outfit
+
+        retriever, catalogue_df = _unified_index
+        look = compose_outfit(
+            catalogue_df, retriever,
+            seed_article_id=None,
+            occasion_slug="gym", gender="men", budget_inr=None,
+        )
+        outerwear = [c for c in look["complements"] if c.get("_slot") == "outerwear"]
+        for item in outerwear:
+            name = item.get("prod_name") or item.get("display_name") or ""
+            assert not _FORMAL_OUTERWEAR_MARKER_RE.search(name), (
+                f"formal/dressy outerwear item surfaced in a gym look: {name!r}"
+            )
+
+    @pytest.mark.requires_index
+    def test_womens_gym_look_outerwear_never_formal(self, _unified_index) -> None:
+        from src.agents.outfit.coherence import _FORMAL_OUTERWEAR_MARKER_RE
+        from src.agents.outfit.composer import compose_outfit
+
+        retriever, catalogue_df = _unified_index
+        look = compose_outfit(
+            catalogue_df, retriever,
+            seed_article_id=None,
+            occasion_slug="gym", gender="women", budget_inr=None,
+        )
+        outerwear = [c for c in look["complements"] if c.get("_slot") == "outerwear"]
+        for item in outerwear:
+            name = item.get("prod_name") or item.get("display_name") or ""
+            assert not _FORMAL_OUTERWEAR_MARKER_RE.search(name), (
+                f"formal/dressy outerwear item surfaced in a gym look: {name!r}"
+            )
 
 
 # ── (n) _apply_athletic_footwear_gate — plain-search path fix ───────────────
