@@ -39,12 +39,25 @@ Fixes verified here:
      genuine apparel item whose name ALSO mentions rakhi/gift ("Men's Yellow
      Lehariya Cotton Kurta Rakhi Gift Box for Brother", typed "kurta") is
      never excluded — its type is real apparel, not a generic bucket.
+  E. 2026-07-24 CONCEPT-BROADENING (hand-labeled in strict_gold_labels.yaml
+     Batch 12, query occ_adv_002): "bright haldi look for women" surfaced
+     "Ellaichi Brooch" (store=ishhaara, product_type_name="Fashion") — its
+     own detail_desc frames it as a "Haldi & Mehendi Favours" guest return-
+     gift, not apparel. Unlike D's residual leak, this item's NAME carries NO
+     merchandise marker at all — only the shared collection description
+     does, so is_occasion_merchandise_name now also checks detail_desc. A
+     full catalogue audit (see cleaning.py's _OCCASION_MERCHANDISE_NAME_RE
+     2026-07-24 comment) found genuine, non-redundant support for exactly one
+     new term family ("favour(s)"/"favor(s)") and confirmed the same 37-row
+     ishhaara collection is a real leak risk under haldi (37/37 rows),
+     mehendi (36/37), and wedding_guest (37/37) — all three get regression
+     coverage below.
 """
 from __future__ import annotations
 
 import pytest
 
-from src.agents.graph import _apply_occasion_merchandise_gate
+from src.agents.graph import _OCCASION_MERCHANDISE_REQUEST_RE, _apply_occasion_merchandise_gate
 from src.catalogue.cleaning import is_occasion_merchandise_name, is_occasion_merchandise_type
 
 # ---------------------------------------------------------------------------
@@ -284,6 +297,79 @@ class TestIsOccasionMerchandiseName:
 
 
 # ---------------------------------------------------------------------------
+# E. is_occasion_merchandise_name — 2026-07-24 favour/favor + detail_desc
+# ---------------------------------------------------------------------------
+
+_ELLAICHI_BROOCH_DESC = (
+    "Are you looking for the perfect way to thank your guests with a touch "
+    "of tradition? Welcome to Ishhaara's Haldi & Mehendi Favours, where "
+    "every token is a blend of love, culture, and celebration!"
+)
+
+
+class TestIsOccasionMerchandiseNameFavour:
+    def test_desc_only_favour_flagged(self) -> None:
+        """The exact live-proof item: NO merchandise word in the name
+        itself, only in the shared collection description."""
+        assert is_occasion_merchandise_name(
+            "Ellaichi Brooch", "Fashion", _ELLAICHI_BROOCH_DESC
+        ) is True
+
+    def test_name_only_favour_flagged(self) -> None:
+        assert is_occasion_merchandise_name(
+            "Special Hamper For Wedding Favours", "Fashion", None
+        ) is True
+
+    def test_favor_american_spelling_flagged(self) -> None:
+        assert is_occasion_merchandise_name(
+            "Party Favor Box", "Fashion", "A cute little wedding favor for guests."
+        ) is True
+
+    def test_favourite_not_a_false_positive(self) -> None:
+        """"Favourite" (a common real-apparel marketing word) must never
+        trip the word-bounded favour/favor pattern."""
+        assert is_occasion_merchandise_name(
+            "Pink Cotton Kurta Set", "Fashion",
+            "This kurta set is sure to become your favourite in no time.",
+        ) is False
+
+    def test_desc_favour_under_real_apparel_type_never_flagged(self) -> None:
+        """A genuine kurta whose desc happens to mention "favourite"/
+        "favors" stays included — its type IS real apparel, not generic."""
+        assert is_occasion_merchandise_name(
+            "Blue Solid Cotton Kurta", "kurta",
+            "Present as a thoughtful gift or use as a bridal favour.",
+        ) is False
+
+    def test_desc_favour_potli_bag_type_never_flagged(self) -> None:
+        """Real dual-use accessories (tjori's silk Potli bags, genuinely
+        marketed as wearable AND a bridal favour) stay included — "Potlis"
+        is a real accessory type, not a generic bucket."""
+        assert is_occasion_merchandise_name(
+            "Sapphire Blue Embroidered Silk Potli", "Potlis",
+            "Pair with a sapphire blue lehenga for a regal look. Present as "
+            "a thoughtful gift or use as a bridal favour for weddings.",
+        ) is False
+
+    def test_none_detail_desc_safe(self) -> None:
+        assert is_occasion_merchandise_name("Blue Cotton Kurta", "Fashion", None) is False
+
+
+class TestOccasionMerchandiseRequestReFavour:
+    def test_haldi_favours_request_matches(self) -> None:
+        assert _OCCASION_MERCHANDISE_REQUEST_RE.search("haldi favours for guests".lower())
+
+    def test_wedding_favors_request_matches(self) -> None:
+        assert _OCCASION_MERCHANDISE_REQUEST_RE.search("wedding favors for mehendi".lower())
+
+    def test_favourite_does_not_match(self) -> None:
+        """The bypass regex must not fire on ordinary "favourite" copy."""
+        assert not _OCCASION_MERCHANDISE_REQUEST_RE.search(
+            "this kurta is my favourite for haldi".lower()
+        )
+
+
+# ---------------------------------------------------------------------------
 # C. End-to-end: search_node never surfaces occasion merchandise (real index)
 # ---------------------------------------------------------------------------
 
@@ -360,6 +446,87 @@ class TestSearchNodeOccasionMerchandiseRealIndex:
         assert items, "expected items for 'rakhi for my brother'"
         rakhis = [it for it in items if (it.get("product_type") or "").lower() == "rakhi"]
         assert rakhis, "expected at least one Rakhi item for an explicit rakhi request"
+
+    # -- 2026-07-24 favour/favor concept-broadening regressions -------------
+
+    _ELLAICHI_BROOCH_ARTICLE_ID = "7332515610667"
+
+    @pytest.mark.requires_index
+    def test_bright_haldi_look_no_ellaichi_brooch_leak(self) -> None:
+        """The exact hand-labeled live-proof bug (strict_gold_labels.yaml
+        occ_adv_002): "bright haldi look for women" must never surface the
+        "Ellaichi Brooch" wedding-favour item, or any other item this
+        classifier considers occasion merchandise."""
+        result = self._run_search("bright haldi look for women")
+        items = result.get("retrieved_items", [])
+        assert items, "expected items for 'bright haldi look for women'"
+        leaked_ids = [it for it in items if str(it.get("article_id")) == self._ELLAICHI_BROOCH_ARTICLE_ID]
+        assert not leaked_ids, "Ellaichi Brooch (7332515610667) leaked into 'bright haldi look' results"
+        merch = [
+            it for it in items
+            if is_occasion_merchandise_type(it.get("product_type"))
+            or is_occasion_merchandise_name(
+                it.get("prod_name") or it.get("display_name"),
+                it.get("product_type"),
+                it.get("detail_desc"),
+            )
+        ]
+        assert not merch, f"occasion merchandise leaked: {[it.get('prod_name') for it in merch]}"
+
+    @pytest.mark.requires_index
+    def test_mehendi_look_no_favour_collection_leak(self) -> None:
+        """Audit-confirmed genuine risk: 36/37 rows in the ishhaara "Haldi &
+        Mehendi Favours" collection also match the mehendi keyword."""
+        result = self._run_search("mehendi look for women")
+        items = result.get("retrieved_items", [])
+        assert items, "expected items for 'mehendi look for women'"
+        merch = [
+            it for it in items
+            if is_occasion_merchandise_type(it.get("product_type"))
+            or is_occasion_merchandise_name(
+                it.get("prod_name") or it.get("display_name"),
+                it.get("product_type"),
+                it.get("detail_desc"),
+            )
+        ]
+        assert not merch, f"occasion merchandise leaked: {[it.get('prod_name') for it in merch]}"
+
+    @pytest.mark.requires_index
+    def test_wedding_guest_look_no_favour_collection_leak(self) -> None:
+        """Audit-confirmed genuine risk: 37/37 rows in the ishhaara favours
+        collection also mention "wedding" (e.g. "Special Hamper For Wedding
+        Favours"), so a wedding_guest-occasion query is equally exposed."""
+        result = self._run_search("wedding guest look for women")
+        items = result.get("retrieved_items", [])
+        assert items, "expected items for 'wedding guest look for women'"
+        merch = [
+            it for it in items
+            if is_occasion_merchandise_type(it.get("product_type"))
+            or is_occasion_merchandise_name(
+                it.get("prod_name") or it.get("display_name"),
+                it.get("product_type"),
+                it.get("detail_desc"),
+            )
+        ]
+        assert not merch, f"occasion merchandise leaked: {[it.get('prod_name') for it in merch]}"
+
+    @pytest.mark.requires_index
+    def test_haldi_favours_for_guests_still_returns_merchandise(self) -> None:
+        """Explicit merchandise request must still surface the favours
+        collection — the inverse-direction regression this fix must not
+        introduce (same discipline as test_rakhi_for_my_brother above)."""
+        result = self._run_search("haldi favours for guests")
+        items = result.get("retrieved_items", [])
+        assert items, "expected items for 'haldi favours for guests'"
+        favours = [
+            it for it in items
+            if is_occasion_merchandise_name(
+                it.get("prod_name") or it.get("display_name"),
+                it.get("product_type"),
+                it.get("detail_desc"),
+            )
+        ]
+        assert favours, "expected at least one favour item for an explicit favours request"
 
 
 class _RealIndexMockLLM:
