@@ -11,12 +11,17 @@ pipeline that surfaced it):
   --mode raw       (default) retriever.search(query, filters={gender}) only —
                     mirrors eval_model.py's R1 stage exactly. This is the
                     unfiltered retrieval FLOOR, not what users see.
-  --mode pipeline  additionally applies the SAME garment_type facet filter and
-                    occasion register gate/rerank the live search_node applies
-                    (reusing intent_parser.parse_intent, coherence.
-                    is_coherent_candidate, slots.fabric_score_delta directly —
-                    not reimplemented) — this is what production actually
-                    returns for these queries.
+  --mode pipeline  additionally applies the SAME garment_type facet filter,
+                    occasion register gate/rerank, loungewear/merchandise/
+                    athletic-footwear gates, formality-softener re-sort,
+                    price-qualifier, and shape!=size demotion the live
+                    search_node applies (reusing intent_parser.parse_intent,
+                    coherence.is_coherent_candidate, graph._apply_* gates,
+                    body_type.demote_size_mismatched_items directly — not
+                    reimplemented) — this is what production actually
+                    returns for these queries. See _retrieve_pipeline's
+                    docstring for the one disclosed, deliberate gap (the
+                    pre-rerank LLM-adjacent hard filter).
 Report both when diagnosing whether a fix reached production; report --mode
 pipeline alone when citing "real" user-facing precision.
 
@@ -96,9 +101,25 @@ def _retrieve_pipeline(
     occasion_gate toggles ONLY the is_coherent_candidate register gate +
     fabric_score_delta rerank (the 2026-07-11 occasion-gate fix). Every other
     mechanism here — garment_type/colour_group_name filters, the single-
-    garment set exclusion — is unconditional in both search_node and this
-    mirror, matching production regardless of the flag. Use both values to
-    isolate the occasion gate's specific contribution.
+    garment set exclusion, loungewear/merchandise/athletic-footwear gates,
+    the formality-softener re-sort, price-qualifier, and shape!=size
+    demotion — is unconditional in both search_node and this mirror, matching
+    production regardless of the flag. Use both values to isolate the
+    occasion gate's specific contribution.
+
+    2026-07-24 gate-parity audit: brought to genuine full parity with
+    search_node's occasion-gated block AND its post-rerank tail (loungewear,
+    merchandise, athletic-footwear, formality-softener, price-qualifier,
+    shape!=size — see each call site below for provenance). One deliberate,
+    disclosed gap remains: search_node also applies price_qualifier and a
+    formality_softener HARD FILTER on the WIDE pre-rerank candidate pool
+    (graph.py's rerank() call site) before its LLM reranker ever runs — this
+    mirror has no LLM rerank step at all (by design: --mode pipeline stays
+    deterministic and free), so that pre-rerank stage cannot be mirrored
+    without reintroducing an LLM call into the eval. The post-rerank
+    re-application of both (added here) is the closest deterministic
+    equivalent and matches what a query WITHOUT the pre-rerank exclusion
+    would still converge to on the top-50 pool used here.
 
     cross_encoder: an optional loaded sentence_transformers.CrossEncoder —
     when given, reorders the FULL post-gate candidate pool by cross-encoder
@@ -106,10 +127,22 @@ def _retrieve_pipeline(
     introduces new items — an honest A/B against the existing hand labels
     needs no new labeling, unlike an embedding-model swap.
     """
-    from src.agents.graph import _OUTFIT_INTENT_RE, _SET_INTENT_RE
+    from src.agents.graph import (
+        _OUTFIT_INTENT_RE,
+        _SET_INTENT_RE,
+        _apply_athletic_footwear_gate,
+        _apply_loungewear_gate,
+        _apply_occasion_merchandise_gate,
+        _apply_price_qualifier,
+    )
     from src.agents.intent_parser import parse_intent
+    from src.agents.outfit.body_type import demote_size_mismatched_items
     from src.agents.outfit.coherence import is_coherent_candidate
-    from src.agents.outfit.slots import fabric_score_delta, is_multi_piece_set
+    from src.agents.outfit.slots import (
+        FORMALITY_SOFTENER_VALUES,
+        fabric_score_delta,
+        is_multi_piece_set,
+    )
     from src.agents.tools import search_catalogue
     from src.catalogue.cleaning import is_kids_item
 
@@ -137,9 +170,14 @@ def _retrieve_pipeline(
 
     # Single-garment set exclusion — unconditional (not tied to occasion_gate),
     # matching search_node exactly: skipped when the query itself legitimizes
-    # a multi-piece result (set/combo/co-ord/outfit/look words).
+    # a multi-piece result (set/combo/co-ord/outfit/look words), or when the
+    # query named a genuine second garment (garment_type_secondary) — a combo
+    # listing naming both requested garments is a legitimate hit, not
+    # SET-listing noise (search_node's 2026-07-24 "joggers and t-shirt" fix).
     if intent.garment_type and items and not (
-        _SET_INTENT_RE.search(query) or _OUTFIT_INTENT_RE.search(query)
+        _SET_INTENT_RE.search(query)
+        or _OUTFIT_INTENT_RE.search(query)
+        or intent.garment_type_secondary
     ):
         set_filtered = [
             it for it in items
@@ -151,6 +189,11 @@ def _retrieve_pipeline(
             items = set_filtered
 
     occasion_slug = intent.occasion
+
+    # Occasion coherence gate + fabric rerank — toggled by occasion_gate (the
+    # A/B flag isolating the 2026-07-11 fix's own contribution). Everything
+    # below this point is unconditional in production regardless of that
+    # flag, so it stays outside the toggle here too.
     if occasion_gate and occasion_slug and occasion_slug != "casual":
         gated = [
             it for it in items
@@ -159,6 +202,40 @@ def _retrieve_pipeline(
         if gated:  # never let the gate empty the pool (same discipline as composer)
             items = gated
         items = sorted(items, key=lambda it: fabric_score_delta(it, occasion_slug), reverse=True)
+
+    # 2026-07-24 gate-parity fix: this mirror previously applied only the
+    # occasion-merchandise gate (added 2026-07-23) and silently never called
+    # search_node's loungewear, athletic-footwear, or price-qualifier gates —
+    # meaning strict eval scored a DIFFERENT pipeline than production despite
+    # the docstring's "mirrors production exactly" claim. Order now matches
+    # search_node's occasion-gated block exactly: loungewear -> merchandise ->
+    # athletic-footwear, all unconditional once an occasion is resolved (none
+    # of the three are pool-underflow protected in production, so order can
+    # change which items survive — see each gate's own docstring in graph.py).
+    if occasion_slug and occasion_slug != "casual":
+        items = _apply_loungewear_gate(items, occasion_slug)
+        items = _apply_occasion_merchandise_gate(items, occasion_slug, intent.garment_type, query)
+        items = _apply_athletic_footwear_gate(items, occasion_slug, intent.garment_type)
+
+    # Formality-softener secondary re-sort — unconditional on occasion in
+    # production (see _apply_formality_softener's docstring: the occasion
+    # gate was never a real requirement of the underlying function).
+    if items and intent.formality_softener in FORMALITY_SOFTENER_VALUES:
+        items = sorted(
+            items,
+            key=lambda it: fabric_score_delta(
+                it, occasion_slug or "", formality_override=intent.formality_softener
+            ),
+            reverse=True,
+        )
+
+    # Price-qualifier filter/sort — unconditional on occasion, see
+    # _apply_price_qualifier docstring ("cheap lehenga" outlier exclusion).
+    items = _apply_price_qualifier(items, intent.price_qualifier)
+
+    # Shape != size demotion — a "pear shaped" query must not headline
+    # explicitly Plus-Size-branded items; see demote_size_mismatched_items.
+    items = demote_size_mismatched_items(items, query)
 
     if cross_encoder is not None:
         items = cross_encoder_rerank(cross_encoder, query, items)

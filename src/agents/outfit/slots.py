@@ -23,6 +23,12 @@ ETHNIC_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
 WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     "shirt", "t-shirt", "tshirt", "top", "blouse", "sweater", "sweatshirt",
     "tank top", "crop top", "polo",
+    # Wave 9 (2026-07-23, gym occasion): the new activewear catalogue's own
+    # product_type_name facet is the literal string "sports_bra" (underscore,
+    # no space) — "sports bra" (space) also catches the freeform-name variant.
+    # Deliberately NOT a bare "bra" (2,509 catalogue rows contain that
+    # substring, including unrelated jewellery like "Brass Necklace").
+    "sports_bra", "sports bra",
 })
 WESTERN_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     "trousers", "jeans", "shorts", "skirt", "jeggings",
@@ -30,6 +36,13 @@ WESTERN_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     # "trousers" ("Kurta with Pant & Dupatta") — same garment class, was
     # previously unrecognised by this keyword set entirely.
     "pant", "pants",
+    # Wave 9 (2026-07-23, gym occasion): "leggings"/"joggers"/"skort" are new
+    # product_type_name facet values from the activewear catalogue merge with
+    # no prior keyword coverage here — without these, classify_anchor/
+    # classify_item resolve them to "unknown", which SLOT_ALLOWED_CLASSES
+    # then hard-rejects from ever filling a "bottom" slot at all. (track_pants/
+    # cargo_pants already resolve via the existing "pants" substring match.)
+    "leggings", "joggers", "skort",
 })
 WESTERN_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
     "dress", "jumpsuit", "playsuit", "dungarees", "co-ord",
@@ -376,6 +389,32 @@ def is_rugged_footwear_item(prod_name: str) -> bool:
     return bool(_RUGGED_FOOTWEAR_RE.search(prod_name or ""))
 
 
+# Wave 9 (2026-07-23, gym occasion): the INVERSE selection to
+# _RUGGED_FOOTWEAR_RE above — a gym look's footwear slot must ONLY accept a
+# genuine athletic/sport shoe, never a jutti/mojari/formal oxford/wedding
+# heel as a fallback. Deliberately excludes flip-flops/slippers/sliders/
+# crocs/clogs (at-home, not gym-appropriate) that _RUGGED_FOOTWEAR_RE lumps
+# in with genuine athletic wear. Catalogue audit against the real unified
+# catalogue (data/processed/unified/catalogue.parquet): 0 women's rows and 20
+# men's rows (all store=flipkart, "Running Shoes"/"Sneakers"/"Training & Gym
+# Shoes For Men") match this pattern — a women's gym look's footwear slot is
+# therefore expected to go through honest suppression (composer.
+# _suppression_reason) far more often than not; that is the correct honest
+# behaviour for genuinely thin inventory, never a bug to paper over with a
+# non-athletic substitute.
+_ATHLETIC_FOOTWEAR_RE = re.compile(
+    r"\b(sneakers?|trainers?|running|sports?|training|gym|athletic|workout)\b",
+    re.IGNORECASE,
+)
+
+
+def is_athletic_footwear_item(prod_name: str) -> bool:
+    """True if `prod_name` reads as a genuine athletic/sport shoe — the ONLY
+    footwear register a gym look's footwear slot accepts (see coherence.py's
+    athletic-register gate)."""
+    return bool(_ATHLETIC_FOOTWEAR_RE.search(prod_name or ""))
+
+
 # Phase B (product gap 2): a multi-piece SET listing ("Anarkali Sharara Set",
 # "Kurta Set with Dupatta", a "Co-Ord Set") is a WHOLE OUTFIT, not a single
 # garment — it must never fill a single complement slot (bottom/top/
@@ -507,9 +546,14 @@ def resolve_look_gender(
     return "women" if resolved_default not in ("men", "women") else resolved_default
 
 # Occasions where footwear is required (formality >= 3, ethnic)
+# Wave 8: diwali/navratri/karva_chauth/eid added (all formality >= 3, ethnic
+# events warrant required footwear). raksha_bandhan deliberately excluded —
+# formality 2/EITHER, casual-festive register, footwear stays optional like
+# casual/smart_casual/party_evening.
 _FORMAL_ETHNIC_OCCASIONS: frozenset[str] = frozenset({
     "sangeet", "haldi", "mehendi", "festive_puja", "wedding_guest",
     "traditional_ethnic", "reception", "engagement",
+    "diwali", "navratri", "karva_chauth", "eid",
 })
 
 # Women-only ethnic categories — hard reject for men's looks regardless of gender field
@@ -608,6 +652,16 @@ def _occasion_register_tokens(occasion_slug: str) -> str:
     colour+fabric bias (colour_score, fabric_score_delta) that would conflict
     with "embroidered" (haldi/mehendi favour light, undone-up looks). reception
     gets its own embellished-evening register, mirroring sangeet's bias.
+
+    Wave 8: diwali/navratri/karva_chauth/raksha_bandhan/eid each get a
+    dedicated register mirroring their own colour_score palette override
+    above, so retrieval query text and colour scoring stay aligned (same
+    pattern as haldi/mehendi/reception).
+
+    Wave 9: gym gets a dedicated "activewear athletic gym sport" register —
+    the generic EITHER/formality<3 fallback below would just return "casual",
+    which is too weak a signal to steer retrieval away from ordinary
+    lounge/casual wear toward genuine activewear.
     """
     if occasion_slug == "haldi":
         return "cotton floral"
@@ -617,6 +671,18 @@ def _occasion_register_tokens(occasion_slug: str) -> str:
         return "embellished formal evening"
     if occasion_slug == "engagement":
         return "elegant festive"
+    if occasion_slug == "diwali":
+        return "festive glam gold embellished"
+    if occasion_slug == "navratri":
+        return "chaniya choli bright colourful dance"
+    if occasion_slug == "karva_chauth":
+        return "red traditional bridal ethnic"
+    if occasion_slug == "raksha_bandhan":
+        return "casual festive light"
+    if occasion_slug == "eid":
+        return "pastel elegant festive"
+    if occasion_slug == "gym":
+        return "activewear athletic gym sport"
     occ = get_occasion(occasion_slug)
     if occ.ethnic_lean in (ETHNIC_HEAVY, ETHNIC_ONLY):
         return "festive embroidered"
@@ -651,11 +717,37 @@ def _default_bottom_query(occasion_slug: str) -> str:
     ethnic-heavy top-40 retrieval window dominate a western-register bottom
     slot even before any gate runs.  "pants"/"western" add unambiguous
     western-vocabulary lexical weight (BM25) without removing anything.
+
+    Wave 9 gym override: "trousers jeans skirt" (the generic casual fallback
+    below) is actively wrong for a gym look's bottom slot — none of those
+    three are gym-appropriate, and "jeans"/"skirt" would pull the retrieval
+    window toward exactly the wrong register. Returns explicit activewear
+    bottom vocabulary instead, mirroring the office/party_evening branch's
+    same "replace, don't just append" approach above.
     """
+    if occasion_slug == "gym":
+        return "leggings joggers track pants cargo pants shorts activewear"
     occ = get_occasion(occasion_slug)
     if occ.ethnic_lean == EITHER and occ.formality >= 3:
         return "trousers pants tailored western formal office wear"
     return "trousers jeans skirt"
+
+
+def _default_footwear_query(occasion_slug: str, is_men: bool) -> str:
+    """Return the base "footwear" slot query for a western top/bottom anchor.
+
+    Wave 9 gym override: the generic "sneakers flats heels casual shoes"
+    query text would help retrieval surface exactly the non-athletic footwear
+    (flats/heels/loafers) that coherence.py's athletic-register gate then
+    correctly rejects — this doesn't relax that gate, it only improves the
+    odds of a genuine athletic shoe reaching the candidate pool in the first
+    place when one exists (see is_athletic_footwear_item's catalogue-audit
+    docstring for how thin that inventory actually is, especially for
+    women).
+    """
+    if occasion_slug == "gym":
+        return "sneakers sports shoes running shoes training shoes gym shoes trainers"
+    return "sneakers casual shoes loafers men" if is_men else "sneakers flats heels casual shoes women"
 
 
 def get_fill_slots(
@@ -769,11 +861,7 @@ def _get_fill_slots_base(anchor_class: str, gender: str, occasion_slug: str) -> 
         ]
 
     if anchor_class == "western_bottom":
-        footwear_query = (
-            "sneakers casual shoes loafers men"
-            if is_men
-            else "sneakers flats heels casual shoes women"
-        )
+        footwear_query = _default_footwear_query(occasion_slug, is_men)
         return [
             SlotSpec("top", "top shirt blouse", required=True),
             SlotSpec("outerwear", "jacket blazer coat cardigan", required=False),
@@ -781,11 +869,7 @@ def _get_fill_slots_base(anchor_class: str, gender: str, occasion_slug: str) -> 
         ]
 
     # Default: western_top / unknown
-    footwear_query = (
-        "sneakers casual shoes loafers men"
-        if is_men
-        else "sneakers flats heels casual shoes women"
-    )
+    footwear_query = _default_footwear_query(occasion_slug, is_men)
     accessory_query = (
         "belt watch cap men accessory" if is_men else "handbag sling bag earrings women accessory"
     )
@@ -803,9 +887,16 @@ def fabric_score_delta(
     """Return a score adjustment based on fabric/embellishment keywords for haldi vs sangeet.
 
     Base behaviour (formality_override absent — unchanged, backward compatible):
-    - sangeet/reception: embellished items score +0.1; lightweight items score -0.1.
-    - haldi/mehendi: lightweight/floral items score +0.1; embellished items score -0.1.
-    - all other occasions (including wedding_guest): 0.0.
+    - sangeet/reception/diwali: embellished items score +0.1; lightweight items
+      score -0.1. Diwali joins this group (Wave 8) — a festival-of-lights
+      evening register reads closer to sangeet/reception's embellished-glam
+      bias than haldi/mehendi's undone-up daytime bias.
+    - haldi/mehendi/raksha_bandhan: lightweight/floral items score +0.1;
+      embellished items score -0.1. Raksha Bandhan joins this group (Wave 8) —
+      formality 2/casual-festive reads closer to haldi's light, low-key bias.
+    - all other occasions (including wedding_guest, navratri, karva_chauth,
+      eid): 0.0 — these have their own dedicated colour_score palette overrides
+      instead, and no strong embellishment-vs-lightweight signal.
 
     formality_override ("minimalist" | "comfortable", see FORMALITY_SOFTENER_VALUES —
     the `formality_softener` value a sibling intent-parser fix surfaces from
@@ -837,15 +928,17 @@ def fabric_score_delta(
             return 0.1
         return 0.0
 
-    if occasion_slug not in ("sangeet", "haldi", "mehendi", "reception"):
+    if occasion_slug not in (
+        "sangeet", "haldi", "mehendi", "reception", "diwali", "raksha_bandhan",
+    ):
         return 0.0
 
-    if occasion_slug in ("sangeet", "reception"):
+    if occasion_slug in ("sangeet", "reception", "diwali"):
         if has_embellishment:
             return 0.1
         if has_lightweight:
             return -0.1
-    else:  # haldi, mehendi
+    else:  # haldi, mehendi, raksha_bandhan
         if has_lightweight:
             return 0.1
         if has_embellishment:

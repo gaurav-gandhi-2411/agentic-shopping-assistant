@@ -104,6 +104,188 @@ def is_kids_item(prod_name: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Occasion-merchandise leak exclusion
+# ---------------------------------------------------------------------------
+# Live-proven bug (2026-07-23): "what should I wear for raksha bandhan" (an
+# apparel-intent occasion query, no garment noun) returned 3 of 5 items as
+# literal Rakhi threads/gift objects (product_type_name="Rakhi", e.g. "Ram
+# Mandir Blessings Rakhi") because BM25/dense retrieval on "raksha bandhan"
+# text naturally ranks the 635 catalogue rows literally named "Rakhi" ahead of
+# apparel — there was no exclusion mechanism for occasion-keyword text also
+# matching non-apparel occasion merchandise (unlike kids items/fabric bolts
+# above).
+#
+# Grounded in a full catalogue audit (data/processed/unified/catalogue.parquet,
+# rows whose prod_name/detail_desc contain each occasion's keyword):
+#   raksha_bandhan (1096 matches): Rakhi=635, Silver Rakhi=19, Rakhi Hamper=4,
+#     Rakhi Gift Hamper=5, Gift Hamper=6 -- 669 non-apparel merchandise rows.
+#   diwali (1757 matches): Gift Hamper=6, Rakhi/Rakhi Gift Hamper=11 (Diwali
+#     hampers are catalogued generically), Idols=1, Others=19 (all idols/
+#     showpieces/tealight-holders on inspection, e.g. "Gift of Grace Lord
+#     Ganesha Idol", "Festive Decorative Tealight Holder").
+#   navratri (545 matches): Idols=1.
+#   karva_chauth (24 matches): Gift Hamper=3.
+#   eid (658 matches): Rakhi=1.
+#
+# Deliberately narrow to these product_type_name values (not a broader
+# "anything non-apparel" heuristic):
+#   - "Potli"/"Potlis" bags DO appear in the diwali-matching set (11 rows) but
+#     are legitimately styled as accessories in real looks (see the composer's
+#     accessory slot) -- kept, not excluded.
+#   - Jewellery (Earrings/Necklace/Bangles/Rings/jhumka/...) is apparel-
+#     adjacent and must NEVER be excluded here -- it dominates every
+#     occasion's keyword-matching set by volume and is exactly what the
+#     2026-07-23 multi-family accessory-retrieval fix (commit 1717265) exists
+#     to surface correctly for bridal/festive looks.
+_OCCASION_MERCHANDISE_TYPES: frozenset[str] = frozenset({
+    "rakhi", "rakhi hamper", "rakhi gift hamper", "silver rakhi",
+    "gift hamper", "idols",
+})
+
+
+def is_occasion_merchandise_type(product_type_name: str | None) -> bool:
+    """Return True if `product_type_name` is occasion merchandise (Rakhi
+    threads, gift hampers, religious idols/showpieces), not a wearable
+    garment or apparel-adjacent accessory.
+
+    Callers must gate this on apparel-intent occasion context (see
+    src.agents.graph._apply_occasion_merchandise_gate) -- an explicit request
+    FOR the merchandise itself ("rakhi for my brother", "gift for raksha
+    bandhan") must still surface it; this predicate only identifies the
+    product-type class, it does not decide when to apply it.
+
+    See is_occasion_merchandise_name below for the NAME-level complement --
+    catches merchandise a store tagged with a GENERIC catalog bucket
+    ("Fashion", "Others", "Article", ...) instead of a dedicated
+    "Rakhi"/"Gift Hamper"/"Idols" type this function alone would miss.
+    """
+    return (product_type_name or "").strip().lower() in _OCCASION_MERCHANDISE_TYPES
+
+
+# Generic/non-apparel product_type_name buckets — grounded in the real
+# catalogue (data/processed/unified/catalogue.parquet). These types carry no
+# apparel-vs-merchandise signal of their own (unlike "kurta"/"Bracelets"/
+# "Tie Set", which ARE genuine apparel/accessory types even when their name
+# also happens to mention rakhi/gift/idol), so a merchandise-suggestive NAME
+# under one of these types is trustworthy signal -- the same name words under
+# a real apparel/accessory type are NOT excluded, because the type IS the
+# product there (see is_occasion_merchandise_name's docstring for the exact
+# live-proven example this protects).
+_GENERIC_PRODUCT_TYPES: frozenset[str] = frozenset({
+    "fashion", "others", "article", "all products", "all product",
+    "clothing accessories", "giftables", "",
+})
+
+# Name/description-level occasion-merchandise markers, scoped to the generic
+# types above. Live-proven residual leak (2026-07-23 live-proof, revision
+# asa-stylist-api-00084-7t4): "White And Pink Beautiful Floral Designer
+# Bhaiya Bhabhi Rakhi Set" (store=ishhaara, product_type_name="Fashion")
+# ranked #1 of only 2 results for "what should I wear for raksha bandhan" --
+# is_occasion_merchandise_type's type-only exclusion missed it because this
+# store tagged the SKU "Fashion" instead of "Rakhi".
+#
+# Grounded in a full audit of every raksha_bandhan/diwali/navratri/
+# karva_chauth/eid-keyword-matching row currently under a generic type:
+#   raksha_bandhan: 57 Fashion-typed rows -- 56 contain the word "rakhi"
+#     (E-Gift Cards, kids rakhis, "Bhaiya Bhabhi" rakhi sets/combos/hampers,
+#     "Evil Eye Rakhi Gift Combo With Mug"), and the 1 remaining ("Raksha
+#     Bandhan Gift For Brother") carries the bare occasion phrase instead of
+#     the word "rakhi" itself.
+#   diwali/navratri: 21 Others/Article-typed rows, ALL idols/showpieces/
+#     tealight holders (e.g. "Gift of Grace Lord Ganesha Idol", "Festive
+#     Decorative Tealight Holder", "Voylla ... Kamdhenu Sacred Cow Idol").
+#   karva_chauth/eid: 0 generic-typed rows carry any of these markers.
+# "Bhaiya bhabhi" without the literal word "rakhi" does not occur anywhere in
+# the catalogue (checked) -- no separate bhaiya-bhabhi pattern is needed.
+#
+# Genuine apparel is explicitly NOT caught by this: 19 "kurta"-typed and 2
+# "nightwear"-typed rows also say "Rakhi Gift Box for Brother" in their name
+# (a real kurta bundled with a rakhi) — "kurta"/"nightwear" are real apparel
+# types, not in _GENERIC_PRODUCT_TYPES, so is_occasion_merchandise_name
+# returns False for them regardless of the name match. Likewise 20
+# "Bracelets"-typed rows literally named "... Rakhi Bracelet" are genuine
+# jewellery (a real accessory type) and stay included, consistent with
+# is_occasion_merchandise_type's jewellery carve-out above.
+#
+# 2026-07-24 CONCEPT-BROADENING addition ("favour"/"favor"): live-proven bug
+# -- "bright haldi look for women" surfaced "Ellaichi Brooch" (store=ishhaara,
+# product_type_name="Fashion"), whose OWN detail_desc frames it as a "Haldi &
+# Mehendi Favours" return-gift for wedding guests, not a wearable item (see
+# eval/fixtures/strict_gold_labels.yaml occ_adv_002). A full catalogue audit
+# of every occasion this project recognises (haldi/mehendi/sangeet/diwali/
+# navratri/karva_chauth/raksha_bandhan/eid/wedding_guest/engagement/
+# reception/festive_puja) for decorative/gift/favour/party-supply vocabulary
+# found genuine, non-redundant catalogue support for exactly ONE new concept
+# term family -- "favour(s)"/"favor(s)" -- not a longer flat list:
+#   ishhaara's "Haldi & Mehendi Favours" collection: 40 rows (36 Fashion-typed
+#     + 4 bag-typed), ALL genuinely non-wearable guest tokens/return-gifts
+#     (brooches, "malas", bracelets, keychains, a mouth-freshener-and-scrunchy
+#     combo, a kumkum-stick applicator) sharing one boilerplate description
+#     ("Are you looking for the perfect way to thank your guests ... Haldi &
+#     Mehendi Favours ..."). Checked catalogue-wide (all product_type_name
+#     buckets, not just generic ones): every OTHER "favour"/"favor" hit is a
+#     real dual-use accessory explicitly marketed as wearable (tjori's silk
+#     Potli bags: "pair with a lehenga for a regal coordinated look ... use as
+#     a bridal favour"; sukkhi's clip-on "Party Favor" earrings: genuine
+#     wearable costume jewellery) -- those sit under real accessory types
+#     (Potlis/Earring), not a generic bucket, so the AND-gate below already
+#     protects them without any special-case needed.
+#   candidate terms researched but found ZERO genuine catalogue support (or
+#   ONLY false-positive matches) and deliberately NOT added: "rangoli" (15
+#     matches, the 1 generic-typed hit is "THE KILIM RANGOLI POCKET SQUARE" --
+#     a men's pocket-square print name, not a rangoli decoration), "decor" (7
+#     matches, the generic-typed hits are "Star Decor Metal Tassel Earrings"/
+#     "Flower Decor Drop Earrings" -- real wearable earrings using "decor" as
+#     a style descriptor), "diya"/"toran"/"festoon"/"streamer"/"candle"/
+#     "return gift"/"memento"/"party supply" -- 0 matches catalogue-wide.
+# is_occasion_merchandise_name below also now checks detail_desc (not just
+# prod_name): "Ellaichi Brooch" and 33 of its 35 collection-siblings carry NO
+# gift/hamper/favour word in the NAME itself (e.g. "Ellaichi Bracelet",
+# "Shell And Jhumki Earchain", "Elaichi Swagat Mala") -- only the shared
+# description names the collection as guest favours. Full re-audit of the
+# combined (name OR desc) x (existing + favour) pattern under generic types,
+# catalogue-wide: 124 matching rows, zero false positives (98 ishhaara + 26
+# voylla, all previously-verified rakhi/idol/hamper/favour merchandise).
+_OCCASION_MERCHANDISE_NAME_RE = re.compile(
+    r"\brakhi\b|\braksha\s*bandhan\b|\bhamper\b|\bidol\b|\bidols\b"
+    r"|\bshowpiece\b|\btealight\b"
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
+    re.IGNORECASE,
+)
+
+
+def is_occasion_merchandise_name(
+    prod_name: str | None, product_type_name: str | None, detail_desc: str | None = None
+) -> bool:
+    """Return True if `prod_name` OR `detail_desc` names occasion merchandise
+    AND `product_type_name` is a GENERIC catalog bucket carrying no apparel
+    signal of its own (see _GENERIC_PRODUCT_TYPES).
+
+    Complements is_occasion_merchandise_type (type-only exclusion) for rows a
+    store tagged generically instead of "Rakhi"/"Gift Hamper"/"Idols"
+    directly. A genuine apparel item whose name also mentions rakhi/gift
+    ("Men's Yellow Lehariya Cotton Kurta Rakhi Gift Box for Brother", typed
+    "kurta") is NEVER excluded here -- its type IS a real apparel type, so
+    the AND-gate on _GENERIC_PRODUCT_TYPES protects it regardless of the
+    name/desc match. Callers must gate this on the same apparel-intent
+    occasion context as is_occasion_merchandise_type (see
+    src.agents.graph._apply_occasion_merchandise_gate).
+
+    `detail_desc` is optional (defaults to None, matched against nothing) so
+    existing name-only callers keep working -- pass it whenever available: a
+    whole ishhaara "Haldi & Mehendi Favours" collection (35 rows) carries the
+    merchandise signal ONLY in the shared description, not the product name
+    itself (see _OCCASION_MERCHANDISE_NAME_RE's 2026-07-24 comment block).
+    """
+    if (product_type_name or "").strip().lower() not in _GENERIC_PRODUCT_TYPES:
+        return False
+    return bool(
+        _OCCASION_MERCHANDISE_NAME_RE.search(prod_name or "")
+        or _OCCASION_MERCHANDISE_NAME_RE.search(detail_desc or "")
+    )
+
+
+# ---------------------------------------------------------------------------
 # Loungewear-in-dress-bucket exclusion
 # ---------------------------------------------------------------------------
 # Live-proven bug (2026-07-13): "minimalist wedding guest dress" returned

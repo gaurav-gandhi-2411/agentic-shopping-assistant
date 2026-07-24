@@ -431,9 +431,19 @@ def build_coordinated_with_text(anchor_item: dict, partner_look: dict, occasion_
         cream complement it at the same smart-casual level."
     """
     anchor_colour = (anchor_item.get("colour") or "").lower().strip()
+    # 2026-07-24 sweep (same failure class as rationale._display_noun's
+    # sports_bra leak fix): anchor_item["product_type"] is a raw catalogue
+    # facet — e.g. "sports_bra" — read directly into this deterministic
+    # user-facing sentence with no humanization at all. Sanitizing the
+    # underscore here is the minimal, consistent fix (mirrors the identical
+    # ".replace('_', ' ')" idiom already used throughout this file/rationale.py/
+    # composer.py/graph.py for occasion_slug/body_type/slot_name); a full
+    # vocabulary-based humanization (_display_noun) is deliberately not
+    # imported here to keep this fix minimal and avoid new cross-module
+    # coupling to rationale.py's private helpers.
     anchor_type = (
         (anchor_item.get("product_type") or anchor_item.get("prod_name") or "item")
-    ).lower().strip()
+    ).lower().strip().replace("_", " ")
     anchor_desc = f"{anchor_colour} {anchor_type}".strip() if anchor_colour else anchor_type
 
     seed = partner_look.get("seed_item") or {}

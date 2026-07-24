@@ -13,6 +13,7 @@ from src.agents.outfit.body_type import (
     body_type_clarify_message,
     demote_size_mismatched_items,
 )
+from src.agents.outfit.coherence import is_athletic_register_occasion
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
@@ -31,6 +32,7 @@ from src.agents.outfit.slots import (
     _FORMAL_ETHNIC_OCCASIONS,
     FORMALITY_SOFTENER_VALUES,
     SANGEET_EMBELLISHMENT_KEYWORDS,
+    is_athletic_footwear_item,
     resolve_look_gender,
 )
 from src.agents.reranker import rerank
@@ -42,7 +44,13 @@ from src.agents.tools import (
     compose_outfit_tool,
     search_catalogue,
 )
-from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item, is_loungewear_text
+from src.catalogue.cleaning import (
+    is_fabric_bolt_text,
+    is_kids_item,
+    is_loungewear_text,
+    is_occasion_merchandise_name,
+    is_occasion_merchandise_type,
+)
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
@@ -77,7 +85,10 @@ _SET_INTENT_RE = re.compile(
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
-    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)\b",
+    r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
+    r"raksha\s+bandhan|rakhi|eid|"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation|"
+    r"gym|workout|work\s+out|athleisure|yoga)\b",
     re.IGNORECASE,
 )
 
@@ -93,7 +104,10 @@ _OUTFIT_OCCASION_RE = re.compile(
 _OCCASION_LOOK_RE = re.compile(
     r"\b(?:sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
-    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation)"
+    r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
+    r"raksha\s+bandhan|rakhi|eid|"
+    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation|"
+    r"gym|workout|work\s+out|athleisure|yoga)"
     r"\s+look\b",
     re.IGNORECASE,
 )
@@ -455,8 +469,14 @@ def _compose_couple_from_scratch(
     # here since it has no other channel to reach the user.
     answer = f"**{_gendered_look_title(primary_gender)}**"
     for _slot in _primary_empty_slots:
+        # 2026-07-24 sweep (same failure class as rationale._display_noun's
+        # sports_bra leak fix / composer._suppression_reason): every
+        # slot_name in use today is a clean single word, so this is
+        # defensive, not a live fix — sanitizes the DISPLAYED text only,
+        # never the raw `_slot` value itself (still compared/logged raw
+        # elsewhere).
         answer += (
-            f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+            f"\n\n_Note: I couldn't find suitable {_slot.replace('_', ' ')} to complete "
             f"this look in the current catalogue._"
         )
     if _pt_seed is None:
@@ -732,26 +752,179 @@ def _query_names_unsupported_attribute(raw_query: str, items: list[dict]) -> boo
     return any(phrase not in backing for phrase in matched)
 
 
+# Wave 9 (2026-07-23, gym occasion): _apply_loungewear_gate's trigger set,
+# extended beyond _FORMAL_ETHNIC_OCCASIONS. gym is NOT added to
+# _FORMAL_ETHNIC_OCCASIONS itself (that set also drives "footwear required",
+# and a gym look's footwear stays OPTIONAL — see slots.py's
+# _FORMAL_ETHNIC_OCCASIONS docstring and coherence.py's athletic-register
+# gate for the real footwear-honesty mechanism), but the loungewear risk is
+# real and independent of formality: sports bras/leggings/joggers sit in a
+# similar retrieval neighbourhood to loungewear in embedding space, and both
+# categories share soft/comfortable/casual vocabulary. A "night suit"/
+# "nightwear" item is never an acceptable gym-look result, exactly as it is
+# never acceptable for a formal ethnic occasion.
+_LOUNGEWEAR_GATE_OCCASIONS: frozenset[str] = _FORMAL_ETHNIC_OCCASIONS | frozenset({"gym"})
+
+
 def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
     """Part E (2026-07-13): strip loungewear/"night dress" items from a formal
     wedding-tier occasion's result set.
 
     is_loungewear_text (src.catalogue.cleaning) is the underlying predicate —
     deliberately narrow, verified zero-false-positive against the real
-    catalogue (see its docstring). Gated on _FORMAL_ETHNIC_OCCASIONS (slots.py
-    — the same set used for "footwear required") so a bare "night dress" query
-    with no formal-occasion context is untouched — it has a legitimate reason
-    to want these items. Deliberately NOT pool-underflow protected (unlike
-    every other gate in search_node): a sleepwear item is never an acceptable
-    formal-occasion result even as a last resort, so this can legitimately
-    empty `items` — the caller's zero_confidence signal is the correct honest
-    reaction to that, not a silently-kept nightgown.
+    catalogue (see its docstring). Gated on _LOUNGEWEAR_GATE_OCCASIONS (=
+    _FORMAL_ETHNIC_OCCASIONS, the same set used for "footwear required",
+    PLUS "gym" — see that constant's docstring above) so a bare "night dress"
+    query with no formal-occasion/gym context is untouched — it has a
+    legitimate reason to want these items. Deliberately NOT pool-underflow
+    protected (unlike every other gate in search_node): a sleepwear item is
+    never an acceptable formal-occasion OR gym result even as a last resort,
+    so this can legitimately empty `items` — the caller's zero_confidence
+    signal is the correct honest reaction to that, not a silently-kept
+    nightgown.
     """
-    if occasion_slug not in _FORMAL_ETHNIC_OCCASIONS:
+    if occasion_slug not in _LOUNGEWEAR_GATE_OCCASIONS:
         return items
     return [
         it for it in items
         if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+    ]
+
+
+# Occasion-merchandise leak fix (2026-07-23): an explicit ask FOR the
+# merchandise itself must still surface it — "rakhi for my brother", "gift
+# for raksha bandhan", "buy a rakhi", "diwali gift hamper" are legitimate
+# merchandise requests, not bugs. See is_occasion_merchandise_type's
+# docstring for the excluded product-type set and its catalogue grounding.
+# Deliberately keyed on literal "rakhi"/"gift"/"hamper"/"idol" nouns rather
+# than the occasion keyword itself ("raksha bandhan", "diwali") — those
+# occasion words alone carry no merchandise-vs-apparel signal (that's the
+# whole ambiguity this gate resolves), so only an EXPLICIT product-noun
+# mention bypasses the exclusion.
+# 2026-07-24 addition: "favour"/"favor" added alongside is_occasion_
+# merchandise_name's new concept-broadening (see cleaning.py's
+# _OCCASION_MERCHANDISE_NAME_RE comment) so "haldi favours for guests"/
+# "wedding favors for mehendi" still surface the ishhaara favours collection
+# instead of being over-suppressed — same both-directions discipline as the
+# original rakhi fix.
+_OCCASION_MERCHANDISE_REQUEST_RE = re.compile(
+    r"\brakhi\b|\brakhis\b|\bhamper\b|\bidol\b|\bidols\b|\bgift\b|\bgifts\b"
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
+    re.IGNORECASE,
+)
+
+
+def _apply_occasion_merchandise_gate(
+    items: list[dict], occasion_slug: str | None, garment_type: str | None, raw_query: str
+) -> list[dict]:
+    """Strip occasion-merchandise items (Rakhi threads, gift hampers, idols)
+    from a bare occasion query's result set.
+
+    Live-proven bug: "what should I wear for raksha bandhan" (occasion
+    keyword, no garment noun, "wear" apparel intent) returned Rakhi thread
+    products ranked above apparel, and the LLM's rationale celebrated them as
+    gifts. Root cause: BM25/dense retrieval on occasion text naturally ranks
+    the catalogue's literal "Rakhi"/"Gift Hamper"/"Idols" rows highly since
+    they legitimately match the occasion keyword lexically.
+
+    Applies BOTH is_occasion_merchandise_type (a dedicated non-apparel
+    product_type_name) AND is_occasion_merchandise_name (a merchandise-
+    suggestive name under a GENERIC catalog bucket, e.g. "Fashion"/"Others")
+    — 2026-07-23 live-proof (revision asa-stylist-api-00084-7t4) found a
+    residual leak the type-only check missed: "White And Pink Beautiful
+    Floral Designer Bhaiya Bhabhi Rakhi Set" (store=ishhaara,
+    product_type_name="Fashion") ranked #1 of only 2 results. See
+    is_occasion_merchandise_name's docstring for why a genuine apparel item
+    like "Men's ... Kurta Rakhi Gift Box for Brother" (typed "kurta") is
+    never excluded by the name check.
+
+    2026-07-24 broadening: also passes detail_desc into is_occasion_
+    merchandise_name — "bright haldi look for women" surfaced "Ellaichi
+    Brooch" (store=ishhaara, product_type_name="Fashion"), whose name alone
+    carries no merchandise marker; only its shared description frames it as
+    a "Haldi & Mehendi Favours" guest gift. See cleaning.py's
+    _OCCASION_MERCHANDISE_NAME_RE comment for the full catalogue audit this
+    is grounded in.
+
+    Gated on:
+      - occasion_slug being set (no-op for non-occasion queries).
+      - garment_type is None — a query that already named a garment noun
+        ("kurti for raksha bandhan") hard-filters retrieval to that
+        product_type_name, so Rakhi-typed items were never in the candidate
+        pool to begin with; re-checking here would be a no-op on the
+        primary path and is skipped for that reason (mirrors is_kids_item's
+        "kids-item filtering ... dead code" comment above).
+      - the raw query not being an explicit merchandise request (see
+        _OCCASION_MERCHANDISE_REQUEST_RE) — "rakhi for my brother" must
+        still surface rakhis.
+
+    Deliberately NOT pool-underflow protected, same discipline as
+    _apply_loungewear_gate — an occasion-merchandise item is never an
+    acceptable substitute for apparel, even as a last resort.
+    """
+    if not occasion_slug or garment_type is not None:
+        return items
+    if _OCCASION_MERCHANDISE_REQUEST_RE.search(raw_query.lower()):
+        return items
+    return [
+        it for it in items
+        if not is_occasion_merchandise_type(it.get("product_type"))
+        and not is_occasion_merchandise_name(
+            it.get("prod_name") or it.get("display_name"),
+            it.get("product_type"),
+            it.get("detail_desc"),
+        )
+    ]
+
+
+def _apply_athletic_footwear_gate(
+    items: list[dict], occasion_slug: str | None, garment_type: str | None
+) -> list[dict]:
+    """Strip non-athletic footwear from a gym-occasion, explicit-footwear
+    plain-search result set.
+
+    Live-proven bug (2026-07-24, revision asa-stylist-api-00086-5qh): "gym
+    shoes for women under 1500" (garment_type="footwear" + occasion="gym", no
+    "look"/"outfit" framing) returned literal formal heels ("Black Sierra
+    Heels", "Sarah Tie-up Heels", store=houseofvian) — the LLM's own reply
+    even called them "a bit of a stretch for a gym shoe search" while still
+    presenting them as legitimate results. Contrast: "gym look for women
+    under 1500" (same budget/gender/occasion, no garment noun) already routes
+    through compose_outfit instead and correctly, honestly suppresses
+    footwear via coherence.py's gate 5 (is_athletic_register_occasion +
+    is_athletic_footwear_item, commit a2b67c9).
+
+    Root cause: gate 5 is wired ONLY into compose_outfit's candidate scoring
+    (is_coherent_candidate -> composer._find_best_candidate). A query naming
+    an explicit garment noun ("shoes") hard-filters retrieval to that
+    product_type and skips compose_outfit entirely — the SAME established
+    convention _apply_occasion_merchandise_gate's docstring documents for the
+    mirror-image case (garment_type SET -> compose_outfit never runs) — so a
+    garment_type="footwear" + occasion="gym" plain search never passed
+    through any athletic-footwear check at all.
+
+    Reuses is_athletic_footwear_item (slots.py, already defined for gate 5 —
+    never reimplemented here) and is_athletic_register_occasion (coherence.py)
+    so this gate and gate 5 always key off the exact same occasion set.
+    Gated on BOTH occasion_slug being athletic-register AND garment_type
+    being "footwear" — a bare "gym shoes" query with no gym occasion
+    resolved, or a gym query for a non-footwear garment, is untouched.
+
+    Deliberately NOT pool-underflow protected, same discipline as
+    _apply_loungewear_gate / _apply_occasion_merchandise_gate: a non-athletic
+    shoe is never an acceptable gym-shoe result even as a last resort
+    (catalogue audit: ~0 women's, ~20 men's genuine athletic-footwear rows —
+    see is_athletic_footwear_item's docstring), so this can legitimately
+    empty `items` and drive the same honest zero_confidence signal the
+    plain-search pipeline already uses for genuinely-empty result sets.
+    """
+    if not (occasion_slug and is_athletic_register_occasion(occasion_slug)):
+        return items
+    if garment_type != "footwear":
+        return items
+    return [
+        it for it in items
+        if is_athletic_footwear_item(it.get("prod_name") or it.get("display_name") or "")
     ]
 
 
@@ -1770,6 +1943,12 @@ def build_graph(
             "query": merged_intent.raw_query,
             "filters": _plan_filters,
         }
+        # Multi-garment "X and Y" query (see IntentV1.garment_type_secondary
+        # docstring, intent_parser.py) — search_node issues a second
+        # retrieval call for this type and merges the pools. None for every
+        # single-garment query (the overwhelming majority).
+        if merged_intent.garment_type_secondary:
+            plan["product_type_secondary"] = merged_intent.garment_type_secondary
         if _is_similar_query and _anchor_id and not merged_intent.garment_type:
             plan["anchor_article_id"] = _anchor_id
         if _is_garment_pivot:
@@ -2271,6 +2450,44 @@ def build_graph(
         else:
             result = search_catalogue(query, merged or None, retriever, fetch_k)
 
+        # Multi-garment "X and Y" query (see IntentV1.garment_type_secondary
+        # docstring, intent_parser.py) — issue a SECOND retrieval call for the
+        # secondary garment type (same filters otherwise: gender/colour/
+        # budget/store) and merge the pools, mirroring
+        # composer._find_best_candidate's per-family accessory-retrieval-
+        # then-merge fix (commit 1717265) for the identical single-query-
+        # starves-one-type failure mode. No-op (result unchanged) unless the
+        # router set plan["product_type_secondary"] AND a primary
+        # product_type_name filter is actually active.
+        _garment_secondary = plan.get("product_type_secondary")
+        if _garment_secondary and merged.get("product_type_name"):
+            _secondary_filters = {**merged, "product_type_name": _garment_secondary}
+            _secondary_result = search_catalogue(query, _secondary_filters, retriever, fetch_k)
+            _primary_items = result["items"]
+            _secondary_items = _secondary_result["items"]
+            # Interleave (primary[0], secondary[0], primary[1], secondary[1], ...)
+            # rather than concatenating — a straight concat would let the
+            # primary type's own fetch_k window fill the final post-rerank
+            # top-N before the secondary type is ever considered, silently
+            # reproducing the exact "leggings never surfaced" bug this fix
+            # closes. Interleaving gives both types genuine front-of-pool
+            # visibility regardless of which type happens to score higher on
+            # raw RRF score.
+            _seen_ids: set[str] = set()
+            _merged_items: list[dict] = []
+            for _i in range(max(len(_primary_items), len(_secondary_items))):
+                for _pool in (_primary_items, _secondary_items):
+                    if _i < len(_pool) and _pool[_i]["article_id"] not in _seen_ids:
+                        _merged_items.append(_pool[_i])
+                        _seen_ids.add(_pool[_i]["article_id"])
+            result = {"items": _merged_items, "query": result["query"], "n_results": len(_merged_items)}
+            logger.info(
+                "[search] multi-garment merge: primary=%d secondary=%d merged=%d "
+                "(types=%s/%s)",
+                len(_primary_items), len(_secondary_items), len(_merged_items),
+                merged.get("product_type_name"), _garment_secondary,
+            )
+
         # Strip bolt-good / material-only SKUs — these are fabric pieces, not garments.
         # Myntra classifies fabric bolts under product_type="Dress" so we must also
         # check prod_name and detail_desc, not just product_type.
@@ -2485,8 +2702,17 @@ def build_graph(
         # (never reimplemented) on the plain search path. Skipped when the query
         # itself asks for a set/combo/outfit/look — that legitimizes a multi-piece
         # result (see _OUTFIT_INTENT_RE above for the same "outfit" word list).
+        # Also skipped for a genuine two-garment "X and Y" query (Wave 9,
+        # 2026-07-24) — garment_type_secondary means the user explicitly named
+        # BOTH pieces, so a combo listing naming both ("T-shirt with Joggers"
+        # for "joggers and t-shirt") is a legitimate hit, not SET-listing
+        # noise; live-verified this gate otherwise strips every secondary-type
+        # candidate whose real catalogue title happens to be a 2-piece combo
+        # naming both requested garments, defeating the multi-garment fix.
         if _occ_intent.garment_type and items_out and not (
-            _SET_INTENT_RE.search(raw_query) or _OUTFIT_INTENT_RE.search(raw_query)
+            _SET_INTENT_RE.search(raw_query)
+            or _OUTFIT_INTENT_RE.search(raw_query)
+            or _occ_intent.garment_type_secondary
         ):
             _set_filtered = [
                 it for it in items_out
@@ -2520,6 +2746,23 @@ def build_graph(
             # Part E: see _apply_loungewear_gate docstring — fixes "minimalist
             # wedding guest dress" surfacing a literal nightgown.
             items_out = _apply_loungewear_gate(items_out, _occ_slug)
+
+            # 2026-07-23 fix: see _apply_occasion_merchandise_gate docstring —
+            # fixes "what should I wear for raksha bandhan" surfacing Rakhi
+            # thread products instead of apparel.
+            items_out = _apply_occasion_merchandise_gate(
+                items_out, _occ_slug, _occ_intent.garment_type, raw_query
+            )
+
+            # 2026-07-24 fix: see _apply_athletic_footwear_gate docstring —
+            # fixes "gym shoes for women under 1500" surfacing formal heels.
+            # The _occ_gated coherence check just above always calls
+            # is_coherent_candidate with slot_name="top", so gate 5's
+            # footwear-specific rule never fires on this path — this gate is
+            # the fix, not a duplicate of that check.
+            items_out = _apply_athletic_footwear_gate(
+                items_out, _occ_slug, _occ_intent.garment_type
+            )
 
         # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
         # removed 2026-07-19): previously nested inside "if _occ_slug and
@@ -2880,8 +3123,9 @@ def build_graph(
 
             answer = f"**Your partner's look**\n\n{_partner_rationale}\n\n_{_coordinated_with}_"
             for _slot in _p_empty_slots:
+                # 2026-07-24 sweep — see the primary-look loop above for why.
                 answer += (
-                    f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+                    f"\n\n_Note: I couldn't find suitable {_slot.replace('_', ' ')} to complete "
                     f"this look in the current catalogue._"
                 )
 
@@ -3234,9 +3478,12 @@ def build_graph(
                         f"separately or try without a budget constraint._"
                     )
                 else:
+                    # 2026-07-24 sweep — see the primary-look loop above for
+                    # why; the `_slot == "footwear"` check just above compares
+                    # the RAW value and is untouched.
                     answer += (
-                        f"\n\n_Note: I couldn't find suitable {_slot} to complete "
-                        f"this look in the current catalogue._"
+                        f"\n\n_Note: I couldn't find suitable {_slot.replace('_', ' ')} to "
+                        f"complete this look in the current catalogue._"
                     )
 
         update: dict = {

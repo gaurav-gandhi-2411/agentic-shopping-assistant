@@ -233,6 +233,25 @@ class TestBuildCoordinatedWithText:
         text = build_coordinated_with_text(anchor_item, partner_look, "office")
         assert text.lower().count("grey") == 1
 
+    def test_snake_case_product_type_never_leaks_underscore(self) -> None:
+        """2026-07-24 sweep fix: same failure class as
+        rationale._display_noun's live-proven sports_bra leak — this function
+        reads anchor_item["product_type"] directly with no humanization at
+        all, so a raw activewear facet value ("sports_bra") previously leaked
+        the underscore verbatim into this deterministic (no-LLM) sentence."""
+        anchor_item = {
+            "colour": "Black",
+            "product_type": "sports_bra",
+            "prod_name": "Ultimate Comfort Sports Bra",
+        }
+        partner_look = {
+            "seed_item": {"colour": "Navy"},
+            "complements": [{"colour": "Grey"}],
+        }
+        text = build_coordinated_with_text(anchor_item, partner_look, "gym")
+        assert "_" not in text
+        assert "sports bra" in text.lower()
+
 
 # ---------------------------------------------------------------------------
 # 5. compose_partner_look — isolated unit test with a fake retriever

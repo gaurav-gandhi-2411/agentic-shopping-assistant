@@ -129,6 +129,18 @@ EXCLUDED_STORES: frozenset[str] = frozenset({"hm", "berrylush"})
 # yet; this registration is inert until a per-brand index build runs against
 # data/raw/shopify/{korakari,juttichooindia,shopkop,irasoles,chappers,5-elements,taurjuttis,
 # vhaan,fizzygoblet,kalapuri}/products.csv.
+# blissclub/silvertraq added 2026-07-23 (activewear/gym-query inventory gap — women's sports
+# bras, leggings, joggers/track pants were too thin catalogue-wide to honestly serve gym
+# queries; both unblocked via the download_shopify.py curl.exe fallback after it was extended
+# to also treat a plain, marker-less HTTP 503 as block-shaped — see that script's module
+# docstring). Per-brand data/processed/{blissclub,silvertraq}/ was built via 01_build_retrieval.py
+# before this registration lands, so unlike the entries above this pair is NOT inert.
+# campusshoes added 2026-07-24 (activewear-footwear gap — women's genuine athletic shoes were
+# ~0-2 rows catalogue-wide; campusshoes.com is a mixed-gender Shopify store with 485 women's
+# and 1,363 men's in-stock rows, real depth on running/sneakers/walking/sports shoes for both
+# genders). Per-brand data/processed/campusshoes/ (dense+bm25) and data/processed/clip/campusshoes/
+# were both built via 01_build_retrieval.py / build_clip_index.py before this registration
+# lands, so this entry is NOT inert.
 UNIFIED_STORES: tuple[str, ...] = (
     "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
     "globalrepublic", "libas", "vastramay", "kisah", "mohanlalsons",
@@ -139,6 +151,8 @@ UNIFIED_STORES: tuple[str, ...] = (
     "rathore", "bhasinbrothers",
     "korakari", "juttichooindia", "shopkop", "irasoles", "chappers",
     "5-elements", "taurjuttis", "vhaan", "fizzygoblet", "kalapuri",
+    "blissclub", "silvertraq",
+    "campusshoes",
 )
 
 # Directory layout: all brands live in data/processed/<brand>/

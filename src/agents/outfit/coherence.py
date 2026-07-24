@@ -6,6 +6,7 @@ from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
     WOMEN_ONLY_ETHNIC_KEYWORDS,
     gender_allowed,
+    is_athletic_footwear_item,
     is_ethnic_item,
     is_western_item,
     is_western_marker_item,
@@ -23,11 +24,42 @@ from src.agents.outfit.slots import (
 # those are already correctly ethnic-leaning and must never be gated toward western.
 _WESTERN_REGISTER_OCCASIONS: frozenset[str] = frozenset({"office"})
 
+# Wave 9 (2026-07-23, gym occasion): a SEPARATE frozenset from
+# _WESTERN_REGISTER_OCCASIONS above rather than folding "gym" into it —
+# gym's ethnic+festive-marker rejection is identical to office's (gate 5
+# below reuses the same _FESTIVE_MARKER_RE check), but gym additionally
+# rejects non-athletic FOOTWEAR outright (office has no such footwear-
+# specific rule, and office's is_western_register_occasion() helper feeds
+# composer.py's western-TROUSERS pool-underflow fallback, which would be
+# actively wrong for gym — a "trousers" fallback bottom is not gym-
+# appropriate). Kept as its own frozenset/gate so office's existing
+# behaviour and tests are untouched.
+_ATHLETIC_REGISTER_OCCASIONS: frozenset[str] = frozenset({"gym"})
+
 # Live-proven: an "office look for women" board's bottom slot filled with a
 # "Quirky Floral Printed Cotton Anarkali Sharara Set" — ethnic AND carrying an
 # explicit festive/quirky marker.  Checked as a simple word-boundary denylist,
 # same conservative style as _WESTERN_MARKER_KEYWORDS in slots.py.
 _FESTIVE_MARKER_RE = re.compile(r"\b(quirky|festive)\b", re.IGNORECASE)
+
+# Wave 9 fix 2 (2026-07-24 live-proof): a "workout outfit for men" look's
+# outerwear slot filled with a "Regular Fit Knitted Polo Cardigan"
+# (store=snitch) — not gym-appropriate. Gate 5's ethnic/festive rejection has
+# no equivalent for FORMAL/DRESSY western outerwear. Unlike footwear (see
+# is_athletic_footwear_item's docstring), this catalogue's outerwear
+# inventory has no clean "genuinely athletic" INCLUSION signal (0 hoodie/
+# track-jacket/windbreaker-labeled rows), so this is a conservative
+# EXCLUSION of unambiguously formal/dressy markers instead — same shape as
+# _FESTIVE_MARKER_RE above. Catalogue audit (data/processed/unified/
+# catalogue.parquet, classify_item()=="outerwear", 3256 rows): 1204 rows
+# carry one of these markers; a hand-audit of the 5 bare "suit" matches found
+# zero false positives ("2 Piece Solid Men Suit", "Men's Beige Wedding Tuxedo
+# Suit with Blazer", etc. — all genuinely formal). No genuine athletic
+# tracksuit is caught here: Track-Suit listings are multi-piece SETS, already
+# excluded by is_multi_piece_set before gate 5 ever runs.
+_FORMAL_OUTERWEAR_MARKER_RE = re.compile(
+    r"\b(blazer|cardigan|waistcoat|coat|suit)\b", re.IGNORECASE
+)
 
 
 def is_western_register_occasion(occasion_slug: str) -> bool:
@@ -38,6 +70,16 @@ def is_western_register_occasion(occasion_slug: str) -> bool:
     used by the coherence gate, rather than duplicating the list.
     """
     return occasion_slug in _WESTERN_REGISTER_OCCASIONS
+
+
+def is_athletic_register_occasion(occasion_slug: str) -> bool:
+    """Return True if `occasion_slug` is one of the athletic-register
+    occasions gated by is_coherent_candidate's gate 5 (see
+    _ATHLETIC_REGISTER_OCCASIONS above). Exposed publicly for symmetry with
+    is_western_register_occasion() above, for any future caller that needs
+    to key off the same occasion set as the coherence gate.
+    """
+    return occasion_slug in _ATHLETIC_REGISTER_OCCASIONS
 
 # Muted/earthy tones added for Phase B Part 1 (real catalogue colour audit — see
 # offline check).  These coordinate well with each other in BOTH ethnic (jewel/
@@ -140,6 +182,8 @@ def is_coherent_candidate(
     3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's
        wedding_guest, and for either gender's reception — indo-western glam register).
     4. western_register occasion (office): reject ethnic items and festive/quirky markers.
+    5. athletic_register occasion (gym): reject ethnic items and festive/quirky markers
+       (same shape as gate 4), PLUS reject non-athletic footwear from the footwear slot.
 
     Args:
         skip_gender_gate: When True, skips gate 0b ONLY.  Set by composer.
@@ -219,6 +263,32 @@ def is_coherent_candidate(
     ):
         return False
 
+    # Gate 5 (Wave 9, gym occasion): ATHLETIC_REGISTER occasions (currently
+    # only "gym" — see _ATHLETIC_REGISTER_OCCASIONS docstring) reject
+    # ethnic-classified items AND festive/quirky markers, identical in shape
+    # to gate 4 above (a gym look has zero ethnic-register legitimacy at
+    # all — there is no "athletic sherwani" equivalent). ADDITIONALLY
+    # (footwear-specific, honest-suppression requirement): a gym look's
+    # footwear slot must ONLY accept a genuine athletic-typed shoe — never a
+    # jutti/mojari/formal oxford/wedding heel as a fallback when athletic
+    # inventory is scarce (catalogue audit: see is_athletic_footwear_item's
+    # docstring — ~0 women's, ~20 men's athletic-labeled footwear rows).
+    # When no candidate survives this, composer._find_best_candidate returns
+    # None and the slot goes through honest suppression
+    # (composer._suppression_reason) instead of a wrong substitute.
+    # FURTHER ADDITIONALLY (outerwear-specific, 2026-07-24 live-proof — see
+    # _FORMAL_OUTERWEAR_MARKER_RE's docstring): a gym look's outerwear slot
+    # must never accept an unambiguously formal/dressy item (blazer/
+    # cardigan/waistcoat/coat/suit) — a knitted polo cardigan is not
+    # gym-appropriate.
+    if occasion_slug in _ATHLETIC_REGISTER_OCCASIONS:
+        if is_ethnic_item(pt, name) or _FESTIVE_MARKER_RE.search(name):
+            return False
+        if slot_name == "footwear" and not is_athletic_footwear_item(name):
+            return False
+        if slot_name == "outerwear" and _FORMAL_OUTERWEAR_MARKER_RE.search(name):
+            return False
+
     return True
 
 
@@ -247,6 +317,36 @@ def colour_score(
     the ethnic_heavy _JEWEL_TONES tier below rather than inventing new scoring
     machinery); pale/light casual tones score low — an evening indo-western
     reception look should read glam, not light-daytime pastel.
+
+    Diwali palette override: gold/red/maroon/jewel-glam tones score highest
+    (festival-of-lights register); black and pastel-family tones score low.
+
+    Navratri palette override: bright, saturated multicolour scores highest —
+    a loud, dance-friendly garba palette, deliberately distinct from sangeet's
+    generic jewel-tone-embellished register (navratri gets its OWN override
+    rather than falling into the generic ethnic branch below); muted/earthy
+    tones and black score low.
+
+    Karva Chauth palette override: red/maroon/traditional-bridal-adjacent
+    tones score highest (red carries real cultural significance for this
+    occasion); black/white/pastel-family tones score low.
+
+    Eid palette override: pastels/white/soft-metallic tones score highest;
+    dark/jewel-glam tones (including diwali's gold/red palette) score low —
+    deliberately the visual INVERSE of the diwali override above so the two
+    festivals never bleed into each other's colour bias.
+
+    Raksha Bandhan: no dedicated override — formality 2/EITHER-lean, so it
+    falls through to the generic western/EITHER branch below like casual/
+    party_evening.
+
+    Gym: no dedicated override, same reasoning as Raksha Bandhan — an
+    activewear look has no strong colour-register convention worth encoding
+    (unlike Diwali's gold/red or Eid's pastels), so it falls through to the
+    generic western/EITHER branch below. The athletic-register vs ethnic
+    rejection is already fully handled by is_coherent_candidate's gate 5
+    (ethnic items never reach colour_score for a gym look in the first
+    place), so no clash-suspension logic is needed here either.
     """
     occasion = get_occasion(occasion_slug)
     c_lower = candidate_colour.lower()
@@ -282,6 +382,54 @@ def colour_score(
             return 0.3
         if c_lower == a_lower:
             return 0.85
+        return 0.6
+
+    # Diwali override
+    if occasion_slug == "diwali":
+        _diwali_palette = {"gold", "red", "dark red", "maroon", "burgundy", "wine",
+                            "orange", "dark orange"}
+        _diwali_low = {"black", "light pink", "light blue", "lavender", "cream",
+                        "light beige", "white", "off white", "light grey"}
+        if c_lower in _diwali_palette:
+            return 1.0
+        if c_lower in _diwali_low:
+            return 0.2
+        return 0.6
+
+    # Navratri override — bright saturated multicolour, not muted/earthy
+    if occasion_slug == "navratri":
+        _navratri_palette = {"red", "dark red", "pink", "dark pink", "orange",
+                              "dark orange", "yellow", "dark yellow", "green",
+                              "dark green", "blue", "dark blue", "purple",
+                              "dark purple", "turquoise", "dark turquoise"}
+        _navratri_low = _MUTED_COORDINATING_COLOURS | {"black", "dark grey", "charcoal"}
+        if c_lower in _navratri_palette:
+            return 1.0
+        if c_lower in _navratri_low:
+            return 0.2
+        return 0.6
+
+    # Karva Chauth override — red bears real cultural significance here
+    if occasion_slug == "karva_chauth":
+        _karva_chauth_palette = {"red", "dark red", "maroon", "burgundy", "wine", "gold"}
+        _karva_chauth_low = {"black", "white", "off white", "light pink",
+                              "light blue", "lavender", "light grey"}
+        if c_lower in _karva_chauth_palette:
+            return 1.0
+        if c_lower in _karva_chauth_low:
+            return 0.2
+        return 0.6
+
+    # Eid override — pastels/white/soft-metallic; deliberate visual inverse of
+    # diwali's gold/red palette so the two festivals never bleed together.
+    if occasion_slug == "eid":
+        _eid_palette = {"white", "off white", "cream", "light beige", "light pink",
+                         "light blue", "lavender", "silver", "light grey"}
+        _eid_low = {"black", "dark red", "maroon", "gold", "dark orange", "burgundy"}
+        if c_lower in _eid_palette:
+            return 1.0
+        if c_lower in _eid_low:
+            return 0.2
         return 0.6
 
     # Ethnic festive occasions: no clash penalty; jewel tones co-star

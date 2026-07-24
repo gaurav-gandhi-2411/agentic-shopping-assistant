@@ -100,6 +100,13 @@ class TestCloudflareChallengeDetection:
         body = "<title>Attention Required! | Cloudflare</title>"
         assert _looks_like_cloudflare_challenge(_fake_response(503, body)) is True
 
+    def test_503_without_cf_marker_is_still_block_shaped(self) -> None:
+        # 2026-07-23: blissclub.com/silvertraq.com return Shopify's generic branded
+        # 503 error page (no "cloudflare" string) — still edge-block-shaped, since a
+        # genuine non-block 503 fails identically either way and curl recovers it.
+        body = "<title>Something went wrong</title>"
+        assert _looks_like_cloudflare_challenge(_fake_response(503, body)) is True
+
     def test_normal_200_is_not_cloudflare_shaped(self) -> None:
         body = '{"products": [{"id": 1, "handle": "test"}]}'
         assert _looks_like_cloudflare_challenge(_fake_response(200, body)) is False

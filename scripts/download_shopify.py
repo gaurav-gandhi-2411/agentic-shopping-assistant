@@ -13,17 +13,18 @@ where <slug> is the first segment of the domain (e.g. "snitch" from "snitch.co.i
 Checks robots.txt before fetching. Skips if /products.json returns non-Shopify content.
 Pauses 0.5 s between pages. Max 60 pages (15 000 products).
 
-Cloudflare TLS-fingerprint fallback (2026-07-19): several Indian D2C Shopify stores sit
-behind Cloudflare bot-management that fingerprints Python's requests/OpenSSL TLS
-ClientHello and returns HTTP 429 "Verifying your connection..." — while curl.exe
-(Windows' native Schannel TLS stack) gets a normal 200 on the identical URL. This is a
-TLS-fingerprint-level block, not a true rate limit (retrying with different headers/UA
-does not help). When a request returns a Cloudflare-challenge-shaped response (HTTP 429,
-or 200/503 body containing a Cloudflare challenge marker), _get() transparently retries
-that single request via `curl.exe` (subprocess) and wraps the stdout in a requests.Response
-look-alike so all downstream code (pagination, JSON parsing, robots check) is unchanged.
-requests remains the default/primary path — curl is only invoked on a detected block, so
-the common (unblocked) case pays no subprocess overhead.
+Cloudflare/edge TLS-fingerprint fallback (2026-07-19, extended 2026-07-23): several
+Indian D2C Shopify stores sit behind bot-management that fingerprints Python's
+requests/OpenSSL TLS ClientHello and returns HTTP 429 "Verifying your connection..."
+or a plain HTTP 503 — while curl.exe (Windows' native Schannel TLS stack) gets a
+normal 200 on the identical URL. This is a TLS-fingerprint-level block, not a true
+rate limit (retrying with different headers/UA does not help). When a request
+returns a block-shaped response (HTTP 429, any HTTP 503, or a 200 body containing a
+Cloudflare challenge marker), _get() transparently retries that single request via
+`curl.exe` (subprocess) and wraps the stdout in a requests.Response look-alike so all
+downstream code (pagination, JSON parsing, robots check) is unchanged. requests
+remains the default/primary path — curl is only invoked on a detected block, so the
+common (unblocked) case pays no subprocess overhead.
 """
 from __future__ import annotations
 
@@ -56,15 +57,24 @@ _CLOUDFLARE_MARKERS: tuple[str, ...] = (
 
 
 def _looks_like_cloudflare_challenge(resp: requests.Response) -> bool:
-    """Return True if *resp* looks like a Cloudflare bot-management challenge.
+    """Return True if *resp* looks like a Cloudflare/edge bot-management block.
 
     HTTP 429 from these stores is not a real rate limit — it's Cloudflare's TLS
-    fingerprint check rejecting python-requests' OpenSSL ClientHello. A 200/503
-    whose body contains a known Cloudflare challenge marker is treated the same way.
+    fingerprint check rejecting python-requests' OpenSSL ClientHello. A 200 body
+    containing a known Cloudflare challenge marker is treated the same way.
+
+    HTTP 503 is treated as block-shaped unconditionally (2026-07-23: blissclub.com
+    and silvertraq.com both return Shopify's generic branded 503 error page — no
+    "cloudflare" marker in the body, just Shopify's own edge rejecting the
+    ClientHello — while curl.exe reaches the real 200 on the identical URL). A
+    genuine, non-block 503 would fail either way, so retrying once via curl on
+    every 503 costs nothing in the failure case and recovers the block case.
     """
     if resp.status_code == 429:
         return True
-    if resp.status_code in (200, 503):
+    if resp.status_code == 503:
+        return True
+    if resp.status_code == 200:
         body_lower = resp.text[:2000].lower()
         return any(marker in body_lower for marker in _CLOUDFLARE_MARKERS)
     return False
@@ -98,11 +108,17 @@ def _curl_fallback(url: str, timeout: int) -> _CurlResponse:
 
     Raises subprocess.CalledProcessError if curl.exe itself fails (network error,
     non-2xx handled by caller via the returned body/status).
+
+    encoding="utf-8" is explicit (2026-07-23 fix): subprocess.run's text=True alone
+    decodes stdout using the OS default codepage (cp1252 on Windows), which raises
+    UnicodeDecodeError on any non-Latin-1 byte in a product description — Shopify's
+    /products.json is always UTF-8 regardless of the host locale.
     """
     result = subprocess.run(
         ["curl.exe", "-s", "-A", UA, "--max-time", str(timeout), url],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     return _CurlResponse(result.stdout, status_code=200)

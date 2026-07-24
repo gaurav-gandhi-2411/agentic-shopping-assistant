@@ -14,6 +14,7 @@ import Image from "next/image"
 import { ExternalLink, ShoppingBag, Sparkles } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { getStoreDisplayName } from "@/lib/stores"
+import { formatSlotLabel } from "@/lib/displayFormat"
 import type { ItemLink, LookSnapshot, SharedLook } from "@/lib/api/types"
 
 // Default backend — the looks table is shared, any service can answer.
@@ -183,7 +184,7 @@ export default async function SharedLookPage({
               const slotLabel = isSeed
                 ? "Hero"
                 : item.outfit_slot
-                  ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
+                  ? formatSlotLabel(item.outfit_slot)
                   : "Item"
               // Note: item.pdp_handle is a bare handle, not a resolvable URL — never
               // use it as an href fallback. If no real URL is available, render

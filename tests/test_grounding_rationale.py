@@ -9,11 +9,16 @@ Covers:
 - template_rationale produces grounded output.
 - build_fact_sheet extracts only real attributes.
 - generate_rationales falls back to template on LLM failure.
+- _display_colour colour-grounding: prefers the product NAME's own colour
+  word over a contradicting/mislabeled catalogue colour_group_name field
+  (2026-07-23 fix — see TestDisplayColourGrounding below).
 """
 from __future__ import annotations
 
 from src.agents.grounding import validate_rationale
 from src.agents.outfit.rationale import (
+    _display_colour,
+    _display_noun,
     build_fact_sheet,
     generate_rationales,
     template_rationale,
@@ -241,6 +246,146 @@ class TestTemplateRationale:
         result = template_rationale(look)
         # At least the seed colour/type should appear
         assert "red" in result.lower() or "kurta" in result.lower()
+
+
+# ── _display_colour grounding tests (2026-07-23 fix) ────────────────────────────
+#
+# Live-proven bug: an "eid outfit for men" look whose hero item was "Pastel
+# Seafoam Embroidered Kurta Pajama | TULA" (data/processed/unified/
+# catalogue.parquet: colour_group_name mislabeled "Red" for this exact row)
+# got the stylist note "The red kurta anchors this eid look" — the item is
+# seafoam/pastel, not red. Root cause: "pastel" was entirely missing from
+# _NOTE_COLOUR_WORDS, so the name-scan found no match and silently fell back
+# to the catalogue's (wrong) colour_group_name field.
+
+
+class TestDisplayColourGrounding:
+    def test_prefers_name_colour_over_contradicting_field(self) -> None:
+        """The exact live-repro shape: name says pastel, field says a
+        completely different, contradicting colour."""
+        result = _display_colour("Red", "Pastel Seafoam Embroidered Kurta Pajama | TULA")
+        assert result == "pastel"
+        assert result != "red"
+
+    def test_synthetic_contradicting_item_trusts_name(self) -> None:
+        """A synthetic item whose colour field contradicts its own name —
+        the general class this fix protects, not just the one live item."""
+        result = _display_colour("Black", "Pastel Lavender Anarkali Gown")
+        assert result == "pastel"
+        assert result != "black"
+
+    def test_name_colour_still_wins_when_field_agrees(self) -> None:
+        """No regression to the already-correct case: name and field agree,
+        name still wins (established prior behaviour, unchanged)."""
+        result = _display_colour("Red", "Red Embroidered Kurta")
+        assert result == "red"
+
+    def test_falls_back_to_field_when_name_has_no_recognised_colour_word(self) -> None:
+        """Established prior behaviour, unchanged: a name with NO recognised
+        colour word at all still falls back to the (trusted, unverifiable-
+        otherwise) catalogue field."""
+        result = _display_colour("Blue", "Technical Stretch Stitchless Shirt")
+        assert result == "blue"
+
+    def test_pastel_family_words_all_recognised(self) -> None:
+        """Catalogue-wide: 140 rows say "pastel" in prod_name but only 54
+        carry colour_group_name="Pastel" — every one of the other 86 must now
+        resolve to the name's own word, not a mismatched field value (the
+        field colour deliberately does NOT appear in the name text, mirroring
+        the real live-repro row where "Red" and "Pastel Seafoam" share no
+        words at all)."""
+        for field_colour in ("Pink", "Green", "Yellow", "Grey", "Blue", "Black"):
+            result = _display_colour(field_colour, "Pastel Georgette Saree")
+            assert result == "pastel"
+
+    def test_generate_rationales_template_fallback_never_asserts_wrong_colour(self) -> None:
+        """End-to-end through the deterministic template path (no LLM):
+        the mislabeled item's rationale must say "pastel", never "red"."""
+        look = _make_look(
+            seed_colour="Red", seed_type="kurta pajama",
+            occasion="eid", gender="men",
+        )
+        look["seed_item"]["prod_name"] = "Pastel Seafoam Embroidered Kurta Pajama | TULA"
+        result = template_rationale(look)
+        assert "red" not in result.lower()
+        assert "pastel" in result.lower()
+
+
+# ── _display_noun grounding (2026-07-24 fix) ─────────────────────────────────────
+#
+# Live-proven bug: a gym look's stylist note read "The classic sports_bra
+# anchors this gym look" — the raw snake_case product_type value leaked
+# verbatim (underscore intact) into user-facing prose. Two-part fix:
+#   1. _NOTE_GARMENT_NOUNS grows the missing activewear nouns.
+#   2. The raw-product_type fallback branch now sanitizes underscores to
+#      spaces defensively, so ANY future underscore-bearing product_type
+#      (even one not yet in _NOTE_GARMENT_NOUNS) can never leak raw again.
+
+
+class TestDisplayNounGrounding:
+    def test_sports_bra_underscore_never_leaks_raw(self) -> None:
+        """The exact live-repro shape: raw product_type has the underscore."""
+        result = _display_noun("sports_bra", "The classic Sports Bra")
+        assert result == "sports bra"
+        assert "_" not in result
+
+    def test_sports_bra_falls_back_to_sanitized_product_type_when_name_has_no_match(
+        self,
+    ) -> None:
+        """Even with NO recognisable garment word in prod_name at all, the
+        raw-product_type fallback must still never leak the underscore."""
+        result = _display_noun("sports_bra", "")
+        assert result == "sports bra"
+        assert "_" not in result
+
+    def test_leggings_joggers_skort_track_cargo_all_recognised_from_name(self) -> None:
+        """Every Wave 9 activewear noun this fix adds, as it really appears
+        in catalogue prod_name text (data/processed/unified/catalogue.parquet)."""
+        cases = [
+            ("leggings", "Pink Ultra Stretchable Active Leggings", "leggings"),
+            ("leggings", "Dark Grey Skinny Legging", "legging"),
+            ("joggers", "Grey Stretchable Cotton Joggers", "joggers"),
+            ("joggers", "White Cotton Straight Fit Jogger", "jogger"),
+            ("skort", "The Do-It All Skorts", "skorts"),
+            ("track_pants", "TraqLite Track Pants Olive", "track pants"),
+            ("cargo_pants", "TraqPace Cargo Pants Lilac", "cargo pants"),
+        ]
+        for product_type, prod_name, expected in cases:
+            result = _display_noun(product_type, prod_name)
+            assert result == expected, (
+                f"product_type={product_type!r} prod_name={prod_name!r}: "
+                f"expected {expected!r}, got {result!r}"
+            )
+            assert "_" not in result
+
+    def test_generic_future_underscore_type_sanitized_not_word_list_dependent(self) -> None:
+        """The systemic part of the fix: a HYPOTHETICAL future snake_case
+        product_type this word list has never seen (e.g. a new store adding
+        "yoga_pants" tomorrow) must still never leak a raw underscore — this
+        is the whole point of fixing the fallback branch, not just patching
+        today's known words."""
+        result = _display_noun("yoga_pants", "")
+        assert result == "yoga pants"
+        assert "_" not in result
+
+    def test_no_regression_to_existing_clean_product_type_fallback(self) -> None:
+        """Established prior behaviour, unchanged: a clean (no-underscore,
+        <=2 word) product_type with no name match still passes straight
+        through."""
+        assert _display_noun("dress", "") == "dress"
+        assert _display_noun("kurta", "") == "kurta"
+
+    def test_generate_rationales_template_fallback_never_leaks_raw_product_type(self) -> None:
+        """End-to-end through the deterministic template path (no LLM): the
+        exact live-repro shape must never surface a raw underscore."""
+        look = _make_look(
+            seed_colour="Black", seed_type="sports_bra",
+            occasion="gym", gender="women",
+        )
+        look["seed_item"]["prod_name"] = "Ultimate Comfort Sports Bra"
+        result = template_rationale(look)
+        assert "sports_bra" not in result
+        assert "_" not in result
 
 
 # ── build_fact_sheet tests ──────────────────────────────────────────────────────

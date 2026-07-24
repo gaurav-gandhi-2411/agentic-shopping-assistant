@@ -86,7 +86,16 @@ def test_unified_catalogue_spans_all_live_stores(unified_df: pd.DataFrame) -> No
 
     Wave 7 (2026-07-19): 31 new Shopify brands were added to ``UNIFIED_STORES``
     (men's-ethnic depth, footwear, and jewellery wedges), bringing the live roster
-    from 8 to 39 stores. See ``_VALID_STORES`` below for the full current roster.
+    from 8 to 39 stores.
+
+    Wave 8 activewear (2026-07-23): blissclub and silvertraq added (women's
+    athleisure/leggings) to close a confirmed gym-query catalogue gap, bringing
+    the roster to 41 stores.
+
+    Wave 8 activewear-footwear (2026-07-24): campusshoes added (mixed-gender
+    running/sneakers/walking/sports shoes) to close the women's genuine
+    athletic-footwear gap, bringing the roster to 42 stores. See
+    ``_VALID_STORES`` below for the full current roster.
     """
     expected = _VALID_STORES
     actual = set(unified_df["store"].unique())
@@ -167,7 +176,7 @@ def test_unified_clip_ids_aligned(unified_df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 
-# Active/live stores — the 39 stores present in the on-disk unified index (see
+# Active/live stores — the 42 stores present in the on-disk unified index (see
 # test_unified_catalogue_spans_all_live_stores). Must mirror UNIFIED_STORES in
 # scripts/build_unified_index.py. hm and berrylush are both excluded entirely at
 # build time (Phase A, 2026-07-06) so they can never appear in results;
@@ -182,6 +191,8 @@ _VALID_STORES = frozenset({
     "rathore", "bhasinbrothers",
     "korakari", "juttichooindia", "shopkop", "irasoles", "chappers",
     "5-elements", "taurjuttis", "vhaan", "fizzygoblet", "kalapuri",
+    "blissclub", "silvertraq",
+    "campusshoes",
 })
 _INACTIVE_STORES = frozenset({"hm", "berrylush"})
 
