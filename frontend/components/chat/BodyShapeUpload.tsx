@@ -33,22 +33,38 @@ function shapeLabel(slug: BodyShapeSlug): string {
  * Deliberately never routed through the geometric photo classifier: there is
  * no shoulder:hip-ratio proxy for "slim build" or height (see poseShape.ts's
  * PHOTO_REACHABLE_SHAPES comment) — these are typed-equivalent options only.
+ *
+ * Live-proof fix (2026-07-25): the message ALSO has to carry an explicit
+ * gender word ("I'm a man...") — clicking a "For him" chip in the unknown-
+ * gender view is itself a real signal the user is shopping menswear, but
+ * that context lives only in the UI section heading, not in the sent text.
+ * Without it, "I have a broad build" alone carries no gender signal, so the
+ * backend (correctly, per its own never-guess contract — see
+ * body_type_ack_message's gender param docstring) fell back to the WOMEN'S
+ * default template, showing "a flared lehenga or sharara..." in reply to a
+ * "For him" chip — wrong-feeling even though every individual rule involved
+ * was behaving exactly as designed. Verified server-side via parse_intent:
+ * "I am a man with a broad build" -> gender=men, body_type=inverted_triangle.
  */
 const MEN_BUILD_OPTIONS: ReadonlyArray<{ key: string; label: string; message: string }> = [
-  { key: "broad", label: "Broad build", message: "I have a broad build" },
-  { key: "slim", label: "Slim build", message: "I have a slim build" },
-  { key: "short", label: "Short", message: "I have a short build" },
-  { key: "tall", label: "Tall", message: "I'm tall" },
+  { key: "broad", label: "Broad build", message: "I am a man with a broad build" },
+  { key: "slim", label: "Slim build", message: "I am a man with a slim build" },
+  { key: "short", label: "Short", message: "I am a man with a short build" },
+  { key: "tall", label: "Tall", message: "I am a man, and I am tall" },
 ]
 
 /** Men's-natural relabeling for the photo "confident" suggestion — mirrors
  *  body_type.py's _MEN_DISPLAY_LABELS (server-side ack/clarify wording). Only
- *  inverted_triangle has a men's meaning; pear does not (see below). */
+ *  inverted_triangle has a men's meaning; pear does not (see below). This
+ *  path only ever renders when knownGender is ALREADY "men" (see isKnownMen
+ *  gating below), so the message doesn't strictly need its own gender word
+ *  the way MEN_BUILD_OPTIONS does — included anyway for defense in depth and
+ *  consistency, so this message is correct even if reused elsewhere later. */
 const MEN_CONFIDENT_LABEL: Partial<Record<BodyShapeSlug, string>> = {
   inverted_triangle: "broad build",
 }
 const MEN_CONFIDENT_MESSAGE: Partial<Record<BodyShapeSlug, string>> = {
-  inverted_triangle: "I have a broad build",
+  inverted_triangle: "I am a man with a broad build",
 }
 
 // idle -> intro (privacy copy + choose/cancel) -> loading (model + detection)
