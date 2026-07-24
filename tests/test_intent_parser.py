@@ -710,3 +710,160 @@ class TestRawQueryPreservation:
         intent = parse_intent(q)
         assert intent.raw_query == "Navy BLUE Kurti"
         assert intent.colour == "Navy Blue"  # canonical form used internally
+
+
+# ---------------------------------------------------------------------------
+# Group 11 (2026-07-24): Wave 9 activewear + churidar vocabulary gaps.
+#
+# "leggings"/"joggers"/"skort" had NO garment_type rule at all before this
+# fix — a query naming them resolved garment_type=None entirely. "sports
+# bra"/"track pants"/"cargo pants" DID partially resolve (via the generic
+# bare-noun "\bbra\b"/"\bpants\b" rules) but collapsed to the wrong, too-
+# generic value ("innerwear"/"trousers") instead of the catalogue's own
+# normalized product_type_name facet ("sports_bra"/"track_pants"/
+# "cargo_pants" — see src/catalogue/normalizer.py, this file's mirror
+# source of truth). "churidar" is mapped to the catalogue's existing
+# "salwar" facet (near-synonym merge, thin real inventory) rather than an
+# unbacked distinct value — see the _GARMENT_RULES churidar entry's comment.
+# ---------------------------------------------------------------------------
+
+
+class TestActivewearAndChuridarVocabulary:
+    @pytest.mark.parametrize(
+        "query, expected_garment",
+        [
+            ("leggings for women", "leggings"),
+            ("printed leggings", "leggings"),
+            ("joggers for men", "joggers"),
+            ("sweatpants for men", "joggers"),
+            ("skort for women", "skort"),
+            ("skorts for the gym", "skort"),
+            ("sports bra for women", "sports_bra"),
+            ("track pants for men", "track_pants"),
+            ("cargo pants for men", "cargo_pants"),
+            ("churidar for women", "salwar"),
+        ],
+    )
+    def test_new_vocabulary_resolves(self, query: str, expected_garment: str) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == expected_garment, (
+            f"query={query!r}: expected garment={expected_garment!r}, got {intent.garment_type!r}"
+        )
+
+    def test_bare_pants_still_resolves_to_trousers(self) -> None:
+        """The generic "pants" rule must still catch plain trousers queries —
+        only the specific "track pants"/"cargo pants" compound phrases are
+        redirected to their own distinct types."""
+        intent = parse_intent("formal pants for men")
+        assert intent.garment_type == "trousers"
+
+    def test_bare_bra_still_resolves_to_innerwear(self) -> None:
+        """Only the specific "sports bra" compound phrase is redirected —
+        a bare "bra" query must stay the generic innerwear bucket."""
+        intent = parse_intent("bra for women")
+        assert intent.garment_type == "innerwear"
+
+
+# ---------------------------------------------------------------------------
+# Group 12 (2026-07-24): multi-garment "X and Y" / "X & Y" query parsing.
+#
+# Live-proven bug: "sports bra and leggings" only ever surfaced sports bra
+# items — garment_type is architecturally single-valued (see
+# _extract_garment_type's docstring), so "leggings" never had a chance to be
+# searched at all. garment_type_secondary is populated only for a genuine
+# two-garment conjunction resolving to two DISTINCT, real garment types.
+# ---------------------------------------------------------------------------
+
+
+class TestMultiGarmentConjunctionSplit:
+    @pytest.mark.parametrize(
+        "query, primary, secondary",
+        [
+            ("sports bra and leggings", "sports_bra", "leggings"),
+            ("joggers and t-shirt", "joggers", "top"),
+            ("kurta and palazzo", "kurta", "palazzo"),
+            ("saree and blouse", "saree", "blouse"),
+            ("sherwani and churidar", "sherwani", "salwar"),
+            ("sports bra & leggings", "sports_bra", "leggings"),  # "&" variant
+        ],
+    )
+    def test_two_distinct_garments_split(
+        self, query: str, primary: str, secondary: str
+    ) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == primary, (
+            f"query={query!r}: expected primary={primary!r}, got {intent.garment_type!r}"
+        )
+        assert intent.garment_type_secondary == secondary, (
+            f"query={query!r}: expected secondary={secondary!r}, "
+            f"got {intent.garment_type_secondary!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "sports bra for women",
+            "kurta for men",
+            "black dress for women",
+            "cheap lehenga under 5000",
+            "leggings for the gym",
+        ],
+    )
+    def test_single_garment_queries_unaffected(self, query: str) -> None:
+        """Ordinary single-garment queries must resolve exactly as they did
+        before this fix, with garment_type_secondary always None — the split
+        mechanism is a strict no-op unless a genuine two-garment conjunction
+        is present."""
+        intent = parse_intent(query)
+        assert intent.garment_type_secondary is None, (
+            f"query={query!r}: expected no secondary, got "
+            f"{intent.garment_type_secondary!r}"
+        )
+
+    def test_kurta_and_kurti_treated_as_synonym_not_distinct(self) -> None:
+        """'kurta and kurti' is near-synonym browsing language ('kurta-or-
+        kurti style'), not a request for two distinct complementary pieces —
+        must NOT trigger the multi-garment split."""
+        intent = parse_intent("kurta and kurti for women")
+        assert intent.garment_type == "kurta"
+        assert intent.garment_type_secondary is None
+
+    def test_kurta_and_pyjama_stays_single_type_not_split(self) -> None:
+        """'kurta and pyjama' is a fixed compound-table SET idiom (see
+        _COMPOUND_TERMS) — the "and" there is internal to the idiom, not a
+        conjunction joining two independently-searchable garments."""
+        intent = parse_intent("kurta and pyjama set for dad")
+        assert intent.garment_type == "kurta"
+        assert intent.garment_type_secondary is None
+
+    def test_second_side_unresolved_falls_back_to_single_garment(self) -> None:
+        """When one side of the conjunction names no recognisable garment
+        noun at all, fall back to the unsplit whole-query extraction
+        (existing single-garment behaviour) rather than a bogus secondary."""
+        intent = parse_intent("kurta and something nice")
+        assert intent.garment_type == "kurta"
+        assert intent.garment_type_secondary is None
+
+    def test_conjunction_outside_garment_context_no_split(self) -> None:
+        """An "and" that has nothing to do with garment nouns at all (store
+        names) must not produce a spurious secondary — identical to this
+        query's pre-fix garment_type resolution (plural "tops" doesn't match
+        the singular "\\btop\\b" rule; a separate, pre-existing gap outside
+        this fix's scope — see TestStoreFilter.test_multiple_stores, which
+        exercises this exact query for store_filter only)."""
+        intent = parse_intent("compare tops on myntra and snitch")
+        assert intent.garment_type is None
+        assert intent.garment_type_secondary is None
+
+    def test_secondary_not_inherited_across_turns(self) -> None:
+        """garment_type_secondary is a property of THIS turn's raw query
+        shape, not something session context should resurrect on a later,
+        unrelated turn (mirrors store_filter/is_product_query — see
+        merge_with_context's docstring)."""
+        intent = parse_intent("in blue")
+        session_context = {
+            "garment_type": "sports_bra",
+            "garment_type_secondary": "leggings",
+        }
+        merged = merge_with_context(intent, session_context)
+        assert merged.garment_type_secondary is None

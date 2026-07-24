@@ -469,8 +469,14 @@ def _compose_couple_from_scratch(
     # here since it has no other channel to reach the user.
     answer = f"**{_gendered_look_title(primary_gender)}**"
     for _slot in _primary_empty_slots:
+        # 2026-07-24 sweep (same failure class as rationale._display_noun's
+        # sports_bra leak fix / composer._suppression_reason): every
+        # slot_name in use today is a clean single word, so this is
+        # defensive, not a live fix — sanitizes the DISPLAYED text only,
+        # never the raw `_slot` value itself (still compared/logged raw
+        # elsewhere).
         answer += (
-            f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+            f"\n\n_Note: I couldn't find suitable {_slot.replace('_', ' ')} to complete "
             f"this look in the current catalogue._"
         )
     if _pt_seed is None:
@@ -1920,6 +1926,12 @@ def build_graph(
             "query": merged_intent.raw_query,
             "filters": _plan_filters,
         }
+        # Multi-garment "X and Y" query (see IntentV1.garment_type_secondary
+        # docstring, intent_parser.py) — search_node issues a second
+        # retrieval call for this type and merges the pools. None for every
+        # single-garment query (the overwhelming majority).
+        if merged_intent.garment_type_secondary:
+            plan["product_type_secondary"] = merged_intent.garment_type_secondary
         if _is_similar_query and _anchor_id and not merged_intent.garment_type:
             plan["anchor_article_id"] = _anchor_id
         if _is_garment_pivot:
@@ -2421,6 +2433,44 @@ def build_graph(
         else:
             result = search_catalogue(query, merged or None, retriever, fetch_k)
 
+        # Multi-garment "X and Y" query (see IntentV1.garment_type_secondary
+        # docstring, intent_parser.py) — issue a SECOND retrieval call for the
+        # secondary garment type (same filters otherwise: gender/colour/
+        # budget/store) and merge the pools, mirroring
+        # composer._find_best_candidate's per-family accessory-retrieval-
+        # then-merge fix (commit 1717265) for the identical single-query-
+        # starves-one-type failure mode. No-op (result unchanged) unless the
+        # router set plan["product_type_secondary"] AND a primary
+        # product_type_name filter is actually active.
+        _garment_secondary = plan.get("product_type_secondary")
+        if _garment_secondary and merged.get("product_type_name"):
+            _secondary_filters = {**merged, "product_type_name": _garment_secondary}
+            _secondary_result = search_catalogue(query, _secondary_filters, retriever, fetch_k)
+            _primary_items = result["items"]
+            _secondary_items = _secondary_result["items"]
+            # Interleave (primary[0], secondary[0], primary[1], secondary[1], ...)
+            # rather than concatenating — a straight concat would let the
+            # primary type's own fetch_k window fill the final post-rerank
+            # top-N before the secondary type is ever considered, silently
+            # reproducing the exact "leggings never surfaced" bug this fix
+            # closes. Interleaving gives both types genuine front-of-pool
+            # visibility regardless of which type happens to score higher on
+            # raw RRF score.
+            _seen_ids: set[str] = set()
+            _merged_items: list[dict] = []
+            for _i in range(max(len(_primary_items), len(_secondary_items))):
+                for _pool in (_primary_items, _secondary_items):
+                    if _i < len(_pool) and _pool[_i]["article_id"] not in _seen_ids:
+                        _merged_items.append(_pool[_i])
+                        _seen_ids.add(_pool[_i]["article_id"])
+            result = {"items": _merged_items, "query": result["query"], "n_results": len(_merged_items)}
+            logger.info(
+                "[search] multi-garment merge: primary=%d secondary=%d merged=%d "
+                "(types=%s/%s)",
+                len(_primary_items), len(_secondary_items), len(_merged_items),
+                merged.get("product_type_name"), _garment_secondary,
+            )
+
         # Strip bolt-good / material-only SKUs — these are fabric pieces, not garments.
         # Myntra classifies fabric bolts under product_type="Dress" so we must also
         # check prod_name and detail_desc, not just product_type.
@@ -2635,8 +2685,17 @@ def build_graph(
         # (never reimplemented) on the plain search path. Skipped when the query
         # itself asks for a set/combo/outfit/look — that legitimizes a multi-piece
         # result (see _OUTFIT_INTENT_RE above for the same "outfit" word list).
+        # Also skipped for a genuine two-garment "X and Y" query (Wave 9,
+        # 2026-07-24) — garment_type_secondary means the user explicitly named
+        # BOTH pieces, so a combo listing naming both ("T-shirt with Joggers"
+        # for "joggers and t-shirt") is a legitimate hit, not SET-listing
+        # noise; live-verified this gate otherwise strips every secondary-type
+        # candidate whose real catalogue title happens to be a 2-piece combo
+        # naming both requested garments, defeating the multi-garment fix.
         if _occ_intent.garment_type and items_out and not (
-            _SET_INTENT_RE.search(raw_query) or _OUTFIT_INTENT_RE.search(raw_query)
+            _SET_INTENT_RE.search(raw_query)
+            or _OUTFIT_INTENT_RE.search(raw_query)
+            or _occ_intent.garment_type_secondary
         ):
             _set_filtered = [
                 it for it in items_out
@@ -3047,8 +3106,9 @@ def build_graph(
 
             answer = f"**Your partner's look**\n\n{_partner_rationale}\n\n_{_coordinated_with}_"
             for _slot in _p_empty_slots:
+                # 2026-07-24 sweep — see the primary-look loop above for why.
                 answer += (
-                    f"\n\n_Note: I couldn't find suitable {_slot} to complete "
+                    f"\n\n_Note: I couldn't find suitable {_slot.replace('_', ' ')} to complete "
                     f"this look in the current catalogue._"
                 )
 
@@ -3401,9 +3461,12 @@ def build_graph(
                         f"separately or try without a budget constraint._"
                     )
                 else:
+                    # 2026-07-24 sweep — see the primary-look loop above for
+                    # why; the `_slot == "footwear"` check just above compares
+                    # the RAW value and is untouched.
                     answer += (
-                        f"\n\n_Note: I couldn't find suitable {_slot} to complete "
-                        f"this look in the current catalogue._"
+                        f"\n\n_Note: I couldn't find suitable {_slot.replace('_', ' ')} to "
+                        f"complete this look in the current catalogue._"
                     )
 
         update: dict = {

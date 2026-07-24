@@ -48,6 +48,14 @@ class IntentV1:
     # signal for a downstream ranking consumer (graph.py, next wave) to penalize
     # heavily embellished items. Extraction only; no ranking wiring here.
     formality_softener: str | None = None  # "flashy" | "minimalist" | "comfortable" | None
+    # Second garment type for a genuine two-garment "X and Y" / "X & Y" query
+    # (e.g. "sports bra and leggings", "kurta and palazzo") — see
+    # _extract_garment_types' docstring for the split/merge mechanism and the
+    # distinct-type judgment call. None for every single-garment query
+    # (the overwhelming majority) and for every existing caller that only
+    # ever reads `garment_type` — this field is purely additive, never
+    # changes garment_type's own type or meaning.
+    garment_type_secondary: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +87,25 @@ _COMPOUND_TERMS: dict[str, str] = {
     "kurta pyjama": "kurta",
     "kurta pajama": "kurta",
     "kurta and pajama": "kurta",
+    # Wave 9 activewear vocabulary (2026-07-24, multi-garment "X and Y" fix
+    # follow-up): mirrors src/catalogue/normalizer.py's identical compound
+    # entries (same module-docstring "keep in sync" convention as the
+    # kurta-pajama entries above). Must be compound-table entries, not
+    # position-scan rules, because the bare noun they end in ("bra"/"pants")
+    # is already claimed by an existing generic rule (innerwear's "\bbra\b",
+    # trousers' "\bpants\b") that would otherwise win the rightmost-noun
+    # scan. Ground-truth verified: the unified catalogue's product_type_name
+    # column has 21 "sports_bra", 13 "cargo_pants", 4 "track_pants" rows
+    # written by adapter.py's normalize_garment_type() at ingest time using
+    # these exact canonical strings — this file must resolve queries to the
+    # SAME strings for the product_type_name filter to actually match them.
+    # Live-proven gap this closes: before this fix, "sports bra" resolved to
+    # the generic "innerwear" garment_type here (not "sports_bra"), so a
+    # "sports bra and leggings" query's single-valued garment_type extraction
+    # never even had a chance to name the right facet, let alone a second one.
+    "sports bra": "sports_bra",
+    "track pants": "track_pants",
+    "cargo pants": "cargo_pants",
 }
 
 _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
@@ -92,10 +119,29 @@ _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
 
 _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bshorts?\b", "shorts"),
+    # Skort ("skirt" + "shorts" hybrid) is a distinct real catalogue noun —
+    # does not share a substring with "shorts" above, no compound entry
+    # needed. Mirrors src/catalogue/normalizer.py's identical rule.
+    (r"\bskorts?\b", "skort"),
     (r"\bminiskirt\b|\bmini skirt\b", "skirt"),
     (r"\bskirt\b", "skirt"),
     (r"\btrouser\b|\btrousers\b|\bpants\b|\bchino\b|\bchinos\b", "trousers"),
     (r"\bjean\b|\bjeans\b|\bdenim\b", "jeans"),
+    # Wave 9 activewear vocabulary (2026-07-24, multi-garment "X and Y" fix
+    # follow-up): "leggings"/"joggers" were entirely unrecognised — a query
+    # naming either resolved garment_type=None, so it never had a chance to
+    # hard-filter product_type_name at all. Ground-truth verified: catalogue
+    # product_type_name has 76 "leggings" + 10 "joggers" rows (plus more
+    # under Title-case store-label variants matched case-insensitively by
+    # hybrid_search's product_type_name filter). "leggings" never collides
+    # with the generic "\bpants\b" rule (distinct word), so it's a plain
+    # position-scan rule, not a compound entry. "joggers"/"sweatpants" are
+    # merged into one canonical value — mirrors normalizer.py's identical
+    # merge (this catalogue's own silvertraq "TraqEase Sweatpants" listing is
+    # grouped under product_type "Joggers" by the store itself, so this is
+    # not inventing a distinction the data doesn't make).
+    (r"\bleggings?\b", "leggings"),
+    (r"\bjoggers?\b|\bsweatpants?\b", "joggers"),
     (r"\bsarees?\b|\bsari\b", "saree"),
     (r"\blehenga\b", "lehenga"),
     (r"\banarkali\b", "anarkali"),
@@ -105,6 +151,20 @@ _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bkurta\b", "kurta"),
     (r"\bdupatta\b", "dupatta"),
     (r"\bsalwar\b", "salwar"),
+    # 2026-07-24 fix (multi-garment "X and Y" test coverage): "churidar" had
+    # NO garment_type resolution at all — neither here nor in
+    # src/catalogue/normalizer.py (verified: zero catalogue rows have
+    # product_type_name=="churidar"; the 476 prod_name rows mentioning
+    # "churidar" are almost all kurta-with-churidar SETS normalized to
+    # garment_type="kurta", the dominant noun). Mapping it to the catalogue's
+    # existing "salwar" facet (14 real rows) rather than inventing an unbacked
+    # distinct value — churidar is a close, commonly-interchanged salwar
+    # variant, and this file cannot normalize the catalogue's own
+    # product_type_name column (that is normalizer.py's job, out of scope
+    # here — see this fix's commit message). Thin inventory is a known,
+    # separately-scoped catalogue-side gap, not something this query-side
+    # rule can grow on its own.
+    (r"\bchuridar\b", "salwar"),
     (r"\bmonokini\b|\bswimsuit\b|\bbikini\b|\bswimwear\b", "swimwear"),
     (r"\bjumpsuit\b|\bplaysuit\b", "jumpsuit"),
     (r"\bblazers?\b", "blazer"),
@@ -592,6 +652,107 @@ def _extract_garment_type(text_lower: str) -> str | None:
     return winning_gtype
 
 
+# ---------------------------------------------------------------------------
+# Multi-garment "X and Y" / "X & Y" split (2026-07-24)
+#
+# _extract_garment_type above is architecturally single-valued: it always
+# returns AT MOST one garment_type no matter how many garment nouns the query
+# names — a compound-table hit (step 1) returns immediately, and even the
+# step-2 full scan only ever keeps the rightmost match. Live-proven bug:
+# "sports bra and leggings" only ever surfaced sports bra items — "leggings"
+# never had a chance to be searched at all, despite 76+ real catalogue rows.
+#
+# Fix shape mirrors slots.split_accessory_query_by_family /
+# composer._find_best_candidate's per-family retrieval-then-merge pattern
+# (commit 1717265, same "one combined query starves out one of the item
+# types" failure mode) — but at the QUERY-PARSING layer instead of the
+# retrieval layer: detect a genuine two-garment conjunction, extract each
+# side independently, and let the caller (graph.py's search_node) issue two
+# retrieval calls and merge the pools.
+# ---------------------------------------------------------------------------
+
+_CONJUNCTION_RE = re.compile(r"\s+(?:and|&)\s+", re.IGNORECASE)
+
+# Garment-type pairs that are near-synonyms in this catalogue/vocabulary
+# rather than two functionally distinct pieces a shopper wants BOTH of —
+# "kurta and kurti" almost certainly means "kurta-or-kurti style", the same
+# way a shopper browsing says "top or blouse", not "I want one of each to
+# build one outfit" (contrast with "sports bra and leggings" or "kurta and
+# palazzo", which name two complementary pieces of ONE outfit). Kept
+# deliberately small and explicit rather than an automatic similarity
+# heuristic — add pairs here only when a real query surfaces the same
+# false-split problem.
+_SYNONYM_FAMILY_PAIRS: frozenset[frozenset[str]] = frozenset({
+    frozenset({"kurta", "kurti"}),
+})
+
+
+def _find_conjunction_split(text_lower: str) -> tuple[int, int] | None:
+    """Return the (start, end) span of a genuine garment-conjoining "and"/"&"
+    in text_lower, or None if no valid split point exists.
+
+    Skips any "and"/"&" that falls INSIDE a matched _COMPOUND_TERMS phrase
+    span — e.g. "kurta and pyjama" is itself a compound-table entry (a fixed
+    ethnic-wear SET idiom, see _COMPOUND_TERMS), so the "and" there must not
+    be treated as joining two independently-searchable garments. Only the
+    FIRST valid conjunction outside any compound-phrase span is returned —
+    queries naming more than two garments are out of scope for this fix.
+    """
+    compound_spans: list[tuple[int, int]] = []
+    for phrase, _ in _COMPOUND_SORTED:
+        pattern = r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])"
+        for m in re.finditer(pattern, text_lower, re.IGNORECASE):
+            compound_spans.append((m.start(), m.end()))
+
+    for m in _CONJUNCTION_RE.finditer(text_lower):
+        conj_start, conj_end = m.start(), m.end()
+        if any(s <= conj_start and conj_end <= e for s, e in compound_spans):
+            continue
+        return conj_start, conj_end
+    return None
+
+
+def _extract_garment_types(text_lower: str) -> tuple[str | None, str | None]:
+    """Extract (primary, secondary) garment types, splitting on a genuine
+    "X and Y" / "X & Y" conjunction when one exists.
+
+    Runs _extract_garment_type independently on the text before and after
+    the conjunction (each side keeps whatever text it has — colour/occasion/
+    budget/gender extraction is unaffected, they always run on the FULL raw
+    query in parse_intent, only garment-type detection is split here).
+
+    secondary is populated ONLY when:
+      - a valid conjunction split point exists (see _find_conjunction_split),
+      - BOTH sides independently resolve to a real, non-None garment_type,
+      - the two resolved types are DISTINCT and not a known synonym pair
+        (see _SYNONYM_FAMILY_PAIRS — "kurta and kurti" stays single-type).
+
+    Falls back to the unsplit whole-query extraction (today's existing
+    single-garment behaviour, byte-for-byte unchanged) in every other case,
+    including when a split point exists but one/both sides don't resolve to
+    a real garment noun at all (no garment_type rule matches that side's
+    text).
+    """
+    split = _find_conjunction_split(text_lower)
+    if split is None:
+        return _extract_garment_type(text_lower), None
+
+    conj_start, conj_end = split
+    left_type = _extract_garment_type(text_lower[:conj_start])
+    right_type = _extract_garment_type(text_lower[conj_end:])
+
+    if left_type is None or right_type is None:
+        return _extract_garment_type(text_lower), None
+
+    if left_type == right_type:
+        return left_type, None
+
+    if frozenset({left_type, right_type}) in _SYNONYM_FAMILY_PAIRS:
+        return left_type, None
+
+    return left_type, right_type
+
+
 def _extract_gender(text_lower: str) -> str | None:
     """Return first gender match scanning women patterns before men."""
     for compiled_re, gender in _COMPILED_GENDER:
@@ -748,7 +909,7 @@ def parse_intent(raw_query: str) -> IntentV1:
     """
     text_lower = raw_query.lower()
 
-    garment_type = _extract_garment_type(text_lower)
+    garment_type, garment_type_secondary = _extract_garment_types(text_lower)
     gender = _extract_gender(text_lower)
     colour = _extract_colour(text_lower)
     occasion = _extract_occasion(text_lower)
@@ -774,6 +935,7 @@ def parse_intent(raw_query: str) -> IntentV1:
         wants_body_type_guidance=wants_body_type_guidance,
         price_qualifier=price_qualifier,
         formality_softener=formality_softener,
+        garment_type_secondary=garment_type_secondary,
     )
 
 
@@ -836,4 +998,9 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         formality_softener=intent.formality_softener
         if intent.formality_softener is not None
         else session_context.get("formality_softener"),
+        # Not inherited from session_context — like store_filter/
+        # is_product_query/wants_body_type_guidance above, this is a
+        # property of THIS turn's raw query shape ("X and Y"), not something
+        # that should silently resurrect on a later, unrelated turn.
+        garment_type_secondary=intent.garment_type_secondary,
     )
