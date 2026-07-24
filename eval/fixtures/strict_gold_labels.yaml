@@ -1279,3 +1279,24 @@ labels:
 - query_id: occ_adv_003
   items:
   - {article_id: "7553272545502", relevant: false, reason: occasion-register, note: "'Women Navy Blue Round Neck Hosiery T-Shirt' -- 'office wear' mention in desc is generic templated boilerplate ('Women's tops are a versatile and essential wardrobe staple...ideal for casual outings, office wear, travel, and daily activities' -- same stock phrase pattern likely reused across many unrelated tee listings, not an item-specific claim); a basic round-neck hosiery tee is casual register, doesn't match this app's office occasion's smart-casual/formal western_register gate"}
+
+# ── Batch 12 (2026-07-24): Wave 9 campusshoes ingestion (catalogue 110,358
+# -> 112,425) plus the multi-garment/vocabulary fixes (leggings/joggers/
+# skort/sports_bra/track_pants/cargo_pants/churidar->salwar) changed which
+# items surface into top-5 for 3 queries -- hand-labeled against the same
+# rubric so eval_gate.py runs with zero unlabeled. None of the 3 are
+# campusshoes items; all are pre-existing items whose rank shifted from the
+# larger index / adjusted garment-type resolution, the same expected
+# side-effect documented in Batch 11.
+# retrieval_snapshot: data/processed/unified rebuilt 2026-07-24 (42 stores),
+# eval_strict.py --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "9099862704350", relevant: false, reason: set-not-single, note: "'Sea Green Winter Ethnic 3-Piece Set' -- desc explicit 'sleeveless kurta, layered shrug and matching straight fit pants'; a 3-piece SET returned for a single 'straight fit kurta' query, and the sleeveless kurta component itself is not independently confirmed straight-fit (the 'straight fit' phrase in the desc describes the PANTS, not the kurta)"}
+- query_id: gold_010
+  items:
+  - {article_id: "10118346637609", relevant: true, note: "'Rosaue|Viscose Wrapstyle Flared Dress' -- desc explicit 'wrap style silhouette' and 'self tie waist'; genuinely a wrap dress, women, no budget stated"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "7332515610667", relevant: false, reason: type-confusion, note: "'Ellaichi Brooch' (ishhaara) -- product_type 'Fashion', desc explicitly frames it as a 'Haldi & Mehendi Favours' GIFT/FAVOUR for guests, not an apparel item to wear; a decorative gift brooch returned for a 'haldi LOOK' (apparel-intent) query. Same failure class as the occasion-merchandise-leak fix (commits d4bd933/01cbfd5) but for haldi-favor gift items specifically, which that fix's product-type/name pattern list does not cover -- flagged as a possible future extension, not fixed here (out of scope for a hand-labeling pass)."}
