@@ -801,8 +801,15 @@ def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
 # occasion words alone carry no merchandise-vs-apparel signal (that's the
 # whole ambiguity this gate resolves), so only an EXPLICIT product-noun
 # mention bypasses the exclusion.
+# 2026-07-24 addition: "favour"/"favor" added alongside is_occasion_
+# merchandise_name's new concept-broadening (see cleaning.py's
+# _OCCASION_MERCHANDISE_NAME_RE comment) so "haldi favours for guests"/
+# "wedding favors for mehendi" still surface the ishhaara favours collection
+# instead of being over-suppressed — same both-directions discipline as the
+# original rakhi fix.
 _OCCASION_MERCHANDISE_REQUEST_RE = re.compile(
-    r"\brakhi\b|\brakhis\b|\bhamper\b|\bidol\b|\bidols\b|\bgift\b|\bgifts\b",
+    r"\brakhi\b|\brakhis\b|\bhamper\b|\bidol\b|\bidols\b|\bgift\b|\bgifts\b"
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
     re.IGNORECASE,
 )
 
@@ -831,6 +838,14 @@ def _apply_occasion_merchandise_gate(
     like "Men's ... Kurta Rakhi Gift Box for Brother" (typed "kurta") is
     never excluded by the name check.
 
+    2026-07-24 broadening: also passes detail_desc into is_occasion_
+    merchandise_name — "bright haldi look for women" surfaced "Ellaichi
+    Brooch" (store=ishhaara, product_type_name="Fashion"), whose name alone
+    carries no merchandise marker; only its shared description frames it as
+    a "Haldi & Mehendi Favours" guest gift. See cleaning.py's
+    _OCCASION_MERCHANDISE_NAME_RE comment for the full catalogue audit this
+    is grounded in.
+
     Gated on:
       - occasion_slug being set (no-op for non-occasion queries).
       - garment_type is None — a query that already named a garment noun
@@ -855,7 +870,9 @@ def _apply_occasion_merchandise_gate(
         it for it in items
         if not is_occasion_merchandise_type(it.get("product_type"))
         and not is_occasion_merchandise_name(
-            it.get("prod_name") or it.get("display_name"), it.get("product_type")
+            it.get("prod_name") or it.get("display_name"),
+            it.get("product_type"),
+            it.get("detail_desc"),
         )
     ]
 

@@ -176,8 +176,8 @@ _GENERIC_PRODUCT_TYPES: frozenset[str] = frozenset({
     "clothing accessories", "giftables", "",
 })
 
-# Name-level occasion-merchandise markers, scoped to the generic types above.
-# Live-proven residual leak (2026-07-23 live-proof, revision
+# Name/description-level occasion-merchandise markers, scoped to the generic
+# types above. Live-proven residual leak (2026-07-23 live-proof, revision
 # asa-stylist-api-00084-7t4): "White And Pink Beautiful Floral Designer
 # Bhaiya Bhabhi Rakhi Set" (store=ishhaara, product_type_name="Fashion")
 # ranked #1 of only 2 results for "what should I wear for raksha bandhan" --
@@ -206,18 +206,59 @@ _GENERIC_PRODUCT_TYPES: frozenset[str] = frozenset({
 # "Bracelets"-typed rows literally named "... Rakhi Bracelet" are genuine
 # jewellery (a real accessory type) and stay included, consistent with
 # is_occasion_merchandise_type's jewellery carve-out above.
+#
+# 2026-07-24 CONCEPT-BROADENING addition ("favour"/"favor"): live-proven bug
+# -- "bright haldi look for women" surfaced "Ellaichi Brooch" (store=ishhaara,
+# product_type_name="Fashion"), whose OWN detail_desc frames it as a "Haldi &
+# Mehendi Favours" return-gift for wedding guests, not a wearable item (see
+# eval/fixtures/strict_gold_labels.yaml occ_adv_002). A full catalogue audit
+# of every occasion this project recognises (haldi/mehendi/sangeet/diwali/
+# navratri/karva_chauth/raksha_bandhan/eid/wedding_guest/engagement/
+# reception/festive_puja) for decorative/gift/favour/party-supply vocabulary
+# found genuine, non-redundant catalogue support for exactly ONE new concept
+# term family -- "favour(s)"/"favor(s)" -- not a longer flat list:
+#   ishhaara's "Haldi & Mehendi Favours" collection: 40 rows (36 Fashion-typed
+#     + 4 bag-typed), ALL genuinely non-wearable guest tokens/return-gifts
+#     (brooches, "malas", bracelets, keychains, a mouth-freshener-and-scrunchy
+#     combo, a kumkum-stick applicator) sharing one boilerplate description
+#     ("Are you looking for the perfect way to thank your guests ... Haldi &
+#     Mehendi Favours ..."). Checked catalogue-wide (all product_type_name
+#     buckets, not just generic ones): every OTHER "favour"/"favor" hit is a
+#     real dual-use accessory explicitly marketed as wearable (tjori's silk
+#     Potli bags: "pair with a lehenga for a regal coordinated look ... use as
+#     a bridal favour"; sukkhi's clip-on "Party Favor" earrings: genuine
+#     wearable costume jewellery) -- those sit under real accessory types
+#     (Potlis/Earring), not a generic bucket, so the AND-gate below already
+#     protects them without any special-case needed.
+#   candidate terms researched but found ZERO genuine catalogue support (or
+#   ONLY false-positive matches) and deliberately NOT added: "rangoli" (15
+#     matches, the 1 generic-typed hit is "THE KILIM RANGOLI POCKET SQUARE" --
+#     a men's pocket-square print name, not a rangoli decoration), "decor" (7
+#     matches, the generic-typed hits are "Star Decor Metal Tassel Earrings"/
+#     "Flower Decor Drop Earrings" -- real wearable earrings using "decor" as
+#     a style descriptor), "diya"/"toran"/"festoon"/"streamer"/"candle"/
+#     "return gift"/"memento"/"party supply" -- 0 matches catalogue-wide.
+# is_occasion_merchandise_name below also now checks detail_desc (not just
+# prod_name): "Ellaichi Brooch" and 33 of its 35 collection-siblings carry NO
+# gift/hamper/favour word in the NAME itself (e.g. "Ellaichi Bracelet",
+# "Shell And Jhumki Earchain", "Elaichi Swagat Mala") -- only the shared
+# description names the collection as guest favours. Full re-audit of the
+# combined (name OR desc) x (existing + favour) pattern under generic types,
+# catalogue-wide: 124 matching rows, zero false positives (98 ishhaara + 26
+# voylla, all previously-verified rakhi/idol/hamper/favour merchandise).
 _OCCASION_MERCHANDISE_NAME_RE = re.compile(
     r"\brakhi\b|\braksha\s*bandhan\b|\bhamper\b|\bidol\b|\bidols\b"
-    r"|\bshowpiece\b|\btealight\b",
+    r"|\bshowpiece\b|\btealight\b"
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
     re.IGNORECASE,
 )
 
 
 def is_occasion_merchandise_name(
-    prod_name: str | None, product_type_name: str | None
+    prod_name: str | None, product_type_name: str | None, detail_desc: str | None = None
 ) -> bool:
-    """Return True if `prod_name` names occasion merchandise AND
-    `product_type_name` is a GENERIC catalog bucket carrying no apparel
+    """Return True if `prod_name` OR `detail_desc` names occasion merchandise
+    AND `product_type_name` is a GENERIC catalog bucket carrying no apparel
     signal of its own (see _GENERIC_PRODUCT_TYPES).
 
     Complements is_occasion_merchandise_type (type-only exclusion) for rows a
@@ -226,13 +267,22 @@ def is_occasion_merchandise_name(
     ("Men's Yellow Lehariya Cotton Kurta Rakhi Gift Box for Brother", typed
     "kurta") is NEVER excluded here -- its type IS a real apparel type, so
     the AND-gate on _GENERIC_PRODUCT_TYPES protects it regardless of the
-    name match. Callers must gate this on the same apparel-intent occasion
-    context as is_occasion_merchandise_type (see
+    name/desc match. Callers must gate this on the same apparel-intent
+    occasion context as is_occasion_merchandise_type (see
     src.agents.graph._apply_occasion_merchandise_gate).
+
+    `detail_desc` is optional (defaults to None, matched against nothing) so
+    existing name-only callers keep working -- pass it whenever available: a
+    whole ishhaara "Haldi & Mehendi Favours" collection (35 rows) carries the
+    merchandise signal ONLY in the shared description, not the product name
+    itself (see _OCCASION_MERCHANDISE_NAME_RE's 2026-07-24 comment block).
     """
     if (product_type_name or "").strip().lower() not in _GENERIC_PRODUCT_TYPES:
         return False
-    return bool(_OCCASION_MERCHANDISE_NAME_RE.search(prod_name or ""))
+    return bool(
+        _OCCASION_MERCHANDISE_NAME_RE.search(prod_name or "")
+        or _OCCASION_MERCHANDISE_NAME_RE.search(detail_desc or "")
+    )
 
 
 # ---------------------------------------------------------------------------
