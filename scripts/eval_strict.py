@@ -106,7 +106,11 @@ def _retrieve_pipeline(
     introduces new items — an honest A/B against the existing hand labels
     needs no new labeling, unlike an embedding-model swap.
     """
-    from src.agents.graph import _OUTFIT_INTENT_RE, _SET_INTENT_RE
+    from src.agents.graph import (
+        _OUTFIT_INTENT_RE,
+        _SET_INTENT_RE,
+        _apply_occasion_merchandise_gate,
+    )
     from src.agents.intent_parser import parse_intent
     from src.agents.outfit.coherence import is_coherent_candidate
     from src.agents.outfit.slots import fabric_score_delta, is_multi_piece_set
@@ -151,6 +155,17 @@ def _retrieve_pipeline(
             items = set_filtered
 
     occasion_slug = intent.occasion
+    # 2026-07-24 fix: this mirror was missing search_node's occasion-
+    # merchandise gate entirely (a pre-existing gap predating this fix, not
+    # tied to the occasion_gate A/B flag below — production applies it
+    # unconditionally whenever an occasion is set). Without this, "bright
+    # haldi look for women" kept scoring 0/5 against strict_gold_labels.yaml
+    # (Ellaichi Brooch etc.) even after the underlying catalogue/graph fix,
+    # because this "mirrors production exactly" pipeline silently never
+    # exercised it. See src.agents.graph._apply_occasion_merchandise_gate.
+    if occasion_slug and occasion_slug != "casual":
+        items = _apply_occasion_merchandise_gate(items, occasion_slug, intent.garment_type, query)
+
     if occasion_gate and occasion_slug and occasion_slug != "casual":
         gated = [
             it for it in items
