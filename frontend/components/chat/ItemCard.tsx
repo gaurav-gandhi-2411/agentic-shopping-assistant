@@ -10,6 +10,7 @@ import { ProductImage } from "@/components/ProductImage"
 import { Button } from "@/components/ui/button"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
+import { formatProductType } from "@/lib/displayFormat"
 
 interface Props {
   item: ItemSummary
@@ -63,7 +64,7 @@ export function ItemCard({ item, onSend }: Props) {
               {" · "}
             </>
           )}
-          {item.product_type}
+          {formatProductType(item.product_type)}
           {item.colour ? ` · ${item.colour}` : ""}
         </p>
 
@@ -189,7 +190,7 @@ function SimilarItemRow({
           {item.prod_name}
         </p>
         <p className="text-[10px] text-muted-foreground truncate">
-          {item.product_type}
+          {formatProductType(item.product_type)}
           {item.colour ? ` · ${item.colour}` : ""}
           {item.store_display ?? (item.store ? ` · ${item.store}` : "")}
         </p>

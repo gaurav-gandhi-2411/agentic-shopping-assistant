@@ -6,6 +6,7 @@ import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } fro
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 import { cn } from "@/lib/utils"
+import { formatSlotLabel } from "@/lib/displayFormat"
 import type {
   ItemLink,
   ItemSummary,
@@ -110,11 +111,6 @@ interface SavedLookEntry {
 
 /** Format occasion slug for display — "sangeet_look" → "Sangeet Look". */
 function formatOccasion(slug: string): string {
-  return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-/** Format a suppressed slot name for display — "footwear" → "Footwear". */
-function formatSlotLabel(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
@@ -750,7 +746,7 @@ export function OutfitBoard({
           {filledSlotNames.slice(0, 2).map((slot) => (
             <RefinementChip
               key={slot}
-              label={`Swap ${slot}`}
+              label={`Swap ${formatSlotLabel(slot)}`}
               onClick={() => onSend(`Swap the ${slot} in this look`)}
             />
           ))}
@@ -799,7 +795,7 @@ function SlotCard({
     : isSeed
       ? "Hero"
       : item.outfit_slot
-        ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
+        ? formatSlotLabel(item.outfit_slot)
         : "Item"
 
   // Testability attributes consumed by the Playwright proof suite — always present
