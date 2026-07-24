@@ -205,6 +205,12 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
         "pdp_url_template": "https://silvertraq.com/products/{handle}",
         "active": True,
     },
+    # Activewear-footwear gap (2026-07-24) — women's genuine athletic shoes.
+    "campusshoes": {
+        "display_name": "Campus Shoes",
+        "pdp_url_template": "https://campusshoes.com/products/{handle}",
+        "active": True,
+    },
 }
 
 # ---------------------------------------------------------------------------

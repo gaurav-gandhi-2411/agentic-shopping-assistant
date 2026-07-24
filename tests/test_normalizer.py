@@ -552,6 +552,48 @@ def test_generic_pants_unaffected_by_activewear_rules() -> None:
     assert result.category == "apparel"
 
 
+# ---------------------------------------------------------------------------
+# Activewear-footwear wave (2026-07-24) — campusshoes.com onboarding to close
+# the women's genuine athletic-footwear gap (running/sneakers/walking/sports
+# shoes). No rule-table change was needed: "shoe"/"shoes"/"sneaker" already
+# cover every athletic-footwear title/product_type in this store's real feed.
+# Live titles/types below are drawn directly from the store's /products.json
+# download (data/raw/shopify/campusshoes/products.csv).
+#
+# Known gap (flagged, not fixed — out of scope for this ingestion): 61 rows
+# whose only footwear-shaped noun is "Slides"/"Flip Flops"/"Clogs" (types
+# "Men/Women Flip Flops & Slides", "Women's Clogs") fall through to
+# category="unknown" because none of those three words are in the footwear
+# regex. This does not affect athletic footwear (running/training/sneakers/
+# walking/sports shoes all classify correctly) — see CAMPUSSHOES_CASES below.
+# ---------------------------------------------------------------------------
+
+CAMPUSSHOES_CASES: list[tuple[str, str, str, str]] = [
+    # (prod_name, product_type_name, expected_garment_type, expected_category)
+    ("BELL Green Women's Sneakers", "Women Sneakers", "footwear", "footwear"),
+    ("RAYE Black Women's Running Shoes", "Women Running Shoes", "footwear", "footwear"),
+    ("MALONE Purple Women's Walking Shoes", "Women Walking Shoes", "footwear", "footwear"),
+    ("ALLEN Green Men's Walking Shoes", "Men Sports Shoes", "footwear", "footwear"),
+    ("CANVA White Men's Running shoes", "Men Running Shoes", "footwear", "footwear"),
+    ("NEBULA Navy Men's Running Shoes", "Men Running Shoes", "footwear", "footwear"),
+]
+
+
+@pytest.mark.parametrize("prod_name,product_type_name,expected_gt,expected_cat", CAMPUSSHOES_CASES)
+def test_campusshoes_athletic_footwear_garment_types(
+    prod_name: str, product_type_name: str, expected_gt: str, expected_cat: str
+) -> None:
+    """Real campusshoes.com women's/men's athletic-footwear titles must resolve
+    to garment_type/category='footwear', not fall through to unknown."""
+    result = normalize_garment_type(prod_name, product_type_name)
+    assert result.garment_type == expected_gt, (
+        f"'{prod_name}': expected garment_type={expected_gt!r}, got {result.garment_type!r}"
+    )
+    assert result.category == expected_cat, (
+        f"'{prod_name}': expected category={expected_cat!r}, got {result.category!r}"
+    )
+
+
 def test_generic_bra_unaffected_by_sports_bra_rule() -> None:
     """A plain bra listing with no 'sports' modifier must still resolve to
     'innerwear' — the sports_bra compound entry only fires on 'sports bra'."""
