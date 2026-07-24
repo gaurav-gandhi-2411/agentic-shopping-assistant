@@ -7,6 +7,7 @@ import { useChatStream } from "@/hooks/useChatStream"
 import { MessageList } from "@/components/chat/MessageList"
 import { ChatInput } from "@/components/chat/ChatInput"
 import { Logo } from "@/components/Logo"
+import { deriveKnownGender } from "@/lib/knownGender"
 
 export default function DemoChatPage() {
   const [brandName, setBrandName] = useState<string | null>(null)
@@ -33,6 +34,8 @@ export default function DemoChatPage() {
 
   const hasAssistantReply = messages.some((m) => m.role === "assistant")
   const showWarmup = isSending && !hasAssistantReply
+
+  const knownGender = deriveKnownGender(messages)
 
   function handleSend(text: string) {
     // No cidOverride: let useChatStream fall back to conversationIdRef.current
@@ -100,6 +103,7 @@ export default function DemoChatPage() {
         onCancel={cancel}
         isSending={isSending}
         onSendImage={sendImage}
+        knownGender={knownGender}
       />
     </div>
   )

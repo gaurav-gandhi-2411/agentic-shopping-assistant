@@ -6,6 +6,7 @@ import { useChatStream } from "@/hooks/useChatStream"
 import { ConversationSidebar } from "./ConversationSidebar"
 import { MessageList } from "./MessageList"
 import { ChatInput } from "./ChatInput"
+import { deriveKnownGender } from "@/lib/knownGender"
 import type { ChatMessage, ConversationDetail } from "@/lib/api/types"
 
 // Convert backend conversation history to ChatMessage objects.
@@ -93,16 +94,10 @@ export function ChatThread({ initialConversationId }: Props) {
     sendMessage(text, activeId)
   }
 
-  // Area 1 (2026-07-25): the most recent message that composed an outfit
-  // already carries the resolved gender ("men"/"women"/"unisex") — reused
-  // here as the ONLY source for "gender already known from the
-  // conversation" (see BodyShapeUpload's men's-picker gating). Deliberately
-  // NOT re-derived from message text or the photo path itself — this is the
-  // same signal the backend already resolved server-side, never a frontend
-  // guess. null (most common for a fresh session, or one with no outfit
-  // composed yet) means "genuinely unknown" and must show a neutral path,
-  // never a default.
-  const knownGender = [...messages].reverse().find((m) => m.lookGender)?.lookGender ?? null
+  // Area 1 (2026-07-25): see lib/knownGender.ts's docstring for the full
+  // rationale (bias-only signal, never guessed, shared across every chat
+  // surface after a live-proof gap found it missing on /demo/chat).
+  const knownGender = deriveKnownGender(messages)
 
   return (
     <div className="flex flex-1 min-h-0">
