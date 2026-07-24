@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.graph import _reconstruct_body_type_from_history
-from src.agents.intent_parser import parse_intent
+from src.agents.graph import _reconstruct_body_type_from_history, _reconstruct_gender_from_history
+from src.agents.intent_parser import _BODY_TYPE_MAP, parse_intent
 from src.agents.outfit.body_type import (
     BASE_SHAPE_SLUGS,
     BASE_SHAPES,
@@ -32,14 +32,24 @@ from src.agents.outfit.body_type import (
     MODIFIER_SLUGS,
     MODIFIERS,
     POSITIVE_TEMPLATES,
+    POSITIVE_TEMPLATES_MEN,
+    SYNONYMS,
     body_type_ack_message,
     body_type_clarify_message,
     body_type_score_delta,
     contains_banned_framing,
+    garment_class_for_item,
     parse_body_type,
+    query_tokens,
 )
 from src.agents.outfit.composer import _score_candidates
 from src.agents.outfit.rationale import generate_rationales
+
+# Men's garment classes (2026-07-25) — added alongside the original women's-
+# only saree/lehenga/anarkali_kurta/neckline set. See body_type.py's module
+# docstring "Men's coverage" note.
+_WOMEN_GARMENT_CLASSES = {"saree", "lehenga", "anarkali_kurta", "neckline"}
+_MEN_GARMENT_CLASSES = {"kurta_men", "sherwani", "bandhgala", "blazer_men", "trousers_men"}
 
 # ---------------------------------------------------------------------------
 # Registry integrity
@@ -49,25 +59,67 @@ from src.agents.outfit.rationale import generate_rationales
 class TestRegistryIntegrity:
     def test_five_base_shapes_present(self) -> None:
         expected = {"pear", "apple", "hourglass", "rectangle", "inverted_triangle"}
-        assert set(BASE_SHAPES.keys()) == expected
-        assert set(BASE_SHAPE_SLUGS) == expected
+        assert expected <= set(BASE_SHAPES.keys())
+        assert expected <= set(BASE_SHAPE_SLUGS)
+
+    def test_lean_build_base_shape_present(self) -> None:
+        """2026-07-25 Area 1: new men's-only base shape, no women's equivalent."""
+        assert "lean_build" in BASE_SHAPES
+        assert "lean_build" in BASE_SHAPE_SLUGS
+        assert set(BASE_SHAPES.keys()) == set(BASE_SHAPE_SLUGS) == {
+            "pear", "apple", "hourglass", "rectangle", "inverted_triangle", "lean_build",
+        }
 
     def test_three_modifiers_present(self) -> None:
         expected = {"petite", "tall", "plus_size"}
-        assert set(MODIFIERS.keys()) == expected
-        assert set(MODIFIER_SLUGS) == expected
+        assert expected <= set(MODIFIERS.keys())
+        assert expected <= set(MODIFIER_SLUGS)
 
-    def test_every_base_shape_has_all_garment_classes(self) -> None:
-        for slug, profile in BASE_SHAPES.items():
-            assert set(profile.garments.keys()) == set(GARMENT_CLASSES), (
-                f"{slug} missing a garment class"
-            )
+    def test_short_build_modifier_present(self) -> None:
+        """2026-07-25 Area 1: new men's-only modifier, no women's equivalent."""
+        assert "short_build" in MODIFIERS
+        assert "short_build" in MODIFIER_SLUGS
+        assert set(MODIFIERS.keys()) == set(MODIFIER_SLUGS) == {
+            "petite", "tall", "plus_size", "short_build",
+        }
 
-    def test_every_modifier_has_saree_lehenga_anarkali_no_neckline(self) -> None:
-        for slug, profile in MODIFIERS.items():
-            assert set(profile.garments.keys()) == {"saree", "lehenga", "anarkali_kurta"}, (
-                f"{slug} garment classes unexpected"
-            )
+    def test_every_base_shape_has_expected_garment_classes(self) -> None:
+        """Women's-only shapes (pear/apple/hourglass/rectangle) keep the
+        original 4-class set unchanged. inverted_triangle (shared, photo-
+        reachable for both genders) has those 4 PLUS all 5 men's classes.
+        lean_build (men's-only, new) has ONLY the 5 men's classes — it never
+        had a women's ruleset to begin with, so asserting it lacks one is the
+        correct invariant, not a gap.
+        """
+        for slug in ("pear", "apple", "hourglass", "rectangle"):
+            assert set(BASE_SHAPES[slug].garments.keys()) == _WOMEN_GARMENT_CLASSES, slug
+        assert (
+            set(BASE_SHAPES["inverted_triangle"].garments.keys())
+            == _WOMEN_GARMENT_CLASSES | _MEN_GARMENT_CLASSES
+        )
+        assert set(BASE_SHAPES["lean_build"].garments.keys()) == _MEN_GARMENT_CLASSES
+        # Every garment class actually used is a real, known GARMENT_CLASSES member.
+        all_used = {
+            cls for profile in BASE_SHAPES.values() for cls in profile.garments
+        }
+        assert all_used <= set(GARMENT_CLASSES)
+
+    def test_every_modifier_has_expected_garment_classes(self) -> None:
+        """petite/plus_size keep the original women's-only 3-class set
+        unchanged (no men's ruleset exists for either). tall (shared) gained
+        kurta_men/trousers_men alongside its original 3. short_build (men's-
+        only, new) has ONLY kurta_men/trousers_men — no sherwani entry, a
+        disclosed gap (no catalogue length vocabulary to ground one), not an
+        oversight.
+        """
+        for slug in ("petite", "plus_size"):
+            assert set(MODIFIERS[slug].garments.keys()) == {
+                "saree", "lehenga", "anarkali_kurta",
+            }, slug
+        assert set(MODIFIERS["tall"].garments.keys()) == {
+            "saree", "lehenga", "anarkali_kurta", "kurta_men", "trousers_men",
+        }
+        assert set(MODIFIERS["short_build"].garments.keys()) == {"kurta_men", "trousers_men"}
 
     def test_every_rule_has_a_why(self) -> None:
         for profile in list(BASE_SHAPES.values()) + list(MODIFIERS.values()):
@@ -85,14 +137,30 @@ class TestRegistryIntegrity:
         assert not offenders, f"Banned framing word found in why-strings: {offenders}"
 
     def test_no_banned_word_in_positive_templates(self) -> None:
-        assert set(POSITIVE_TEMPLATES.keys()) == set(BASE_SHAPE_SLUGS)
+        # Not every BASE_SHAPE_SLUGS member has a women's template (lean_build
+        # is men's-only — see POSITIVE_TEMPLATES_MEN), so this is a subset
+        # check, not equality; every KEY present must still be a real slug.
+        assert set(POSITIVE_TEMPLATES.keys()) <= set(BASE_SHAPE_SLUGS)
         offenders = [
             slug for slug, text in POSITIVE_TEMPLATES.items() if contains_banned_framing(text)
         ]
         assert not offenders, f"Banned framing word found in POSITIVE_TEMPLATES: {offenders}"
 
+    def test_no_banned_word_in_positive_templates_men(self) -> None:
+        """2026-07-25: POSITIVE_TEMPLATES_MEN mirrors the check above."""
+        assert set(POSITIVE_TEMPLATES_MEN.keys()) <= set(BASE_SHAPE_SLUGS)
+        assert set(POSITIVE_TEMPLATES_MEN.keys()) == {"inverted_triangle", "lean_build"}
+        offenders = [
+            slug for slug, text in POSITIVE_TEMPLATES_MEN.items()
+            if contains_banned_framing(text)
+        ]
+        assert not offenders, f"Banned framing word found in POSITIVE_TEMPLATES_MEN: {offenders}"
+
     def test_no_banned_word_in_clarify_message(self) -> None:
         assert not contains_banned_framing(body_type_clarify_message())
+
+    def test_no_banned_word_in_clarify_message_men(self) -> None:
+        assert not contains_banned_framing(body_type_clarify_message("men"))
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +252,21 @@ class TestIntentParserBodyTypeFields:
             "tall rectangle",
             "apple shaped",
             "broad-shouldered",
+            # 2026-07-25 Area 1 additions — same drift guard for the men's phrases.
+            "I have a muscular build",
+            "broad build",
+            "broad frame",
+            "heavy build",
+            "heavier build",
+            "stocky build",
+            "slim build",
+            "lean build",
+            "slender build",
+            "narrow frame",
+            "short height",
+            "shorter build",
+            "short build",
+            "short stature",
         ],
     )
     def test_intent_parser_agrees_with_body_type_module(self, query: str) -> None:
@@ -194,6 +277,14 @@ class TestIntentParserBodyTypeFields:
         module_base, module_mods = parse_body_type(query)
         assert intent.body_type == module_base
         assert intent.body_modifiers == module_mods
+
+    def test_body_type_map_exact_key_and_value_parity_with_synonyms(self) -> None:
+        """Stronger, exhaustive version of the sample-based drift guard above
+        — catches ANY future phrase added to one dict and not the other, not
+        just the ones covered by test_intent_parser_agrees_with_body_type_
+        module's fixed sample list."""
+        assert set(_BODY_TYPE_MAP.keys()) == set(SYNONYMS.keys())
+        assert _BODY_TYPE_MAP == dict(SYNONYMS)
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +714,34 @@ class TestClarifyMessage:
         assert not contains_banned_framing(body_type_clarify_message())
 
 
+class TestClarifyMessageMen:
+    """2026-07-25 Area 1: body_type_clarify_message(gender='men')."""
+
+    def test_lists_men_build_options(self) -> None:
+        msg = body_type_clarify_message("men").lower()
+        for keyword in ("broad", "muscular", "slim", "lean", "short", "tall"):
+            assert keyword in msg
+
+    def test_no_women_shape_words(self) -> None:
+        msg = body_type_clarify_message("men").lower()
+        for keyword in ("pear", "apple", "hourglass", "petite"):
+            assert keyword not in msg
+
+    def test_states_optional(self) -> None:
+        msg = body_type_clarify_message("men").lower()
+        assert "optional" in msg or "skip" in msg
+
+    def test_no_banned_words(self) -> None:
+        assert not contains_banned_framing(body_type_clarify_message("men"))
+
+    def test_unknown_gender_falls_back_to_women_text_unchanged(self) -> None:
+        """Never guess — an unresolved gender preserves the original
+        (pre-Area-1) behavior exactly, per body_type_clarify_message's
+        documented gender-param contract."""
+        assert body_type_clarify_message(None) == body_type_clarify_message()
+        assert body_type_clarify_message("unisex") == body_type_clarify_message()
+
+
 # ---------------------------------------------------------------------------
 # Bare body-type STATEMENT acknowledgement (Wave 7 hang fix)
 # ---------------------------------------------------------------------------
@@ -634,11 +753,37 @@ class TestBodyTypeAckMessage:
     occasion/garment named. See graph.py's router_node short-circuit.
     """
 
-    @pytest.mark.parametrize("slug", list(BASE_SHAPE_SLUGS))
+    @pytest.mark.parametrize("slug", [s for s in BASE_SHAPE_SLUGS if s in POSITIVE_TEMPLATES])
     def test_every_base_shape_mentions_shape_and_positive_template(self, slug: str) -> None:
         msg = body_type_ack_message(slug, [])
         assert slug.replace("_", " ") in msg.lower()
         assert POSITIVE_TEMPLATES[slug] in msg
+
+    @pytest.mark.parametrize("slug", list(POSITIVE_TEMPLATES_MEN.keys()))
+    def test_men_slugs_mention_build_and_men_positive_template(self, slug: str) -> None:
+        """2026-07-25: lean_build/inverted_triangle under gender='men' use
+        POSITIVE_TEMPLATES_MEN and men's-natural display phrasing, never the
+        literal slug name or the women's template."""
+        msg = body_type_ack_message(slug, [], gender="men")
+        assert POSITIVE_TEMPLATES_MEN[slug] in msg
+        womens_text = POSITIVE_TEMPLATES.get(slug)
+        if womens_text:
+            assert womens_text not in msg
+
+    def test_lean_build_without_gender_has_no_crash_and_no_template(self) -> None:
+        """lean_build has NO women's-default template (men's-only slug) — must
+        gracefully omit the why-sentence, never KeyError or show wrong text."""
+        msg = body_type_ack_message("lean_build", [])
+        assert "lean build" in msg.lower()
+        for text in POSITIVE_TEMPLATES_MEN.values():
+            assert text not in msg
+
+    def test_pear_under_men_gender_has_no_crash_and_no_wrong_template(self) -> None:
+        """A photo-classified 'pear' for a man (gender='men') has no men's
+        ruleset — must fall through honestly, never show the women's
+        A-line-lehenga template to a man."""
+        msg = body_type_ack_message("pear", [], gender="men")
+        assert POSITIVE_TEMPLATES["pear"] not in msg
 
     def test_modifier_prefixes_base_shape(self) -> None:
         msg = body_type_ack_message("pear", ["petite"])
@@ -692,3 +837,226 @@ class TestReconstructBodyTypeFromHistory:
     def test_non_user_messages_ignored(self) -> None:
         messages = [{"role": "assistant", "content": "pear-shaped looks great"}]
         assert _reconstruct_body_type_from_history(messages) == (None, [])
+
+
+# ---------------------------------------------------------------------------
+# Men's garment classification + gender threading (2026-07-25, Area 1)
+# ---------------------------------------------------------------------------
+
+
+class TestGarmentClassForItemGenderBug:
+    """PRE-EXISTING CORRECTNESS BUG (2026-07-25): garment_class_for_item had
+    no gender awareness, so a MAN'S kurta always matched
+    _ANARKALI_KURTA_MARKERS's bare "kurta" and was silently classified as
+    "anarkali_kurta" — scored against WOMEN'S a-line/flare/embroidered-yoke
+    recommend/deprioritize keywords. Never a crash (bias-only scoring), so it
+    shipped unnoticed. These tests pin the fix so it cannot silently return.
+    """
+
+    def test_mens_kurta_classifies_as_kurta_men_not_anarkali(self) -> None:
+        assert garment_class_for_item("kurta", "Men's Regular Fit Cotton Kurta", "men") == (
+            "kurta_men"
+        )
+
+    def test_same_item_without_gender_keeps_original_anarkali_classification(self) -> None:
+        """Backward-compat pin: omitting gender (or any non-"men" value)
+        preserves the ORIGINAL pre-fix classification exactly — zero
+        regression for the women's/unknown-gender flow."""
+        assert (
+            garment_class_for_item("kurta", "Men's Regular Fit Cotton Kurta")
+            == "anarkali_kurta"
+        )
+        assert (
+            garment_class_for_item("kurta", "Men's Regular Fit Cotton Kurta", "women")
+            == "anarkali_kurta"
+        )
+
+    def test_mens_kurta_no_longer_scored_against_womens_flare_keywords(self) -> None:
+        """End-to-end pin at the body_type_score_delta level: a plain men's
+        regular-fit kurta must not pick up a spurious +0.1 from pear's
+        women's a-line/flare/embellished recommend list once gender="men" is
+        threaded through — it should score via kurta_men's OWN rules instead."""
+        item = {
+            "product_type": "kurta",
+            "prod_name": "Men's Regular Fit Cotton Kurta",
+            "detail_desc": "A comfortable everyday kurta.",
+        }
+        # Under "pear" (women's shape, no men's ruleset at all): must be a
+        # clean 0.0 no-op for a men's item, never accidentally matching
+        # pear's anarkali_kurta a-line/flare vocabulary via the old bug.
+        assert body_type_score_delta(item, "pear", gender="men") == 0.0
+
+    def test_womens_kurta_classification_unaffected(self) -> None:
+        assert garment_class_for_item(
+            "kurta", "Women's A-Line Embroidered Anarkali Kurta", "women"
+        ) == "anarkali_kurta"
+
+    def test_precedence_sherwani_with_kurta_in_name_wins_as_sherwani(self) -> None:
+        """A listing naming multiple garments ("Sherwani with Kurta and
+        Pyjama Set") must classify as the more specific sherwani, not fall
+        through to the generic kurta_men bucket."""
+        assert garment_class_for_item(
+            "sherwani", "Sherwani with Kurta and Pyjama Set", "men"
+        ) == "sherwani"
+
+
+class TestMensGarmentClassification:
+    @pytest.mark.parametrize(
+        "product_type,prod_name,expected",
+        [
+            ("sherwani", "Wine Embroidered Wedding Sherwani", "sherwani"),
+            ("bandhgala", "Beige Tailored Bandhgala", "bandhgala"),
+            ("blazer", "Navy Slim Fit Blazer", "blazer_men"),
+            ("trousers", "Grey Regular Fit Trousers", "trousers_men"),
+            ("kurta", "White Straight Fit Kurta", "kurta_men"),
+        ],
+    )
+    def test_each_mens_class_reachable(self, product_type, prod_name, expected) -> None:
+        assert garment_class_for_item(product_type, prod_name, "men") == expected
+
+    def test_non_mens_garment_returns_none_under_men_gender(self) -> None:
+        assert garment_class_for_item("footwear", "Running Shoes", "men") is None
+
+    def test_neckline_overlay_excluded_for_mens_classes(self) -> None:
+        """_profile_keywords must NOT pull inverted_triangle's women's
+        neckline (v-neck/boat-neck) keywords into a men's kurta score."""
+        item = {
+            "product_type": "kurta",
+            "prod_name": "Men's Boat Neck Regular Fit Kurta",
+            "detail_desc": "",
+        }
+        # "boat" is a deprioritize keyword under inverted_triangle's WOMEN'S
+        # neckline rule — if the overlay leaked into men's scoring, this item
+        # would score -0.1 instead of the correct kurta_men +0.1 ("regular
+        # fit" is in kurta_men's recommend list).
+        assert body_type_score_delta(item, "inverted_triangle", gender="men") == 0.1
+
+
+class TestQueryTokensGender:
+    def test_mens_variant_used_for_inverted_triangle_under_men_gender(self) -> None:
+        tokens = query_tokens("inverted_triangle", gender="men")
+        assert tokens == BASE_SHAPES["inverted_triangle"].query_tokens_men
+        assert "flared" not in tokens  # never the women's string
+
+    def test_womens_variant_unchanged_without_gender(self) -> None:
+        assert query_tokens("inverted_triangle") == BASE_SHAPES["inverted_triangle"].query_tokens
+        assert query_tokens("inverted_triangle", gender="women") == (
+            BASE_SHAPES["inverted_triangle"].query_tokens
+        )
+
+    def test_lean_build_only_reachable_with_men_gender_tokens(self) -> None:
+        assert query_tokens("lean_build", gender="men") == (
+            BASE_SHAPES["lean_build"].query_tokens_men
+        )
+
+    def test_profile_without_mens_variant_falls_back_to_shared_string(self) -> None:
+        """pear has no query_tokens_men — gender='men' must fall back to the
+        shared string, never crash or return empty."""
+        assert query_tokens("pear", gender="men") == BASE_SHAPES["pear"].query_tokens
+
+    def test_short_build_modifier_mens_tokens(self) -> None:
+        assert query_tokens(None, ["short_build"], gender="men") == (
+            MODIFIERS["short_build"].query_tokens_men
+        )
+
+
+class TestBodyTypeScoreDeltaNeverFilterMensPath:
+    """Mirrors the existing women's never-filter invariant test, for men's
+    garment classes specifically."""
+
+    def test_recommend_keyword_scores_positive(self) -> None:
+        item = {"product_type": "kurta", "prod_name": "Men's Slim Fit Tailored Kurta"}
+        assert body_type_score_delta(item, "lean_build", gender="men") == 0.1
+
+    def test_deprioritize_keyword_scores_negative(self) -> None:
+        item = {"product_type": "kurta", "prod_name": "Men's Slim Fit Kurta"}
+        assert body_type_score_delta(item, "inverted_triangle", gender="men") == -0.1
+
+
+class TestMensSynonymParsing:
+    @pytest.mark.parametrize(
+        "text,expected_base",
+        [
+            ("I have a muscular build", "inverted_triangle"),
+            ("broad build here", "inverted_triangle"),
+            ("I would say broad frame", "inverted_triangle"),
+            ("heavy build honestly", "inverted_triangle"),
+            ("heavier build", "inverted_triangle"),
+            ("stocky build", "inverted_triangle"),
+            ("slim build for me", "lean_build"),
+            ("lean build", "lean_build"),
+            ("slender build", "lean_build"),
+            ("narrow frame", "lean_build"),
+        ],
+    )
+    def test_mens_base_phrases_parse(self, text, expected_base) -> None:
+        base, _ = parse_body_type(text)
+        assert base == expected_base
+
+    @pytest.mark.parametrize(
+        "text",
+        ["short height", "shorter build", "short build", "short stature"],
+    )
+    def test_short_build_modifier_phrases_parse(self, text) -> None:
+        _, mods = parse_body_type(text)
+        assert "short_build" in mods
+
+    def test_bare_slim_does_not_trigger_lean_build(self) -> None:
+        """Precision guard: 'slim fit kurta' is a common GARMENT query (1,442
+        trouser rows alone use this tag), not a body-type statement — a bare
+        "slim" word must never misfire as lean_build."""
+        base, mods = parse_body_type("show me a slim fit kurta for the wedding")
+        assert base is None
+        assert "lean_build" not in mods
+
+    def test_bare_short_does_not_trigger_short_build(self) -> None:
+        """Precision guard: 'short kurta' (374 catalogue rows) and 'shorts'
+        are common GARMENT terms — bare "short" must never misfire."""
+        base, mods = parse_body_type("looking for a short kurta")
+        assert base is None
+        assert "short_build" not in mods
+
+        base2, mods2 = parse_body_type("need some shorts for the gym")
+        assert base2 is None
+        assert "short_build" not in mods2
+
+    def test_existing_broad_shouldered_phrase_still_resolves_inverted_triangle(self) -> None:
+        """No regression to the pre-existing women's-oriented phrasing —
+        still resolves to the same shared slug."""
+        base, _ = parse_body_type("I'm broad-shouldered")
+        assert base == "inverted_triangle"
+
+
+# ---------------------------------------------------------------------------
+# Gender reconstruction from history (graph.py, 2026-07-25)
+# ---------------------------------------------------------------------------
+
+
+class TestReconstructGenderFromHistory:
+    def test_empty_history_returns_none(self) -> None:
+        assert _reconstruct_gender_from_history([]) is None
+
+    def test_finds_most_recent_user_message_with_gender(self) -> None:
+        messages = [
+            {"role": "user", "content": "kurta for men under 3000"},
+            {"role": "assistant", "content": "Here are some options."},
+        ]
+        assert _reconstruct_gender_from_history(messages) == "men"
+
+    def test_scans_backward_past_messages_without_gender(self) -> None:
+        messages = [
+            {"role": "user", "content": "sherwani for my husband"},
+            {"role": "assistant", "content": "Here's a sherwani."},
+            {"role": "user", "content": "I have a muscular build"},
+        ]
+        assert _reconstruct_gender_from_history(messages) == "men"
+
+    def test_no_gender_signal_anywhere_returns_none(self) -> None:
+        """Never guess — a photo-only body-type statement with no prior
+        gender-bearing message must resolve to None, not a default."""
+        messages = [{"role": "user", "content": "I have an inverted triangle silhouette"}]
+        assert _reconstruct_gender_from_history(messages) is None
+
+    def test_non_user_messages_ignored(self) -> None:
+        messages = [{"role": "assistant", "content": "for men, try this kurta"}]
+        assert _reconstruct_gender_from_history(messages) is None

@@ -12,11 +12,45 @@ small score delta or append query tokens; the candidate pool itself is always
 identical with or without a known body type. See body_type_score_delta's
 docstring for the "never filter" contract.
 
-Scope note (honest): only the 5 base shapes + 3 modifiers explicitly in scope
-for this wave are encoded (pear, apple, hourglass, rectangle,
-inverted_triangle; petite, tall, plus_size). The research doc's §5 menswear
-rows (men_slim/men_broad/men_short/men_tall) are NOT encoded here — out of
-scope for this task.
+Scope note (honest): the 5 women's base shapes + 3 women's modifiers (pear,
+apple, hourglass, rectangle, inverted_triangle; petite, tall, plus_size) are
+encoded with the original research doc's confidence level.
+
+Men's coverage (Area 1, 2026-07-25) is DELIBERATELY narrower and structured
+differently — the sourced evidence for menswear is thinner than the women's
+research doc and is almost entirely about FIT AND PROPORTION (shoulder line,
+garment length, tailored vs relaxed cut), not a validated shape typology. Two
+NEW slugs were added only where no existing concept transfers:
+  - "lean_build" (new BASE_SHAPE): a slimmer/narrower frame wanting structure
+    and definition added. No photo-path equivalent — never reachable from
+    frontend/lib/poseShape.ts's geometric classifier (no shoulder:hip ratio
+    corresponds to overall leanness), so this is typed-input only, same
+    honesty contract as apple/hourglass/rectangle today.
+  - "short_build" (new MODIFIER): shorter stature wanting shorter garment
+    length / vertical lines. Also never photo-reachable (no height signal in
+    normalized pose landmarks).
+Everything else REUSES existing, gender-agnostic slugs rather than inventing
+parallel men's ones, because the underlying concept is genuinely the same
+measurement regardless of gender:
+  - "inverted_triangle" (shoulders wider than hip/waist) gained men's
+    garment-class rules alongside its existing women's ones — this is also
+    the ONLY men's build the photo path can reach (a broad shoulder:hip
+    ratio is gender-agnostic geometry).
+  - "tall" (existing modifier) gained men's garment-class rules alongside
+    its women's ones.
+A photo-classified "pear" result for a man has NO men's ruleset (no sourced
+guidance maps cleanly to it) — body_type_score_delta returns 0.0, exactly
+the same honest no-op as today's apple/hourglass/rectangle-for-anyone case.
+Garment coverage: kurta_men, sherwani, bandhgala, blazer_men, trousers_men —
+each gated on real vocabulary hit-rates audited against the live catalogue
+(see the men's GarmentRule comments below for exact counts). jodhpuri_suit/
+indowestern/achkan/tuxedo are catalogue-present but deliberately deferred —
+no sourced guidance distinct from what sherwani/bandhgala already cover.
+sherwani has no men's HEIGHT rule (short_build/tall) — the catalogue has no
+"short/cropped sherwani" length tag to ground one, so that gap is a real,
+disclosed absence rather than a guessed rule. bandhgala's vocabulary is thin
+(n=164 catalogue rows, several signals in the single digits) — encoded only
+where the underlying research is unambiguous, flagged low-confidence inline.
 """
 
 from __future__ import annotations
@@ -31,13 +65,18 @@ from dataclasses import dataclass
 # Garment classes used as the per-shape rule keys. "neckline" is a cross-
 # garment attribute overlay (a blouse/choli neckline can appear on a saree OR
 # an anarkali/kurta) — see garment_class_for_item's docstring for why item
-# classification does NOT gate on it exclusively.
-GARMENT_CLASSES: tuple[str, ...] = ("saree", "lehenga", "anarkali_kurta", "neckline")
+# classification does NOT gate on it exclusively. kurta_men/sherwani/
+# bandhgala/blazer_men/trousers_men are men's-only classes (2026-07-25) — see
+# module docstring's "Men's coverage" note for scope and catalogue grounding.
+GARMENT_CLASSES: tuple[str, ...] = (
+    "saree", "lehenga", "anarkali_kurta", "neckline",
+    "kurta_men", "sherwani", "bandhgala", "blazer_men", "trousers_men",
+)
 
 BASE_SHAPE_SLUGS: tuple[str, ...] = (
-    "pear", "apple", "hourglass", "rectangle", "inverted_triangle",
+    "pear", "apple", "hourglass", "rectangle", "inverted_triangle", "lean_build",
 )
-MODIFIER_SLUGS: tuple[str, ...] = ("petite", "tall", "plus_size")
+MODIFIER_SLUGS: tuple[str, ...] = ("petite", "tall", "plus_size", "short_build")
 
 
 @dataclass(frozen=True)
@@ -56,6 +95,12 @@ class BodyTypeProfile:
     slug: str
     garments: dict[str, GarmentRule]
     query_tokens: str  # short retrieval-query augmentation string (§5 encoding note)
+    # Men's-specific retrieval-query augmentation (2026-07-25), used INSTEAD of
+    # query_tokens when gender=="men" and this is non-empty — see query_tokens()
+    # function below. Empty ("") for every profile without a men's variant yet
+    # (pear/apple/hourglass/rectangle) — falls back to the shared string, same
+    # as before this field existed.
+    query_tokens_men: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +237,15 @@ BASE_SHAPES: dict[str, BodyTypeProfile] = {
     "inverted_triangle": BodyTypeProfile(
         slug="inverted_triangle",
         query_tokens="flared gathered pleated v-neck",
+        # Men's variant (2026-07-25): shoulders wider than hip/waist — the ONLY
+        # men's build the photo path can reach (a shoulder:hip ratio is
+        # gender-agnostic geometry). Sourced guidance (KALKI's "muscular"
+        # groom category, RealMenRealStyle/Stitch Fix broad-shoulder guides):
+        # structured/tailored/straight cuts, avoid slim-fit and heavy
+        # embellishment concentrated at the shoulder. Existing synonyms
+        # "broad-shouldered"/"broad shouldered" already read naturally for a
+        # man; new men's-phrasing synonyms added below (SYNONYMS dict).
+        query_tokens_men="regular fit straight cut tailored solid",
         garments={
             "saree": GarmentRule(
                 recommend=("pleated", "gathered", "v-neck"),
@@ -213,6 +267,85 @@ BASE_SHAPES: dict[str, BodyTypeProfile] = {
                 recommend=("v-neck", "scoop neck", "halter"),
                 deprioritize=("boat", "square neck"),
                 why="narrow vertical necklines refine shoulder width",
+            ),
+            # Men's garment classes (catalogue hit-rates, gender=men rows):
+            "kurta_men": GarmentRule(
+                recommend=("regular fit", "straight fit", "straight cut"),
+                deprioritize=("slim fit", "skinny fit"),
+                why="room through the chest and shoulder moves easily, and a straight "
+                "line keeps the silhouette clean and sharp",
+            ),
+            "sherwani": GarmentRule(
+                recommend=("regular fit", "straight cut", "solid", "plain"),
+                deprioritize=("slim fit", "embellished", "brocade"),
+                why="a straight, understated cut moves cleanly with the shoulder, and a "
+                "calm, solid surface keeps the whole look polished",
+            ),
+            # Low-confidence: bandhgala's catalogue vocabulary is thin (n=164,
+            # several signals in single digits) — kept only where the
+            # underlying research (structured tailoring over a snug fit) is
+            # unambiguous, same discipline the women's rules above already use
+            # for near-zero-hit-rate terms.
+            "bandhgala": GarmentRule(
+                recommend=("tailored",),
+                deprioritize=("slim fit", "embellished"),
+                why="structured tailoring through the collar and shoulder gives clean "
+                "definition without a snug fit fighting the frame",
+            ),
+            "blazer_men": GarmentRule(
+                recommend=("regular fit",),
+                deprioritize=("slim fit",),
+                why="a fuller cut through the shoulder and chest moves with the body "
+                "instead of pulling at the seams",
+            ),
+            "trousers_men": GarmentRule(
+                recommend=("regular fit", "relaxed fit", "straight fit"),
+                deprioritize=("slim fit", "skinny fit"),
+                why="a straight or relaxed leg keeps a clean line below the waist, "
+                "echoing the tailored line above",
+            ),
+        },
+    ),
+    "lean_build": BodyTypeProfile(
+        slug="lean_build",
+        query_tokens="",
+        # New slug (2026-07-25) — no women's equivalent reused, and never
+        # photo-reachable (no shoulder:hip ratio corresponds to overall
+        # leanness; see module docstring). Sourced from KALKI's "lean body
+        # shape" groom category + general menswear "add structure to a
+        # slimmer frame" guidance: a closer, tailored cut over an oversized
+        # or loose one.
+        query_tokens_men="slim fit tailored fit tailored",
+        garments={
+            "kurta_men": GarmentRule(
+                recommend=("slim fit", "tailored fit", "tailored"),
+                deprioritize=("loose fit",),
+                why="a closer, tailored line adds structure and definition",
+            ),
+            "sherwani": GarmentRule(
+                recommend=("slim fit", "tailored fit", "tailored", "layered"),
+                deprioritize=(),
+                why="a tailored cut and light layering build shape and presence",
+            ),
+            # Low-confidence: see inverted_triangle's bandhgala note above —
+            # same thin catalogue vocabulary (n=164).
+            "bandhgala": GarmentRule(
+                recommend=("slim fit", "tailored fit", "tailored"),
+                deprioritize=(),
+                why="bandhgalas are naturally structured through the collar and "
+                "shoulder — a slim, tailored cut carries that structure through "
+                "the whole look",
+            ),
+            "blazer_men": GarmentRule(
+                recommend=("slim fit", "tailored fit", "tailored"),
+                deprioritize=("regular fit",),
+                why="a slim, tailored cut through the shoulder and waist gives the "
+                "whole look definition",
+            ),
+            "trousers_men": GarmentRule(
+                recommend=("slim fit", "tailored fit", "tailored"),
+                deprioritize=("relaxed fit", "loose fit"),
+                why="a slim, tailored leg keeps the silhouette clean and structured",
             ),
         },
     ),
@@ -247,6 +380,12 @@ MODIFIERS: dict[str, BodyTypeProfile] = {
     "tall": BodyTypeProfile(
         slug="tall",
         query_tokens="floor length banarasi layered tiered",
+        # Men's variant (2026-07-25): sourced from KALKI's "taller body type"
+        # groom category (horizontal patterns, layering, multicolor/
+        # color-blocking read well; avoid plain/minimal designs). No sherwani
+        # entry — see module docstring's disclosed height-rule gap (no
+        # catalogue length tag to ground one for sherwani specifically).
+        query_tokens_men="layered textured embellished",
         garments={
             "saree": GarmentRule(
                 recommend=("banarasi", "brocade", "zari"),
@@ -262,6 +401,40 @@ MODIFIERS: dict[str, BodyTypeProfile] = {
                 recommend=("floor length", "layered"),
                 deprioritize=(),
                 why="horizontal breaks and layers add pleasing balance to height",
+            ),
+            "kurta_men": GarmentRule(
+                recommend=("layered", "textured", "embellished"),
+                deprioritize=(),
+                why="height carries richer texture, pattern, and layering beautifully",
+            ),
+            "trousers_men": GarmentRule(
+                recommend=("straight fit",),
+                deprioritize=("ankle length",),
+                why="a clean straight leg lets the natural length of the frame do the work",
+            ),
+        },
+    ),
+    "short_build": BodyTypeProfile(
+        slug="short_build",
+        query_tokens="",
+        # New slug (2026-07-25) — women's "petite" is not reused (a gendered
+        # term not natural as men's self-description); never photo-reachable
+        # (no height signal in normalized pose landmarks). Sourced from
+        # KALKI's "shorter body type" groom category (shorter jacket/garment
+        # length than knee-length, avoid heavy/ornate volume) + the classic
+        # ankle-length-trouser leg-lengthening convention. No sherwani entry —
+        # same disclosed gap as "tall" above.
+        query_tokens_men="short kurta ankle length",
+        garments={
+            "kurta_men": GarmentRule(
+                recommend=("short kurta",),
+                deprioritize=("long kurta",),
+                why="a shorter kurta length keeps the line clean and proportionate",
+            ),
+            "trousers_men": GarmentRule(
+                recommend=("ankle length", "slim fit"),
+                deprioritize=("loose fit", "oversized"),
+                why="a slim, ankle-length leg elongates the line beautifully",
             ),
         },
     ),
@@ -330,17 +503,43 @@ SYNONYMS: dict[str, str] = {
     "straight frame": "rectangle",
     "athletic frame": "rectangle",
     "athletic build": "rectangle",
-    # inverted triangle
+    # inverted triangle (shared with men's broad-shoulder build — see
+    # BASE_SHAPES["inverted_triangle"]'s men's garment rules)
     "inverted triangle": "inverted_triangle",
     "inverted-triangle": "inverted_triangle",
     "broad-shouldered": "inverted_triangle",
     "broad shouldered": "inverted_triangle",
+    # men's broad-build phrasing (2026-07-25) — distinct multi-word phrases,
+    # never a bare word, so ordinary garment-fit queries ("regular fit
+    # kurta") never misfire as a body-type statement (same precision-guard
+    # discipline as the "slim"/"short" avoidance below).
+    "muscular build": "inverted_triangle",
+    "broad build": "inverted_triangle",
+    "broad frame": "inverted_triangle",
+    "heavy build": "inverted_triangle",
+    "heavier build": "inverted_triangle",
+    "stocky build": "inverted_triangle",
+    # lean_build (men's-only, new slug — no women's equivalent reused; see
+    # module docstring). Deliberately never bare "slim" — "slim fit kurta" is
+    # a common GARMENT query (1,442 trouser rows alone), not a body-type
+    # statement, and a bare-word match would misfire on it constantly.
+    "slim build": "lean_build",
+    "lean build": "lean_build",
+    "slender build": "lean_build",
+    "narrow frame": "lean_build",
     # modifiers
     "plus size": "plus_size",
     "plus-size": "plus_size",
     "curvy": "plus_size",
     "petite": "petite",
     "tall": "tall",
+    # short_build (men's-only, new slug). Deliberately never bare "short" —
+    # "short kurta" (374 catalogue rows) and "shorts" are common GARMENT
+    # terms, not body-type statements.
+    "short height": "short_build",
+    "shorter build": "short_build",
+    "short build": "short_build",
+    "short stature": "short_build",
 }
 
 _SYNONYMS_SORTED: list[tuple[str, str]] = sorted(
@@ -482,8 +681,37 @@ POSITIVE_TEMPLATES: dict[str, str] = {
     ),
 }
 
+# Men's celebratory templates (2026-07-25) — only for slugs with a men's
+# ruleset (inverted_triangle, lean_build). A photo-classified "pear" (or any
+# other women's-only slug) for a man has NO entry here, so body_type_ack_
+# message falls through to a generic ack with no garment-specific sentence —
+# same honest no-op as an unrecognized body_type today, never a wrong-
+# gendered women's template shown to a man.
+POSITIVE_TEMPLATES_MEN: dict[str, str] = {
+    "inverted_triangle": (
+        "A straight-cut kurta or sherwani in a solid or gently textured fabric sits "
+        "beautifully on a broader shoulder line — clean and tailored, never tight."
+    ),
+    "lean_build": (
+        "A tailored, slim-fit kurta or bandhgala adds structure and definition — sharp "
+        "lines that carry a leaner frame with real presence."
+    ),
+}
 
-def body_type_ack_message(body_type: str | None, modifiers: list[str] | None = None) -> str:
+# Men's-natural display phrasing for slugs whose canonical slug name reads
+# oddly to a man ("inverted triangle" as a self-description) — used only for
+# the human-facing ack/clarify text, never for scoring/lookup keys.
+_MEN_DISPLAY_LABELS: dict[str, str] = {
+    "inverted_triangle": "broad build",
+    "lean_build": "lean build",
+    "short_build": "short",
+    "tall": "tall",
+}
+
+
+def body_type_ack_message(
+    body_type: str | None, modifiers: list[str] | None = None, gender: str | None = None
+) -> str:
     """Deterministic acknowledgement for a bare body-type STATEMENT with nothing
     else to act on (no occasion, no garment, no product query, no prior look) —
     e.g. "I have an inverted triangle silhouette" said as the first and only
@@ -500,26 +728,51 @@ def body_type_ack_message(body_type: str | None, modifiers: list[str] | None = N
     "respond" — force-converted it to "search" on any fresh-session turn with
     no retrieved_items yet, regardless of why "respond" was chosen).
     """
-    labels = [m.replace("_", " ") for m in (modifiers or [])]
+    is_men = gender == "men"
+    display = _MEN_DISPLAY_LABELS if is_men else {}
+    labels = [display.get(m, m.replace("_", " ")) for m in (modifiers or [])]
     if body_type:
-        labels.append(body_type.replace("_", " "))
+        labels.append(display.get(body_type, body_type.replace("_", " ")))
     shape_desc = " ".join(labels) if labels else "shape"
-    why = POSITIVE_TEMPLATES.get(body_type or "", "")
-    ack = f"Got it — I'll keep your {shape_desc} silhouette in mind!"
+    templates = POSITIVE_TEMPLATES_MEN if is_men else POSITIVE_TEMPLATES
+    why = templates.get(body_type or "", "")
+    ack = f"Got it — I'll keep your {shape_desc} build in mind!" if is_men else (
+        f"Got it — I'll keep your {shape_desc} silhouette in mind!"
+    )
     if why:
         ack += f" {why}"
     ack += " What are you shopping for — a sangeet look, office wear, or something else?"
     return ack
 
 
-def body_type_clarify_message() -> str:
-    """Warm, judgment-free, opt-in prompt listing shape options.
+def body_type_clarify_message(gender: str | None = None) -> str:
+    """Warm, judgment-free, opt-in prompt listing shape/build options.
 
     Deterministic template (never an LLM call) — used by graph.py's router
     short-circuit for a body-type QUESTION with no stated body type (§6
     interaction rules: never gate product results on this; always framed as
     optional).
+
+    gender: when "men", returns the men's-build variant (broad build / lean
+    build / short / tall — see module docstring's "Men's coverage" note).
+    Any other value (including None/unknown) returns the original women's
+    shape list UNCHANGED — this is a deliberate, disclosed default, not a
+    guess: gender is frequently unresolved at the point this fires (a bare
+    body-type question with no prior conversation context), and the existing
+    women's list was already the behavior for every caller before this
+    parameter existed, so an unknown gender preserves it exactly rather than
+    inventing a third "neutral" wording never seen live.
     """
+    if gender == "men":
+        return (
+            "Happy to tailor styling to your build — totally optional, and I'll style "
+            "beautifully either way. A few things people mention:\n\n"
+            "- Broader shoulders / muscular build (structured, tailored fit)\n"
+            "- Slim or lean build (a closer, tailored cut)\n\n"
+            "You can also mention short or tall, alone or combined (e.g. \"tall and "
+            "broad-shouldered\"). Just say the word whenever you'd like — or skip it "
+            "entirely and I'll style from your occasion and budget instead."
+        )
     return (
         "Happy to tailor styling to your shape — totally optional, and I'll style "
         "beautifully either way. A few shapes people mention:\n\n"
@@ -539,22 +792,40 @@ def body_type_clarify_message() -> str:
 # ---------------------------------------------------------------------------
 
 
-def query_tokens(body_type: str | None, modifiers: list[str] | None = None) -> str:
+def query_tokens(
+    body_type: str | None, modifiers: list[str] | None = None, gender: str | None = None
+) -> str:
     """Return extra retrieval-query tokens for a known body type + modifiers.
 
     Mirrors slots.py's _occasion_register_tokens: a short, curated string
     appended to anchor/slot search queries so retrieval favours garments this
     body type's rules recommend. Empty string when nothing is known (no-op
     for callers that always append via f"{query} {query_tokens(...)}".strip()).
+
+    gender: when "men" and a profile has a non-empty query_tokens_men, that
+    string is used INSTEAD of the shared query_tokens (see BodyTypeProfile's
+    query_tokens_men field docstring) — e.g. inverted_triangle's women's
+    tokens ("flared gathered pleated v-neck") would pollute a men's kurta/
+    sherwani search, so the men's variant ("regular fit straight cut
+    tailored solid") is substituted, never appended alongside it. Falls back
+    to the shared string for any profile without a men's variant yet
+    (pear/apple/hourglass/rectangle) — identical to omitting gender.
     """
+    is_men = gender == "men"
+
+    def _tokens_for(profile: BodyTypeProfile) -> str:
+        if is_men and profile.query_tokens_men:
+            return profile.query_tokens_men
+        return profile.query_tokens
+
     parts: list[str] = []
     if body_type and body_type in BASE_SHAPES:
-        parts.append(BASE_SHAPES[body_type].query_tokens)
+        parts.append(_tokens_for(BASE_SHAPES[body_type]))
     for mod in modifiers or []:
         profile = MODIFIERS.get(mod)
         if profile:
-            parts.append(profile.query_tokens)
-    return " ".join(parts)
+            parts.append(_tokens_for(profile))
+    return " ".join(p for p in parts if p)
 
 
 # ---------------------------------------------------------------------------
@@ -567,8 +838,20 @@ _ANARKALI_KURTA_MARKERS: tuple[str, ...] = (
     "anarkali", "kurta", "kurti", "sharara", "salwar", "palazzo", "suit", "tunic",
 )
 
+# Men's garment-class markers (2026-07-25). Checked in this precedence order
+# (sherwani -> bandhgala -> blazer -> trousers -> kurta) because some listings
+# name multiple garments at once (e.g. "Sherwani with Kurta and Pyjama Set")
+# and the more SPECIFIC garment must win over the generic "kurta" fallback.
+_SHERWANI_MARKERS: tuple[str, ...] = ("sherwani",)
+_BANDHGALA_MARKERS: tuple[str, ...] = ("bandhgala",)
+_BLAZER_MEN_MARKERS: tuple[str, ...] = ("blazer",)
+_TROUSERS_MEN_MARKERS: tuple[str, ...] = ("trousers", "trouser")
+_KURTA_MEN_MARKERS: tuple[str, ...] = ("kurta",)
 
-def garment_class_for_item(product_type: str, prod_name: str) -> str | None:
+
+def garment_class_for_item(
+    product_type: str, prod_name: str, gender: str | None = None
+) -> str | None:
     """Classify a catalogue item into one of the §5 body-type garment classes.
 
     Deliberately self-contained (no import of slots.classify_anchor) so this
@@ -576,8 +859,32 @@ def garment_class_for_item(product_type: str, prod_name: str) -> str | None:
     the same isolation invariant occasions.py already relies on. Returns None
     for garments the research doc doesn't cover (western wear, footwear,
     outerwear, accessories) — body_type_score_delta returns 0.0 for those.
+
+    gender: PRE-EXISTING BUG FIX (2026-07-25) — before this parameter existed,
+    a MAN'S kurta always fell into _ANARKALI_KURTA_MARKERS (which contains the
+    bare word "kurta" for the women's anarkali_kurta class) and was silently
+    scored against WOMEN'S a-line/flare/embroidered-yoke recommend/deprioritize
+    keywords — never a crash, just nonsensical bias-only scoring on men's
+    items that nobody had reason to notice (bias-only deltas don't surface as
+    visibly-wrong results the way a filter bug would). gender=="men" now
+    checks the men's marker set FIRST and returns a men's class (or None),
+    never falling through to the women's checks below. Any other value
+    (None/"women"/"unisex") preserves the ORIGINAL classification exactly —
+    zero behavior change for the existing women's flow.
     """
     combined = f"{product_type} {prod_name}".lower()
+    if gender == "men":
+        if any(m in combined for m in _SHERWANI_MARKERS):
+            return "sherwani"
+        if any(m in combined for m in _BANDHGALA_MARKERS):
+            return "bandhgala"
+        if any(m in combined for m in _BLAZER_MEN_MARKERS):
+            return "blazer_men"
+        if any(m in combined for m in _TROUSERS_MEN_MARKERS):
+            return "trousers_men"
+        if any(m in combined for m in _KURTA_MEN_MARKERS):
+            return "kurta_men"
+        return None
     if any(m in combined for m in _SAREE_MARKERS):
         return "saree"
     if any(m in combined for m in _LEHENGA_MARKERS):
@@ -587,18 +894,28 @@ def garment_class_for_item(product_type: str, prod_name: str) -> str | None:
     return None
 
 
+_MEN_GARMENT_CLASSES: frozenset[str] = frozenset(
+    {"kurta_men", "sherwani", "bandhgala", "blazer_men", "trousers_men"}
+)
+
+
 def _profile_keywords(
     profile: BodyTypeProfile, garment_class: str | None
 ) -> tuple[set[str], set[str]]:
     """Return (recommend, deprioritize) keyword sets for one profile.
 
-    Always includes the "neckline" overlay (a blouse/choli neckline can be
-    mentioned in a saree/anarkali/kurta's own description text) in addition to
-    the item's primary garment_class rule, when both exist.
+    Includes the "neckline" overlay (a blouse/choli neckline can be mentioned
+    in a saree/anarkali/kurta's own description text) in addition to the
+    item's primary garment_class rule, when both exist — EXCEPT for men's
+    garment classes (2026-07-25): "neckline"'s v-neck/boat-neck/scoop-neck
+    keyword set is a women's silhouette concept (a saree/anarkali blouse
+    neckline), not a men's kurta/sherwani collar concept — applying it to a
+    men's item would be a real, if minor, bias-only mismatch, not a shared
+    overlay.
     """
     recommend: set[str] = set()
     deprioritize: set[str] = set()
-    classes = {"neckline"}
+    classes = set() if garment_class in _MEN_GARMENT_CLASSES else {"neckline"}
     if garment_class:
         classes.add(garment_class)
     for cls in classes:
@@ -613,6 +930,7 @@ def body_type_score_delta(
     item: dict,
     body_type: str | None,
     modifiers: list[str] | None = None,
+    gender: str | None = None,
 ) -> float:
     """Return a score adjustment based on body-type recommend/deprioritize keywords.
 
@@ -629,6 +947,11 @@ def body_type_score_delta(
     modifiers compose with body_type via UNION of recommend keywords and UNION
     of deprioritize keywords (§5 encoding note) — a "petite pear" candidate
     gets +0.1 if it matches EITHER the pear OR the petite recommend list.
+
+    gender: threaded straight to garment_class_for_item (see its docstring
+    for the pre-existing men's-kurta-misclassified-as-women's-anarkali bug
+    this fixes). Any value other than "men" preserves the exact original
+    classification/scoring behavior.
     """
     modifiers = modifiers or []
     if not body_type and not modifiers:
@@ -636,7 +959,7 @@ def body_type_score_delta(
 
     text = ((item.get("prod_name") or "") + " " + (item.get("detail_desc") or "")).lower()
     garment_class = garment_class_for_item(
-        item.get("product_type") or "", item.get("prod_name") or ""
+        item.get("product_type") or "", item.get("prod_name") or "", gender
     )
 
     recommend: set[str] = set()

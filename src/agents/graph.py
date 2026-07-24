@@ -269,6 +269,31 @@ def _reconstruct_body_type_from_history(
     return None, []
 
 
+def _reconstruct_gender_from_history(messages: list[dict]) -> str | None:
+    """Recover a STATED gender from conversation history (2026-07-25, Area 1).
+
+    Mirrors _reconstruct_body_type_from_history exactly, for the same reason:
+    a bare body-type statement/question carries no gender signal of its own
+    (e.g. "I have an inverted triangle silhouette" via the photo confirm
+    button), but a prior turn this session may have named one explicitly
+    ("kurta for men", "shopping for my husband"). Used ONLY to select
+    body-positive template WORDING (men's vs women's build language) — never
+    to filter or gate retrieval, and never inferred from the photo itself
+    (the photo path has no gender signal at all; see frontend/lib/
+    poseShape.ts). Returns None (never guesses) when no prior message stated
+    one, same honest-fallback contract as the body-type reconstruction.
+    """
+    from src.agents.intent_parser import parse_intent
+
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        gender = parse_intent(m.get("content", "")).gender
+        if gender:
+            return gender
+    return None
+
+
 def _reconstruct_budget_from_history(messages: list[dict]) -> int | None:
     """Recover the user's STATED budget ceiling from conversation history.
 
@@ -1379,7 +1404,18 @@ def build_graph(
                     state.get("messages", [])
                 )
                 if not (_hist_bt or _hist_bt_mods):
-                    plan = {"action": "clarify", "question": body_type_clarify_message()}
+                    # gender: only from an EXPLICITLY stated signal (this turn or a
+                    # prior one) — never guessed, never inferred from the photo path
+                    # (which carries no gender signal at all). Unknown gender keeps
+                    # the original women's-shape wording (see body_type_clarify_
+                    # message's gender param docstring).
+                    _clarify_gender = _bt_intent.gender or _reconstruct_gender_from_history(
+                        state.get("messages", [])
+                    )
+                    plan = {
+                        "action": "clarify",
+                        "question": body_type_clarify_message(_clarify_gender),
+                    }
                     return {
                         "current_plan": json.dumps(plan),
                         "tool_calls": [{"router_decision": plan}],
@@ -1414,10 +1450,13 @@ def build_graph(
                 and not _bt_intent.is_product_query
                 and not state.get("retrieved_items")
             ):
+                _ack_gender = _bt_intent.gender or _reconstruct_gender_from_history(
+                    state.get("messages", [])
+                )
                 plan = {
                     "action": "clarify",
                     "question": body_type_ack_message(
-                        _bt_intent.body_type, _bt_intent.body_modifiers
+                        _bt_intent.body_type, _bt_intent.body_modifiers, _ack_gender
                     ),
                 }
                 logger.info(

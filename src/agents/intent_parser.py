@@ -493,23 +493,44 @@ _BODY_TYPE_MAP: dict[str, str] = {
     "straight frame": "rectangle",
     "athletic frame": "rectangle",
     "athletic build": "rectangle",
-    # inverted triangle
+    # inverted triangle (shared with men's broad-shoulder build — see
+    # body_type.py's BASE_SHAPES["inverted_triangle"] men's garment rules)
     "inverted triangle": "inverted_triangle",
     "inverted-triangle": "inverted_triangle",
     "broad-shouldered": "inverted_triangle",
     "broad shouldered": "inverted_triangle",
+    # men's broad-build phrasing (2026-07-25) — kept in sync with
+    # body_type.py's SYNONYMS dict; see that dict's comment for why these are
+    # deliberately multi-word (never a bare word that could misfire on an
+    # ordinary garment-fit query).
+    "muscular build": "inverted_triangle",
+    "broad build": "inverted_triangle",
+    "broad frame": "inverted_triangle",
+    "heavy build": "inverted_triangle",
+    "heavier build": "inverted_triangle",
+    "stocky build": "inverted_triangle",
+    # lean_build (men's-only, new slug — see body_type.py's module docstring)
+    "slim build": "lean_build",
+    "lean build": "lean_build",
+    "slender build": "lean_build",
+    "narrow frame": "lean_build",
     # modifiers
     "plus size": "plus_size",
     "plus-size": "plus_size",
     "curvy": "plus_size",
     "petite": "petite",
     "tall": "tall",
+    # short_build (men's-only, new slug)
+    "short height": "short_build",
+    "shorter build": "short_build",
+    "short build": "short_build",
+    "short stature": "short_build",
 }
 
 _BASE_SHAPE_SLUGS: frozenset[str] = frozenset(
-    {"pear", "apple", "hourglass", "rectangle", "inverted_triangle"}
+    {"pear", "apple", "hourglass", "rectangle", "inverted_triangle", "lean_build"}
 )
-_MODIFIER_SLUGS: frozenset[str] = frozenset({"petite", "tall", "plus_size"})
+_MODIFIER_SLUGS: frozenset[str] = frozenset({"petite", "tall", "plus_size", "short_build"})
 
 _BODY_TYPE_SORTED: list[tuple[str, str]] = sorted(
     _BODY_TYPE_MAP.items(), key=lambda kv: len(kv[0]), reverse=True

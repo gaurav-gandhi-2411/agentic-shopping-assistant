@@ -178,7 +178,7 @@ def compose_outfit(
         # gender_allowed() re-check right below is now belt-and-suspenders, not the
         # only gate.  Skipped for "unisex" (no single-gender filter makes sense).
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
-        _bt_tokens = body_type_query_tokens(body_type, body_modifiers)
+        _bt_tokens = body_type_query_tokens(body_type, body_modifiers, gender)
         if _bt_tokens:
             anchor_query = f"{anchor_query} {_bt_tokens}"
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
@@ -1032,7 +1032,7 @@ def _score_candidates(
         base_score = item.get("score") or 0.5
         c_score = colour_score(item.get("colour") or "", anchor_colour, occasion_slug)
         fab_delta = fabric_score_delta(item, occasion_slug, formality_override=formality_override)
-        bt_delta = body_type_score_delta(item, body_type, body_modifiers)
+        bt_delta = body_type_score_delta(item, body_type, body_modifiers, gender)
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
         final_score = (
