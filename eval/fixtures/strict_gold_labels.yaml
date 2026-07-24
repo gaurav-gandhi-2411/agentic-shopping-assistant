@@ -1300,3 +1300,27 @@ labels:
 - query_id: occ_adv_002
   items:
   - {article_id: "7332515610667", relevant: false, reason: type-confusion, note: "'Ellaichi Brooch' (ishhaara) -- product_type 'Fashion', desc explicitly frames it as a 'Haldi & Mehendi Favours' GIFT/FAVOUR for guests, not an apparel item to wear; a decorative gift brooch returned for a 'haldi LOOK' (apparel-intent) query. Same failure class as the occasion-merchandise-leak fix (commits d4bd933/01cbfd5) but for haldi-favor gift items specifically, which that fix's product-type/name pattern list does not cover -- flagged as a possible future extension, not fixed here (out of scope for a hand-labeling pass)."}
+
+# ── Batch 13 (2026-07-24): the favour/favor occasion-merchandise-gate
+# broadening (commit fe057ab) plus the eval_strict.py pipeline-parity fix
+# (commit 26898e9, which made this pipeline actually apply the gate for the
+# first time) together removed the Ellaichi Brooch and its "Haldi & Mehendi
+# Favours" collection-mates from top-5 for occ_adv_001/002/005 -- 5 new items
+# surfaced into their place, all genuinely relevant apparel/jewellery for a
+# haldi/mehendi bright-colour-palette query.
+# retrieval_snapshot: data/processed/unified (42 stores), eval_strict.py
+# --mode pipeline post-fe057ab/26898e9.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8613252202651", relevant: true, note: "'Sunshine Glow Orange Lehenga' -- desc explicit 'rich orange flared skirt, embroidered blouse with mirror and beadwork, orange dupatta'; orange is within the haldi bright-yellow/orange palette, women, no budget stated"}
+  - {article_id: "10088965275943", relevant: true, note: "'Haldi - Kolhapuri sandals' -- 'Haldi' literally in the title, colour Yellow (haldi palette), genuine footwear, women"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "8613252202651", relevant: true, note: "same item as occ_adv_001 above -- 'Sunshine Glow Orange Lehenga', bright orange matches 'bright haldi look' explicitly"}
+  - {article_id: "10088965275943", relevant: true, note: "same item as occ_adv_001 above -- 'Haldi - Kolhapuri sandals', yellow, literally named for the occasion"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "8849333813410", relevant: true, note: "'Mayuri Ghungroo Openable Bracelet' (5-elements, product_type has a catalogue typo 'Bascelet') -- desc explicit 'perfect for weddings, haldi-mehendi ceremonies, and festive gatherings'; genuine jewellery with ghungroo bells, women"}
+  - {article_id: "8663701553307", relevant: true, note: "'Teal Green Lehenga' -- green is THE mehendi palette colour, desc explicit bridal/wedding context, women, no budget stated"}
+  - {article_id: "8123427782811", relevant: true, note: "'Green Chinon Lehenga with embellishments' -- green mehendi palette, desc explicit 'intricate embroidery, sequin work, pearl detailing', women"}
