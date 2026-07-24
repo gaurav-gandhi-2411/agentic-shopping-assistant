@@ -18,6 +18,7 @@ from __future__ import annotations
 from src.agents.grounding import validate_rationale
 from src.agents.outfit.rationale import (
     _display_colour,
+    _display_noun,
     build_fact_sheet,
     generate_rationales,
     template_rationale,
@@ -308,6 +309,83 @@ class TestDisplayColourGrounding:
         result = template_rationale(look)
         assert "red" not in result.lower()
         assert "pastel" in result.lower()
+
+
+# ── _display_noun grounding (2026-07-24 fix) ─────────────────────────────────────
+#
+# Live-proven bug: a gym look's stylist note read "The classic sports_bra
+# anchors this gym look" — the raw snake_case product_type value leaked
+# verbatim (underscore intact) into user-facing prose. Two-part fix:
+#   1. _NOTE_GARMENT_NOUNS grows the missing activewear nouns.
+#   2. The raw-product_type fallback branch now sanitizes underscores to
+#      spaces defensively, so ANY future underscore-bearing product_type
+#      (even one not yet in _NOTE_GARMENT_NOUNS) can never leak raw again.
+
+
+class TestDisplayNounGrounding:
+    def test_sports_bra_underscore_never_leaks_raw(self) -> None:
+        """The exact live-repro shape: raw product_type has the underscore."""
+        result = _display_noun("sports_bra", "The classic Sports Bra")
+        assert result == "sports bra"
+        assert "_" not in result
+
+    def test_sports_bra_falls_back_to_sanitized_product_type_when_name_has_no_match(
+        self,
+    ) -> None:
+        """Even with NO recognisable garment word in prod_name at all, the
+        raw-product_type fallback must still never leak the underscore."""
+        result = _display_noun("sports_bra", "")
+        assert result == "sports bra"
+        assert "_" not in result
+
+    def test_leggings_joggers_skort_track_cargo_all_recognised_from_name(self) -> None:
+        """Every Wave 9 activewear noun this fix adds, as it really appears
+        in catalogue prod_name text (data/processed/unified/catalogue.parquet)."""
+        cases = [
+            ("leggings", "Pink Ultra Stretchable Active Leggings", "leggings"),
+            ("leggings", "Dark Grey Skinny Legging", "legging"),
+            ("joggers", "Grey Stretchable Cotton Joggers", "joggers"),
+            ("joggers", "White Cotton Straight Fit Jogger", "jogger"),
+            ("skort", "The Do-It All Skorts", "skorts"),
+            ("track_pants", "TraqLite Track Pants Olive", "track pants"),
+            ("cargo_pants", "TraqPace Cargo Pants Lilac", "cargo pants"),
+        ]
+        for product_type, prod_name, expected in cases:
+            result = _display_noun(product_type, prod_name)
+            assert result == expected, (
+                f"product_type={product_type!r} prod_name={prod_name!r}: "
+                f"expected {expected!r}, got {result!r}"
+            )
+            assert "_" not in result
+
+    def test_generic_future_underscore_type_sanitized_not_word_list_dependent(self) -> None:
+        """The systemic part of the fix: a HYPOTHETICAL future snake_case
+        product_type this word list has never seen (e.g. a new store adding
+        "yoga_pants" tomorrow) must still never leak a raw underscore — this
+        is the whole point of fixing the fallback branch, not just patching
+        today's known words."""
+        result = _display_noun("yoga_pants", "")
+        assert result == "yoga pants"
+        assert "_" not in result
+
+    def test_no_regression_to_existing_clean_product_type_fallback(self) -> None:
+        """Established prior behaviour, unchanged: a clean (no-underscore,
+        <=2 word) product_type with no name match still passes straight
+        through."""
+        assert _display_noun("dress", "") == "dress"
+        assert _display_noun("kurta", "") == "kurta"
+
+    def test_generate_rationales_template_fallback_never_leaks_raw_product_type(self) -> None:
+        """End-to-end through the deterministic template path (no LLM): the
+        exact live-repro shape must never surface a raw underscore."""
+        look = _make_look(
+            seed_colour="Black", seed_type="sports_bra",
+            occasion="gym", gender="women",
+        )
+        look["seed_item"]["prod_name"] = "Ultimate Comfort Sports Bra"
+        result = template_rationale(look)
+        assert "sports_bra" not in result
+        assert "_" not in result
 
 
 # ── build_fact_sheet tests ──────────────────────────────────────────────────────

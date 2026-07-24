@@ -421,7 +421,13 @@ def _suppression_reason(slot_name: str, gender: str) -> str:
         "bottom": "bottoms",
         "top": "tops",
     }
-    label = labels.get(slot_name, slot_name)
+    # 2026-07-24 sweep (same failure class as rationale._display_noun's
+    # sports_bra leak fix): every slot_name in use today is covered by
+    # `labels` above, but the .get() fallback previously returned the raw
+    # slot_name UNSANITIZED if a future slot type were ever added without
+    # also updating this dict — sanitize defensively so a hypothetical raw
+    # "some_new_slot" can never leak an underscore into user-facing prose.
+    label = labels.get(slot_name, slot_name.replace("_", " "))
     # "that match this look" — the honest claim. A bare "No men's bottoms in our
     # partner stores yet" was live-proven FALSE (4,668 exist); suppression only
     # means no candidate survived THIS look's gates, never an inventory absence.

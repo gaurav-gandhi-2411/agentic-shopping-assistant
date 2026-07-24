@@ -60,6 +60,21 @@ _NOTE_GARMENT_NOUNS: tuple[str, ...] = (
     "gown", "dress", "shirt", "jacket", "coat", "sweater", "cardigan", "shrug",
     "heels", "sandals", "loafers", "oxfords", "boots", "sneakers", "juttis",
     "mojaris", "shoes", "belt", "watch", "clutch", "necklace", "earrings", "top",
+    # Wave 9 activewear vocabulary (2026-07-24, live-proven bug: a gym look's
+    # stylist note read "The classic sports_bra anchors this gym look" — the
+    # raw snake_case product_type value leaked verbatim because none of these
+    # activewear nouns existed here, so _display_noun's name-scan found
+    # nothing and fell through to the raw-product_type fallback, see
+    # _display_noun's docstring). Phrasing verified against real catalogue
+    # prod_name text (data/processed/unified/catalogue.parquet): "Ultimate
+    # Printed Comfort Sports Bra", "Pink Ultra Stretchable Active Leggings",
+    # "Dark Grey Skinny Legging" (10 rows use the singular), "Grey
+    # Stretchable Cotton Joggers", "White Cotton Straight Fit Jogger" (mixed
+    # singular/plural in real inventory, both forms needed), "The Do-It All
+    # Skorts", "TraqFlex Skort White", "TraqLite Track Pants Olive",
+    # "TraqPace Cargo Pants Lilac".
+    "sports bra", "leggings", "legging", "joggers", "jogger", "skorts", "skort",
+    "track pants", "cargo pants",
 )
 
 # Nouns that take a plural verb ("the trousers keep…", not "keeps").
@@ -121,11 +136,24 @@ def _first_vocab_match(text: str, vocab: tuple[str, ...]) -> str | None:
 
 def _display_noun(product_type: object, prod_name: object) -> str:
     """A short garment noun safe to put in prose. Prefers the product NAME's own
-    garment word; falls back to a clean (<=2 words, no comma) product_type."""
+    garment word; falls back to a clean (<=2 words, no comma) product_type.
+
+    Live-proven bug (2026-07-24): a gym look's stylist note read "The classic
+    sports_bra anchors this gym look" — the raw snake_case product_type value
+    ("sports_bra", a real catalogue facet written by
+    src/catalogue/normalizer.py's activewear compound-term rules) leaked
+    verbatim into user-facing prose. The word-list fix above (_NOTE_GARMENT_NOUNS
+    now has "sports bra" etc.) closes the specific words known today, but a
+    hand-maintained word list is never complete — this fallback branch is the
+    SYSTEMIC fix: any future product_type with an underscore (e.g. a new
+    store's "yoga_pants") is sanitized to spaces here before being returned,
+    so it can never leak a raw snake_case identifier into prose again even if
+    _NOTE_GARMENT_NOUNS hasn't been updated yet.
+    """
     name_noun = _first_vocab_match(_safe_str(prod_name), _NOTE_GARMENT_NOUNS)
     if name_noun:
         return name_noun
-    pt = _safe_str(product_type).strip().lower()
+    pt = _safe_str(product_type).strip().lower().replace("_", " ")
     if pt and "," not in pt and len(pt.split()) <= 2:
         return pt
     pt_noun = _first_vocab_match(pt, _NOTE_GARMENT_NOUNS)
