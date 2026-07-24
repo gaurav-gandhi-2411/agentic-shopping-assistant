@@ -10609,3 +10609,112 @@ queries:
       product_type_contains:
       - hamper
   data_ceiling_tags: []
+# ---------------------------------------------------------------------------
+# 2026-07-24 fix: occasion-merchandise leak, concept-broadening (favour/favor)
+# -- same category="search"/no-`gates` shape as search_061-064 above (same
+# underlying mechanism: is_occasion_merchandise_type/is_occasion_merchandise_
+# name via _apply_occasion_merchandise_gate, not the compose_outfit gates
+# path). Live-proven bug (hand-labeled eval/fixtures/strict_gold_labels.yaml
+# occ_adv_002): "bright haldi look for women" surfaced "Ellaichi Brooch"
+# (store=ishhaara, product_type_name="Fashion") -- its NAME carries no
+# merchandise marker at all, only its shared "Haldi & Mehendi Favours"
+# description does. R1 raw retrieval (this stage) does not apply the gate
+# (same documented floor-vs-production distinction as search_061-064) --
+# scripts/eval_strict.py --mode pipeline DOES apply it (2026-07-24 mirror
+# fix) and tests/test_occasion_merchandise_leak.py's real-index tests are
+# the primary regression guard. Catalogue audit confirmed the same 37-row
+# ishhaara favours collection is a genuine leak risk under haldi (37/37) and
+# mehendi (36/37); wedding_guest (37/37 rows also mention "wedding") was
+# audited too but does not rank into the raw top-50 for any natural
+# "wedding guest ..." phrasing tried, so no eval-fixture entry is added for
+# it (honest non-finding, per this file's own "don't force every occasion"
+# discipline) -- it still gets a real-index regression test (see
+# test_wedding_guest_look_no_favour_collection_leak) as a defensive guard
+# against future ranking drift.
+# ---------------------------------------------------------------------------
+- id: search_065
+  category: search
+  turns:
+  - bright haldi look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      - kurti
+      - saree
+      - lehenga
+      - sherwani
+      - dupatta
+      - indowestern
+      - necklace
+      - earrings
+      - jhumka
+      - bangles
+      - jewellery
+      gender_in:
+      - women
+  data_ceiling_tags: []
+- id: search_066
+  category: search
+  turns:
+  - mehendi look for women
+  expected_intent:
+    garment_type: null
+    gender: women
+    colour: null
+    occasion: mehendi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - kurta
+      - kurti
+      - saree
+      - lehenga
+      - sherwani
+      - dupatta
+      - indowestern
+      - necklace
+      - earrings
+      - jhumka
+      - bangles
+      - jewellery
+      gender_in:
+      - women
+  data_ceiling_tags: []
+# Inverse-direction regression (same discipline as search_062's "rakhi for
+# my brother"): an explicit favours/favors request must still surface the
+# ishhaara collection, not be over-suppressed by the broadened gate.
+- id: search_067
+  category: search
+  turns:
+  - haldi favours for guests
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: haldi
+    budget_max_inr: null
+    body_type: null
+    body_modifiers: []
+    is_product_query: true
+  relevance:
+    must:
+      product_type_contains:
+      - hamper
+      - brooch
+      - favour
+      - favor
+  data_ceiling_tags: []
