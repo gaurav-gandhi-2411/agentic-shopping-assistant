@@ -770,6 +770,30 @@ class TestBodyTypeAckMessage:
         if womens_text:
             assert womens_text not in msg
 
+    def test_no_doubled_build_word_for_broad_or_lean_build(self) -> None:
+        """Live-proof catch (2026-07-25): _MEN_DISPLAY_LABELS values for base
+        shapes already end in "build" ("broad build"/"lean build") — the ack
+        sentence must not ALSO append the word "build", producing "broad
+        build build in mind!"."""
+        msg_broad = body_type_ack_message("inverted_triangle", [], gender="men")
+        assert "build build" not in msg_broad
+        assert "broad build in mind" in msg_broad
+
+        msg_lean = body_type_ack_message("lean_build", [], gender="men")
+        assert "build build" not in msg_lean
+        assert "lean build in mind" in msg_lean
+
+    def test_short_or_tall_modifier_alone_still_reads_naturally(self) -> None:
+        """short_build/tall's men's display labels ("short"/"tall") do NOT
+        end in "build" — the ack sentence appends it exactly once."""
+        msg_short = body_type_ack_message(None, ["short_build"], gender="men")
+        assert "short build in mind" in msg_short
+        assert "build build" not in msg_short
+
+        msg_tall = body_type_ack_message(None, ["tall"], gender="men")
+        assert "tall build in mind" in msg_tall
+        assert "build build" not in msg_tall
+
     def test_lean_build_without_gender_has_no_crash_and_no_template(self) -> None:
         """lean_build has NO women's-default template (men's-only slug) — must
         gracefully omit the why-sentence, never KeyError or show wrong text."""

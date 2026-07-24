@@ -736,9 +736,15 @@ def body_type_ack_message(
     shape_desc = " ".join(labels) if labels else "shape"
     templates = POSITIVE_TEMPLATES_MEN if is_men else POSITIVE_TEMPLATES
     why = templates.get(body_type or "", "")
-    ack = f"Got it — I'll keep your {shape_desc} build in mind!" if is_men else (
-        f"Got it — I'll keep your {shape_desc} silhouette in mind!"
-    )
+    if is_men:
+        # _MEN_DISPLAY_LABELS values already end in "build" for base shapes
+        # (e.g. "broad build") — only append the word when shape_desc doesn't
+        # already carry it (a bare "short"/"tall" modifier), else this reads
+        # "broad build build" (live-proof catch, 2026-07-25).
+        noun = "" if shape_desc.endswith("build") else " build"
+        ack = f"Got it — I'll keep your {shape_desc}{noun} in mind!"
+    else:
+        ack = f"Got it — I'll keep your {shape_desc} silhouette in mind!"
     if why:
         ack += f" {why}"
     ack += " What are you shopping for — a sangeet look, office wear, or something else?"
