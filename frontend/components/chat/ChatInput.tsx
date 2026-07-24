@@ -23,6 +23,10 @@ interface Props {
   /** Called when the user picks and confirms an image for /style/from-image.
    *  text is the textarea content at submission time (may be empty). */
   onSendImage?: (file: File, text?: string) => void
+  /** Gender already resolved from the conversation ("men"/"women"/"unisex"),
+   *  or null when genuinely unknown — passed straight through to
+   *  BodyShapeUpload's men's-picker gating. See ChatThread.tsx's derivation. */
+  knownGender?: string | null
 }
 
 /** Small thumbnail preview chip shown after the user picks an image. */
@@ -55,7 +59,9 @@ function ImageChip({
   )
 }
 
-export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }: Props) {
+export function ChatInput({
+  onSend, onCancel, isSending, disabled, onSendImage, knownGender,
+}: Props) {
   const [text, setText] = useState("")
   const [pendingImage, setPendingImage] = useState<File | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -209,7 +215,9 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             (different photo, different purpose, different icon from the garment
             upload above: this one's photo is processed on-device and never
             uploaded, unlike the garment upload's POST /style/from-image). */}
-        {!isSending && <BodyShapeUpload onSend={onSend} disabled={disabled} />}
+        {!isSending && (
+          <BodyShapeUpload onSend={onSend} disabled={disabled} knownGender={knownGender} />
+        )}
 
         {isSending ? (
           <Button
