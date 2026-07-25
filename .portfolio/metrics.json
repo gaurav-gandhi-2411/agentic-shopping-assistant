@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "project": "style-maitri",
+  "docs": "https://github.com/gaurav-gandhi-2411/gg-portfolio#autonomous-metric-refresh",
+  "metrics": [
+    {
+      "id": "style-maitri:intent-accuracy",
+      "label": "Intent-parsing accuracy",
+      "value": "93.8% (n=211)",
+      "source_file": "reports/final_scorecard_2026-07-12.txt",
+      "source_line": 109,
+      "commit_sha": "db4a6edf4e1d45ac6f075c44f17f6aad47db5c78",
+      "measured_at": "2026-07-12"
+    },
+    {
+      "id": "style-maitri:catalogue-size",
+      "label": "Cross-store catalogue",
+      "value": "~52K items across 8 stores",
+      "source_file": "reports/soldout_filter_fix_2026-07-12.txt",
+      "source_line": 28,
+      "commit_sha": "db4a6edf4e1d45ac6f075c44f17f6aad47db5c78",
+      "measured_at": "2026-07-12"
+    }
+  ]
+}
