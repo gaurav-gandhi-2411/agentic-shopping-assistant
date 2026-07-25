@@ -1624,3 +1624,70 @@ labels:
 - query_id: multi_030
   items:
   - {article_id: "9724031009074", relevant: true, note: "green, Rs1312 <= Rs2500 cap; desc names Mehndi not Eid but both are the same light-to-medium festive register, not contradicting"}
+
+# --- Batch 16 (2026-07-25): set-detection fix re-audit ---
+# is_multi_piece_set's relaxed bare-"Set"-suffix bar (>=1 noun instead of
+# >=2) and the new N-piece/co-ord/bare-TOP-BOTTOM signals (see
+# src/agents/outfit/slots.py) changed retrieval for every query where a
+# previously-invisible set listing is now correctly excluded, surfacing 17
+# new items across 12 queries that need auditing before the number can be
+# trusted.
+#
+# Three items below (multi_011) are a genuine judgment call worth
+# disclosing: "Sherwani Churidar/Dhoti/Pyjama Set" listings ARE flagged by
+# is_multi_piece_set (bare "Set" + noun, or "with" + 2 nouns), matching the
+# code's classification -- but labeled RELEVANT here anyway, same reasoning
+# already established for anarkali+dupatta in Batch 14 (multi_014): a
+# sherwani is CONVENTIONALLY sold/worn with its coordinating churidar/dhoti/
+# pyjama bottom in real Indian groom-wear retail (more so than kurta+palazzo,
+# which is commonly available as either a single piece or a combo) -- a
+# "sherwani" search legitimately wants the complete conventional ensemble,
+# not just the jacket. These items appeared in the top-5 here because
+# removing every set-flagged candidate left the pool too thin (pool-
+# underflow protection correctly kept them) -- not a bug, and not something
+# this pass changes in code without broader evidence of a real over-fire
+# beyond this one query.
+# retrieval_snapshot: data/processed/unified (commit 9530bf1 + the
+# is_multi_piece_set signal fixes), eval_strict.py --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "18456672", relevant: false, reason: attribute-contradiction, note: "name explicit 'Slim Fit' -- contradicts 'straight fit' despite desc separately saying 'Straight shape with regular style'; title's explicit fit word wins"}
+- query_id: gold_005
+  items:
+  - {article_id: "7797797454046", relevant: true, note: "name explicit 'Anarkali Kurta', single garment, off-white"}
+- query_id: gold_028
+  items:
+  - {article_id: "8682663379096", relevant: true, note: "printed, kurta, men"}
+- query_id: gold_031
+  items:
+  - {article_id: "9247055282398", relevant: false, reason: set-not-single, note: "'Set Of 2: Deep Plum Cotton Kurta & Palazzo' -- explicit 2-garment set for a bare single-palazzo query"}
+- query_id: gold_020
+  items:
+  - {article_id: "9114911834370", relevant: true, note: "desc explicit 'festive grandeur...stone work embroidery...opulent ethnic styling' -- reception-appropriate embellished register"}
+- query_id: gold_024
+  items:
+  - {article_id: "8355960586395", relevant: true, note: "name explicit 'Sherwani For Groom', no budget stated in this query"}
+- query_id: multi_002
+  items:
+  - {article_id: "7826959007830", relevant: true, note: "lime green, floral, Rs1049 <= Rs2000 cap, light cotton mehendi-appropriate"}
+- query_id: multi_007
+  items:
+  - {article_id: "18696930", relevant: false, reason: attribute-contradiction, note: "desc explicit 'Straight shape with regular style' -- contradicts 'a-line'"}
+  - {article_id: "16907614", relevant: false, reason: attribute-contradiction, note: "desc explicit 'straight-fit kurta' -- contradicts 'a-line'"}
+- query_id: multi_011
+  items:
+  - {article_id: "8891596963992", relevant: true, note: "'Sherwani Churidar Set' -- conventional groom ensemble, same reasoning as anarkali+dupatta (Batch 14, multi_014); blue, Rs5249 <= Rs12000 cap"}
+  - {article_id: "7735774544024", relevant: true, note: "sherwani with its conventional dhoti bottom; blue/navy, Rs5999 <= Rs12000 cap"}
+  - {article_id: "9488864936194", relevant: true, note: "'Sherwani Set with Pyjama' -- conventional 3-piece groom ensemble (sherwani+dupatta+pyjama), blue, Rs5469 <= Rs12000 cap"}
+- query_id: multi_018
+  items:
+  - {article_id: "18935642", relevant: false, reason: colour-family, note: "'Pink & Silver-Toned Embellished' -- no gold/gold-toned/golden signal at all"}
+  - {article_id: "18824644", relevant: false, reason: colour-family, note: "'Blue & Silver-Toned Embroidered' -- no gold/gold-toned/golden signal at all"}
+- query_id: multi_027
+  items:
+  - {article_id: "13140232", relevant: true, note: "purple, name explicit 'Velvet Lehenga', embellished (sangeet-appropriate), Rs3750 <= Rs12000 cap"}
+  - {article_id: "17915108", relevant: true, note: "purple, Rs6499 <= Rs12000 cap; fabric not confirmed velvet but fabric is not a rubric-checked dimension"}
+- query_id: multi_028
+  items:
+  - {article_id: "8483057369310", relevant: false, reason: attribute-contradiction, note: "name explicit 'Regular Fit Top', no crop confirmation, 'relaxed and comfortable fit' framing"}

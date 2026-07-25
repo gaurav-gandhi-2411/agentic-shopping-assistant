@@ -19,6 +19,11 @@ ETHNIC_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
 })
 ETHNIC_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     "palazzo", "palazzos", "churidar", "salwar", "sharara", "pyjama", "dhoti",
+    # 2026-07-25 (set-not-single follow-up): "pajama" (American spelling) is a
+    # real, prevalent alternate to "pyjama" in this catalogue -- 1,386 rows
+    # use it, including "kurta pajama" bare-juxtaposition listings (1,348
+    # rows) that were silently invisible to every noun-counting check below.
+    "pajama",
 })
 WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     "shirt", "t-shirt", "tshirt", "top", "blouse", "sweater", "sweatshirt",
@@ -430,25 +435,56 @@ def is_athletic_footwear_item(prod_name: str) -> bool:
 # + sharara bottom SET) slipped past the bottom slot's hard slot-type gate
 # and filled an "office look" bottom slot.
 #
-# Two signals, either sufficient (both verified against the real unified
-# catalogue's own "Set"-in-name product rows — see offline check):
+# Signals, any sufficient (all verified against the real unified catalogue's
+# own "Set"-in-name product rows, and against every "set-not-single" hand
+# label in eval/fixtures/strict_gold_labels.yaml — see offline check):
 #   1. product_type_name is one of the catalogue's own dedicated set-type
 #      values: "Suits"/"Suit Set(s)" (2-3 piece ethnic suit sets: kurta +
 #      bottom [+ dupatta]), "coord"/"Co-Ord" (western co-ord sets),
 #      "Sets"/"Track-Suit" (misc matching sets e.g. "Winter Set", "Cord Set").
-#   2. Freeform name contains the word "set(s)" AND mentions >= 2 DISTINCT
-#      garment nouns (e.g. "Anarkali" + "Sharara" + "Set", or "Top & Cropped
-#      Trousers Set") — this is what catches the live-proven bug, where the
-#      product_type facet alone ("sharara") only reveals ONE garment word.
-#      A single-garment name that merely happens to contain "Set" once (e.g.
-#      "TAG 7 Women Set of 2 ... Palazzos" — a 2-PACK of the SAME garment,
-#      not a multi-piece outfit) has only 1 distinct noun and is correctly
-#      NOT flagged.
+#   2. Freeform name contains "with" AND mentions >= 2 DISTINCT garment nouns
+#      (e.g. "Kaftan Kurta with Abstract Patchwork Palazzo") — this
+#      catalogue's dominant multi-piece convention, and very often never uses
+#      the literal word "set"/"sets" at all (2026-07-11 fix).
+#   3. Freeform name contains the word "set(s)" (and is NOT a "Set of N"
+#      same-item PACK — e.g. "TAG 7 Women Set of 2 ... Palazzos", a 2-pack of
+#      the SAME garment, correctly excluded) AND mentions >= 1 garment noun.
+#      2026-07-25 fix: originally required >=2 distinct nouns here too (the
+#      same bar as "with"), but that was over-conservative and caused 16
+#      real strict-gold misses — this catalogue's single most common
+#      multi-piece convention is a bare "<Garment> Set" suffix that never
+#      names the second piece in the product NAME at all (e.g. "Orange
+#      Floral Printed Cotton Straight Kurta Set", "Plus Size Pink Printed
+#      Cotton Straight Kurta Set") — the word "Set" itself is already the
+#      strong signal once the "Set of N" pack pattern is excluded.
+#   4. Freeform name contains an explicit "N-Piece"/"N Piece" count (e.g.
+#      "Sea Green Winter Ethnic 3-Piece Set") — sufficient on its own, since
+#      some of these name NO garment noun at all in the truncated name.
+#   5. Freeform name contains the literal word "co-ord(s)" — inherently a
+#      2-piece-by-definition term, sufficient on its own. Needed because the
+#      product_type_name facet often captures only the hero piece (e.g.
+#      "URBANIC...Hooded Co-Ords Set" carries product_type_name="top", never
+#      matching signal 1's "coord" facet check).
+#   6. A recognised TOP noun immediately followed by a recognised BOTTOM/
+#      companion noun with NO connector word at all (e.g. "Green Kurta
+#      Pajama", "kurta pajama"/"kurta pyjama" alone account for 2,459
+#      catalogue rows) — this catalogue's third naming convention. Scoped
+#      NARROWLY to TOP-then-BOTTOM specifically (not the full distinct-noun
+#      union signals 2/3 use) to avoid false-firing on "Anarkali Kurta" — a
+#      ONE_PIECE+TOP synonym pair naming ONE single garment, not two.
 _SET_PRODUCT_TYPES: frozenset[str] = frozenset({
     "suits", "suit set", "suit sets", "coord", "co-ord", "sets", "track-suit",
 })
 
 _SET_WORD_RE = re.compile(r"\bsets?\b", re.IGNORECASE)
+_SET_OF_N_RE = re.compile(r"\bset\s+of\s+\d+\b", re.IGNORECASE)
+_N_PIECE_RE = re.compile(r"\b\d+[\s-]?piece\b", re.IGNORECASE)
+_COORD_WORD_RE = re.compile(r"\bco-?ords?\b", re.IGNORECASE)
+_TOP_THEN_BOTTOM_RE = re.compile(
+    r"\b(?:kurta|kurti|kameez|tunic|shirt|top|blouse)\s+"
+    r"(?:pajama|pyjama|palazzos?|churidar|salwar|sharara|dhoti|trousers?|pants?|dupatta)\b",
+    re.IGNORECASE,
+)
 
 # Garment-noun vocabulary reused from the anchor-classification keyword sets
 # above — used ONLY to count how many distinct garment types a name mentions.
@@ -463,32 +499,27 @@ _SET_GARMENT_NOUN_KEYWORDS: frozenset[str] = (
     | frozenset({"dupatta"})
 )
 
-
-# 2026-07-11 (search-path set-exclusion follow-up): a THIRD signal, alongside
-# the two above — this catalogue's dominant multi-piece naming convention is
-# "<garment> with <garment> [& <garment>]" (e.g. "Kaftan Kurta with Abstract
-# Patchwork Palazzo", "Anarkali Kurta with Pant & Dupatta") and very often
-# never uses the literal word "set"/"sets" at all, so signal 2 alone misses
-# most of the real strict-eval-labeled "set-not-single" cases. "with" +
-# >=2 distinct garment nouns is a reliable, near-universal signal for this
-# catalogue's listing style — verified against every "set-not-single"
-# hand-label in eval/fixtures/strict_gold_labels.yaml.
 _WITH_RE = re.compile(r"\bwith\b", re.IGNORECASE)
 
 
 def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     """Return True if this item is a multi-piece SET listing (a whole outfit)
     rather than a single garment. See the module comment above
-    _SET_PRODUCT_TYPES for the two conservative signals checked, and the
-    comment above _WITH_RE for the third.
+    _SET_PRODUCT_TYPES for the six signals checked, any one sufficient.
     """
     pt = (product_type or "").lower().strip()
     if pt in _SET_PRODUCT_TYPES:
         return True
     name = (prod_name or "").lower()
-    if not (_SET_WORD_RE.search(name) or _WITH_RE.search(name)):
+    if _N_PIECE_RE.search(name) or _COORD_WORD_RE.search(name) or _TOP_THEN_BOTTOM_RE.search(name):
+        return True
+    has_set = _SET_WORD_RE.search(name) and not _SET_OF_N_RE.search(name)
+    has_with = _WITH_RE.search(name)
+    if not (has_set or has_with):
         return False
     distinct_nouns = {kw for kw in _SET_GARMENT_NOUN_KEYWORDS if _contains_word(name, kw)}
+    if has_set:
+        return len(distinct_nouns) >= 1
     return len(distinct_nouns) >= 2
 
 
