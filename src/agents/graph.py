@@ -82,6 +82,18 @@ _OUTFIT_INTENT_RE = re.compile(
 _SET_INTENT_RE = re.compile(
     r"\bsets?\b|\bcombo\b|\bco-?ord\b|\bpaja?mas?\b|\bpyjamas?\b", re.IGNORECASE
 )
+# 2026-07-25 (accessory-exclusion fix, "type-confusion" strict-eval miss
+# bucket): a generic "outfit/look/wear" ask names no specific garment at all
+# — intent_parser.garment_type resolves to None for every real miss this
+# closes ("haldi outfit for women", "bright haldi look for women", "office
+# wear for women"). Deliberately NOT the same regex as _OUTFIT_INTENT_RE
+# above (that one requires "outfit" or an action-verb phrase and misses bare
+# "look"/"wear" asks) and deliberately not just "garment_type is None" alone
+# — accessory-word queries that intent_parser fails to resolve to a facet
+# value ("belt for men", "watch for men", "sunglasses for women") ALSO have
+# garment_type=None, and gating on that alone would wrongly empty their
+# results too (their only real matches ARE accessory-classified).
+_GENERIC_WEAR_ASK_RE = re.compile(r"\b(outfit|look|wear)\b", re.IGNORECASE)
 _OUTFIT_OCCASION_RE = re.compile(
     r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
     r"party|festive|puja|traditional|ethnic|"
@@ -2726,6 +2738,7 @@ def build_graph(
         # off-register.
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
+        from src.agents.outfit.slots import classify_item as _occ_classify_item
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
         from src.agents.outfit.slots import is_attribute_contradiction as _occ_is_attr_contradiction
         from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
@@ -2782,6 +2795,60 @@ def build_graph(
             ]
             if _attr_filtered:
                 items_out = _attr_filtered
+
+        # Accessory-exclusion gate ("type-confusion" strict-eval miss bucket):
+        # a generic "outfit/look/wear" ask names no specific garment at all
+        # (garment_type is None) — live-proven misses: "Women Gotta Flower
+        # Purse" (bag) and "Men's Yellow - Dupatta" ranking into the top-5 for
+        # "haldi outfit for women"/"bright haldi look for women" instead of
+        # actual apparel. See _GENERIC_WEAR_ASK_RE above for why this is
+        # narrower than "garment_type is None" alone. Pool-underflow
+        # protected, same discipline as every other gate here.
+        if (
+            not _occ_intent.garment_type
+            and _GENERIC_WEAR_ASK_RE.search(raw_query)
+            and items_out
+        ):
+            _acc_filtered = [
+                it for it in items_out
+                if _occ_classify_item(
+                    it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+                ) != "accessory"
+            ]
+            if _acc_filtered:
+                items_out = _acc_filtered
+
+        # Loungewear strip for the NO-EXISTING-PROTECTION case only
+        # (2026-07-25 fix, "occasion-register" strict-eval miss bucket): a
+        # query with NO occasion at all ("black dress for my wife") had zero
+        # sleepwear protection and could surface a literal "Black Printed
+        # Cotton Night Dress" (kaftan sleepwear). Deliberately does NOT run
+        # when _occ_slug is in _LOUNGEWEAR_GATE_OCCASIONS — that case is
+        # already correctly handled by _apply_loungewear_gate further below,
+        # and running an EARLIER, pool-underflow-PROTECTED strip first would
+        # break it: is_coherent_candidate's ethnic_heavy gate sometimes lets
+        # a literal night dress through as the ONLY "coherent" survivor
+        # (because "kaftan" is itself an ETHNIC_TOP_KEYWORDS word), and
+        # _apply_loungewear_gate deliberately empties the pool in that exact
+        # case to trigger an honest zero-results message rather than
+        # substituting a Western-casual dress the ethnic_heavy gate would
+        # otherwise have correctly rejected (regression caught by
+        # tests/test_batch2_trust_fixes.py::test_minimalist_wedding_guest_
+        # dress_gets_honest_canned_message during this fix's own
+        # verification pass). Exempts queries that themselves explicitly ask
+        # for a night dress/nightgown, same as _apply_loungewear_gate.
+        if (
+            _occ_slug not in _LOUNGEWEAR_GATE_OCCASIONS
+            and items_out
+            and not is_loungewear_text(raw_query)
+        ):
+            _lounge_filtered = [
+                it for it in items_out
+                if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+            ]
+            if _lounge_filtered:
+                items_out = _lounge_filtered
+
         if _occ_slug and _occ_slug != "casual" and items_out:
             _occ_gender = (
                 merged.get("gender")

@@ -1125,7 +1125,7 @@ labels:
   - {article_id: "9724033040690", relevant: true, note: "desc explicit 'Perfect for festivities with delicate embroidery'"}
   - {article_id: "9022112858370", relevant: false, reason: set-not-single, note: "desc explicit 'all-black three-piece ensemble ... kurta, traditional patiala'"}
   - {article_id: "9595973108018", relevant: false, reason: set-not-single, note: "'Green Kurta Pajama' -- kurta+pajama 2-piece explicit in title"}
-  - {article_id: "8607579603122", relevant: false, reason: type-confusion, note: "'PICHWAI GREEN JODHPURI SET' -- desc explicit 'structured jacket ... paired with a sleek shirt and tailored trousers', a bandhgala/jodhpuri jacket ensemble, not a kurta despite catalogue product_type=kurta"}
+  - {article_id: "8607579603122", relevant: false, reason: data-mislabel, note: "2026-07-25 reclassified from type-confusion (Step 3): catalogue product_type_name='kurta' contradicts the product's own name/desc -- 'PICHWAI GREEN JODHPURI SET', desc explicit 'structured jacket ... paired with a sleek shirt and tailored trousers', a bandhgala/jodhpuri jacket ensemble, never a kurta. Not code-fixable without risking false positives on genuine kurta listings -- the catalogue's own facet field is simply wrong for this row."}
   - {article_id: "7817485451502", relevant: false, reason: set-not-single, note: "'Paired with slim fit ivory trousers' phrasing mirrors the (confirmed 3-piece) Jodhpuri listing's construction, and Rs.41999 is far outside this catalogue's single-kurta price range -- read as a bundled kurta+trouser ensemble"}
 - query_id: gold_024
   items:
@@ -1724,3 +1724,32 @@ labels:
 - query_id: multi_029
   items:
   - {article_id: "9485863354665", relevant: true, note: "name/desc explicit 'Black...Bodycon Mini Dress', Rs999 <= Rs5000 cap, reception-appropriate party dress"}
+
+# --- Batch 18 (2026-07-25): occasion-register + type-confusion fix re-audit ---
+# Three unconditional gates added this pass to search_node/eval_strict.py's
+# mirror: unconditional loungewear strip (scoped to skip occasions already
+# covered by _apply_loungewear_gate, after a real regression was caught and
+# fixed -- see graph.py's comment), an accessory-exclusion gate for generic
+# "outfit/look/wear" asks with no garment_type resolved, and two narrow
+# additions to coherence.py gate 4 (Jodhpuri-outerwear name check,
+# ethnic-footwear-pairing desc marker scoped to outerwear product types).
+# Re-running the pipeline surfaced 6 newly-visible items across 5 queries.
+# retrieval_snapshot: data/processed/unified, eval_strict.py --mode pipeline
+# with all three gates wired in (uncommitted at label time).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_043
+  items:
+  - {article_id: "10041106759977", relevant: true, note: "product_type=kaftan, desc explicit 'relaxed kaftan silhouette'"}
+- query_id: gold_019
+  items:
+  - {article_id: "7776465715378", relevant: true, note: "'Light Mehendi Green Kurta Set with Dupatta' -- green, conventional kurta+dupatta ensemble (same precedent as Batch 14's multi_014)"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8016301490331", relevant: true, note: "'Yellow Net Multicolour Lehenga' -- yellow is haldi's exact traditional palette, embellished, desc explicitly markets it for haldi"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "12795840", relevant: false, reason: occasion-register, note: "'Black & Pink...Kurti' -- black is not haldi's bright/daytime palette (same standard as the earlier black-kurti miss in this query's own Batch 14 label)"}
+  - {article_id: "8174367375495", relevant: false, reason: type-confusion, note: "'Ladies Triveni Kolhapuri Chappal' -- standalone footwear, not an outfit/look; not caught by the new accessory-exclusion gate since footwear is a separate classify_item() class from 'accessory' -- residual gap, not fixed this pass"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "9351592640770", relevant: false, reason: data-mislabel, note: "catalogue gender field says 'women' but the product's own name explicitly says 'Men's Black Silk Blend Kurta...' -- catalogue field contradicts the product's own name, same Step-3 data-mislabel bucket as the Jodhpuri/kurta reclassification above, not code-fixable without risking rejecting genuine unisex-styled items"}

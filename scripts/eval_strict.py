@@ -128,6 +128,8 @@ def _retrieve_pipeline(
     needs no new labeling, unlike an embedding-model swap.
     """
     from src.agents.graph import (
+        _GENERIC_WEAR_ASK_RE,
+        _LOUNGEWEAR_GATE_OCCASIONS,
         _OUTFIT_INTENT_RE,
         _SET_INTENT_RE,
         _apply_athletic_footwear_gate,
@@ -140,12 +142,13 @@ def _retrieve_pipeline(
     from src.agents.outfit.coherence import is_coherent_candidate
     from src.agents.outfit.slots import (
         FORMALITY_SOFTENER_VALUES,
+        classify_item,
         fabric_score_delta,
         is_attribute_contradiction,
         is_multi_piece_set,
     )
     from src.agents.tools import search_catalogue
-    from src.catalogue.cleaning import is_kids_item
+    from src.catalogue.cleaning import is_kids_item, is_loungewear_text
 
     intent = parse_intent(query)
     filters: dict = {"gender": gender}
@@ -220,7 +223,43 @@ def _retrieve_pipeline(
         if attr_filtered:
             items = attr_filtered
 
+    # Accessory-exclusion gate — unconditional (not tied to occasion_gate),
+    # matching search_node exactly (2026-07-25 fix, "type-confusion" strict-
+    # eval bucket): a generic "outfit/look/wear" ask with no garment_type
+    # resolved must never surface a standalone accessory (bag/dupatta/
+    # jewellery) as an "outfit" result.
+    if not intent.garment_type and _GENERIC_WEAR_ASK_RE.search(query) and items:
+        acc_filtered = [
+            it for it in items
+            if classify_item(
+                it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+            ) != "accessory"
+        ]
+        if acc_filtered:
+            items = acc_filtered
+
     occasion_slug = intent.occasion
+
+    # Loungewear strip for the NO-EXISTING-PROTECTION case only — matching
+    # search_node exactly (2026-07-25 fix, "occasion-register" strict-eval
+    # bucket): a non-occasion query ("black dress for my wife") had zero
+    # sleepwear protection before this fix. Deliberately does NOT run when
+    # occasion_slug is in _LOUNGEWEAR_GATE_OCCASIONS — that case is already
+    # correctly handled by _apply_loungewear_gate further below (see
+    # search_node's own comment for why running this EARLIER, pool-
+    # underflow-protected strip in that case is actively wrong). Exempts
+    # queries that themselves explicitly ask for a night dress/nightgown.
+    if (
+        occasion_slug not in _LOUNGEWEAR_GATE_OCCASIONS
+        and items
+        and not is_loungewear_text(query)
+    ):
+        lounge_filtered = [
+            it for it in items
+            if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+        ]
+        if lounge_filtered:
+            items = lounge_filtered
 
     # Occasion coherence gate + fabric rerank — toggled by occasion_gate (the
     # A/B flag isolating the 2026-07-11 fix's own contribution). Everything
