@@ -50,5 +50,11 @@ class TestClassifyItemAccessoryDetection:
     def test_kurta_is_not_accessory(self) -> None:
         assert classify_item("kurta", "Cotton Printed Kurta") != "accessory"
 
+    def test_pendant_is_accessory(self) -> None:
+        # 2026-07-25 out-of-sample validation finding: "Pendant" (126
+        # catalogue rows, all jewellery) was never in ACCESSORY_KEYWORDS at
+        # all -- slipped past this gate for "office outfit for men".
+        assert classify_item("Pendant", "Eclipse Black Shivling Pendant for Men") == "accessory"
+
     def test_lehenga_is_not_accessory(self) -> None:
         assert classify_item("lehenga", "Red Embroidered Lehenga") != "accessory"

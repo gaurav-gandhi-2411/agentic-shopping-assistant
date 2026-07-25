@@ -73,7 +73,11 @@ MEN_FORMALWEAR_KEYWORDS: frozenset[str] = frozenset({
 _ACCESSORY_DUPATTA_FAMILY: frozenset[str] = frozenset({"dupatta", "stole", "scarf"})
 _ACCESSORY_BAG_FAMILY: frozenset[str] = frozenset({"bag", "handbag", "sling", "clutch", "tote"})
 _ACCESSORY_JEWELLERY_FAMILY: frozenset[str] = frozenset(
-    {"jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle"}
+    # "pendant" added 2026-07-25 (out-of-sample validation finding): a
+    # "Pendant" product_type row (126 in the catalogue, all jewellery) slipped
+    # past the new accessory-exclusion gate for "office outfit for men" —
+    # was never in ACCESSORY_KEYWORDS at all before this.
+    {"jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle", "pendant"}
 )
 _ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch"})
 _ACCESSORY_EYEWEAR_CAP_FAMILY: frozenset[str] = frozenset({"sunglasses", "cap"})
@@ -575,13 +579,38 @@ _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS: tuple[tuple[frozenset[str], frozenset[str]]
     ),
     # SILHOUETTE flare: "a-line"/"anarkali"/"fit and flare" are mutually
     # COMPATIBLE (same flared family — anarkali kurtas are a-line by
-    # definition), opposing the fitted/straight camp. "regular fit" belongs
+    # definition), opposing the straight/regular camp. "regular fit" belongs
     # here too (distinct dimension from FIT-tightness above) — real hand
     # label evidence: "'Regular Fit' contradicts 'a-line'" (a kurta's
     # overall cut is either flared/a-line or straight/regular, not both).
     (
         frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
-        frozenset({"bodycon", "straight cut", "straight fit", "regular fit"}),
+        frozenset({"straight cut", "straight fit", "regular fit"}),
+    ),
+    # SILHOUETTE fitted: "bodycon" is its OWN pole (2026-07-25, out-of-sample
+    # validation finding), not folded into the straight/regular camp above —
+    # an item with the structured facet line "Silhouette: Straight kurta"
+    # surfaced for a "bodycon kurta" query in the held-out set. Bodycon
+    # (body-hugging throughout) and straight (hangs straight, unflared but
+    # NOT tight) are genuinely distinct silhouettes for a kurta, even though
+    # both oppose the SAME flared camp above — treating them as compatible
+    # with each other was too coarse. Opposes both other poles.
+    #
+    # "silhouette: straight" (the structured facet-line phrasing, not bare
+    # "straight kurta" prose) is deliberately the ONLY straight-family
+    # trigger added here — a bare "straight kurta"/"straight kurti" phrase
+    # appears in 2252/14184 (16%) of catalogue kurta rows (the default,
+    # most-common silhouette description for kurtas generally), which would
+    # have been a badly over-broad exclusion for a single niche query
+    # pattern; the structured "Silhouette: Straight" facet line is a much
+    # narrower, catalogue-verified signal (12/14184 rows).
+    (
+        frozenset({"bodycon"}),
+        frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
+    ),
+    (
+        frozenset({"bodycon"}),
+        frozenset({"straight cut", "straight fit", "regular fit", "silhouette: straight"}),
     ),
 )
 

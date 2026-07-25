@@ -637,6 +637,30 @@ class TestWesternRegisterGateOffice:
         assert is_coherent_candidate(item, "office", "women", "footwear") is True
         assert is_western_register_occasion("party_evening") is False
 
+    def test_indowestern_rejected_for_office(self) -> None:
+        # 2026-07-25 out-of-sample validation finding: "Beige Jacquard Indo
+        # Western for Men" (product_type_name="indowestern", 586 catalogue
+        # rows) surfaced for "office outfit for men" -- not caught by
+        # is_ethnic_item (indowestern isn't in any of its keyword sets).
+        item = {
+            "product_type": "indowestern",
+            "prod_name": "Beige Jacquard Indo Western for Men",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_indowestern_name_substring_in_other_types_not_rejected(self) -> None:
+        # Deliberately checked against the exact product_type facet value,
+        # not a name substring -- "indo-western"/"indowestern" also appears
+        # inside trousers/sherwani/kurta/NIGHTWEAR rows' free-text names,
+        # where a substring match would wrongly reclassify unrelated items.
+        item = {
+            "product_type": "nightwear",
+            "prod_name": "Indo-Western Style Comfort Nightwear",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "top") is True
+
 
 # ---------------------------------------------------------------------------
 # Phase B (follow-up): pool-underflow fallback — a live-reported regression

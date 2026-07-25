@@ -333,12 +333,20 @@ def main() -> None:
     parser.add_argument("--cross-encoder-model", default=_CROSS_ENCODER_MODEL,
                         help="sentence-transformers CrossEncoder model name to use "
                              "when --cross-encoder is set (swap candidates without code changes)")
+    parser.add_argument("--queries-path", default=str(_QUERIES_PATH),
+                        help="alternate query fixture — e.g. an out-of-sample/held-out set "
+                             "scored cold to check whether a fix generalizes beyond the "
+                             "queries used to develop it, not just the default gold set")
+    parser.add_argument("--labels-path", default=str(_LABELS_PATH),
+                        help="alternate label fixture, paired with --queries-path")
     args = parser.parse_args()
 
     from eval_model import _build_components  # heavy import deferred past --help
 
-    queries = yaml.safe_load(_QUERIES_PATH.read_text(encoding="utf-8"))["queries"]
-    labels_raw = yaml.safe_load(_LABELS_PATH.read_text(encoding="utf-8"))["labels"]
+    queries_path = Path(args.queries_path)
+    labels_path = Path(args.labels_path)
+    queries = yaml.safe_load(queries_path.read_text(encoding="utf-8"))["queries"]
+    labels_raw = yaml.safe_load(labels_path.read_text(encoding="utf-8"))["labels"]
     labels: dict[tuple[str, str], dict] = {
         (entry["query_id"], str(item["article_id"])): item
         for entry in labels_raw
@@ -422,7 +430,7 @@ def main() -> None:
         if args.cross_encoder:
             _mode_label += "-cross-encoder"
     print(f"\nSTRICT GOLD EVAL [{_mode_label}] — hand-audited relevance "
-          f"(rubric: {_QUERIES_PATH.name})")
+          f"(rubric: {queries_path.name})")
     print(f"queries={len(queries)}  scored_items={n_scored}  unlabeled_items={n_unlabeled}")
     if n_unlabeled:
         print("  ** UNLABELED ITEMS PRESENT — retrieval changed since labeling. **")

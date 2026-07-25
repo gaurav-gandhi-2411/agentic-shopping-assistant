@@ -102,3 +102,44 @@ class TestFlatGroups:
         assert not is_attribute_contradiction(
             "cotton kurta for women", "Round Neck Cotton Kurta", "desc"
         )
+
+
+class TestBodyconOwnPole:
+    """2026-07-25 out-of-sample validation finding: an item with the
+    structured facet line "Silhouette: Straight kurta" surfaced for a
+    "bodycon kurta" query in the held-out set. Bodycon was previously folded
+    into the same camp as straight-cut/straight-fit/regular-fit (as if
+    compatible with them) -- too coarse, since bodycon (body-hugging
+    throughout) and straight (unflared but not tight) are genuinely distinct
+    kurta silhouettes. Bodycon is now its own pole, opposing BOTH the flared
+    camp (a-line/anarkali/fit-and-flare) and the straight/regular camp."""
+
+    def test_bodycon_vs_explicit_silhouette_straight_facet_line(self) -> None:
+        assert is_attribute_contradiction(
+            "bodycon kurta for women", "Black V-Neck Kurta", "Silhouette: Straight kurta"
+        )
+
+    def test_bodycon_vs_bare_straight_kurta_prose_not_flagged(self) -> None:
+        # Deliberately narrow: bare "straight kurta" prose appears in 16% of
+        # catalogue kurta rows (the default silhouette description) -- only
+        # the structured "Silhouette: Straight" facet line is tracked.
+        assert not is_attribute_contradiction(
+            "bodycon kurta for women", "Straight Kurta", "a straight kurta for daily wear"
+        )
+
+    def test_bodycon_vs_a_line_still_contradicts(self) -> None:
+        assert is_attribute_contradiction(
+            "a-line kurta for women", "Bodycon Kurta", "desc"
+        )
+
+    def test_bodycon_explicit_confirmation_never_a_contradiction(self) -> None:
+        assert not is_attribute_contradiction(
+            "bodycon dress for women", "Black Bodycon Dress", "ruched bodycon dress"
+        )
+
+    def test_a_line_vs_straight_still_contradicts_unaffected(self) -> None:
+        # Regression pin: the a-line-vs-straight/regular pair (unrelated to
+        # bodycon's new pole) must be unchanged by this fix.
+        assert is_attribute_contradiction(
+            "a-line kurta for women", "Regular Fit Kurta", "desc"
+        )

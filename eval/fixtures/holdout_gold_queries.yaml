@@ -1,0 +1,120 @@
+# Out-of-sample validation set (2026-07-25) — NEVER looked at during Step 2's
+# fix development (which was scored exclusively against strict_gold_queries.yaml).
+# Purpose: check whether the four Step-2 gates (budget, set-not-single,
+# attribute-contradiction, occasion-register) generalize to new query
+# instances of the same classes, or whether they were overfit to the specific
+# misses found while developing them.
+#
+# Same categories, same labeling rubric, same file-separation discipline as
+# strict_gold_queries.yaml/strict_gold_labels.yaml — see that file's header
+# for the full rubric. Scored via:
+#   python scripts/eval_strict.py --mode pipeline --top-k 5 \
+#     --queries-path eval/fixtures/holdout_gold_queries.yaml \
+#     --labels-path eval/fixtures/holdout_gold_labels.yaml
+#
+# Deliberately targets the SAME fixed classes with NEW specific instances
+# (new colour/budget/garment combos not seen during Step 2), not just random
+# new queries — a fix that only works on the exact misses used to develop it
+# is not actually fixed.
+version: 1
+queries:
+# ── literal ────────────────────────────────────────────────────────────────
+- id: oos_001
+  category: literal
+  query: green kurti for women
+  gender: women
+- id: oos_002
+  category: literal
+  query: brown jacket for men
+  gender: men
+- id: oos_003
+  category: literal
+  query: red skirt under 1800 for women
+  gender: women
+- id: oos_004
+  category: literal
+  query: navy trousers for men
+  gender: men
+- id: oos_005
+  category: literal
+  query: orange saree for women
+  gender: women
+# ── style (attribute-contradiction gate generalization) ──────────────────────
+- id: oos_006
+  category: style
+  query: regular fit shirt for men
+  gender: men
+- id: oos_007
+  category: style
+  query: boat neck top for women
+  gender: women
+- id: oos_008
+  category: style
+  query: mid rise jeans for women
+  gender: women
+- id: oos_009
+  category: style
+  query: single breasted blazer for men
+  gender: men
+- id: oos_010
+  category: style
+  query: bodycon kurta for women
+  gender: women
+- id: oos_011
+  category: style
+  query: loose fit kurta for men
+  gender: men
+# ── occasion (occasion-register + loungewear + accessory-exclusion gates) ────
+- id: oos_012
+  category: occasion
+  query: white kurta for a wedding
+  gender: men
+- id: oos_013
+  category: occasion
+  query: office outfit for men
+  gender: men
+- id: oos_014
+  category: occasion
+  query: black gown for a cocktail party
+  gender: women
+- id: oos_015
+  category: occasion
+  query: pastel saree for karva chauth
+  gender: women
+- id: oos_016
+  category: occasion
+  query: floral dress for a beach vacation
+  gender: women
+- id: oos_017
+  category: occasion
+  query: sherwani for a sangeet
+  gender: men
+# ── multi_attribute (budget + set-not-single + attribute-contradiction + occasion-register stacked) ──
+- id: oos_018
+  category: multi_attribute
+  query: wine straight fit kurta for women under 2200
+  gender: women
+- id: oos_019
+  category: multi_attribute
+  query: charcoal grey tailored trousers for men for office under 4500
+  gender: men
+- id: oos_020
+  category: multi_attribute
+  query: coral lehenga for mehendi under 6500
+  gender: women
+- id: oos_021
+  category: multi_attribute
+  query: grey bandhgala for groom under 9000
+  gender: men
+- id: oos_022
+  category: multi_attribute
+  query: mint anarkali for navratri under 5000
+  gender: women
+- id: oos_023
+  category: multi_attribute
+  query: beige palazzo for women under 1800
+  gender: women
+- id: oos_024
+  category: multi_attribute
+  query: maroon silk saree for diwali under 6000
+  gender: women
