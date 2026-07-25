@@ -1,0 +1,104 @@
+"""Regression tests for the 2026-07-25 attribute-contradiction gate
+(src.agents.outfit.slots.is_attribute_contradiction), wired into the plain
+search path (src.agents.graph.search_node) and mirrored in
+scripts/eval_strict.py's _retrieve_pipeline.
+
+Root cause: plain search relies entirely on embedding similarity, which
+frequently ranks a "Slim Fit" item highly for a "straight fit" query since
+the two phrases sit close in embedding space despite being product-listing
+OPPOSITES in this catalogue's own marketing vocabulary. This was the
+"attribute-contradiction" strict-eval miss bucket.
+"""
+from __future__ import annotations
+
+from src.agents.outfit.slots import is_attribute_contradiction
+
+
+class TestFitTightnessCamp:
+    def test_slim_query_vs_straight_item_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "straight fit kurta for women",
+            "Fabindia Women Navy Blue Striped Viscose Silk Slim Fit Kurta",
+            "Straight shape with regular style",
+        )
+
+    def test_slim_and_skinny_are_compatible_not_contradiction(self) -> None:
+        # Same "tight" camp -- near-synonyms, not opposites.
+        assert not is_attribute_contradiction(
+            "slim fit jeans for men", "Skinny Fit Jeans", "desc"
+        )
+
+    def test_straight_and_regular_are_compatible_not_contradiction(self) -> None:
+        # Same "loose/not-tight" camp -- near-synonyms, not opposites.
+        assert not is_attribute_contradiction(
+            "straight fit kurta for women", "Regular Fit Kurta", "desc"
+        )
+
+    def test_relaxed_and_oversized_are_compatible_not_contradiction(self) -> None:
+        assert not is_attribute_contradiction(
+            "relaxed fit kurta for men", "Oversized Kurta", "desc"
+        )
+
+    def test_no_tracked_word_in_query_never_fires(self) -> None:
+        assert not is_attribute_contradiction(
+            "printed kurta for men", "Men Wine Printed Geometric Kurta", "desc"
+        )
+
+
+class TestSilhouetteFlareCamp:
+    def test_anarkali_is_a_line_not_a_contradiction(self) -> None:
+        # An anarkali kurta IS a-line by definition -- verified against real
+        # catalogue desc text (article 7797797454046): "...heritage anarkali
+        # style with a graceful flared silhouette...".
+        assert not is_attribute_contradiction(
+            "a-line kurta", "Anarkali Kurta", "desc"
+        )
+
+    def test_regular_fit_contradicts_a_line(self) -> None:
+        # Real hand-label evidence: "'Regular Fit' contradicts 'a-line'" --
+        # a kurta's overall cut is either flared/a-line or straight/regular,
+        # not both.
+        assert is_attribute_contradiction(
+            "a-line kurta for women", "Regular Fit Kurta", "desc"
+        )
+
+    def test_bodycon_contradicts_fit_and_flare(self) -> None:
+        assert is_attribute_contradiction(
+            "bodycon dress for women", "Fit And Flare Dress", "desc"
+        )
+
+    def test_a_line_contradicts_bodycon(self) -> None:
+        assert is_attribute_contradiction(
+            "a-line kurta for women", "Bodycon Kurta", "desc"
+        )
+
+    def test_exact_confirmation_never_a_contradiction(self) -> None:
+        assert not is_attribute_contradiction(
+            "anarkali kurta for women",
+            "Off White Cotton Anarkali Kurta",
+            "flared silhouette",
+        )
+
+
+class TestFlatGroups:
+    def test_rise_mismatch_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "high waisted jeans for women", "Mid Rise Jeans", "desc"
+        )
+
+    def test_breasted_mismatch_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "single breasted blazer for men", "Double Breasted Blazer", "desc"
+        )
+
+    def test_neckline_mismatch_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "v-neck top for women", "Halter Neck Top", "desc"
+        )
+
+    def test_unstated_word_never_penalised(self) -> None:
+        # Item states a neckline the query never asked about -- no signal
+        # to contradict, must not fire.
+        assert not is_attribute_contradiction(
+            "cotton kurta for women", "Round Neck Cotton Kurta", "desc"
+        )

@@ -1691,3 +1691,36 @@ labels:
 - query_id: multi_028
   items:
   - {article_id: "8483057369310", relevant: false, reason: attribute-contradiction, note: "name explicit 'Regular Fit Top', no crop confirmation, 'relaxed and comfortable fit' framing"}
+
+# --- Batch 17 (2026-07-25): attribute-contradiction gate re-audit ---
+# is_attribute_contradiction (src/agents/outfit/slots.py), wired into
+# search_node's plain-search path and eval_strict.py's mirror in the same
+# commit, strips items whose own fit/rise/breasted/silhouette/neckline word
+# opposes the query's stated word. This EXCLUDED every pre-existing
+# attribute-contradiction hand-label above (gold_004's 18456672, multi_007's
+# two items, multi_028's item -- all already correctly labeled false in
+# Batches 14/16, now genuinely gated out of retrieval rather than merely
+# hand-labeled). Re-running the pipeline surfaced 6 newly-visible items
+# across 6 queries (the gate's exclusions freed pool slots for the next-
+# ranked candidate) that need auditing before the number can be trusted.
+# retrieval_snapshot: data/processed/unified, eval_strict.py --mode pipeline
+# with is_attribute_contradiction wired in (uncommitted at label time).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "8513893105814", relevant: true, note: "desc explicit 'straight-fit kurta', no colour constraint in query (name/desc disagree pink vs red internally but that's not a rubric dimension here)"}
+- query_id: gold_009
+  items:
+  - {article_id: "17398296", relevant: true, note: "desc explicit 'High-Rise' -- synonym of 'high waisted' in real fashion usage, not an opposing word; skinny fit unstated in query, not a contradiction signal"}
+- query_id: gold_036
+  items:
+  - {article_id: "9325337837826", relevant: true, note: "breasted style unstated, not contradicted (same precedent as Batch 16's 9300199145730/8907901534370/8453764120882 for gold_036)"}
+- query_id: gold_040
+  items:
+  - {article_id: "17941484", relevant: true, note: "desc explicit 'halterneck, collar' -- confirms query's halter neck"}
+- query_id: multi_006
+  items:
+  - {article_id: "4521889562721", relevant: true, note: "desc explicit 'White straight kurta...Top Shape - Straight', white, Rs1269 <= Rs2000 cap"}
+- query_id: multi_029
+  items:
+  - {article_id: "9485863354665", relevant: true, note: "name/desc explicit 'Black...Bodycon Mini Dress', Rs999 <= Rs5000 cap, reception-appropriate party dress"}

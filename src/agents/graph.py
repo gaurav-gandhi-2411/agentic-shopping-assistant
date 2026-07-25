@@ -2727,6 +2727,7 @@ def build_graph(
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
+        from src.agents.outfit.slots import is_attribute_contradiction as _occ_is_attr_contradiction
         from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
 
         _occ_intent = _occ_parse_intent(raw_query)
@@ -2761,6 +2762,26 @@ def build_graph(
             ]
             if _set_filtered:  # pool-underflow protected, same discipline as every other gate
                 items_out = _set_filtered
+
+        # Attribute-contradiction gate (2026-07-25, "attribute-contradiction"
+        # strict-eval miss bucket): plain search relies entirely on embedding
+        # similarity, which frequently ranks a "Slim Fit" item highly for a
+        # "straight fit" query since the two phrases sit close in embedding
+        # space despite being product-listing OPPOSITES in this catalogue's
+        # own vocabulary. Strips candidates whose own name/desc explicitly
+        # states a fit/rise/breasted/silhouette/neckline word that opposes a
+        # word the query itself explicitly stated. Pool-underflow protected.
+        if items_out:
+            _attr_filtered = [
+                it for it in items_out
+                if not _occ_is_attr_contradiction(
+                    raw_query,
+                    it.get("prod_name") or it.get("display_name") or "",
+                    it.get("detail_desc") or "",
+                )
+            ]
+            if _attr_filtered:
+                items_out = _attr_filtered
         if _occ_slug and _occ_slug != "casual" and items_out:
             _occ_gender = (
                 merged.get("gender")

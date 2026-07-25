@@ -523,6 +523,114 @@ def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     return len(distinct_nouns) >= 2
 
 
+# 2026-07-25 (strict-eval attribute-contradiction follow-up, now the largest
+# CODE-FIXABLE miss bucket at 22): no deterministic fit/silhouette-matching
+# gate existed anywhere in the plain-search path before this — retrieval
+# relies entirely on embedding similarity, which frequently ranks a "Slim
+# Fit" item highly for a "straight fit" query since the two phrases are
+# semantically close in embedding space despite being product-listing
+# OPPOSITES in this catalogue's own marketing vocabulary.
+#
+# Two representations, chosen per group based on whether the group's members
+# are genuinely N-way mutually exclusive or actually two *camps* of near-
+# synonyms opposing each other:
+#
+# - Flat groups (_ATTRIBUTE_CONTRADICTION_FLAT_GROUPS): any two DIFFERENT
+#   members oppose each other. Correct only when every member is genuinely
+#   distinct from every other (RISE, BREASTED, NECKLINE) — a garment has
+#   exactly one neckline shape, one rise, one breasted style.
+# - Camp-pair groups (_ATTRIBUTE_CONTRADICTION_CAMP_PAIRS): two frozensets
+#   per pair; only CROSS-camp words oppose, same-camp words are compatible
+#   synonyms. Required for FIT and SILHOUETTE, where a flat group produced a
+#   real false positive: "anarkali" and "a-line" were both dumped into one
+#   "silhouette" group as if mutually exclusive, but an anarkali kurta IS
+#   a-line by definition (verified against real catalogue desc text, e.g.
+#   article 7797797454046 "...heritage anarkali style with a graceful
+#   flared silhouette..." — anarkali literally means flared/a-line here).
+#   The genuine opposition is flared-family vs fitted/straight-family.
+#
+# Grounded in the ACTUAL contradiction pairs found across every
+# attribute-contradiction hand label in strict_gold_labels.yaml (not
+# invented) — verified real hit-rate per word against
+# data/processed/unified/catalogue.parquet before inclusion (all >=12 rows,
+# most in the hundreds-to-thousands).
+_ATTRIBUTE_CONTRADICTION_FLAT_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"high waisted", "high-waisted", "high rise", "mid rise", "low rise"}),
+    frozenset({"single breasted", "double breasted"}),
+    frozenset({
+        "v-neck", "halter neck", "boat neck", "round neck", "square neck",
+        "mandarin collar", "scoop neck", "sweetheart neck",
+    }),
+)
+
+_ATTRIBUTE_CONTRADICTION_CAMP_PAIRS: tuple[tuple[frozenset[str], frozenset[str]], ...] = (
+    # FIT tightness: "slim"/"skinny" (tight camp) vs the mutually-compatible
+    # "straight"/"regular"/"relaxed"/"oversized"/"loose"/"tailored" camp.
+    (
+        frozenset({"slim fit", "skinny fit"}),
+        frozenset({
+            "straight fit", "regular fit", "relaxed fit", "tailored fit",
+            "oversized", "loose fit",
+        }),
+    ),
+    # SILHOUETTE flare: "a-line"/"anarkali"/"fit and flare" are mutually
+    # COMPATIBLE (same flared family — anarkali kurtas are a-line by
+    # definition), opposing the fitted/straight camp. "regular fit" belongs
+    # here too (distinct dimension from FIT-tightness above) — real hand
+    # label evidence: "'Regular Fit' contradicts 'a-line'" (a kurta's
+    # overall cut is either flared/a-line or straight/regular, not both).
+    (
+        frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
+        frozenset({"bodycon", "straight cut", "straight fit", "regular fit"}),
+    ),
+)
+
+
+def is_attribute_contradiction(query_text: str, item_name: str, item_desc: str) -> bool:
+    """Return True if the CANDIDATE ITEM's own name/desc explicitly states a
+    fit/rise/breasted-style/silhouette/neckline word that OPPOSES a word the
+    QUERY itself explicitly stated — e.g. query "straight fit kurta" +
+    item name "...Slim Fit Kurta".
+
+    Deliberately conservative in both directions:
+      - Only fires when the QUERY names a tracked word at all (a query with
+        no stated fit/silhouette preference can never trigger this).
+      - If the item's own text ALSO contains the query's exact word anywhere
+        (even alongside an opposing word — e.g. boilerplate mentioning
+        several fit options), that's treated as a genuine match, never a
+        contradiction — same "explicit confirmation wins" precedent as the
+        query's own hand-labeling rubric.
+      - "Unstated, not contradicted" is never penalised here (mirrors the
+        hand-labeling rubric's point 2) — an item with NO word from a group
+        at all is never flagged for that group.
+      - Near-synonyms (e.g. "anarkali" vs "a-line") never oppose each other
+        — see _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS.
+    """
+    query_lower = (query_text or "").lower()
+    text = f"{item_name or ''} {item_desc or ''}".lower()
+
+    for group in _ATTRIBUTE_CONTRADICTION_FLAT_GROUPS:
+        stated = next((w for w in group if _contains_word(query_lower, w)), None)
+        if stated is None:
+            continue
+        if _contains_word(text, stated):
+            continue  # item explicitly confirms the query's own word — never a contradiction
+        if any(w != stated and _contains_word(text, w) for w in group):
+            return True
+
+    for camp_a, camp_b in _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS:
+        for stated_camp, opposing_camp in ((camp_a, camp_b), (camp_b, camp_a)):
+            stated = next((w for w in stated_camp if _contains_word(query_lower, w)), None)
+            if stated is None:
+                continue
+            if any(_contains_word(text, w) for w in stated_camp):
+                continue  # item confirms the query's own camp — never a contradiction
+            if any(_contains_word(text, w) for w in opposing_camp):
+                return True
+
+    return False
+
+
 def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:
     """Return True if a footwear/outerwear/unknown-class item carries an
     explicit WESTERN marker word (sneaker, denim, bomber, hoodie, blazer,

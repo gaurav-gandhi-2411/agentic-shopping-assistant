@@ -141,6 +141,7 @@ def _retrieve_pipeline(
     from src.agents.outfit.slots import (
         FORMALITY_SOFTENER_VALUES,
         fabric_score_delta,
+        is_attribute_contradiction,
         is_multi_piece_set,
     )
     from src.agents.tools import search_catalogue
@@ -201,6 +202,23 @@ def _retrieve_pipeline(
         ]
         if set_filtered:
             items = set_filtered
+
+    # Attribute-contradiction gate — unconditional (not tied to occasion_gate),
+    # matching search_node exactly (2026-07-25 fix, added in the same commit
+    # as the production gate rather than as a follow-up gap): strips
+    # candidates whose own name/desc explicitly states a fit/rise/breasted/
+    # silhouette/neckline word that opposes a word the query itself stated.
+    if items:
+        attr_filtered = [
+            it for it in items
+            if not is_attribute_contradiction(
+                query,
+                it.get("prod_name") or it.get("display_name") or "",
+                it.get("detail_desc") or "",
+            )
+        ]
+        if attr_filtered:
+            items = attr_filtered
 
     occasion_slug = intent.occasion
 
