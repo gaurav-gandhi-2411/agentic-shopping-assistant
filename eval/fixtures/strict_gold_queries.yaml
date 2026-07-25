@@ -101,6 +101,61 @@ queries:
   category: style
   query: bootcut jeans for women
   gender: women
+# ── style, Batch 14 expansion (2026-07-25, statistical robustness — the
+# original 12-query style set carried a +/-8.2pt 95% CI, too wide to
+# distinguish a real fix from noise) ─────────────────────────────────────────
+- id: gold_033
+  category: style
+  query: peplum top for women
+  gender: women
+- id: gold_034
+  category: style
+  query: crop top for women
+  gender: women
+- id: gold_035
+  category: style
+  query: off-shoulder dress for women
+  gender: women
+- id: gold_036
+  category: style
+  query: double breasted blazer for men
+  gender: men
+- id: gold_037
+  category: style
+  query: relaxed fit kurta for men
+  gender: men
+- id: gold_038
+  category: style
+  query: tailored trousers for men
+  gender: men
+- id: gold_039
+  category: style
+  query: bomber jacket for men
+  gender: men
+- id: gold_040
+  category: style
+  query: halter neck top for women
+  gender: women
+- id: gold_041
+  category: style
+  query: fit and flare dress for women
+  gender: women
+- id: gold_042
+  category: style
+  query: jumpsuit for women
+  gender: women
+- id: gold_043
+  category: style
+  query: kaftan for women
+  gender: women
+- id: gold_044
+  category: style
+  query: skinny fit jeans for women
+  gender: women
+- id: gold_045
+  category: style
+  query: tapered trousers for men
+  gender: men
 # ── literal search (plain garment + colour/budget, no occasion nuance) ───────
 - id: gold_013
   category: literal
@@ -277,6 +332,76 @@ queries:
   category: multi_attribute
   query: mint green anarkali for sangeet under 6000
   gender: women
+# ── multi-attribute, Batch 14 expansion (2026-07-25, statistical robustness —
+# the original 14-query set carried a +/-11.4pt 95% CI, the widest and worst-
+# performing category. Deliberately adds festive-occasion coverage
+# (navratri/diwali/karva_chauth/eid/raksha_bandhan — zero prior coverage
+# despite heavy representation in the main model_eval fixture) and more
+# men's queries (7/16 new vs 5/14 existing) ─────────────────────────────────
+- id: multi_015
+  category: multi_attribute
+  query: green silk saree for navratri under 5000
+  gender: women
+- id: multi_016
+  category: multi_attribute
+  query: yellow kurta for diwali under 3000
+  gender: men
+- id: multi_017
+  category: multi_attribute
+  query: red chiffon saree for karva chauth under 4000
+  gender: women
+- id: multi_018
+  category: multi_attribute
+  query: gold embellished lehenga for eid under 8000
+  gender: women
+- id: multi_019
+  category: multi_attribute
+  query: white kurta pyjama for raksha bandhan under 2500
+  gender: men
+- id: multi_020
+  category: multi_attribute
+  query: black slim fit jeans for men under 2000
+  gender: men
+- id: multi_021
+  category: multi_attribute
+  query: peach a-line lehenga for navratri under 6000
+  gender: women
+- id: multi_022
+  category: multi_attribute
+  query: navy tailored trousers for men for office under 3500
+  gender: men
+- id: multi_023
+  category: multi_attribute
+  query: orange cotton kurta for navratri under 2000
+  gender: women
+- id: multi_024
+  category: multi_attribute
+  query: grey relaxed fit blazer for men under 4000
+  gender: men
+- id: multi_025
+  category: multi_attribute
+  query: pink georgette saree for diwali under 5000
+  gender: women
+- id: multi_026
+  category: multi_attribute
+  query: royal blue bandhgala for groom under 10000
+  gender: men
+- id: multi_027
+  category: multi_attribute
+  query: purple velvet lehenga for sangeet under 12000
+  gender: women
+- id: multi_028
+  category: multi_attribute
+  query: beige crop top for women under 1500
+  gender: women
+- id: multi_029
+  category: multi_attribute
+  query: black bodycon dress for reception under 5000
+  gender: women
+- id: multi_030
+  category: multi_attribute
+  query: green kurta for eid under 2500
+  gender: men
 # ── kids-leak regression probes (added 2026-07-12) ────────────────────────────
 # Live-proven P0 trust/safety bug: girls'/boys' items ranked into adult results
 # for NON-occasion-keyword queries ("bridal" is not in intent_parser's

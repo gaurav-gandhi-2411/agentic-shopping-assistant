@@ -3414,6 +3414,115 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+# --- Area 1 additions (2026-07-25): men's body-shape/fit ruleset ----------
+# See src/agents/outfit/body_type.py's module docstring. body_type_031 is a
+# bare statement (mirrors body_type_001-005's pattern, no compose/gates).
+# body_type_032-034 exercise the FULL compose_outfit path with gender="men"
+# resolved, so body_type_score_delta's gender threading (and the pre-
+# existing men's-kurta-misclassified-as-anarkali_kurta fix it carries) is
+# exercised end-to-end, not just at the intent-parsing layer.
+- id: body_type_031
+  category: body_type
+  turns:
+  - I have a muscular build
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_035
+  category: body_type
+  turns:
+  - I have a slim build
+  expected_intent:
+    garment_type: null
+    gender: null
+    colour: null
+    occasion: null
+    budget_max_inr: null
+    body_type: lean_build
+    body_modifiers: []
+    is_product_query: false
+- id: body_type_032
+  category: body_type
+  turns:
+  - broad build wedding look for men under 15000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: wedding_guest
+    budget_max_inr: 15000
+    body_type: inverted_triangle
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: wedding_guest
+    gender: men
+    budget_inr: 15000
+    body_type: inverted_triangle
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_033
+  category: body_type
+  turns:
+  - slim build sangeet look for men under 5000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: sangeet
+    budget_max_inr: 5000
+    body_type: lean_build
+    body_modifiers: []
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: sangeet
+    gender: men
+    budget_inr: 5000
+    body_type: lean_build
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
+- id: body_type_034
+  category: body_type
+  turns:
+  - shorter build office look for men under 3000
+  expected_intent:
+    garment_type: null
+    gender: men
+    colour: null
+    occasion: office
+    budget_max_inr: 3000
+    body_type: null
+    body_modifiers:
+    - short_build
+    is_product_query: true
+  gates:
+    compose: true
+    occasion_slug: office
+    gender: men
+    budget_inr: 3000
+    body_type: null
+    couple: false
+    checks:
+    - gender_pure
+    - budget_respected
+    - no_novelty
+    - suppression_honest
 - id: couple_001
   category: couple
   turns:

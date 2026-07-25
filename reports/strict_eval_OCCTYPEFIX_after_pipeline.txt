@@ -1,0 +1,55 @@
+Loading retrieval indices from C:\Users\gaura\ml-projects\agentic-shopping-assistant\data\processed\unified...
+
+STRICT GOLD EVAL [pipeline-occasion-gated] — hand-audited relevance (rubric: strict_gold_queries.yaml)
+queries=85  scored_items=381  unlabeled_items=0
+
+strict precision@5 (overall): 0.895  (341/381)
+
+per-category precision@5:
+  literal          0.946  (70/74)
+  multi_attribute  0.804  (90/112)
+  occasion         0.845  (60/71)
+  style            0.976  (121/124)
+
+MRR@5 (overall): 0.906  (n=85)
+per-category MRR@5:
+  literal          1.000  (n=15)
+  multi_attribute  0.768  (n=30)
+  occasion         1.000  (n=15)
+  style            0.960  (n=25)
+
+miss taxonomy:
+   13  attribute-contradiction  [CODE-FIXABLE]
+   10  occasion-register        [CODE-FIXABLE]
+    5  data-mislabel            [DATA]
+    5  set-not-single           [CODE-FIXABLE]
+    4  colour-family            [CODE-FIXABLE]
+    2  kids-leak                [CODE-FIXABLE]
+    1  type-confusion           [CODE-FIXABLE]
+
+if every CODE-FIXABLE miss were fixed: 0.987 (remaining gap = 5 data-capped items)
+
+weakest queries:
+  multi_008      [multi_attribute ] 0/1  'wine anarkali kurta for reception under 8000'
+  multi_013      [multi_attribute ] 1/5  'wine coloured gown for reception under 7000'
+  multi_014      [multi_attribute ] 1/5  'mint green anarkali for sangeet under 6000'
+  gold_031       [literal         ] 2/5  'palazzo pants for women'
+  gold_020       [occasion        ] 2/5  "men's kurta for a reception"
+  multi_018      [multi_attribute ] 2/5  'gold embellished lehenga for eid under 8000'
+  occ_adv_002    [occasion        ] 3/5  'bright haldi look for women'
+  occ_adv_003    [occasion        ] 3/5  'office wear for women'
+  multi_007      [multi_attribute ] 3/5  'peach a-line kurta for women under 2500'
+  multi_019      [multi_attribute ] 3/5  'white kurta pyjama for raksha bandhan under 2500'
+  multi_028      [multi_attribute ] 3/5  'beige crop top for women under 1500'
+  gold_007       [style           ] 4/5  'slim fit blazer for men'
+  gold_010       [style           ] 4/5  'wrap dress for women'
+  gold_036       [style           ] 4/5  'double breasted blazer for men'
+  gold_015       [occasion        ] 4/5  "men's blazer for the office"
+  gold_019       [occasion        ] 4/5  'green outfit for mehendi'
+  occ_adv_001    [occasion        ] 4/5  'haldi outfit for women'
+  occ_adv_005    [occasion        ] 4/5  'mehendi outfit for women'
+  multi_003      [multi_attribute ] 4/5  'red embellished lehenga for sangeet under 15000'
+  multi_006      [multi_attribute ] 4/5  'white straight fit kurta for men under 2000'
+  multi_012      [multi_attribute ] 4/5  'beige linen trousers for men for office under 3000'
+  multi_016      [multi_attribute ] 4/5  'yellow kurta for diwali under 3000'
+  kids_leak_001  [literal         ] 4/5  'red lehenga bridal'

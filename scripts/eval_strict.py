@@ -128,6 +128,8 @@ def _retrieve_pipeline(
     needs no new labeling, unlike an embedding-model swap.
     """
     from src.agents.graph import (
+        _GENERIC_WEAR_ASK_RE,
+        _LOUNGEWEAR_GATE_OCCASIONS,
         _OUTFIT_INTENT_RE,
         _SET_INTENT_RE,
         _apply_athletic_footwear_gate,
@@ -140,11 +142,13 @@ def _retrieve_pipeline(
     from src.agents.outfit.coherence import is_coherent_candidate
     from src.agents.outfit.slots import (
         FORMALITY_SOFTENER_VALUES,
+        classify_item,
         fabric_score_delta,
+        is_attribute_contradiction,
         is_multi_piece_set,
     )
     from src.agents.tools import search_catalogue
-    from src.catalogue.cleaning import is_kids_item
+    from src.catalogue.cleaning import is_kids_item, is_loungewear_text
 
     intent = parse_intent(query)
     filters: dict = {"gender": gender}
@@ -152,6 +156,20 @@ def _retrieve_pipeline(
         filters["product_type_name"] = intent.garment_type
     if intent.colour:
         filters["colour_group_name"] = intent.colour
+    # 2026-07-25 gate-parity fix: this mirror never passed budget_max_inr
+    # into the retrieval filter at all, even though search_node always does
+    # (see graph.py's "if merged_intent.budget_max_inr: _plan_filters
+    # ['price_max'] = ..." right before its own search_catalogue call) —
+    # HybridRetriever applies price_max as a HARD exclude at the candidate-
+    # building layer (src/retrieval/hybrid_search.py), not a soft rerank
+    # signal, so this was a genuine, large eval-mirror gap: any "under Rs X"
+    # query scored a pipeline where over-budget items were never excluded
+    # from the pool at all. Confirmed via direct A/B (bandhgala under
+    # Rs10000): without this filter, top-5 prices were
+    # [26000, 383999, 6499, 28995, 8999]; with it, [6499, 8999, 7499, 9995,
+    # 5499] -- all in budget.
+    if intent.budget_max_inr:
+        filters["price_max"] = intent.budget_max_inr
 
     # search_catalogue (not retriever.search directly) — it's the actual
     # production retrieval boundary and applies the colour-family widening
@@ -188,7 +206,60 @@ def _retrieve_pipeline(
         if set_filtered:
             items = set_filtered
 
+    # Attribute-contradiction gate — unconditional (not tied to occasion_gate),
+    # matching search_node exactly (2026-07-25 fix, added in the same commit
+    # as the production gate rather than as a follow-up gap): strips
+    # candidates whose own name/desc explicitly states a fit/rise/breasted/
+    # silhouette/neckline word that opposes a word the query itself stated.
+    if items:
+        attr_filtered = [
+            it for it in items
+            if not is_attribute_contradiction(
+                query,
+                it.get("prod_name") or it.get("display_name") or "",
+                it.get("detail_desc") or "",
+            )
+        ]
+        if attr_filtered:
+            items = attr_filtered
+
+    # Accessory-exclusion gate — unconditional (not tied to occasion_gate),
+    # matching search_node exactly (2026-07-25 fix, "type-confusion" strict-
+    # eval bucket): a generic "outfit/look/wear" ask with no garment_type
+    # resolved must never surface a standalone accessory (bag/dupatta/
+    # jewellery) as an "outfit" result.
+    if not intent.garment_type and _GENERIC_WEAR_ASK_RE.search(query) and items:
+        acc_filtered = [
+            it for it in items
+            if classify_item(
+                it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+            ) != "accessory"
+        ]
+        if acc_filtered:
+            items = acc_filtered
+
     occasion_slug = intent.occasion
+
+    # Loungewear strip for the NO-EXISTING-PROTECTION case only — matching
+    # search_node exactly (2026-07-25 fix, "occasion-register" strict-eval
+    # bucket): a non-occasion query ("black dress for my wife") had zero
+    # sleepwear protection before this fix. Deliberately does NOT run when
+    # occasion_slug is in _LOUNGEWEAR_GATE_OCCASIONS — that case is already
+    # correctly handled by _apply_loungewear_gate further below (see
+    # search_node's own comment for why running this EARLIER, pool-
+    # underflow-protected strip in that case is actively wrong). Exempts
+    # queries that themselves explicitly ask for a night dress/nightgown.
+    if (
+        occasion_slug not in _LOUNGEWEAR_GATE_OCCASIONS
+        and items
+        and not is_loungewear_text(query)
+    ):
+        lounge_filtered = [
+            it for it in items
+            if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+        ]
+        if lounge_filtered:
+            items = lounge_filtered
 
     # Occasion coherence gate + fabric rerank — toggled by occasion_gate (the
     # A/B flag isolating the 2026-07-11 fix's own contribution). Everything
@@ -262,12 +333,20 @@ def main() -> None:
     parser.add_argument("--cross-encoder-model", default=_CROSS_ENCODER_MODEL,
                         help="sentence-transformers CrossEncoder model name to use "
                              "when --cross-encoder is set (swap candidates without code changes)")
+    parser.add_argument("--queries-path", default=str(_QUERIES_PATH),
+                        help="alternate query fixture — e.g. an out-of-sample/held-out set "
+                             "scored cold to check whether a fix generalizes beyond the "
+                             "queries used to develop it, not just the default gold set")
+    parser.add_argument("--labels-path", default=str(_LABELS_PATH),
+                        help="alternate label fixture, paired with --queries-path")
     args = parser.parse_args()
 
     from eval_model import _build_components  # heavy import deferred past --help
 
-    queries = yaml.safe_load(_QUERIES_PATH.read_text(encoding="utf-8"))["queries"]
-    labels_raw = yaml.safe_load(_LABELS_PATH.read_text(encoding="utf-8"))["labels"]
+    queries_path = Path(args.queries_path)
+    labels_path = Path(args.labels_path)
+    queries = yaml.safe_load(queries_path.read_text(encoding="utf-8"))["queries"]
+    labels_raw = yaml.safe_load(labels_path.read_text(encoding="utf-8"))["labels"]
     labels: dict[tuple[str, str], dict] = {
         (entry["query_id"], str(item["article_id"])): item
         for entry in labels_raw
@@ -351,7 +430,7 @@ def main() -> None:
         if args.cross_encoder:
             _mode_label += "-cross-encoder"
     print(f"\nSTRICT GOLD EVAL [{_mode_label}] — hand-audited relevance "
-          f"(rubric: {_QUERIES_PATH.name})")
+          f"(rubric: {queries_path.name})")
     print(f"queries={len(queries)}  scored_items={n_scored}  unlabeled_items={n_unlabeled}")
     if n_unlabeled:
         print("  ** UNLABELED ITEMS PRESENT — retrieval changed since labeling. **")

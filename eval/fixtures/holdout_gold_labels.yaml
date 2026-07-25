@@ -1,0 +1,199 @@
+# Hand labels for eval/fixtures/holdout_gold_queries.yaml — the out-of-sample
+# validation set (2026-07-25). Same (query_id, article_id) keying, same binary
+# relevant/irrelevant rubric, same reason taxonomy as strict_gold_labels.yaml.
+# Labeled cold against the pipeline as of commit 4bba170 (post Step 2(a)-(d),
+# pre out-of-sample tightening) — this file did not exist and was not
+# consulted during any Step 2 fix development. Three narrow tightening fixes
+# were made AFTER this labeling pass based on findings here (bodycon's own
+# silhouette pole, pendant->accessory, indowestern->office-register) — see
+# commit ad8cb91 for the exact diff and re-verification.
+#
+# HONEST SCORE PROVENANCE (2026-07-25 correction, same day): the number first
+# reported to GG as "out-of-sample" (0.881, 96/109) was measured AFTER the 3
+# tightening fixes above were applied — i.e. it was not a true cold number,
+# since retrieval had already changed based on what this holdout set itself
+# revealed. Re-measured by temporarily reverting slots.py/coherence.py to
+# their PRE-fix state (commit 4bba170) and re-scoring against this SAME label
+# file: 0.862 (94/109), 95% CI [0.785, 0.915] — see
+# reports/holdout_eval_prefix_pipeline.txt. This is the correct number to
+# cite for "did the Step 2(a)-(d) gates generalize" — it still falls inside
+# the in-sample 95% CI [0.860, 0.922] (barely, and with a much wider interval
+# at n=109), so the conclusion (gains generalize, no material overfit) holds,
+# but 0.881 was never a legitimate blind measurement and must not be cited
+# as one. reports/holdout_eval_pipeline.txt (0.881) is the POST-fix number —
+# useful for confirming the tightening fixes didn't regress anything, not as
+# evidence of generalization.
+#
+# STATUS: these 24 queries are no longer a valid holdout. I read every one of
+# their retrieved results, and 3 of 24 queries' results directly drove code
+# changes (oos_010, oos_013 x2). They are DEVELOPMENT DATA now, same as
+# strict_gold_queries.yaml — kept here for regression coverage (via
+# --queries-path/--labels-path), not for future "did it generalize" checks.
+# Any future out-of-sample validation needs a FRESH set of queries this
+# session has never looked at, hand-labeled and scored the same way, cold,
+# with the score recorded BEFORE any fix is made in response to it.
+#
+# retrieval_snapshot: data/processed/unified, eval_strict.py --mode pipeline,
+# commit 4bba170 (before the 3 tightening fixes below were added).
+# Labeled_by: Claude (Sonnet 5), same rubric as strict_gold_labels.yaml header.
+labels:
+- query_id: oos_001
+  items:
+  - {article_id: "12971360", relevant: true, note: "green, kurti, women"}
+  - {article_id: "8595166560406", relevant: true, note: "green, kurti, women"}
+  - {article_id: "8507177336982", relevant: true, note: "lime green (colour-family), kurti, women"}
+  - {article_id: "8569463373974", relevant: true, note: "sea green (colour-family), kurti, women"}
+  - {article_id: "8627415", relevant: true, note: "green (+red), kurti, women"}
+- query_id: oos_002
+  items:
+  - {article_id: "f5cd3f9f-a79f-5fd2-82cc-fd0377b5d0bc", relevant: true, note: "desc explicit 'Brown solid jacket'"}
+  - {article_id: "6629545640112", relevant: true, note: "bandhgala jacket, brown -- generic 'jacket' ask doesn't specify ethnic/western"}
+  - {article_id: "10132674674994", relevant: true, note: "Modi jacket, brown -- generic 'jacket' ask"}
+  - {article_id: "8762072629470", relevant: true, note: "tan (colour-family), jacket, men"}
+  - {article_id: "8671149195426", relevant: true, note: "brown, jacket, men"}
+- query_id: oos_003
+  items:
+  - {article_id: "6883945971869", relevant: true, note: "red, skirt, Rs1399 <= Rs1800"}
+  - {article_id: "18605938", relevant: true, note: "red, skirt, Rs790 <= Rs1800"}
+  - {article_id: "18769480", relevant: true, note: "red (+white), skirt, Rs1399 <= Rs1800"}
+  - {article_id: "13847266", relevant: true, note: "red, skirt, Rs1199 <= Rs1800"}
+  - {article_id: "18688438", relevant: true, note: "red, skirt, Rs999 <= Rs1800"}
+- query_id: oos_004
+  items:
+  - {article_id: "a0f259fc-0950-53d2-9d64-b2d8033ba117", relevant: true, note: "desc explicit 'Navy Blue', trousers, men"}
+  - {article_id: "9235199656158", relevant: true, note: "navy blue, trousers, men"}
+  - {article_id: "8543407440034", relevant: true, note: "navy, trousers, men"}
+  - {article_id: "8891597357208", relevant: true, note: "navy blue, trousers, men"}
+  - {article_id: "10034683216178", relevant: true, note: "navy blue, trousers, men"}
+- query_id: oos_005
+  items:
+  - {article_id: "8661202600086", relevant: true, note: "orange, saree, women"}
+  - {article_id: "17976750", relevant: true, note: "orange (+yellow), saree, women"}
+  - {article_id: "8661211054230", relevant: true, note: "orange, saree, women"}
+  - {article_id: "7903103451291", relevant: true, note: "orange, still a saree despite modern corset blouse styling"}
+  - {article_id: "8664473305238", relevant: true, note: "rust orange (colour-family), saree, women"}
+- query_id: oos_006
+  items:
+  - {article_id: "af66110d-63cb-597f-8968-7258adcc9b02", relevant: true, note: "name explicit 'Regular Fit', shirt, men"}
+  - {article_id: "de543746-8819-529a-88cd-a672b3ca5a21", relevant: true, note: "name explicit 'Regular Fit'; 'Slim Collar' is collar style not overall fit, not an opposing signal"}
+  - {article_id: "8394779623730", relevant: true, note: "name+desc explicit 'Regular Fit'"}
+  - {article_id: "8428302926046", relevant: true, note: "name explicit 'Regular Fit'"}
+  - {article_id: "8843008835834", relevant: true, note: "name explicit 'Regular fit'"}
+- query_id: oos_007
+  items:
+  - {article_id: "18839592", relevant: true, note: "name explicit 'Boat Neck'"}
+  - {article_id: "9076963", relevant: true, note: "desc explicit 'boat neck'"}
+  - {article_id: "9830912590121", relevant: true, note: "name explicit 'Boat Neck'"}
+  - {article_id: "2238307", relevant: true, note: "desc explicit 'boat neck'"}
+  - {article_id: "18839946", relevant: true, note: "desc explicit 'Boat neck'"}
+- query_id: oos_008
+  items:
+  - {article_id: "7663124644062", relevant: true, note: "name explicit 'Mid Rise'"}
+  - {article_id: "18542924", relevant: true, note: "name explicit 'Mid-Rise'"}
+  - {article_id: "16911488", relevant: true, note: "name explicit 'Mid-Rise'; skinny fit is a different dimension (FIT), not stated by query, not a contradiction"}
+  - {article_id: "7891347079390", relevant: true, note: "name explicit 'Mid Rise'"}
+  - {article_id: "17849186", relevant: true, note: "name explicit 'Mid Rise'"}
+- query_id: oos_009
+  items:
+  - {article_id: "d1f26e1d-188f-5f06-8a2d-51a0ef339417", relevant: true, note: "name explicit 'Single Breasted'"}
+  - {article_id: "8820448952578", relevant: true, note: "desc explicit 'single-breasted with button closures'"}
+  - {article_id: "9300199145730", relevant: true, note: "breasted style unstated, not contradicted"}
+  - {article_id: "8453764120882", relevant: true, note: "breasted style unstated, not contradicted"}
+  - {article_id: "8907901534370", relevant: true, note: "desc explicit 'single-breasted design with notch lapels'"}
+- query_id: oos_010
+  items:
+  - {article_id: "8252749742302", relevant: true, note: "silhouette unstated (generic boilerplate), not contradicted"}
+  - {article_id: "8404036616414", relevant: false, reason: attribute-contradiction, note: "desc explicit 'Silhouette: Straight kurta' -- contradicts 'bodycon' (real gap found here; bodycon given its own silhouette pole as a result, see commit)"}
+  - {article_id: "8201212920030", relevant: true, note: "silhouette unstated (generic boilerplate), not contradicted"}
+  - {article_id: "8201213018334", relevant: true, note: "silhouette unstated (generic boilerplate), not contradicted"}
+  - {article_id: "9017291931906", relevant: true, note: "silhouette unstated (yoga/functional framing, no explicit opposing silhouette word), not contradicted"}
+  - {article_id: "2528692", relevant: false, reason: attribute-contradiction, note: "name+desc explicit 'Straight kurta' -- genuinely contradicts 'bodycon' but NOT gated in code: bare 'straight kurta' prose (as opposed to the structured 'Silhouette: Straight' facet line) appears in 16% of catalogue kurta rows, too broad a signal to gate without over-exclusion risk; disclosed residual, hand-label tracks true relevance independent of what the conservative code gate currently catches"}
+- query_id: oos_011
+  items:
+  - {article_id: "8979444859138", relevant: true, note: "fit unstated, not contradicted (same item + same judgment as gold_037's precedent for 'relaxed fit')"}
+  - {article_id: "7735746723992", relevant: true, note: "fit unstated ('comfortable fit' does not oppose loose), not contradicted"}
+  - {article_id: "8979444957442", relevant: true, note: "fit unstated, not contradicted (same item as gold_037's precedent)"}
+  - {article_id: "7842188624024", relevant: true, note: "fit unstated ('comfortable fit' does not oppose loose), not contradicted"}
+  - {article_id: "8979445186818", relevant: true, note: "fit unstated, not contradicted"}
+- query_id: oos_012
+  items:
+  - {article_id: "10224466362674", relevant: true, note: "white, kurta, men, desc 'pre-wedding ceremony, or festive celebration'"}
+  - {article_id: "10045033349426", relevant: true, note: "white, kurta, men, desc explicit 'attending a wedding'"}
+  - {article_id: "6705514676400", relevant: true, note: "white silk kurta, men, festive-formal register"}
+  - {article_id: "8989416489112", relevant: true, note: "white, kurta, men, desc 'festive and traditional occasions'"}
+  - {article_id: "9935062204722", relevant: true, note: "white, kurta, men, desc explicit 'attending a wedding ceremony'"}
+- query_id: oos_013
+  items:
+  - {article_id: "1b828ddc-e125-5a63-91e1-e62f06fd8527", relevant: true, note: "grey trousers, men, desc explicit 'office hours'"}
+  - {article_id: "9108654031154", relevant: true, note: "shirt, men, desc explicit 'office wardrobe...Office Wear Shirts'"}
+  - {article_id: "8644333240475", relevant: false, reason: occasion-register, note: "'Beige Jacquard Indo Western for Men' -- desc explicit 'weddings, receptions, festive celebrations, and cocktail nights', zero office-register language; real gap found here, product_type='indowestern' now rejected for office in coherence.py gate 4, see commit"}
+  - {article_id: "8286441013414", relevant: false, reason: type-confusion, note: "'Eclipse Black Shivling Pendant for Men' -- standalone jewellery pendant, not an outfit; real gap found here, 'pendant' was missing from ACCESSORY_KEYWORDS entirely, see commit"}
+  - {article_id: "d97e4c55-7d6d-59ab-b0ad-39168118472b", relevant: true, note: "black trousers, men, desc explicit office register (same ASABA template as item 1)"}
+  - {article_id: "57b0d2c1-8a57-5d7a-a4b0-3927ac4b26ed", relevant: true, note: "white trousers, men, desc explicit office register (same ASABA template); newly surfaced after indowestern/pendant items were gated out"}
+  - {article_id: "37b97e1c-2e10-504a-bfc4-9d4e2e4c6f40", relevant: true, note: "brown trousers, men, desc explicit office register (same ASABA template); newly surfaced after indowestern/pendant items were gated out"}
+- query_id: oos_014
+  items:
+  - {article_id: "9719882121513", relevant: true, note: "black, maxi gown, women, cocktail-appropriate register; NOTE -- this query's own pool was severely thin (only 1 item retrieved of 5 requested) despite 148 black dress/gown rows existing in the catalogue -- traced to intent_parser mapping 'cocktail' -> occasion 'reception' (ETHNIC_HEAVY), whose gate-3 exception only allows western items containing the literal words blazer/trousers/shirt/suit/formal/gown in their OWN name (only 4/148 black dresses say 'gown' literally); this is a real, high-impact, PRE-EXISTING bug (not introduced by any Step 2(a)-(d) fix, and out of scope for this wave's gates) -- flagged as a priority follow-up, not fixed here"}
+- query_id: oos_015
+  items:
+  - {article_id: "17810904", relevant: true, note: "cream (pastel), saree, women -- 'pastel' is the query's own explicit stated preference, taken at face value over karva_chauth's conventional red palette"}
+  - {article_id: "7990619635867", relevant: true, note: "peach (pastel), embellished, festive-appropriate"}
+  - {article_id: "18856492", relevant: false, reason: occasion-register, note: "desc 'delightful to wear...during hot summer days', no festive/embellishment signal, everyday-casual register -- too light for karva_chauth's formality-4 ask"}
+  - {article_id: "8663530897558", relevant: false, reason: occasion-register, note: "desc explicit 'Perfect for Work Wear and Casual Wear' -- contradicts the karva_chauth festive ask"}
+  - {article_id: "17209256", relevant: true, note: "cream (pastel) with black accent, embroidered banarasi zari -- festive-appropriate embellishment despite black accent"}
+- query_id: oos_016
+  items:
+  - {article_id: "8702900502750", relevant: true, note: "maroon floral, dress, desc 'casual day out in the sun' -- vacation-plausible"}
+  - {article_id: "8702900404446", relevant: true, note: "brown floral, dress, casual-plausible register"}
+  - {article_id: "9541961974057", relevant: true, note: "name explicit 'Floral', dress, casual mini -- vacation-plausible"}
+  - {article_id: "5547349082269", relevant: true, note: "floral, dress, casual-plausible"}
+  - {article_id: "8629267923094", relevant: true, note: "floral embroidered, dress, desc 'Casual Wear'"}
+- query_id: oos_017
+  items:
+  - {article_id: "8453682430258", relevant: true, note: "sherwani, men, desc explicit 'weddings and sangeet'"}
+  - {article_id: "8355968155803", relevant: true, note: "sherwani, men, desc explicit 'Sangeet & Mehendi'"}
+  - {article_id: "8453682069810", relevant: true, note: "sherwani, men, desc explicit 'sangeet ceremonies'"}
+  - {article_id: "8359747584155", relevant: true, note: "sherwani, men, desc explicit 'Occasion: Wedding, Engagement, Sangeet, Reception'"}
+  - {article_id: "8395028660530", relevant: true, note: "sherwani, men, desc explicit 'weddings and sangeet'"}
+- query_id: oos_018
+  items:
+  - {article_id: "7665024729174", relevant: true, note: "wine, name explicit 'Straight Fit', Rs999 <= Rs2200"}
+  - {article_id: "8201212854494", relevant: true, note: "wine, fit unstated (generic boilerplate), not contradicted, Rs1299 <= Rs2200"}
+  - {article_id: "9099862474974", relevant: true, note: "wine mix, desc 'loose fit' -- same loose-camp as straight fit, compatible not contradicting, Rs1999 <= Rs2200"}
+  - {article_id: "10771546", relevant: true, note: "burgundy (wine-family per rubric), name explicit 'Straight', Rs1699 <= Rs2200"}
+  - {article_id: "7727539191894", relevant: true, note: "maroon (wine-family per rubric), name explicit 'Straight-Fit', Rs1299 <= Rs2200"}
+- query_id: oos_019
+  items:
+  - {article_id: "8883303547042", relevant: true, note: "charcoal grey, desc explicit 'tailored design...formal occasions and office wear', Rs2399 <= Rs4500"}
+  - {article_id: "8711797964962", relevant: false, reason: attribute-contradiction, note: "desc explicit 'elastic waistband with drawstring closure...casual office wear' -- drawstring/elastic construction contradicts 'tailored', Rs563; disclosed residual, 'tailored' not currently tracked as a gate dimension (see report)"}
+  - {article_id: "8736894156962", relevant: true, note: "charcoal grey, pleated front (a tailored construction style), desc 'formal settings', Rs563 <= Rs4500"}
+  - {article_id: "10072197955890", relevant: true, note: "dark grey (colour-family), desc explicit 'tailored slim fit...business meetings, office environments', Rs1819 <= Rs4500"}
+  - {article_id: "8723836534946", relevant: false, reason: attribute-contradiction, note: "desc explicit 'Relaxed Fit...casual outings' -- casual-stretch construction contradicts 'tailored', Rs1436; disclosed residual, same as item 2"}
+- query_id: oos_020
+  items:
+  - {article_id: "7798096429278", relevant: false, reason: colour-family, note: "'Berry Blue' -- not coral; 2 genuine coral lehengas exist under budget in the catalogue but only 1 was ranked into top-5 (thin-inventory retrieval-ranking gap, pre-existing colour-family issue, not a Step-2 gate)"}
+  - {article_id: "14769612", relevant: false, reason: colour-family, note: "'Blue Printed' -- not coral"}
+  - {article_id: "18110216", relevant: true, note: "name explicit 'Coral Pink', Rs4299 <= Rs6500, embellished/golden mehendi-appropriate"}
+  - {article_id: "18242972", relevant: false, reason: colour-family, note: "'Green' -- not coral despite green being generically mehendi-appropriate; query explicitly named 'coral'"}
+- query_id: oos_021
+  items: []
+- query_id: oos_022
+  items:
+  - {article_id: "8428236964062", relevant: false, reason: data-ceiling, note: "'Indigo...Blue' -- not mint; verified 0 mint/light-green anarkalis exist anywhere in the catalogue (333 anarkali rows scanned), genuine data ceiling not a retrieval-quality gap"}
+  - {article_id: "8428237193438", relevant: false, reason: data-ceiling, note: "'Yellow' -- not mint; desc also explicit 'Occasion: Casual', double mismatch; same data-ceiling as item 1"}
+  - {article_id: "7797918335198", relevant: false, reason: data-ceiling, note: "'Khaki Green' -- distinct muted-olive shade from mint, desc explicit 'Occasion: Everyday and casual' (navratri wants bright saturated colours, khaki/olive is in this app's own navratri-low palette); same data-ceiling as item 1"}
+  - {article_id: "7798171500766", relevant: false, reason: data-ceiling, note: "'White' with beige embroidery -- not mint; same data-ceiling as item 1"}
+- query_id: oos_023
+  items:
+  - {article_id: "9792039", relevant: true, note: "beige, palazzo (standalone), Rs999 <= Rs1800"}
+  - {article_id: "15114982", relevant: true, note: "beige, palazzo (standalone), Rs699 <= Rs1800"}
+  - {article_id: "9791951", relevant: true, note: "beige, palazzo (standalone), Rs999 <= Rs1800"}
+  - {article_id: "17751218", relevant: true, note: "beige, palazzo (standalone), Rs999 <= Rs1800"}
+  - {article_id: "7798043640030", relevant: false, reason: data-mislabel, note: "'Black And Beige Kalamkari Cotton Kurta (without Palazzo)' -- catalogue product_type_name='palazzo' contradicts the product's own name, which explicitly says it is a kurta WITHOUT a palazzo; catalogue field is simply wrong for this row"}
+- query_id: oos_024
+  items:
+  - {article_id: "8661208170646", relevant: true, note: "maroon, silk blend, desc explicit 'Perfect for Diwali', Rs2999 <= Rs6000"}
+  - {article_id: "8661209743510", relevant: true, note: "maroon, silk blend, desc explicit 'Perfect for Diwali', Rs799 <= Rs6000"}
+  - {article_id: "18600422", relevant: true, note: "maroon+gold, pure silk banarasi, Rs4999 <= Rs6000"}
+  - {article_id: "18135054", relevant: true, note: "maroon, 'Silk Cotton' blend satisfies 'silk' ask, Rs5999 <= Rs6000 (just under cap)"}
+  - {article_id: "19078032", relevant: true, note: "maroon(+green), 'Pure Cotton' not silk, but fabric is not a rubric-checked dimension (same precedent as multi_027 Batch 16), Rs4198 <= Rs6000"}

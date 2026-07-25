@@ -23,6 +23,7 @@ from src.agents.intent_parser import _COLOUR_MAP as _INTENT_COLOUR_MAP
 from src.agents.outfit.body_type import (
     BASE_SHAPES,
     POSITIVE_TEMPLATES,
+    POSITIVE_TEMPLATES_MEN,
     contains_banned_framing,
 )
 
@@ -255,6 +256,7 @@ def build_fact_sheet(
     anchor_is_owned: bool = False,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    gender: str | None = None,
 ) -> dict:
     """Extract only real, grounded attributes from a look dict.
 
@@ -345,7 +347,8 @@ def build_fact_sheet(
 
     if body_type and body_type in BASE_SHAPES:
         fact_sheet["body_type"] = body_type.replace("_", " ")
-        style_hint = POSITIVE_TEMPLATES.get(body_type)
+        templates = POSITIVE_TEMPLATES_MEN if gender == "men" else POSITIVE_TEMPLATES
+        style_hint = templates.get(body_type)
         if style_hint:
             fact_sheet["body_type_style_hint"] = style_hint
     if body_modifiers:
@@ -429,6 +432,7 @@ def generate_rationales(
             anchor_is_owned=anchor_is_owned,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            gender=gender,
         )
         for look in looks
     ]
@@ -476,7 +480,7 @@ def generate_rationales(
                 "using body-positive template fallback",
                 i,
             )
-            results.append(_body_type_template_rationale(look, body_type))
+            results.append(_body_type_template_rationale(look, body_type, gender))
             continue
 
         if llm_text:
@@ -502,26 +506,35 @@ def generate_rationales(
                     "[rationale] grounding dropped all sentences for look %d — using template",
                     i,
                 )
-                results.append(_body_type_template_rationale(look, body_type))
+                results.append(_body_type_template_rationale(look, body_type, gender))
             else:
                 results.append(cleaned)
         else:
-            results.append(_body_type_template_rationale(look, body_type))
+            results.append(_body_type_template_rationale(look, body_type, gender))
 
     return results
 
 
-def _body_type_template_rationale(look: dict, body_type: str | None) -> str:
+def _body_type_template_rationale(
+    look: dict, body_type: str | None, gender: str | None = None
+) -> str:
     """Template fallback for a body-type turn — grounded template + POSITIVE_TEMPLATES.
 
     Used whenever the LLM rationale is unavailable, fails grounding, or trips
     the banned-framing guardrail. When body_type is None (or unknown), this is
     identical to template_rationale(look) — fully backward compatible with
     every non-body-type call site.
+
+    gender: selects POSITIVE_TEMPLATES_MEN over POSITIVE_TEMPLATES when
+    "men" — see build_fact_sheet's identical selection for why (a photo-
+    classified "pear" for a man has no men's entry, so this falls through to
+    the plain template with no garment-specific sentence, never a wrong-
+    gendered one).
     """
     base = template_rationale(look)
-    if body_type and body_type in POSITIVE_TEMPLATES:
-        return f"{base} {POSITIVE_TEMPLATES[body_type]}"
+    templates = POSITIVE_TEMPLATES_MEN if gender == "men" else POSITIVE_TEMPLATES
+    if body_type and body_type in templates:
+        return f"{base} {templates[body_type]}"
     return base
 
 

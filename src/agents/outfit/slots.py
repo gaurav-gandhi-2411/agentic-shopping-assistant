@@ -19,6 +19,11 @@ ETHNIC_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
 })
 ETHNIC_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     "palazzo", "palazzos", "churidar", "salwar", "sharara", "pyjama", "dhoti",
+    # 2026-07-25 (set-not-single follow-up): "pajama" (American spelling) is a
+    # real, prevalent alternate to "pyjama" in this catalogue -- 1,386 rows
+    # use it, including "kurta pajama" bare-juxtaposition listings (1,348
+    # rows) that were silently invisible to every noun-counting check below.
+    "pajama",
 })
 WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     "shirt", "t-shirt", "tshirt", "top", "blouse", "sweater", "sweatshirt",
@@ -68,7 +73,11 @@ MEN_FORMALWEAR_KEYWORDS: frozenset[str] = frozenset({
 _ACCESSORY_DUPATTA_FAMILY: frozenset[str] = frozenset({"dupatta", "stole", "scarf"})
 _ACCESSORY_BAG_FAMILY: frozenset[str] = frozenset({"bag", "handbag", "sling", "clutch", "tote"})
 _ACCESSORY_JEWELLERY_FAMILY: frozenset[str] = frozenset(
-    {"jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle"}
+    # "pendant" added 2026-07-25 (out-of-sample validation finding): a
+    # "Pendant" product_type row (126 in the catalogue, all jewellery) slipped
+    # past the new accessory-exclusion gate for "office outfit for men" —
+    # was never in ACCESSORY_KEYWORDS at all before this.
+    {"jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle", "pendant"}
 )
 _ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch"})
 _ACCESSORY_EYEWEAR_CAP_FAMILY: frozenset[str] = frozenset({"sunglasses", "cap"})
@@ -430,25 +439,56 @@ def is_athletic_footwear_item(prod_name: str) -> bool:
 # + sharara bottom SET) slipped past the bottom slot's hard slot-type gate
 # and filled an "office look" bottom slot.
 #
-# Two signals, either sufficient (both verified against the real unified
-# catalogue's own "Set"-in-name product rows — see offline check):
+# Signals, any sufficient (all verified against the real unified catalogue's
+# own "Set"-in-name product rows, and against every "set-not-single" hand
+# label in eval/fixtures/strict_gold_labels.yaml — see offline check):
 #   1. product_type_name is one of the catalogue's own dedicated set-type
 #      values: "Suits"/"Suit Set(s)" (2-3 piece ethnic suit sets: kurta +
 #      bottom [+ dupatta]), "coord"/"Co-Ord" (western co-ord sets),
 #      "Sets"/"Track-Suit" (misc matching sets e.g. "Winter Set", "Cord Set").
-#   2. Freeform name contains the word "set(s)" AND mentions >= 2 DISTINCT
-#      garment nouns (e.g. "Anarkali" + "Sharara" + "Set", or "Top & Cropped
-#      Trousers Set") — this is what catches the live-proven bug, where the
-#      product_type facet alone ("sharara") only reveals ONE garment word.
-#      A single-garment name that merely happens to contain "Set" once (e.g.
-#      "TAG 7 Women Set of 2 ... Palazzos" — a 2-PACK of the SAME garment,
-#      not a multi-piece outfit) has only 1 distinct noun and is correctly
-#      NOT flagged.
+#   2. Freeform name contains "with" AND mentions >= 2 DISTINCT garment nouns
+#      (e.g. "Kaftan Kurta with Abstract Patchwork Palazzo") — this
+#      catalogue's dominant multi-piece convention, and very often never uses
+#      the literal word "set"/"sets" at all (2026-07-11 fix).
+#   3. Freeform name contains the word "set(s)" (and is NOT a "Set of N"
+#      same-item PACK — e.g. "TAG 7 Women Set of 2 ... Palazzos", a 2-pack of
+#      the SAME garment, correctly excluded) AND mentions >= 1 garment noun.
+#      2026-07-25 fix: originally required >=2 distinct nouns here too (the
+#      same bar as "with"), but that was over-conservative and caused 16
+#      real strict-gold misses — this catalogue's single most common
+#      multi-piece convention is a bare "<Garment> Set" suffix that never
+#      names the second piece in the product NAME at all (e.g. "Orange
+#      Floral Printed Cotton Straight Kurta Set", "Plus Size Pink Printed
+#      Cotton Straight Kurta Set") — the word "Set" itself is already the
+#      strong signal once the "Set of N" pack pattern is excluded.
+#   4. Freeform name contains an explicit "N-Piece"/"N Piece" count (e.g.
+#      "Sea Green Winter Ethnic 3-Piece Set") — sufficient on its own, since
+#      some of these name NO garment noun at all in the truncated name.
+#   5. Freeform name contains the literal word "co-ord(s)" — inherently a
+#      2-piece-by-definition term, sufficient on its own. Needed because the
+#      product_type_name facet often captures only the hero piece (e.g.
+#      "URBANIC...Hooded Co-Ords Set" carries product_type_name="top", never
+#      matching signal 1's "coord" facet check).
+#   6. A recognised TOP noun immediately followed by a recognised BOTTOM/
+#      companion noun with NO connector word at all (e.g. "Green Kurta
+#      Pajama", "kurta pajama"/"kurta pyjama" alone account for 2,459
+#      catalogue rows) — this catalogue's third naming convention. Scoped
+#      NARROWLY to TOP-then-BOTTOM specifically (not the full distinct-noun
+#      union signals 2/3 use) to avoid false-firing on "Anarkali Kurta" — a
+#      ONE_PIECE+TOP synonym pair naming ONE single garment, not two.
 _SET_PRODUCT_TYPES: frozenset[str] = frozenset({
     "suits", "suit set", "suit sets", "coord", "co-ord", "sets", "track-suit",
 })
 
 _SET_WORD_RE = re.compile(r"\bsets?\b", re.IGNORECASE)
+_SET_OF_N_RE = re.compile(r"\bset\s+of\s+\d+\b", re.IGNORECASE)
+_N_PIECE_RE = re.compile(r"\b\d+[\s-]?piece\b", re.IGNORECASE)
+_COORD_WORD_RE = re.compile(r"\bco-?ords?\b", re.IGNORECASE)
+_TOP_THEN_BOTTOM_RE = re.compile(
+    r"\b(?:kurta|kurti|kameez|tunic|shirt|top|blouse)\s+"
+    r"(?:pajama|pyjama|palazzos?|churidar|salwar|sharara|dhoti|trousers?|pants?|dupatta)\b",
+    re.IGNORECASE,
+)
 
 # Garment-noun vocabulary reused from the anchor-classification keyword sets
 # above — used ONLY to count how many distinct garment types a name mentions.
@@ -463,33 +503,161 @@ _SET_GARMENT_NOUN_KEYWORDS: frozenset[str] = (
     | frozenset({"dupatta"})
 )
 
-
-# 2026-07-11 (search-path set-exclusion follow-up): a THIRD signal, alongside
-# the two above — this catalogue's dominant multi-piece naming convention is
-# "<garment> with <garment> [& <garment>]" (e.g. "Kaftan Kurta with Abstract
-# Patchwork Palazzo", "Anarkali Kurta with Pant & Dupatta") and very often
-# never uses the literal word "set"/"sets" at all, so signal 2 alone misses
-# most of the real strict-eval-labeled "set-not-single" cases. "with" +
-# >=2 distinct garment nouns is a reliable, near-universal signal for this
-# catalogue's listing style — verified against every "set-not-single"
-# hand-label in eval/fixtures/strict_gold_labels.yaml.
 _WITH_RE = re.compile(r"\bwith\b", re.IGNORECASE)
 
 
 def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     """Return True if this item is a multi-piece SET listing (a whole outfit)
     rather than a single garment. See the module comment above
-    _SET_PRODUCT_TYPES for the two conservative signals checked, and the
-    comment above _WITH_RE for the third.
+    _SET_PRODUCT_TYPES for the six signals checked, any one sufficient.
     """
     pt = (product_type or "").lower().strip()
     if pt in _SET_PRODUCT_TYPES:
         return True
     name = (prod_name or "").lower()
-    if not (_SET_WORD_RE.search(name) or _WITH_RE.search(name)):
+    if _N_PIECE_RE.search(name) or _COORD_WORD_RE.search(name) or _TOP_THEN_BOTTOM_RE.search(name):
+        return True
+    has_set = _SET_WORD_RE.search(name) and not _SET_OF_N_RE.search(name)
+    has_with = _WITH_RE.search(name)
+    if not (has_set or has_with):
         return False
     distinct_nouns = {kw for kw in _SET_GARMENT_NOUN_KEYWORDS if _contains_word(name, kw)}
+    if has_set:
+        return len(distinct_nouns) >= 1
     return len(distinct_nouns) >= 2
+
+
+# 2026-07-25 (strict-eval attribute-contradiction follow-up, now the largest
+# CODE-FIXABLE miss bucket at 22): no deterministic fit/silhouette-matching
+# gate existed anywhere in the plain-search path before this — retrieval
+# relies entirely on embedding similarity, which frequently ranks a "Slim
+# Fit" item highly for a "straight fit" query since the two phrases are
+# semantically close in embedding space despite being product-listing
+# OPPOSITES in this catalogue's own marketing vocabulary.
+#
+# Two representations, chosen per group based on whether the group's members
+# are genuinely N-way mutually exclusive or actually two *camps* of near-
+# synonyms opposing each other:
+#
+# - Flat groups (_ATTRIBUTE_CONTRADICTION_FLAT_GROUPS): any two DIFFERENT
+#   members oppose each other. Correct only when every member is genuinely
+#   distinct from every other (RISE, BREASTED, NECKLINE) — a garment has
+#   exactly one neckline shape, one rise, one breasted style.
+# - Camp-pair groups (_ATTRIBUTE_CONTRADICTION_CAMP_PAIRS): two frozensets
+#   per pair; only CROSS-camp words oppose, same-camp words are compatible
+#   synonyms. Required for FIT and SILHOUETTE, where a flat group produced a
+#   real false positive: "anarkali" and "a-line" were both dumped into one
+#   "silhouette" group as if mutually exclusive, but an anarkali kurta IS
+#   a-line by definition (verified against real catalogue desc text, e.g.
+#   article 7797797454046 "...heritage anarkali style with a graceful
+#   flared silhouette..." — anarkali literally means flared/a-line here).
+#   The genuine opposition is flared-family vs fitted/straight-family.
+#
+# Grounded in the ACTUAL contradiction pairs found across every
+# attribute-contradiction hand label in strict_gold_labels.yaml (not
+# invented) — verified real hit-rate per word against
+# data/processed/unified/catalogue.parquet before inclusion (all >=12 rows,
+# most in the hundreds-to-thousands).
+_ATTRIBUTE_CONTRADICTION_FLAT_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"high waisted", "high-waisted", "high rise", "mid rise", "low rise"}),
+    frozenset({"single breasted", "double breasted"}),
+    frozenset({
+        "v-neck", "halter neck", "boat neck", "round neck", "square neck",
+        "mandarin collar", "scoop neck", "sweetheart neck",
+    }),
+)
+
+_ATTRIBUTE_CONTRADICTION_CAMP_PAIRS: tuple[tuple[frozenset[str], frozenset[str]], ...] = (
+    # FIT tightness: "slim"/"skinny" (tight camp) vs the mutually-compatible
+    # "straight"/"regular"/"relaxed"/"oversized"/"loose"/"tailored" camp.
+    (
+        frozenset({"slim fit", "skinny fit"}),
+        frozenset({
+            "straight fit", "regular fit", "relaxed fit", "tailored fit",
+            "oversized", "loose fit",
+        }),
+    ),
+    # SILHOUETTE flare: "a-line"/"anarkali"/"fit and flare" are mutually
+    # COMPATIBLE (same flared family — anarkali kurtas are a-line by
+    # definition), opposing the straight/regular camp. "regular fit" belongs
+    # here too (distinct dimension from FIT-tightness above) — real hand
+    # label evidence: "'Regular Fit' contradicts 'a-line'" (a kurta's
+    # overall cut is either flared/a-line or straight/regular, not both).
+    (
+        frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
+        frozenset({"straight cut", "straight fit", "regular fit"}),
+    ),
+    # SILHOUETTE fitted: "bodycon" is its OWN pole (2026-07-25, out-of-sample
+    # validation finding), not folded into the straight/regular camp above —
+    # an item with the structured facet line "Silhouette: Straight kurta"
+    # surfaced for a "bodycon kurta" query in the held-out set. Bodycon
+    # (body-hugging throughout) and straight (hangs straight, unflared but
+    # NOT tight) are genuinely distinct silhouettes for a kurta, even though
+    # both oppose the SAME flared camp above — treating them as compatible
+    # with each other was too coarse. Opposes both other poles.
+    #
+    # "silhouette: straight" (the structured facet-line phrasing, not bare
+    # "straight kurta" prose) is deliberately the ONLY straight-family
+    # trigger added here — a bare "straight kurta"/"straight kurti" phrase
+    # appears in 2252/14184 (16%) of catalogue kurta rows (the default,
+    # most-common silhouette description for kurtas generally), which would
+    # have been a badly over-broad exclusion for a single niche query
+    # pattern; the structured "Silhouette: Straight" facet line is a much
+    # narrower, catalogue-verified signal (12/14184 rows).
+    (
+        frozenset({"bodycon"}),
+        frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
+    ),
+    (
+        frozenset({"bodycon"}),
+        frozenset({"straight cut", "straight fit", "regular fit", "silhouette: straight"}),
+    ),
+)
+
+
+def is_attribute_contradiction(query_text: str, item_name: str, item_desc: str) -> bool:
+    """Return True if the CANDIDATE ITEM's own name/desc explicitly states a
+    fit/rise/breasted-style/silhouette/neckline word that OPPOSES a word the
+    QUERY itself explicitly stated — e.g. query "straight fit kurta" +
+    item name "...Slim Fit Kurta".
+
+    Deliberately conservative in both directions:
+      - Only fires when the QUERY names a tracked word at all (a query with
+        no stated fit/silhouette preference can never trigger this).
+      - If the item's own text ALSO contains the query's exact word anywhere
+        (even alongside an opposing word — e.g. boilerplate mentioning
+        several fit options), that's treated as a genuine match, never a
+        contradiction — same "explicit confirmation wins" precedent as the
+        query's own hand-labeling rubric.
+      - "Unstated, not contradicted" is never penalised here (mirrors the
+        hand-labeling rubric's point 2) — an item with NO word from a group
+        at all is never flagged for that group.
+      - Near-synonyms (e.g. "anarkali" vs "a-line") never oppose each other
+        — see _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS.
+    """
+    query_lower = (query_text or "").lower()
+    text = f"{item_name or ''} {item_desc or ''}".lower()
+
+    for group in _ATTRIBUTE_CONTRADICTION_FLAT_GROUPS:
+        stated = next((w for w in group if _contains_word(query_lower, w)), None)
+        if stated is None:
+            continue
+        if _contains_word(text, stated):
+            continue  # item explicitly confirms the query's own word — never a contradiction
+        if any(w != stated and _contains_word(text, w) for w in group):
+            return True
+
+    for camp_a, camp_b in _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS:
+        for stated_camp, opposing_camp in ((camp_a, camp_b), (camp_b, camp_a)):
+            stated = next((w for w in stated_camp if _contains_word(query_lower, w)), None)
+            if stated is None:
+                continue
+            if any(_contains_word(text, w) for w in stated_camp):
+                continue  # item confirms the query's own camp — never a contradiction
+            if any(_contains_word(text, w) for w in opposing_camp):
+                return True
+
+    return False
 
 
 def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:

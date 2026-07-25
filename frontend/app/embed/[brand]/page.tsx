@@ -7,6 +7,7 @@ import { useChatStream } from "@/hooks/useChatStream"
 import { MessageList } from "@/components/chat/MessageList"
 import { ChatInput } from "@/components/chat/ChatInput"
 import { Logo } from "@/components/Logo"
+import { deriveKnownGender } from "@/lib/knownGender"
 
 // ---------------------------------------------------------------------------
 // Known brand definitions. Per-brand backends were collapsed into the unified
@@ -101,6 +102,8 @@ export default function EmbedPage() {
 
   const hasAssistantReply = messages.some((m) => m.role === "assistant")
   const showWarmup = isSending && !hasAssistantReply
+
+  const knownGender = deriveKnownGender(messages)
 
   // Bootstrap a demo session — same flow as /demo/page.tsx.
   // Skipped if a session already exists in sessionStorage for this brand
@@ -265,6 +268,7 @@ export default function EmbedPage() {
         onCancel={cancel}
         isSending={isSending}
         onSendImage={sendImage}
+        knownGender={knownGender}
       />
 
       {/* Powered-by footer — attribution inside the embed */}

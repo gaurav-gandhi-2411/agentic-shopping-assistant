@@ -178,7 +178,7 @@ def compose_outfit(
         # gender_allowed() re-check right below is now belt-and-suspenders, not the
         # only gate.  Skipped for "unisex" (no single-gender filter makes sense).
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
-        _bt_tokens = body_type_query_tokens(body_type, body_modifiers)
+        _bt_tokens = body_type_query_tokens(body_type, body_modifiers, gender)
         if _bt_tokens:
             anchor_query = f"{anchor_query} {_bt_tokens}"
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
@@ -1032,7 +1032,7 @@ def _score_candidates(
         base_score = item.get("score") or 0.5
         c_score = colour_score(item.get("colour") or "", anchor_colour, occasion_slug)
         fab_delta = fabric_score_delta(item, occasion_slug, formality_override=formality_override)
-        bt_delta = body_type_score_delta(item, body_type, body_modifiers)
+        bt_delta = body_type_score_delta(item, body_type, body_modifiers, gender)
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
         final_score = (
@@ -1286,6 +1286,22 @@ def swap_slot_in_look(
         others_total = seed_price + sum(c.get("price_inr") or 0.0 for c in others)
         budget_remaining = budget_inr - others_total
 
+    # Absurd price-outlier guard (2026-07-25 — closes a gap flagged since
+    # 2026-07-23): compose_outfit's own per-slot loop always passes
+    # price_outlier_cap into _find_best_candidate (see its computation right
+    # before that loop), but this function never did, so "swap the
+    # footwear" (etc.) had no protection against an absurdly-priced outlier
+    # replacing a single slot — the exact same guard, just never wired into
+    # the swap path. Same logic as compose_outfit: anchor against the SEED
+    # item's own price (never one of the OTHER unchanged complements, and
+    # never the slot being replaced), skipped when the user gave an explicit
+    # budget (budget_remaining already bounds price there) or the seed has
+    # no catalogue price (owned/uploaded anchor).
+    _anchor_price_for_cap = seed_item.get("price_inr") or 0.0
+    price_outlier_cap: float | None = None
+    if budget_inr is None and _anchor_price_for_cap > 0:
+        price_outlier_cap = _anchor_price_for_cap * _PRICE_OUTLIER_FACTOR
+
     new_candidate = _find_best_candidate(
         query=slot_spec.search_query,
         slot_name=slot_spec.slot_name,
@@ -1299,6 +1315,7 @@ def swap_slot_in_look(
         pairing_stats=pairing_stats,
         anchor_class=anchor_class,
         seen_stores=seen_stores,
+        price_outlier_cap=price_outlier_cap,
         body_type=body_type,
         body_modifiers=body_modifiers,
         formality_override=formality_override,

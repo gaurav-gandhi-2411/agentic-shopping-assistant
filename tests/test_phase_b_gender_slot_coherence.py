@@ -586,7 +586,80 @@ class TestWesternRegisterGateOffice:
         assert is_western_register_occasion("office") is True
         assert is_western_register_occasion("wedding_guest") is False
         assert is_western_register_occasion("casual") is False
+
+    def test_jodhpuri_blazer_rejected_for_office(self) -> None:
+        # 2026-07-25 fix: "Jodhpuri" names a structured Indian formal jacket
+        # style, not Western business tailoring — real strict-eval miss.
+        item = {
+            "product_type": "blazer",
+            "prod_name": "Men's Navy Blue Sequin Geometric Jodhpuri Blazer with Satin Lining",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_plain_jodhpuri_mention_outside_outerwear_not_rejected(self) -> None:
+        # _JODHPURI_OUTERWEAR_RE requires an outerwear garment word alongside
+        # "jodhpuri" in the same name — a bare "Jodhpuri Mojaris" FOOTWEAR
+        # item (not a blazer/jacket) must not be caught by this gate.
+        item = {
+            "product_type": "footwear",
+            "prod_name": "Tan Leather Men's Classic Jodhpuri Mojaris",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "footwear") is True
+
+    def test_ethnic_footwear_pairing_desc_rejected_for_office_blazer(self) -> None:
+        # 2026-07-25 fix: this catalogue's dominant ethnic-crossover-blazer
+        # marketing template recommends styling WITH ethnic footwear even
+        # when the item's own name has no festive/quirky word.
+        item = {
+            "product_type": "blazer",
+            "prod_name": "Men's Navy Blue Zig Zag Glitter Silk Blend Blazer",
+            "gender": "men",
+            "detail_desc": (
+                "Get a perfect ethnic look with this jacket by VASTRAMAY for any "
+                "traditional occasion. Style it with a kurta and mojris for a "
+                "complete look."
+            ),
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_ethnic_footwear_pairing_desc_ignored_outside_outerwear(self) -> None:
+        # Same marker words appear catalogue-wide on unrelated product types
+        # (footwear listings ARE juttis, kurtas mention them as a styling
+        # accessory) — must never fire outside the outerwear product types.
+        item = {
+            "product_type": "footwear",
+            "prod_name": "Women's Jutti",
+            "gender": "women",
+            "detail_desc": "Handcrafted leather jutti, pairs well with a kurta.",
+        }
+        assert is_coherent_candidate(item, "office", "women", "footwear") is True
         assert is_western_register_occasion("party_evening") is False
+
+    def test_indowestern_rejected_for_office(self) -> None:
+        # 2026-07-25 out-of-sample validation finding: "Beige Jacquard Indo
+        # Western for Men" (product_type_name="indowestern", 586 catalogue
+        # rows) surfaced for "office outfit for men" -- not caught by
+        # is_ethnic_item (indowestern isn't in any of its keyword sets).
+        item = {
+            "product_type": "indowestern",
+            "prod_name": "Beige Jacquard Indo Western for Men",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_indowestern_name_substring_in_other_types_not_rejected(self) -> None:
+        # Deliberately checked against the exact product_type facet value,
+        # not a name substring -- "indo-western"/"indowestern" also appears
+        # inside trousers/sherwani/kurta/NIGHTWEAR rows' free-text names,
+        # where a substring match would wrongly reclassify unrelated items.
+        item = {
+            "product_type": "nightwear",
+            "prod_name": "Indo-Western Style Comfort Nightwear",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "top") is True
 
 
 # ---------------------------------------------------------------------------

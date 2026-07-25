@@ -42,6 +42,44 @@ _ATHLETIC_REGISTER_OCCASIONS: frozenset[str] = frozenset({"gym"})
 # same conservative style as _WESTERN_MARKER_KEYWORDS in slots.py.
 _FESTIVE_MARKER_RE = re.compile(r"\b(quirky|festive)\b", re.IGNORECASE)
 
+# 2026-07-25 (occasion-register strict-eval fix): "Jodhpuri" names a
+# structured Indian formal jacket style (bandhgala-adjacent), never standard
+# Western business tailoring -- a "Men's Navy Blue Sequin Geometric Jodhpuri
+# Blazer" ranked for "navy blue slim fit blazer for office under 5000".
+# Deliberately NOT added to slots.py's MEN_FORMALWEAR_KEYWORDS/classify_anchor
+# (that shared path also classifies "Jodhpuri Mojaris"/"Jodhpuri Jutti"
+# FOOTWEAR rows -- 19 in the catalogue -- and would have reclassified them out
+# of SLOT_ALLOWED_CLASSES["footwear"], breaking outfit-composer footwear-slot
+# matching for those items). Scoped narrowly here to gate 4 only, checked
+# only when the item's own name ALSO names an outerwear garment (jacket/
+# blazer/coat/waistcoat) so a hypothetical unrelated "jodhpuri" mention never
+# fires this gate for non-outerwear candidates.
+_JODHPURI_OUTERWEAR_RE = re.compile(r"\bjodhpuri\b.*\b(blazer|jacket|coat|waistcoat)\b", re.IGNORECASE)
+
+# 2026-07-25 (occasion-register strict-eval fix): this catalogue's dominant
+# ethnic-crossover-blazer marketing template explicitly recommends styling
+# the item WITH ethnic footwear ("...traditional occasion. Style it with a
+# kurta and mojris for a complete look.") -- a strong, catalogue-verified
+# ethnic-crossover signal even when the blazer's own name/fabric words don't
+# say "festive"/"quirky". Verified against every OUTERWEAR row (blazer/
+# jacket/coat/cardigan/waistcoat, 374 rows) carrying this marker in
+# detail_desc: 14/14 are genuinely embellished/festive-fabric pieces
+# (sequin/glitter/velvet/embroidered/woven-design), zero plain business
+# blazers -- a much narrower, safer signal than a broad "wedding"/"festive"
+# desc scan, which was independently checked and found 2 genuine false
+# positives (linen tailored blazers explicitly marketed as ALSO
+# office-appropriate) among 8 hits, so that broader scan was deliberately
+# NOT shipped. Deliberately scoped to _OUTERWEAR_PRODUCT_TYPES below — the
+# same marker words appear 2770x catalogue-wide (footwear listings ARE
+# juttis/mojaris themselves, kurtas mention them as a styling accessory,
+# etc.), so this predicate must never be applied unscoped.
+_ETHNIC_FOOTWEAR_PAIRING_RE = re.compile(
+    r"\b(mojri|mojris|mojaris|mojari|jutti|juttis|kolhapuri|kolhapuris)\b", re.IGNORECASE
+)
+_OUTERWEAR_PRODUCT_TYPES: frozenset[str] = frozenset({
+    "blazer", "jacket", "coat", "cardigan", "waistcoat", "outerwear",
+})
+
 # Wave 9 fix 2 (2026-07-24 live-proof): a "workout outfit for men" look's
 # outerwear slot filled with a "Regular Fit Knitted Polo Cardigan"
 # (store=snitch) — not gym-appropriate. Gate 5's ethnic/festive rejection has
@@ -257,9 +295,30 @@ def is_coherent_candidate(
     # ethnic-classified items AND anything carrying an explicit festive/quirky
     # marker, symmetric to gates 2/3 above.  Live-proven: an office look's
     # bottom slot filled with a "Quirky Floral Printed Cotton Anarkali
-    # Sharara Set" (ethnic + festive).
+    # Sharara Set" (ethnic + festive). Also rejects a "Jodhpuri" outerwear
+    # item (structured Indian formal jacket, not Western tailoring — see
+    # _JODHPURI_OUTERWEAR_RE), any outerwear item whose OWN desc markets it
+    # paired with ethnic footwear (see _ETHNIC_FOOTWEAR_PAIRING_RE), and any
+    # product_type_name=="indowestern" item (Indo-Western ensembles are
+    # ethnic-crossover festive wear, never office-appropriate — 586 rows,
+    # live-proven: a "Beige Jacquard Indo Western for Men" surfaced for
+    # "office outfit for men"). Checked against the exact facet value, not a
+    # name substring — "indo-western"/"indowestern" also appears inside 54
+    # trousers, 41 sherwani, 18 kurta, and 16 NIGHTWEAR rows' free-text names,
+    # where a substring match would have wrongly reclassified unrelated
+    # items. All four are 2026-07-25 fixes; the first two shipped as part of
+    # the "occasion-register" strict-eval bucket, the latter two (indowestern,
+    # pendant→jewellery in slots.py) found by the out-of-sample validation
+    # pass and tightened in the same commit.
     if occasion_slug in _WESTERN_REGISTER_OCCASIONS and (
-        is_ethnic_item(pt, name) or _FESTIVE_MARKER_RE.search(name)
+        is_ethnic_item(pt, name)
+        or _FESTIVE_MARKER_RE.search(name)
+        or _JODHPURI_OUTERWEAR_RE.search(name)
+        or pt.lower().strip() == "indowestern"
+        or (
+            pt.lower().strip() in _OUTERWEAR_PRODUCT_TYPES
+            and _ETHNIC_FOOTWEAR_PAIRING_RE.search(candidate.get("detail_desc") or "")
+        )
     ):
         return False
 
