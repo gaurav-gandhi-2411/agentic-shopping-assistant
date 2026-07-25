@@ -152,6 +152,20 @@ def _retrieve_pipeline(
         filters["product_type_name"] = intent.garment_type
     if intent.colour:
         filters["colour_group_name"] = intent.colour
+    # 2026-07-25 gate-parity fix: this mirror never passed budget_max_inr
+    # into the retrieval filter at all, even though search_node always does
+    # (see graph.py's "if merged_intent.budget_max_inr: _plan_filters
+    # ['price_max'] = ..." right before its own search_catalogue call) —
+    # HybridRetriever applies price_max as a HARD exclude at the candidate-
+    # building layer (src/retrieval/hybrid_search.py), not a soft rerank
+    # signal, so this was a genuine, large eval-mirror gap: any "under Rs X"
+    # query scored a pipeline where over-budget items were never excluded
+    # from the pool at all. Confirmed via direct A/B (bandhgala under
+    # Rs10000): without this filter, top-5 prices were
+    # [26000, 383999, 6499, 28995, 8999]; with it, [6499, 8999, 7499, 9995,
+    # 5499] -- all in budget.
+    if intent.budget_max_inr:
+        filters["price_max"] = intent.budget_max_inr
 
     # search_catalogue (not retriever.search directly) — it's the actual
     # production retrieval boundary and applies the colour-family widening

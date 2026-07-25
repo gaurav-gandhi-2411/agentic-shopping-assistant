@@ -1547,3 +1547,80 @@ labels:
   - {article_id: "8989405905048", relevant: true, note: "light green, desc explicit 'Ideal for Eid festival', Rs2499 <= Rs2500 cap"}
   - {article_id: "8395009687858", relevant: false, reason: budget, note: "Rs5790 > Rs2500 cap; also explicitly a kurta 'Set' for a bare-kurta query"}
   - {article_id: "8976982442242", relevant: true, note: "mehendi green (green-family), desc explicit 'Perfect for eid,weddings,receptions', Rs1069 <= Rs2500 cap"}
+
+# --- Batch 15 (2026-07-25): budget-filter mirror fix re-audit ---
+# scripts/eval_strict.py's _retrieve_pipeline never passed budget_max_inr
+# into the retrieval filter dict at all, even though search_node always does
+# and HybridRetriever applies it as a HARD exclude (not a soft rerank
+# signal) -- a large eval-mirror gap discovered while investigating why
+# "budget" was the #1 miss reason (54 misses) in Batch 14. Fixing it changed
+# retrieval for every budget-bearing query, surfacing 29 new items across 17
+# queries that need auditing before the number can be trusted (per the
+# harness's own "never let the checker grade itself" rule -- these are NOT
+# assumed relevant just because they now rank higher).
+# retrieval_snapshot: data/processed/unified (commit 277d29d + the
+# budget_max_inr mirror fix), eval_strict.py --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_016
+  items:
+  - {article_id: "17156538", relevant: true, note: "kurti, Rs1349 <= Rs1500 cap, no colour/style/occasion named"}
+- query_id: gold_030
+  items:
+  - {article_id: "8957122085026", relevant: true, note: "name explicit 'Polo T-Shirt', Rs1199 <= Rs1500 cap"}
+- query_id: multi_001
+  items:
+  - {article_id: "8144876372190", relevant: true, note: "black, desc explicit 'Black ruched bodycon dress', Rs1749 <= Rs3000 cap"}
+- query_id: multi_003
+  items:
+  - {article_id: "8428939837595", relevant: true, note: "colour facet Red (name says 'Golden' but facet is authoritative for the query's stated colour); desc 'shimmering sequence and intricate thread embroidery' = embellished; Rs14995 <= Rs15000 cap"}
+  - {article_id: "8603406401758", relevant: false, reason: attribute-contradiction, note: "red, under budget, but desc frames it as 'Ajrakh block print' -- a print technique, not the 'embellished' (embroidery/sequin/beadwork) style asked for"}
+- query_id: multi_005
+  items:
+  - {article_id: "9300199145730", relevant: true, note: "navy, fit unstated not contradicted, Rs4949 <= Rs5000 cap; occasion context ('weddings and festive') doesn't contradict office register"}
+  - {article_id: "7958433071362", relevant: false, reason: occasion-register, note: "desc explicit 'Zig Zag Glitter...fancy smart looking' -- a party/festive-register glitter blazer, not office-appropriate"}
+  - {article_id: "9300203012354", relevant: false, reason: occasion-register, note: "desc explicit 'Sequin Geometric Jodhpuri...Stand out at every celebration' -- wedding/festive Jodhpuri register, not office-appropriate"}
+- query_id: multi_006
+  items:
+  - {article_id: "9729195082034", relevant: false, reason: attribute-contradiction, note: "name explicit 'Slim Fit' -- contradicts 'straight fit'"}
+- query_id: multi_007
+  items:
+  - {article_id: "8616568553622", relevant: true, note: "name explicit 'Peach', colour facet Light Pink is an adjacent warm-pastel shade (colour-family tolerance), name explicit 'A-Line', Rs2199 <= Rs2500 cap"}
+- query_id: multi_010
+  items:
+  - {article_id: "17566464", relevant: true, note: "White & Pink floral print reads as a pastel-pink palette (pink co-primary), mehendi-appropriate light register, Rs5999 <= Rs10000 cap"}
+- query_id: multi_015
+  items:
+  - {article_id: "17876896", relevant: true, note: "green primary, pure silk banarasi, Rs2880 <= Rs5000 cap"}
+  - {article_id: "18692910", relevant: true, note: "green primary, silk cotton mysore silk with zari, Rs3599 <= Rs5000 cap"}
+  - {article_id: "15961010", relevant: true, note: "green primary, zari silk blend banarasi, Rs4799 <= Rs5000 cap"}
+  - {article_id: "7684898226421", relevant: true, note: "mehandi green, Rs2409 <= Rs5000 cap; Nauvari is a drape style, not a rubric-checked dimension"}
+- query_id: multi_016
+  items:
+  - {article_id: "7735745937560", relevant: true, note: "yellow, desc explicit festive wear, Rs2499 <= Rs3000 cap"}
+  - {article_id: "8891599487128", relevant: false, reason: kids-leak, note: "desc explicit 'Mustard yellow printed cotton blend kurta for boys' -- a children's item leaking into men's results"}
+- query_id: multi_018
+  items:
+  - {article_id: "18935640", relevant: true, note: "desc explicit 'gold-toned embellished' (base fabric colour orange, but the query's 'gold embellished' is satisfied by gold-toned embellishment work, not requiring a gold base), Rs5500 <= Rs8000 cap"}
+  - {article_id: "16187704", relevant: true, note: "desc explicit 'gold-toned embellished...sequinned', Rs7450 <= Rs8000 cap"}
+  - {article_id: "19029822", relevant: true, note: "desc explicit 'golden embroidered...zari', Rs4150 <= Rs8000 cap"}
+  - {article_id: "15293570", relevant: false, reason: colour-family, note: "no gold/gold-toned/golden signal anywhere in name or desc -- plain red 'Flower Bazaar' print, not gold-embellished"}
+  - {article_id: "18838938", relevant: false, reason: colour-family, note: "'Pink embellished...sequinned' -- embellished but no gold/gold-toned/golden signal at all"}
+- query_id: multi_019
+  items:
+  - {article_id: "9498323943682", relevant: true, note: "white, desc explicit 'festive wardrobe', single garment, Rs1399 <= Rs2500 cap"}
+- query_id: multi_020
+  items:
+  - {article_id: "277f6062-d3cf-5ff8-9419-356e9e360cf7", relevant: true, note: "colour facet Black (name lists available colourway options 'White, Black, Grey'; this row's own facet is Black), slim, Rs1709 <= Rs2000 cap"}
+- query_id: multi_023
+  items:
+  - {article_id: "8598655664278", relevant: true, note: "orange (desc says 'coral', an orange-family shade), Rs909 <= Rs2000 cap; 'work wear and casual wear' framing doesn't contradict navratri's broad, non-heavy festive register"}
+- query_id: multi_025
+  items:
+  - {article_id: "8664476909718", relevant: true, note: "hot pink, georgette, embellished (bonus), Rs2159 <= Rs5000 cap"}
+- query_id: multi_028
+  items:
+  - {article_id: "15634472", relevant: false, reason: set-not-single, note: "'Hooded Co-Ords Set' -- top+shorts 2-piece set for a bare single-crop-top query"}
+  - {article_id: "8284939911390", relevant: false, reason: attribute-contradiction, note: "no crop confirmation anywhere in name/desc ('Beige Floral Cotton Top', 'relaxed and comfortable fit' framing leans away from a fitted/cropped silhouette)"}
+- query_id: multi_030
+  items:
+  - {article_id: "9724031009074", relevant: true, note: "green, Rs1312 <= Rs2500 cap; desc names Mehndi not Eid but both are the same light-to-medium festive register, not contradicting"}
