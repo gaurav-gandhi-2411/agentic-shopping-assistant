@@ -1,0 +1,38 @@
+Loading retrieval indices from C:\Users\gaura\ml-projects\agentic-shopping-assistant\data\processed\unified...
+
+STRICT GOLD EVAL [pipeline-occasion-gated] — hand-audited relevance (rubric: holdout_gold_queries.yaml)
+queries=24  scored_items=109  unlabeled_items=0
+
+strict precision@5 (overall): 0.862  (94/109)
+
+per-category precision@5:
+  literal          1.000  (25/25)
+  multi_attribute  0.643  (18/28)
+  occasion         0.846  (22/26)
+  style            0.967  (29/30)
+
+MRR@5 (overall): 0.889  (n=24)
+per-category MRR@5:
+  literal          1.000  (n=5)
+  multi_attribute  0.619  (n=7)
+  occasion         1.000  (n=6)
+  style            1.000  (n=6)
+
+miss taxonomy:
+    4  data-ceiling             [DATA]
+    3  attribute-contradiction  [CODE-FIXABLE]
+    3  occasion-register        [CODE-FIXABLE]
+    3  colour-family            [CODE-FIXABLE]
+    1  type-confusion           [CODE-FIXABLE]
+    1  data-mislabel            [DATA]
+
+if every CODE-FIXABLE miss were fixed: 0.954 (remaining gap = 5 data-capped items)
+
+weakest queries:
+  oos_022        [multi_attribute ] 0/4  'mint anarkali for navratri under 5000'
+  oos_020        [multi_attribute ] 1/4  'coral lehenga for mehendi under 6500'
+  oos_013        [occasion        ] 3/5  'office outfit for men'
+  oos_015        [occasion        ] 3/5  'pastel saree for karva chauth'
+  oos_019        [multi_attribute ] 3/5  'charcoal grey tailored trousers for men for office under 4500'
+  oos_010        [style           ] 4/5  'bodycon kurta for women'
+  oos_023        [multi_attribute ] 4/5  'beige palazzo for women under 1800'

@@ -1,9 +1,21 @@
-# Out-of-sample validation set (2026-07-25) — NEVER looked at during Step 2's
-# fix development (which was scored exclusively against strict_gold_queries.yaml).
-# Purpose: check whether the four Step-2 gates (budget, set-not-single,
-# attribute-contradiction, occasion-register) generalize to new query
-# instances of the same classes, or whether they were overfit to the specific
-# misses found while developing them.
+# Out-of-sample validation set, ORIGINALLY DESIGNED 2026-07-25 as a holdout —
+# NEVER looked at during Step 2's fix development (which was scored
+# exclusively against strict_gold_queries.yaml). Purpose: check whether the
+# four Step-2 gates (budget, set-not-single, attribute-contradiction,
+# occasion-register) generalize to new query instances of the same classes,
+# or whether they were overfit to the specific misses found while developing
+# them.
+#
+# STATUS AS OF 2026-07-25 (same day): NO LONGER A HOLDOUT. Reading these 24
+# queries' results to hand-label them surfaced 3 real generalization gaps
+# (bodycon/straight silhouette, "pendant" missing from accessory keywords,
+# "indowestern" missing from the office-register gate) that were then fixed
+# in code the same session — see eval/fixtures/holdout_gold_labels.yaml's
+# header for the full honest-score writeup (0.862 true cold pre-fix vs 0.881
+# post-fix, and why 0.881 must never be cited as the generalization number).
+# This file is now DEVELOPMENT DATA, kept for regression coverage, not future
+# out-of-sample checks. A genuine future out-of-sample check needs a NEW
+# query set this session has never inspected.
 #
 # Same categories, same labeling rubric, same file-separation discipline as
 # strict_gold_queries.yaml/strict_gold_labels.yaml — see that file's header

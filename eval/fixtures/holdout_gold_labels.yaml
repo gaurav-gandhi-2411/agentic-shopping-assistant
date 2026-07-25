@@ -6,7 +6,32 @@
 # consulted during any Step 2 fix development. Three narrow tightening fixes
 # were made AFTER this labeling pass based on findings here (bodycon's own
 # silhouette pole, pendant->accessory, indowestern->office-register) — see
-# the commit that ships these labels for the exact diff and re-verification.
+# commit ad8cb91 for the exact diff and re-verification.
+#
+# HONEST SCORE PROVENANCE (2026-07-25 correction, same day): the number first
+# reported to GG as "out-of-sample" (0.881, 96/109) was measured AFTER the 3
+# tightening fixes above were applied — i.e. it was not a true cold number,
+# since retrieval had already changed based on what this holdout set itself
+# revealed. Re-measured by temporarily reverting slots.py/coherence.py to
+# their PRE-fix state (commit 4bba170) and re-scoring against this SAME label
+# file: 0.862 (94/109), 95% CI [0.785, 0.915] — see
+# reports/holdout_eval_prefix_pipeline.txt. This is the correct number to
+# cite for "did the Step 2(a)-(d) gates generalize" — it still falls inside
+# the in-sample 95% CI [0.860, 0.922] (barely, and with a much wider interval
+# at n=109), so the conclusion (gains generalize, no material overfit) holds,
+# but 0.881 was never a legitimate blind measurement and must not be cited
+# as one. reports/holdout_eval_pipeline.txt (0.881) is the POST-fix number —
+# useful for confirming the tightening fixes didn't regress anything, not as
+# evidence of generalization.
+#
+# STATUS: these 24 queries are no longer a valid holdout. I read every one of
+# their retrieved results, and 3 of 24 queries' results directly drove code
+# changes (oos_010, oos_013 x2). They are DEVELOPMENT DATA now, same as
+# strict_gold_queries.yaml — kept here for regression coverage (via
+# --queries-path/--labels-path), not for future "did it generalize" checks.
+# Any future out-of-sample validation needs a FRESH set of queries this
+# session has never looked at, hand-labeled and scored the same way, cold,
+# with the score recorded BEFORE any fix is made in response to it.
 #
 # retrieval_snapshot: data/processed/unified, eval_strict.py --mode pipeline,
 # commit 4bba170 (before the 3 tightening fixes below were added).
