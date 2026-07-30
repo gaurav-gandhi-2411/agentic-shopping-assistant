@@ -395,6 +395,16 @@ _OCCASION_MAP: dict[str, str] = {
     "ring ceremony": "engagement",
     "wedding": "wedding_guest",
     "shaadi": "wedding_guest",
+    # "bridal" was previously unmapped (flagged as a known gap in
+    # eval/fixtures/strict_gold_labels.yaml's kids_leak_001 note), which left
+    # EVERY occasion-gated protection -- the merchandise gate, loungewear
+    # gate, ethnic/western coherence gates, footwear-required gate -- inert
+    # for any "bridal ..." query (they all no-op when occasion_slug is None),
+    # not just the merchandise-hamper leak that surfaced it (2026-07-30).
+    # Mapped to the existing wedding_guest slug rather than a new occasion:
+    # a bridal look is register-consistent with wedding_guest (ETHNIC_HEAVY,
+    # formality 4), and the catalogue has no dedicated "bridal" Occasion entry.
+    "bridal": "wedding_guest",
     "sangeet": "sangeet",
     "haldi": "haldi",
     "mehendi": "mehendi",

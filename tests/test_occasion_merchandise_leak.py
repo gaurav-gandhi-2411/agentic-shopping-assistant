@@ -86,6 +86,14 @@ class TestIsOccasionMerchandiseType:
     def test_idols_flagged(self) -> None:
         assert is_occasion_merchandise_type("Idols") is True
 
+    def test_hampers_flagged(self) -> None:
+        """2026-07-30 addition: bare "Hampers" (plural, the actual catalogue
+        facet value) was missing — only compound "gift hamper" phrases were
+        covered. Confirmed via catalogue audit: product_type_name=="Hampers"
+        is exactly 3 rows, all genuine "... Bridal Hamper Box" gift sets."""
+        assert is_occasion_merchandise_type("Hampers") is True
+        assert is_occasion_merchandise_type("hamper") is True
+
     def test_apparel_types_not_flagged(self) -> None:
         for pt in ("kurta", "kurti", "lehenga", "saree", "sherwani", "dupatta"):
             assert is_occasion_merchandise_type(pt) is False

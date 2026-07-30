@@ -137,9 +137,16 @@ def is_kids_item(prod_name: str | None) -> bool:
 #     occasion's keyword-matching set by volume and is exactly what the
 #     2026-07-23 multi-family accessory-retrieval fix (commit 1717265) exists
 #     to surface correctly for bridal/festive looks.
+# 2026-07-30 addition: bare "hampers"/"hamper" product_type_name values were
+# missing -- only compound phrases ("gift hamper", "rakhi hamper") were
+# covered. Confirmed via catalogue audit: product_type_name=="Hampers" is
+# exactly 3 rows, all "Mortantra X Zivame Bridal Hamper Box A/B/C" -- genuine
+# gift hampers, zero false-positive risk. This surfaced via "bridal look for
+# women" returning a literal hamper box in top-5 (see intent_parser's
+# "bridal" occasion-map addition, the compounding root cause for that leak).
 _OCCASION_MERCHANDISE_TYPES: frozenset[str] = frozenset({
     "rakhi", "rakhi hamper", "rakhi gift hamper", "silver rakhi",
-    "gift hamper", "idols",
+    "gift hamper", "idols", "hampers", "hamper",
 })
 
 
