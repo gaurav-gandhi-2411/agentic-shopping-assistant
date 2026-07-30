@@ -138,6 +138,20 @@ _ACCESSORY_JEWELLERY_FAMILY: frozenset[str] = frozenset(
         "cufflink", "cufflinks", "hathphool", "kalangi", "passa", "judo",
         "juda", "mangalsutra", "earchain", "earchains", "ear chain",
         "haram", "chura",
+        # 2026-07-30 follow-up (found live-testing the fix above, same audit
+        # discipline): "kaleera" (80 rows, bridal wrist ornament, e.g.
+        # "Traditional Golden Bridal Kaleera") and "varmala"/"jaimala" (5
+        # rows combined, wedding garlands, e.g. "Kundan Stone Varmala For
+        # Bride Groom") both surfaced live for "bridal look for women" —
+        # neither was in the original audit pass. "jadau" (a jewellery-making
+        # technique term, 3,179 rows) added too: sampled facet-value
+        # distribution is 100% already-jewellery types (Necklace Sets,
+        # Earrings, Rings, Bangles, etc.) except 261 rows typed generic
+        # "Fashion", which need this keyword to be caught via the
+        # combined-text fallback. Distinct word from "jada" above (hair-bun
+        # ornament) — "jadau" has no word boundary after "jada", so \bjada\b
+        # never accidentally matches it.
+        "kaleera", "varmala", "jaimala", "jadau",
     }
 )
 _ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch", "belts", "watches"})
