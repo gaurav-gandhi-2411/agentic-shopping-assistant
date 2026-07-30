@@ -844,9 +844,14 @@ def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
 # "wedding favors for mehendi" still surface the ishhaara favours collection
 # instead of being over-suppressed — same both-directions discipline as the
 # original rakhi fix.
+# 2026-07-30 addition: "gift card"/"gift cards" added alongside cleaning.py's
+# same-day gift-card addition (21 catalogue rows, 100% genuine, zero false
+# positives) so "buy a gift card for my anniversary" still surfaces gift
+# cards instead of being over-suppressed by the new exclusion.
 _OCCASION_MERCHANDISE_REQUEST_RE = re.compile(
     r"\brakhi\b|\brakhis\b|\bhamper\b|\bidol\b|\bidols\b|\bgift\b|\bgifts\b"
-    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b"
+    r"|\bgift\s*card\b|\bgift\s*cards\b",
     re.IGNORECASE,
 )
 
