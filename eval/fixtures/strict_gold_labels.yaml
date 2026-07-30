@@ -1852,3 +1852,46 @@ labels:
   - {article_id: "14099266", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women White Regular Fit Solid Regular Trousers' -- same"}
   - {article_id: "11054006", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women White Regular Cropped Trousers' -- same"}
   - {article_id: "8702899159262", relevant: false, reason: occasion-register, note: "'Ultimate Stretchable Loose Fit Trousers' -- unrelated brand, still genuinely Western, same data-ceiling case"}
+# ── missing high-traffic occasion-term fix (2026-07-30): groom/dulhan/
+# baraat/nikah -> wedding_guest. Retrieval snapshot: this fix, --mode
+# pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_groom_001
+  items:
+  - {article_id: "8611823812786", relevant: true, note: "'PAISELY IVORY SHERWANI SET' -- genuine groom sherwani"}
+  - {article_id: "8559557050523", relevant: true, note: "'Navy Blue Groom Indo-Western Sherwani' -- explicitly groom-marketed"}
+  - {article_id: "9121022542048", relevant: true, note: "'Men's Ivory Cream Geometric Sequin Embroidered Indo Western Set' -- formal embellished indo-western, groom-appropriate"}
+  - {article_id: "8611863822514", relevant: true, note: "'KATHAKALI BEIGE SHERWANI SET' -- genuine groom sherwani"}
+  - {article_id: "8572553396379", relevant: true, note: "'Blue Formal Suit with Printed Waistcoat for Men' -- formal wedding-appropriate western suit"}
+- query_id: occ_dulhan_001
+  items:
+  - {article_id: "7265663385643", relevant: true, note: "'Traditional Heavy Dulhan Bridal Rajasthani Rajwadi Chooda' -- genuine bridal chura bangles"}
+  - {article_id: "7316905426987", relevant: true, note: "'Dulhan Embedded Fabric Envelope Clutches' -- bridal clutch accessory"}
+  - {article_id: "15051718", relevant: true, note: "'SHOPGARB Women Yellow' -- weak product title but desc confirms a full 'Yellow & Golden embellished semi-stitched lehenga...with dupatta', genuine bridal ensemble"}
+  - {article_id: "7248712695851", relevant: true, note: "'Rajwadi Dulhan Chooda' -- genuine bridal chura bangles"}
+  - {article_id: "8428299976926", relevant: false, reason: occasion-register, note: "'Beige Cotton Tailored Fit Waist Coat' -- a waistcoat is menswear-formal-adjacent, mismatched for a 'dulhan' (bride) look"}
+- query_id: occ_baraat_001
+  items:
+  - {article_id: "bcfabac3-3371-5bfc-8fff-4d4d66d10209", relevant: false, reason: occasion-register, note: "'Men Solid Multicolor Top & Pyjama Set' (product_type=nightwear) -- a sleepwear set, not formal wedding-procession wear; is_loungewear_text() does not catch this specific name (no 'night'/explicit sleepwear marker) -- a residual loungewear-detection gap, not caused by this occasion-mapping fix, flagged separately"}
+  - {article_id: "8909856964763", relevant: true, note: "'Gold Sherwani with Doli Baraat Zardozi Work' -- explicitly baraat-marketed sherwani"}
+  - {article_id: "8852950220952", relevant: true, note: "'Green Embroidered Cotton Kurta Set' -- formal ethnic menswear"}
+  - {article_id: "8355974807707", relevant: true, note: "'Cream Colour Sherwani for Men' -- genuine wedding sherwani"}
+  - {article_id: "9724035137842", relevant: true, note: "'Designer Mustard Yellow Printed Kurta' -- festive formal kurta"}
+- query_id: occ_nikah_001
+  items:
+  - {article_id: "6669758005405", relevant: true, note: "'Women White Front Open Solid Shrug' -- plausible formal layering piece, no casual marker"}
+  - {article_id: "18957838", relevant: true, note: "'KALINI Women Fluorescent Green Embroidered Pure Cotton Salwar suit' -- embroidered ethnic salwar suit, formal-appropriate"}
+  - {article_id: "8644010999963", relevant: true, note: "'White Embroidered Party Wear Lehenga' -- embellished ethnic lehenga"}
+  - {article_id: "18829920", relevant: true, note: "'Virah Fashion Women Lime Green Embroidered Layered Thread Work Top with Sharara & With Dupatta' -- embroidered ethnic sharara set"}
+  - {article_id: "8318352162971", relevant: true, note: "'Cream Net Lehenga with Sequins & Cutdana Embellishments' -- embellished ethnic lehenga"}
+# ── anniversary occasion-mapping + gift-card merchandise fix (2026-07-30):
+# "anniversary" -> party_evening; bare "gift card" added to the occasion-
+# merchandise exclusion (was ranking "Anniversary Day E-Gift Card" #1 before
+# this fix -- see graph.py/cleaning.py's gift-card merchandise commit).
+# Retrieval snapshot: this fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_anniversary_001
+  items:
+  - {article_id: "9001983607006", relevant: true, note: "'Twilight Glamour Party Co-ord Set' -- party-appropriate co-ord"}
+  - {article_id: "13088792", relevant: true, note: "'Amydus Women Plus Size Brown & Black Scarf Print Flared Trousers' -- no casual marker, party-plausible"}
+  - {article_id: "8644901896347", relevant: true, note: "'Sky Blue Zari Woven Party Wear Lehenga' -- explicit party wear, embellished"}
+  - {article_id: "8644788879515", relevant: true, note: "'Party Wear Floral Embroidered blue Lehenga' -- explicit party wear, embroidered"}
+  - {article_id: "13352476", relevant: true, note: "'Global Desi Woman's Pink and Beige Floral Printed Skirt' -- no casual marker, party-plausible; the gift-card item that previously ranked #1 here is now correctly excluded"}

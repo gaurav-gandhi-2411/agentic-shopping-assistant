@@ -502,3 +502,30 @@ queries:
   category: occasion
   query: jaipur kurti trousers for sangeet
   gender: women
+# ── missing high-traffic occasion-term regression probes (2026-07-30) ────────
+# Live-proven gap: "groom"/"dulhan"/"baraat"/"nikah"/"anniversary" were never
+# in intent_parser._OCCASION_MAP (occasion_slug=None silently disables every
+# occasion-gated protection). Audited real catalogue support before mapping
+# any of them (mundan/griha pravesh/housewarming were checked and rejected —
+# too thin/ambiguous, not mapped). groom/dulhan/baraat/nikah -> wedding_guest;
+# anniversary -> party_evening.
+- id: occ_groom_001
+  category: occasion
+  query: groom outfit for men
+  gender: men
+- id: occ_dulhan_001
+  category: occasion
+  query: dulhan look for women
+  gender: women
+- id: occ_baraat_001
+  category: occasion
+  query: baraat outfit for men
+  gender: men
+- id: occ_nikah_001
+  category: occasion
+  query: nikah outfit for women
+  gender: women
+- id: occ_anniversary_001
+  category: occasion
+  query: anniversary party outfit for women
+  gender: women
