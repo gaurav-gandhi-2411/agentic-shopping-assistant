@@ -7,7 +7,9 @@ from src.agents.outfit.slots import (
     WOMEN_ONLY_ETHNIC_KEYWORDS,
     gender_allowed,
     is_athletic_footwear_item,
+    is_casual_marker_item,
     is_ethnic_item,
+    is_formal_capable_western_item,
     is_western_item,
     is_western_marker_item,
 )
@@ -266,27 +268,35 @@ def is_coherent_candidate(
 
     # Gate 3: ethnic_heavy occasions reject western_casual items (same marker
     # extension as gate 2 above).
+    #
+    # 2026-07-30 fix: the wedding_guest/reception exceptions below used to be
+    # a name-substring scan requiring the literal word "gown" (or blazer/
+    # trousers/shirt/suit/formal) somewhere in the item's free-text listing
+    # copy. Catalogue audit (data/processed/unified/catalogue.parquet):
+    # product_type_name=="dress" rows almost never literally say "gown"
+    # (4/1580), so that scan rejected 84% of genuinely reception-appropriate
+    # dresses; conversely "trousers"/"shirt"/"blazer" typed rows survived at
+    # ~100% NOT because of real formality detection but because the
+    # allow-list keywords happened to equal those facet values, letting
+    # genuinely casual items ("Grey Solid Uno Fit Casual Trouser", "Casual
+    # Shirt", "Casual Blazer") through as a false positive. Replaced with a
+    # structured facet-equality check (is_formal_capable_western_item — same
+    # exact-match pattern as gate 4's "indowestern" check below) PLUS the
+    # existing casual-marker exclusion (is_casual_marker_item, extended
+    # 2026-07-30 to also catch the bare word "casual").
     if occasion.ethnic_lean == ETHNIC_HEAVY and (
         is_western_item(pt, name) or is_western_marker_item(pt, name)
     ):
-        # Western formal (blazer/trousers/shirt) may be OK for men's wedding_guest
+        # Western formal (blazer/trousers/shirt/dress/...) may be OK for
+        # men's wedding_guest.
         if is_men and occasion_slug == "wedding_guest":
-            combined = (pt + " " + name).lower()
-            is_formal_western = any(
-                kw in combined for kw in ("blazer", "trousers", "shirt", "suit", "formal")
-            )
-            if is_formal_western:
+            if is_formal_capable_western_item(pt, name) and not is_casual_marker_item(name):
                 return True  # allowed
         # Reception is an indo-western glam evening register for EITHER gender
-        # (see _anchor_query_for_occasion's "reception" query) — a formal gown
-        # is also allowed alongside blazer/trousers/shirt/suit.
+        # (see _anchor_query_for_occasion's "reception" query) — a formal
+        # dress/gown is also allowed alongside blazer/trousers/shirt.
         if occasion_slug == "reception":
-            combined = (pt + " " + name).lower()
-            is_formal_western = any(
-                kw in combined
-                for kw in ("blazer", "trousers", "shirt", "suit", "formal", "gown")
-            )
-            if is_formal_western:
+            if is_formal_capable_western_item(pt, name) and not is_casual_marker_item(name):
                 return True  # allowed
         return False
 

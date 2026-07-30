@@ -1790,3 +1790,25 @@ labels:
 - query_id: occ_adv_001
   items:
   - {article_id: "8663667048603", relevant: true, note: "'Rust Orange Saree with Embellished Border and Designer Blouse' -- rust/orange is within haldi's traditional yellow-orange palette, ethnic full-ensemble saree, newly risen into top-5 for this generic 'outfit' ask once the same footwear-exclusion fix (NON_OUTFIT_ITEM_CLASSES) demoted a non-apparel candidate that previously occupied this slot"}
+# ── reception/wedding_guest thin-allow-list fix (2026-07-30):
+# is_formal_capable_western_item + extended is_casual_marker_item replacing
+# the old name-substring "gown"/"blazer"/formal allow-list scan. Retrieval
+# snapshot: this fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_reception_001
+  items:
+  - {article_id: "8225722007774", relevant: true, note: "'Black Embellished Viscose Winter Dress' -- black, embellished, glam-appropriate for reception's evening register"}
+  - {article_id: "7712093765718", relevant: true, note: "'Ethnic Printed & Embroidered A-Line Plated Maxi Dress - Black' -- embroidered indo-western maxi, black, glam-appropriate"}
+  - {article_id: "8225722040542", relevant: true, note: "'Black Viscose Winter Wrap Dress' -- black, no casual marker, plausible reception dress"}
+  - {article_id: "7785146155230", relevant: true, note: "'Black Hosiery Sheath Party Dress' -- black party dress, evening-appropriate"}
+  - {article_id: "8629266972822", relevant: false, reason: occasion-register, note: "'Black Floral Printed Cotton A-Line One-Piece Dress' -- cotton + floral print reads as a casual daytime dress despite the black colour; no embellishment/glam signal, mismatched formality for reception's evening-glam register (same standard as the cocktail eval's 'CASUAL Dress' miss)"}
+- query_id: occ_reception_002
+  items:
+  - {article_id: "9300203012354", relevant: true, note: "'Men's Navy Blue Sequin Geometric Jodhpuri Blazer with Satin Lining' -- navy, sequin-embellished, glam-appropriate for a wedding reception's indo-western register"}
+  - {article_id: "10197549252914", relevant: true, note: "'Navy Blue Solid Regular Fit Blazer' -- navy, formal blazer, no casual marker"}
+  - {article_id: "9121572749570", relevant: true, note: "'Men's Navy Blue Bafta Embossed Blazer' -- navy, embossed/formal detail"}
+  - {article_id: "10034685542706", relevant: true, note: "'Navy Blue Solid Regular Fit Blazer' -- navy, formal blazer, no casual marker"}
+  - {article_id: "9635301523762", relevant: true, note: "'Navy Blue Solid Slim Fit Blazer' -- navy, formal blazer, no casual marker"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "9114158792960", relevant: false, reason: occasion-register, note: "'AM:PM Dress' -- desc explicit 'breezy relaxed fit... 9-9 dress... deep side pockets... effortlessly chic', an everyday comfort dress with zero embellishment/glam signal, mismatched formality for reception; newly surfaced by the reception structural-type fix (admits 'dress' by default) -- a disclosed precision tradeoff of that fix, not caught by is_casual_marker_item since it never says 'casual' literally"}
+  - {article_id: "14382336", relevant: false, reason: data-mislabel, note: "'DressBerry Women Pink Melange Effect Longline Front-Open' -- desc is explicitly a SWEATER ('front-open sweater, 2 pockets, long sleeves, straight hem, Acrylic'), not a dress at all; catalogue's own product_type_name=='dress' facet contradicts the item's own description"}

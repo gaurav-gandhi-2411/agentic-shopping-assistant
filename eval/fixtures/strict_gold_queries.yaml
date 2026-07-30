@@ -440,3 +440,23 @@ queries:
   category: literal
   query: gold jewellery to go with red lehenga
   gender: women
+# ── reception/wedding_guest thin-allow-list regression probes (2026-07-30) ───
+# Live-proven bug: the reception/wedding_guest "indo-western glam register"
+# exception in coherence.py gate 3 required a literal "gown"/"blazer"/
+# "trousers"/"shirt"/"suit"/"formal" substring in the item's own free-text
+# name — catalogue audit showed only 258/1580 plain "Dress"-typed rows
+# survived (16%) since almost none literally say "gown". Fixed by replacing
+# the name-substring scan with a structured product_type facet-equality check
+# (is_formal_capable_western_item) + casual-marker exclusion
+# (is_casual_marker_item, extended). occ_reception_002 is the negative
+# control: casual-marked trousers must still be rejected, not just "any
+# trousers admitted by default" (that would be the over-widening failure
+# mode the office-register gate hit before).
+- id: occ_reception_001
+  category: occasion
+  query: black dress for a reception
+  gender: women
+- id: occ_reception_002
+  category: occasion
+  query: navy blue blazer for a wedding reception
+  gender: men

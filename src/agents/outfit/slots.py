@@ -65,6 +65,25 @@ MEN_FORMALWEAR_KEYWORDS: frozenset[str] = frozenset({
     "sherwani", "bandhgala", "nehru jacket",
 })
 
+# Structural, facet-based western product types capable of formal/glam
+# register (checked via product_type_name FACET EQUALITY, same pattern as
+# graph.py's "indowestern" gate-4 check — never a substring scan of the
+# free-text listing copy). Catalogue-audited 2026-07-30: "dress" rows
+# almost never literally say "gown" (4/1580), which is why the OLD
+# name-substring allow-list rejected 84% of genuinely reception-
+# appropriate dresses. "trousers"/"shirt"/"blazer" are clean, distinct
+# facet values in this catalogue (product_type_name=="shirt" has only
+# 11/8734 rows whose own name says t-shirt/tee — negligible noise).
+# Deliberately EXCLUDES "suit"/"suits": product_type_name=="suits" here
+# is 100% ethnic salwar-suit-sets (254/254 rows, all gender=="women",
+# e.g. "Burgundy Floral Embroidered Chanderi Silk Straight Suit Set"),
+# already correctly classified ethnic_one_piece by classify_anchor via
+# ETHNIC_ONE_PIECE_KEYWORDS' "suit set" entry — never a western business
+# suit in this catalogue's vocabulary.
+_WESTERN_FORMAL_CAPABLE_TYPES: frozenset[str] = frozenset({
+    "dress", "jumpsuit", "trousers", "pant", "pants", "shirt", "blazer",
+})
+
 # ── Accessory sub-families (Phase B Part 1) ─────────────────────────────────
 # Kept as separate small families (rather than one flat ACCESSORY_KEYWORDS set)
 # so accessory_query_matches() can require a candidate to share a FAMILY with
@@ -371,8 +390,21 @@ def is_novelty_item(prod_name: str) -> bool:
 # is checked standalone (not just "denim skirt"/"denim jeans") per design: a
 # hypothetical "denim-look tailored trouser" is still rejected — keeping the
 # rule simple beats trying to carve out fabric-look exceptions.
+#
+# 2026-07-30 extension (reception/wedding_guest western-formal-capable-type
+# fix): the bare word "casual" is now ALSO a casual marker on its own — real
+# catalogue rows like "Grey Solid Uno Fit Casual Trouser"/"Casual Shirt"/
+# "Casual Blazer" were live-proven to pass the OLD name-substring formal-
+# western allow-list in coherence.py purely because their product_type facet
+# happened to literally equal the allow-list keyword, with zero actual
+# formality check on the SPECIFIC item. Deliberately excludes "smart casual"/
+# "semi casual" via negative lookbehind — catalogue-audited: 467 "semi
+# casual" + 6 "smart casual" rows (e.g. "Black Solid Smart Fit Semi Casual
+# Shirt") are a real, distinct business-casual register in this catalogue,
+# not fully casual, and must stay admissible for formal-register looks.
 _CASUAL_MARKER_RE = re.compile(
-    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped)\b",
+    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped)\b"
+    r"|(?<!smart )(?<!smart-)(?<!semi )(?<!semi-)\bcasual\b",
     re.IGNORECASE,
 )
 
@@ -680,6 +712,20 @@ def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:
     """
     combined = (product_type + " " + prod_name).lower()
     return any(_contains_word(combined, kw) for kw in _WESTERN_MARKER_KEYWORDS)
+
+
+def is_formal_capable_western_item(product_type: str, prod_name: str = "") -> bool:
+    """Return True if `product_type`'s FACET VALUE (exact match, not a
+    substring scan of free text) names a Western garment type capable of
+    formal/glam register — the structural signal that replaces the old
+    name-substring "gown"/"blazer"/"formal" allow-list scan in
+    coherence.py's reception/wedding_guest exception. See
+    _WESTERN_FORMAL_CAPABLE_TYPES for the catalogue audit behind this set.
+    Always pair with is_casual_marker_item(prod_name) — this only answers
+    "is this TYPE formal-capable", not "is this SPECIFIC item casual-
+    register despite its type" (a "Casual Trouser" is still a trouser).
+    """
+    return product_type.lower().strip() in _WESTERN_FORMAL_CAPABLE_TYPES
 
 
 def resolve_look_gender(

@@ -345,6 +345,25 @@ class TestIsCasualMarkerItem:
     def test_ripped_rejected(self) -> None:
         assert is_casual_marker_item("Ripped Skinny Jeans") is True
 
+    def test_bare_casual_rejected(self) -> None:
+        """2026-07-30 extension: the bare word "casual" is now itself a
+        casual-register marker — catalogue-audited root cause of the reception/
+        wedding_guest western-formal-capable-type false positive (a "Casual
+        Trouser" was previously accepted purely because its product_type
+        facet equalled the old allow-list keyword "trousers")."""
+        assert is_casual_marker_item("Grey Solid Uno Fit Casual Trouser") is True
+
+    def test_semi_casual_not_rejected(self) -> None:
+        """"semi casual" is a real, distinct business-casual register in this
+        catalogue (467 rows) — must stay admissible for formal-register
+        looks, not caught by the new bare-"casual" pattern."""
+        assert is_casual_marker_item("Black Solid Smart Fit Semi Casual Shirt") is False
+
+    def test_smart_casual_not_rejected(self) -> None:
+        """"smart casual" (6 rows) is likewise business-casual, not fully
+        casual."""
+        assert is_casual_marker_item("Blue Checked Smart Casual Blazer") is False
+
     def test_plain_tailored_trouser_not_rejected(self) -> None:
         assert is_casual_marker_item("Black Formal Tailored Trousers") is False
 
