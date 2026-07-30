@@ -12,6 +12,11 @@ from src.agents.outfit.occasions import EITHER, ETHNIC_HEAVY, ETHNIC_ONLY, get_o
 
 ETHNIC_TOP_KEYWORDS: frozenset[str] = frozenset({
     "kurta", "kurti", "kameez", "tunic", "kaftan",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "phiran" (31 rows,
+    # e.g. "Kashifa Black Pure Woollen Phiran") is a Kashmiri traditional
+    # woollen robe/cloak — grouped with "kaftan" as a full-length ethnic
+    # robe-style garment.
+    "phiran",
 })
 ETHNIC_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
     "lehenga", "saree", "anarkali", "suit-set", "suit set", "sharara set",
@@ -24,6 +29,10 @@ ETHNIC_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     # use it, including "kurta pajama" bare-juxtaposition listings (1,348
     # rows) that were silently invisible to every noun-counting check below.
     "pajama",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "plazzo"/"plazzos"
+    # is a real catalogue typo/variant of "palazzo" that doesn't match via
+    # substring ("palazzo" is already covered above).
+    "plazzo", "plazzos",
 })
 WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     "shirt", "t-shirt", "tshirt", "top", "blouse", "sweater", "sweatshirt",
@@ -34,6 +43,12 @@ WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     # Deliberately NOT a bare "bra" (2,509 catalogue rows contain that
     # substring, including unrelated jewellery like "Brass Necklace").
     "sports_bra", "sports bra",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "knitwear" (1,744
+    # rows, e.g. "High Neck Textured Zipper Sweater", "URBANIC Women Pink
+    # Solid Distressed Cardigan") is a genuine sweater/cardigan/sweatshirt
+    # facet value. "skivvy" (54 rows, e.g. "Wine Viscose Skivvy Pullover") is
+    # a lightweight pullover/turtleneck style, same category.
+    "knitwear", "pullover", "pullovers", "skivvy",
 })
 WESTERN_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     "trousers", "jeans", "shorts", "skirt", "jeggings",
@@ -48,21 +63,147 @@ WESTERN_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     # then hard-rejects from ever filling a "bottom" slot at all. (track_pants/
     # cargo_pants already resolve via the existing "pants" substring match.)
     "leggings", "joggers", "skort",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "bottom"/"bottoms"/
+    # "bottomwear" sampled as "Cotton Linen Lower", "Cargo Pant",
+    # "Trackpants", "Men Cargos", "Three Fourths" — genuine Western
+    # trousers/joggers/cargo/capri-length pants, no ethnic markers found in
+    # samples. "cargo" (pt=="Cargo", 19 rows) means cargo pants
+    # specifically as a facet value in this catalogue. "capri"/"capris",
+    # "culottes", "breeches", "wide leg" are self-evidently Western trouser
+    # styles. "trackpant"/"trackpants"/"track pant" and "three fourth"/
+    # "three fourths" are additional catalogue naming variants.
+    #
+    # Deliberately EXCLUDES bare "lower"/"lowers" (spec'd but dropped as a
+    # verified regression): as a plain substring these live-match inside
+    # "flower"/"sunflower"/"flowers" — 943 catalogue rows, catalogue-
+    # verified to flip garments (tops, shirts, skirts, kurtas, lehengas —
+    # anything with a floral name) to "western_bottom". This isn't just an
+    # unknown-vs-classified nuance: classify_anchor() checks WESTERN_BOTTOM
+    # (this set) BEFORE WESTERN_TOP, so a plain "Top" with "Flower" in its
+    # name would be misclassified as a BOTTOM. Worse, composer.py calls
+    # classify_anchor() directly on the look's own ANCHOR/seed item to
+    # decide get_fill_slots(anchor_class, ...) — the entire slot
+    # composition for the look — so this collision would have silently
+    # composed top-anchored looks as if they were bottom-anchored (filling
+    # a bogus "top" slot, skipping the real "bottom" slot). The ~42 catalog
+    # rows with product_type_name literally "Lower"/"Lowers" (the audited
+    # facet values this was meant to cover) stay "unknown" as a result —
+    # an accepted, deliberate coverage gap given the regression's severity
+    # (943 rows corrupting anchor classification vs. 42 rows of unresolved
+    # coverage). A facet-EQUALITY check (matching _WESTERN_FORMAL_CAPABLE_
+    # TYPES' pattern above) would resolve both safely, but that's a new
+    # matching mechanism, out of this task's declared scope (keyword-set
+    # additions to the existing substring-scan control flow only).
+    "bottom", "bottoms", "bottomwear", "capri", "capris",
+    "culottes", "breeches", "cargo", "wide leg", "trackpant", "trackpants",
+    "track pant", "three fourth", "three fourths",
 })
 WESTERN_ONE_PIECE_KEYWORDS: frozenset[str] = frozenset({
     "dress", "jumpsuit", "playsuit", "dungarees", "co-ord",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "coord" (no hyphen,
+    # a distinct string from the already-covered "co-ord") — 1,138 rows
+    # pt-alone, 32 remaining after the real-name pass. Tracksuits are sold
+    # as a single top+bottom listing, given the same "one_piece for
+    # classification purposes" treatment as co-ord.
+    "coord", "tracksuit", "tracksuits", "track suit",
 })
 OUTERWEAR_KEYWORDS: frozenset[str] = frozenset({
     "jacket", "coat", "blazer", "cardigan", "nehru jacket", "waistcoat",
     "parka", "anorak", "sherwani", "bandhgala",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "outerwear" (3,326
+    # rows pt-alone), "shrug"/"shrugs" (~93 rows, e.g. "Winter Shrug",
+    # cardigan-like outer layer), "capes" (60 rows combined with "poncho"
+    # below, e.g. "Ponchu & Capes"/"Capes & Overlays" — the facet VALUE
+    # itself is always plural "Capes", so "capes" alone catches both real
+    # facet values with zero substring risk), "poncho" (catches the
+    # "Ponchu" catalogue typo via the combined-text fallback where the
+    # freeform name itself says poncho), "shacket" (2 rows, shirt-jacket
+    # hybrid), "tuxedo"/"tuxedos" (~81 rows, western formal), "business
+    # suit" (25 rows, e.g. "MLS BUSINESS PLAIN SUIT 3PCS" — genuine western
+    # business suit, distinct from the separately-audited "Suits" facet
+    # value which is 100% ethnic salwar-suit-sets already handled via
+    # "suit set" in ETHNIC_ONE_PIECE_KEYWORDS; deliberately NOT bare
+    # "suit"/"suits").
+    #
+    # Deliberately EXCLUDES bare singular "cape" (spec'd but dropped as a
+    # verified regression — see slots.py module-level deviation note near
+    # WESTERN_BOTTOM_KEYWORDS's dropped "lower"/"lowers" for the mechanism;
+    # "cape" as a plain substring live-matches inside "Escape"/"Seascape"/
+    # "Dreamscape" brand/copy text, catalogue-verified to flip a plain
+    # T-shirt (pt="top", "Endless Escape Oversized Stretch T-Shirt") and a
+    # pair of Mule Heels (pt="footwear", "Email Escape : Mule Heels") to
+    # "outerwear" — the footwear case is a direct regression against this
+    # same task's own footwear-exclusion-gate goal). "capes" (plural) has
+    # zero such collisions and is sufficient: both real facet values
+    # ("Ponchu & Capes", "Capes & Overlays") are already plural.
+    "outerwear", "shrug", "shrugs", "capes", "poncho", "shacket",
+    "tuxedo", "tuxedos", "business suit",
 })
 FOOTWEAR_KEYWORDS: frozenset[str] = frozenset({
     "shoes", "sandals", "boots", "heels", "flats", "sneakers",
     "juttis", "jutti", "mojaris", "mojari", "kolhapuris", "kolhapuri",
     "wedges", "loafers", "pumps",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "footwear" (4,152
+    # rows pt-alone, genuinely shoes/sneakers/juttis/loafers by sample),
+    # "chappal"/"chappals" (76 rows, "1 Pair of Chappals"), "mule"/"mules"
+    # (~75 rows), "slider"/"sliders"/"slide"/"slides" (~155 rows, "Sliders"/
+    # "Snip Cut Slides"/"Flip Flops & Slides" variants), "flip flop"/
+    # "flip flops", "mary jane"/"mary janes" (7 rows), "clog"/"clogs" (7
+    # rows, "Women's Clogs"), "ballerina"/"ballerinas" (2 rows).
+    "footwear", "chappal", "chappals", "mule", "mules", "slider", "sliders",
+    "slide", "slides", "flip flop", "flip flops", "mary jane", "mary janes",
+    "clog", "clogs", "ballerina", "ballerinas",
 })
 MEN_FORMALWEAR_KEYWORDS: frozenset[str] = frozenset({
     "sherwani", "bandhgala", "nehru jacket",
+    # 2026-07-30 (unknown-class keyword-coverage audit): "achkan" (46 rows,
+    # e.g. "PINK BROCADE EMBROIDERED ACHKAN" — ethnic men's formal long
+    # coat, same category as sherwani/bandhgala).
+    #
+    # Deliberately NOT bare "jodhpuri" (spec'd but dropped as a verified
+    # regression): "jodhpuri" is genuinely ambiguous in this catalogue's own
+    # vocabulary, not just an accidental substring collision — 19 real
+    # product_type_name=="footwear" rows use it as a legitimate FOOTWEAR
+    # style term ("Jodhpuri Mojaris"/"Jodhpuri Boots"), and MEN_FORMALWEAR
+    # is checked before FOOTWEAR in classify_anchor()'s priority order, so a
+    # bare "jodhpuri" keyword here would misclassify that footwear as
+    # men_formalwear. Confirmed to break an EXISTING, deliberately-tested
+    # coherence.py contract (TestWesternRegisterGateOffice::
+    # test_plain_jodhpuri_mention_outside_outerwear_not_rejected in
+    # tests/test_phase_b_gender_slot_coherence.py) — gate 4 there rejects
+    # is_ethnic_item(pt, name) candidates for the office register, and
+    # is_ethnic_item includes "men_formalwear"; a Jodhpuri Mojaris would be
+    # wrongly rejected from an office footwear slot. Using the narrower
+    # phrases "jodhpuri suit"/"jodhpuri_suit"/"jodhpuri set" instead
+    # (catalogue-verified: 0 footwear-pt collisions) still covers the
+    # audited target — product_type_name=="jodhpuri_suit" (346 rows) and
+    # =="JODHPURI SET"/"Jodhpuri set"/"open jodhpuri set" (13 rows
+    # combined) — while leaving the 45 bare product_type_name=="Jodhpuri"
+    # rows unclassified; those are all "Boy's ..." KIDS listings anyway
+    # (out of scope per this task's own kids-item exclusion). NOTE:
+    # coherence.py's `_JODHPURI_OUTERWEAR_RE` is a separate, narrower
+    # mechanism (rejecting Jodhpuri-named OUTERWEAR from the office register
+    # specifically) and is untouched by this base-classification change.
+    "achkan", "jodhpuri suit", "jodhpuri_suit", "jodhpuri set",
+})
+
+# Structural, facet-based western product types capable of formal/glam
+# register (checked via product_type_name FACET EQUALITY, same pattern as
+# graph.py's "indowestern" gate-4 check — never a substring scan of the
+# free-text listing copy). Catalogue-audited 2026-07-30: "dress" rows
+# almost never literally say "gown" (4/1580), which is why the OLD
+# name-substring allow-list rejected 84% of genuinely reception-
+# appropriate dresses. "trousers"/"shirt"/"blazer" are clean, distinct
+# facet values in this catalogue (product_type_name=="shirt" has only
+# 11/8734 rows whose own name says t-shirt/tee — negligible noise).
+# Deliberately EXCLUDES "suit"/"suits": product_type_name=="suits" here
+# is 100% ethnic salwar-suit-sets (254/254 rows, all gender=="women",
+# e.g. "Burgundy Floral Embroidered Chanderi Silk Straight Suit Set"),
+# already correctly classified ethnic_one_piece by classify_anchor via
+# ETHNIC_ONE_PIECE_KEYWORDS' "suit set" entry — never a western business
+# suit in this catalogue's vocabulary.
+_WESTERN_FORMAL_CAPABLE_TYPES: frozenset[str] = frozenset({
+    "dress", "jumpsuit", "trousers", "pant", "pants", "shirt", "blazer",
 })
 
 # ── Accessory sub-families (Phase B Part 1) ─────────────────────────────────
@@ -70,18 +211,131 @@ MEN_FORMALWEAR_KEYWORDS: frozenset[str] = frozenset({
 # so accessory_query_matches() can require a candidate to share a FAMILY with
 # the slot's own query — e.g. a dupatta-seeking slot must never accept a
 # handbag, and a "belt watch cap" slot must never accept a dupatta.
+# 2026-07-30 catalogue audit (Sukkhi "Kada" bangle + "Goddess Traditional
+# Haram" necklace live misses on a generic haldi-look query): audited every
+# distinct product_type_name facet value that classify_item() currently
+# resolves to "unknown" and is genuinely an accessory/jewellery item. Two root
+# causes found, both closed below across all four families that had gaps:
+#   1. Pluralization/typo mismatch — _contains_word requires a literal word
+#      match, so singular keywords ("bangle", "bracelet", "earring", "anklet",
+#      "pendant", "jhumka", "bag", "belt", "watch", "pocket square") never
+#      matched their PLURAL catalogue facet values ("Bangles", "Bracelets",
+#      "Anklets", "Pendants", "Jhumkas", "Bags", "Belts", "Watches", "Pocket
+#      Squares"), and vice versa.
+#   2. Missing vocabulary — genuine Indian bridal/traditional jewellery terms
+#      (juda/hair-bun ornament, passa, kalangi, borla, hathphool, mathapatti,
+#      oddiyanam, nath, chandbalis, mangalsutra, kada, haram, chura) were never
+#      covered at all. Every one of these was sampled against the real
+#      unified catalogue to confirm genuine jewellery/accessory rows with zero
+#      false-positive risk — e.g. "Judo" facet value -> "Multicolor Gold
+#      Plated Mishr Juda"/"White Color Gold Plated Jadau Kundan Juda" (a real,
+#      if misspelled/OCR'd, facet value for hair-bun jewellery); "Kalangi" ->
+#      "Kings of Rajasthan Haritansh Kalangi" (turban ornament); "Oddiyanam/
+#      Hip Belts" -> "Bridal Nethra Diamond Like Oddiyanam" (bridal waist
+#      jewellery, NOT a functional western belt).
+# "bascelet"/"nacklaces"/"imitation jewerllery" are real catalogue TYPOS (the
+# facet/name values themselves, not typos of this fix) — included verbatim so
+# the match fires against the actual data. Deliberately EXCLUDES garment-class
+# facet values (footwear/outerwear/knitwear/swimwear/nightwear/etc.) — a
+# separate, much larger classification gap, out of scope here.
 _ACCESSORY_DUPATTA_FAMILY: frozenset[str] = frozenset({"dupatta", "stole", "scarf"})
-_ACCESSORY_BAG_FAMILY: frozenset[str] = frozenset({"bag", "handbag", "sling", "clutch", "tote"})
+_ACCESSORY_BAG_FAMILY: frozenset[str] = frozenset(
+    {
+        "bag", "handbag", "sling", "clutch", "tote", "bags", "potli", "potlis",
+        # 2026-07-30 (unknown-class keyword-coverage audit): "wallet"/
+        # "wallets" (7+5 rows), "card holder" (5 rows), "backpack"/
+        # "backpacks" (2 rows) — self-evidently bag-family accessories.
+        "wallet", "wallets", "card holder", "backpack", "backpacks",
+    }
+)
 _ACCESSORY_JEWELLERY_FAMILY: frozenset[str] = frozenset(
     # "pendant" added 2026-07-25 (out-of-sample validation finding): a
     # "Pendant" product_type row (126 in the catalogue, all jewellery) slipped
     # past the new accessory-exclusion gate for "office outfit for men" —
     # was never in ACCESSORY_KEYWORDS at all before this.
-    {"jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle", "pendant"}
+    {
+        "jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle", "pendant",
+        "ring", "rings", "bangles", "bracelet", "bracelets", "bascelet",
+        "necklaces", "nacklaces", "chokers", "earring", "toe ring", "toe rings",
+        "nose ring", "nosering", "nosepin", "pendants", "jhumkas",
+        "maangtikka", "maangteeka", "maang tika", "mang teeka", "mathapatti",
+        "borla", "nath", "chandbalis", "kada", "imitation jewellery",
+        "imitation jewerllery", "anklet", "anklets", "payal", "hair maatal",
+        "jada", "hair accessories", "hair accessory", "hairband", "oddiyanam",
+        "hip belts", "waist belts", "hipbelts", "brooch", "brooches",
+        "cufflink", "cufflinks", "hathphool", "kalangi", "passa", "judo",
+        "juda", "mangalsutra", "earchain", "earchains", "ear chain",
+        "haram", "chura",
+        # 2026-07-30 follow-up (found live-testing the fix above, same audit
+        # discipline): "kaleera" (80 rows, bridal wrist ornament, e.g.
+        # "Traditional Golden Bridal Kaleera") and "varmala"/"jaimala" (5
+        # rows combined, wedding garlands, e.g. "Kundan Stone Varmala For
+        # Bride Groom") both surfaced live for "bridal look for women" —
+        # neither was in the original audit pass. "jadau" (a jewellery-making
+        # technique term, 3,179 rows) added too: sampled facet-value
+        # distribution is 100% already-jewellery types (Necklace Sets,
+        # Earrings, Rings, Bangles, etc.) except 261 rows typed generic
+        # "Fashion", which need this keyword to be caught via the
+        # combined-text fallback. Distinct word from "jada" above (hair-bun
+        # ornament) — "jadau" has no word boundary after "jada", so \bjada\b
+        # never accidentally matches it.
+        "kaleera", "varmala", "jaimala", "jadau",
+        # 2026-07-30 follow-up (unknown-class keyword-coverage audit):
+        # "Nose Pin" (space variant, 4 rows) is distinct from the
+        # already-covered "nosepin"/"nose ring". "Maang Tikka" (double-k, 3
+        # rows) and "Mangtika" (no space, 1-2 rows) are distinct spellings
+        # from the already-covered "maangtikka"/"maangteeka"/"maang tika".
+        # "Matha Patti" (with space, 5 rows) is distinct from
+        # already-covered "mathapatti" (no space). "Kamarband"(3)/
+        # "Bajuband"(4)/"Armlet(s)"(2) are genuine ethnic waist/arm
+        # jewellery, same category as "oddiyanam"/"hathphool" already
+        # covered. "Parandi"(5, hair braid tassel), "Hairbun(s)"(3) are
+        # hair ornaments, same category as "hair maatal"/"jada" already
+        # covered. "Mala"(3, beaded necklace/rosary), "Neckpiece"/"Neck
+        # Piece"(8) are necklace-type jewellery. "Stud"/"Studs"(6) are
+        # earring studs. "Manglasutra"(1) is a typo variant of the
+        # already-covered "mangalsutra" (letters transposed). "Hand Cuff"
+        # remaining rows sampled as "Victorian Dollar Hand Cuff", "Multi
+        # Color Stone Hand Cuff" — genuine cuff-bracelet jewellery.
+        #
+        # Deliberately NOT "accessories"/"accessory" (spec'd but dropped as
+        # a verified regression): these generic catch-all words are used
+        # throughout THIS FILE's own SlotSpec.search_query register text
+        # (e.g. "dupatta jewellery clutch ethnic accessory festive
+        # embroidered", "pocket square safa ethnic accessory") as
+        # non-family filler tokens, not family-specific vocabulary.
+        # split_accessory_query_by_family() (below) scans every word in
+        # _ACCESSORY_FAMILIES against the QUERY text too — putting
+        # "accessory" in the jewellery family made it match as a second
+        # "family" in every existing single-family accessory query that
+        # happens to carry the word "accessory" as filler, corrupting the
+        # split (confirmed: 3 tests in tests/test_phase_b_gender_slot_
+        # coherence.py's TestSplitAccessoryQueryByFamily broke — a query
+        # that should stay a single-family no-op got force-split, and a
+        # genuine 2-family split gained a spurious 3rd "accessory"-only
+        # sub-query). The audit's original reasoning ("this doesn't blur
+        # accessory_query_matches() since that's keyed on the SPECIFIC
+        # matched family") only checked ONE of the two functions that read
+        # _ACCESSORY_FAMILIES — split_accessory_query_by_family() is
+        # exactly as family-keyed, and a generic catch-all word placed in
+        # any one family breaks its single-vs-multi-family detection for
+        # every query containing that word. Fixing this properly (a facet-
+        # equality check for bare product_type_name=="Accessories") is a
+        # new mechanism, out of this task's keyword-set-only scope.
+        "nose pin", "maang tikka", "mangtika",
+        "matha patti", "kamarband", "bajuband", "armlet", "armlets",
+        "parandi", "hairbun", "hairbuns", "mala", "neckpiece", "neck piece",
+        "stud", "studs", "manglasutra", "hand cuff",
+    }
 )
-_ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch"})
+_ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch", "belts", "watches"})
 _ACCESSORY_EYEWEAR_CAP_FAMILY: frozenset[str] = frozenset({"sunglasses", "cap"})
-_ACCESSORY_MENSWEAR_FORMAL_FAMILY: frozenset[str] = frozenset({"pocket square", "safa"})
+_ACCESSORY_MENSWEAR_FORMAL_FAMILY: frozenset[str] = frozenset(
+    # 2026-07-30 (unknown-class keyword-coverage audit): "bow tie" (5 rows,
+    # unambiguous). Deliberately excludes bare "bow" — only 3 rows and too
+    # ambiguous a word for safe word-boundary matching in this family.
+    {"pocket square", "safa", "pocket squares", "bow tie"}
+)
 
 _ACCESSORY_FAMILIES: tuple[frozenset[str], ...] = (
     _ACCESSORY_DUPATTA_FAMILY,
@@ -139,6 +393,19 @@ def _contains_word(text: str, phrase: str) -> bool:
     return re.search(rf"\b{re.escape(phrase)}\b", text) is not None
 
 
+# 2026-07-30: product_type_name facet VALUES that are themselves generic
+# catch-all buckets (no real type information on their own — see
+# classify_item's shortcut-skip comment below for the mechanism this
+# protects against). Exactly the bare/near-bare pt-alone keywords added by
+# the unknown-class keyword-coverage audit that could plausibly co-occur
+# with a MORE SPECIFIC, earlier-priority keyword (ethnic/men_formalwear)
+# elsewhere in a real item's own name.
+_GENERIC_FACET_VALUES: frozenset[str] = frozenset({
+    "outerwear", "footwear", "knitwear", "coord", "bottom", "bottoms",
+    "bottomwear", "tracksuit", "track suit",
+})
+
+
 def classify_item(product_type: str, prod_name: str = "") -> str:
     """Classify a CANDIDATE item (not just an anchor) into a slot-compatible class.
 
@@ -169,9 +436,32 @@ def classify_item(product_type: str, prod_name: str = "") -> str:
 
     if any(_contains_word(pt, kw) for kw in ACCESSORY_KEYWORDS):
         return "accessory"
-    pt_only_class = classify_anchor(product_type, "")
-    if pt_only_class != "unknown":
-        return pt_only_class
+    # 2026-07-30 fix (live-proven regression, test_price_outlier_guard.py's
+    # eid/men budgeted-look test): the pt-alone shortcut below is safe ONLY
+    # when `product_type` is itself a SPECIFIC facet value (top/trousers/
+    # dress/shirt/...) — that's the "Crop Top WITH Palazzo" case this
+    # shortcut was built for (pt="top" is already the correct, authoritative
+    # answer; "palazzo" in the name describes a BUNDLED second item, not
+    # this item's own type). It breaks when `product_type` is one of the
+    # GENERIC catch-all facet buckets added by the 2026-07-30 unknown-class
+    # keyword-coverage audit (outerwear/footwear/knitwear/coord/bottom/
+    # bottoms/bottomwear/tracksuit/track suit) — these facet values carry NO
+    # real type information on their own (that's WHY they used to resolve
+    # "unknown"), so pt-alone resolving via one of THEIR bare keywords must
+    # never short-circuit past a MORE SPECIFIC keyword sitting in the item's
+    # own full name. Live-proven: product_type=="outerwear",
+    # prod_name=="Cream Golden Floral Nehru Jacket" — pt-alone now resolves
+    # "outerwear" (bare keyword), silently skipping the MEN_FORMALWEAR_
+    # KEYWORDS "nehru jacket" match that classify_anchor(pt, name) [full
+    # text] correctly gives ("men_formalwear") — SLOT_ALLOWED_CLASSES
+    # doesn't accept men_formalwear for an "outerwear" slot, so this
+    # masqueraded the item into eligibility it should never have had,
+    # silently changing which candidate won a real composed look.
+    _pt_stripped = pt.strip()
+    if _pt_stripped not in _GENERIC_FACET_VALUES:
+        pt_only_class = classify_anchor(product_type, "")
+        if pt_only_class != "unknown":
+            return pt_only_class
 
     combined = pt + " " + name
     if any(_contains_word(combined, kw) for kw in ACCESSORY_KEYWORDS):
@@ -193,6 +483,16 @@ SLOT_ALLOWED_CLASSES: dict[str, frozenset[str]] = {
     "outerwear": frozenset({"outerwear"}),
     "accessory": frozenset({"accessory"}),
 }
+
+
+# classify_item() classes that can never stand alone as "an outfit" for a
+# generic "outfit/look/wear" ask (see graph.py's + eval_strict.py's
+# accessory-exclusion gate, both of which import this) — a lone shoe fails
+# that bar the same way a lone bag does (2026-07-30 fix: "footwear" is its
+# own disjoint class from "accessory" in SLOT_ALLOWED_CLASSES above, so the
+# gate's original `!= "accessory"` check never caught a standalone footwear
+# item like "Ladies Triveni Kolhapuri Chappal" ranking for "haldi look").
+NON_OUTFIT_ITEM_CLASSES: frozenset[str] = frozenset({"accessory", "footwear"})
 
 
 def is_slot_type_allowed(slot_name: str, product_type: str, prod_name: str = "") -> bool:
@@ -361,8 +661,21 @@ def is_novelty_item(prod_name: str) -> bool:
 # is checked standalone (not just "denim skirt"/"denim jeans") per design: a
 # hypothetical "denim-look tailored trouser" is still rejected — keeping the
 # rule simple beats trying to carve out fabric-look exceptions.
+#
+# 2026-07-30 extension (reception/wedding_guest western-formal-capable-type
+# fix): the bare word "casual" is now ALSO a casual marker on its own — real
+# catalogue rows like "Grey Solid Uno Fit Casual Trouser"/"Casual Shirt"/
+# "Casual Blazer" were live-proven to pass the OLD name-substring formal-
+# western allow-list in coherence.py purely because their product_type facet
+# happened to literally equal the allow-list keyword, with zero actual
+# formality check on the SPECIFIC item. Deliberately excludes "smart casual"/
+# "semi casual" via negative lookbehind — catalogue-audited: 467 "semi
+# casual" + 6 "smart casual" rows (e.g. "Black Solid Smart Fit Semi Casual
+# Shirt") are a real, distinct business-casual register in this catalogue,
+# not fully casual, and must stay admissible for formal-register looks.
 _CASUAL_MARKER_RE = re.compile(
-    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped)\b",
+    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped)\b"
+    r"|(?<!smart )(?<!smart-)(?<!semi )(?<!semi-)\bcasual\b",
     re.IGNORECASE,
 )
 
@@ -672,6 +985,20 @@ def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:
     return any(_contains_word(combined, kw) for kw in _WESTERN_MARKER_KEYWORDS)
 
 
+def is_formal_capable_western_item(product_type: str, prod_name: str = "") -> bool:
+    """Return True if `product_type`'s FACET VALUE (exact match, not a
+    substring scan of free text) names a Western garment type capable of
+    formal/glam register — the structural signal that replaces the old
+    name-substring "gown"/"blazer"/"formal" allow-list scan in
+    coherence.py's reception/wedding_guest exception. See
+    _WESTERN_FORMAL_CAPABLE_TYPES for the catalogue audit behind this set.
+    Always pair with is_casual_marker_item(prod_name) — this only answers
+    "is this TYPE formal-capable", not "is this SPECIFIC item casual-
+    register despite its type" (a "Casual Trouser" is still a trouser).
+    """
+    return product_type.lower().strip() in _WESTERN_FORMAL_CAPABLE_TYPES
+
+
 def resolve_look_gender(
     *,
     intent_gender: str | None,
@@ -749,11 +1076,47 @@ HALDI_LIGHTWEIGHT_KEYWORDS: frozenset[str] = frozenset({
 FORMALITY_SOFTENER_VALUES: frozenset[str] = frozenset({"minimalist", "comfortable"})
 
 
+# 2026-07-30: brand-name/ethnic-keyword collision fix. classify_anchor()
+# scans the full product_type+name text for keyword matches -- a handful
+# of real catalogue BRAND names happen to literally contain an unrelated
+# garment keyword, which silently overrides the item's real garment type.
+# Confirmed via full-catalogue audit (product_type_name facet vs. combined
+# classify_anchor(pt, name) result, keyword match position in the first
+# 1-2 words of prod_name): "Jaipur Kurti" (36 rows, sells trousers/skirts/
+# jumpsuits/tops under a "Kurti"-named ethnic brand -- 31 collision rows,
+# e.g. "Jaipur Kurti Women White Regular Fit Solid Regular Trousers"
+# pt=="trousers" wrongly resolving ethnic_top via ETHNIC_TOP_KEYWORDS'
+# "kurti"), "SALWAR STUDIO" (25 rows, sells blouses/tops -- 24 collision
+# rows via ETHNIC_BOTTOM_KEYWORDS' "salwar"), "Saree Swarg" (5 rows,
+# sells tunics/kurtis -- collides with ETHNIC_ONE_PIECE_KEYWORDS' "saree",
+# which is checked BEFORE ETHNIC_TOP_KEYWORDS, forcing a genuine tunic/
+# kurti to the wrong ethnic SUB-class and excluding it from ever filling
+# a "top" slot), "Pepe Jeans" (25 rows, sells knitwear/outerwear too --
+# collides with WESTERN_BOTTOM_KEYWORDS' "jeans"). Deliberately a fixed,
+# audited denylist, NOT a blanket "trust product_type_name alone" rule --
+# that would regress legitimate cases where a generic/overloaded facet
+# value genuinely needs a real (non-brand) ethnic descriptor elsewhere in
+# the name to reclassify correctly, e.g. "NEUDIS Women ... Flared Maxi
+# Lehenga Skirt" (pt=="skirt") is CORRECTLY ethnic_one_piece today via
+# the legitimate "Lehenga" word in the name -- a facet-first rule would
+# break that. Stripped as a case-insensitive LEADING prefix only (same
+# discipline as src/catalogue/normalizer.py's brand-prefix strip) so the
+# rest of the name -- including genuine descriptors -- still classifies
+# normally.
+_BRAND_PREFIX_COLLISIONS: tuple[str, ...] = (
+    "jaipur kurti", "salwar studio", "saree swarg", "pepe jeans",
+)
+_BRAND_PREFIX_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(b) for b in _BRAND_PREFIX_COLLISIONS) + r")[\s\-_,|]+",
+    re.IGNORECASE,
+)
+
+
 def classify_anchor(product_type: str, prod_name: str = "") -> str:
     """Return anchor class: ethnic_top | ethnic_one_piece | ethnic_bottom |
     western_top | western_bottom | western_one_piece | outerwear | footwear | unknown."""
     pt = product_type.lower()
-    name = prod_name.lower()
+    name = _BRAND_PREFIX_RE.sub("", prod_name.lower())
     combined = pt + " " + name
 
     if any(kw in combined for kw in ETHNIC_ONE_PIECE_KEYWORDS):

@@ -86,6 +86,23 @@ class TestIsOccasionMerchandiseType:
     def test_idols_flagged(self) -> None:
         assert is_occasion_merchandise_type("Idols") is True
 
+    def test_hampers_flagged(self) -> None:
+        """2026-07-30 addition: bare "Hampers" (plural, the actual catalogue
+        facet value) was missing — only compound "gift hamper" phrases were
+        covered. Confirmed via catalogue audit: product_type_name=="Hampers"
+        is exactly 3 rows, all genuine "... Bridal Hamper Box" gift sets."""
+        assert is_occasion_merchandise_type("Hampers") is True
+        assert is_occasion_merchandise_type("hamper") is True
+
+    def test_gift_card_variants_flagged(self) -> None:
+        """2026-07-30 addition: live-proven via "anniversary party outfit for
+        women" ranking "Anniversary Day E-Gift Card" #1 of 5 -- catalogue
+        audit confirmed 21 rows, 100% genuine gift cards, zero false-positive
+        risk. Covers all three real facet-value spellings/cases."""
+        assert is_occasion_merchandise_type("gift card") is True
+        assert is_occasion_merchandise_type("Gift Cards") is True
+        assert is_occasion_merchandise_type("Gift-Card") is True
+
     def test_apparel_types_not_flagged(self) -> None:
         for pt in ("kurta", "kurti", "lehenga", "saree", "sherwani", "dupatta"):
             assert is_occasion_merchandise_type(pt) is False
@@ -249,6 +266,20 @@ class TestIsOccasionMerchandiseName:
 
     def test_generic_typed_showpiece_flagged(self) -> None:
         assert is_occasion_merchandise_name("Divine Bond Festive Showpiece", "Others") is True
+
+    def test_generic_typed_gift_card_flagged(self) -> None:
+        """2026-07-30 addition: the exact live-proven leak -- "Anniversary
+        Day E-Gift Card" is typed "Fashion" (a generic bucket), so only the
+        NAME-level check catches it."""
+        assert is_occasion_merchandise_name("Anniversary Day E-Gift Card", "Fashion") is True
+
+    def test_apparel_typed_anniversary_lehenga_never_flagged(self) -> None:
+        """A genuine anniversary-occasion apparel item must never be flagged
+        -- this predicate only ever fires on gift-card/hamper/rakhi/idol
+        vocabulary, never on the bare occasion word."""
+        assert is_occasion_merchandise_name(
+            "Anniversary Party Wear Lehenga", "lehenga"
+        ) is False
 
     def test_kurta_typed_rakhi_gift_box_never_flagged(self) -> None:
         """The critical negative case: a REAL kurta whose name mentions

@@ -77,8 +77,31 @@ class TestIntentParsingNewOccasions:
     def test_shaadi_guest_look(self) -> None:
         assert parse_intent("shaadi guest look").occasion == "wedding_guest"
 
+    def test_bridal_look(self) -> None:
+        """2026-07-30 fix: "bridal" was previously unmapped in _OCCASION_MAP,
+        which left every occasion-gated protection (merchandise gate,
+        loungewear gate, coherence gates, footwear-required gate) inert for
+        "bridal ..." queries. Mapped to wedding_guest (register-consistent,
+        no dedicated "bridal" catalogue Occasion exists)."""
+        assert parse_intent("bridal look for women").occasion == "wedding_guest"
+
     def test_cocktail(self) -> None:
-        assert parse_intent("cocktail party outfit").occasion == "reception"
+        assert parse_intent("cocktail party outfit").occasion == "party_evening"
+
+    def test_groom_outfit(self) -> None:
+        assert parse_intent("groom outfit for men").occasion == "wedding_guest"
+
+    def test_dulhan_look(self) -> None:
+        assert parse_intent("dulhan look for women").occasion == "wedding_guest"
+
+    def test_baraat_outfit(self) -> None:
+        assert parse_intent("baraat outfit for men").occasion == "wedding_guest"
+
+    def test_nikah_outfit(self) -> None:
+        assert parse_intent("nikah outfit for women").occasion == "wedding_guest"
+
+    def test_anniversary_party_outfit(self) -> None:
+        assert parse_intent("anniversary party outfit for women").occasion == "party_evening"
 
 
 # ── (d) anchor query non-empty + contains signature tokens ──────────────────

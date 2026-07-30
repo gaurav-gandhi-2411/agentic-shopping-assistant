@@ -83,6 +83,37 @@ class TestClassifyAnchor:
         assert result == "ethnic_one_piece"
 
 
+class TestClassifyAnchorSubstringCollisionRegression2026_07_30:
+    """2026-07-30 unknown-class keyword-coverage audit follow-up: bare
+    "lower" and bare "cape" were originally spec'd for WESTERN_BOTTOM_
+    KEYWORDS/OUTERWEAR_KEYWORDS but dropped after catalogue verification
+    showed they live-match as plain substrings inside unrelated words
+    ("flower", "escape"/"seascape") — classify_anchor() scans with plain
+    `kw in combined`, not word-boundary matching. This matters far beyond a
+    cosmetic mislabel: composer.py calls classify_anchor() directly on a
+    look's own ANCHOR item to decide get_fill_slots(anchor_class, ...) — the
+    entire slot composition for the look. These tests pin the CORRECT
+    classification down so a future re-addition of either bare keyword
+    regresses visibly here rather than silently corrupting anchor-driven
+    slot composition.
+    """
+
+    def test_flower_named_top_stays_western_top_not_bottom(self) -> None:
+        result = classify_anchor("top", "bebe Women Orchid Flower Essential Self Design Top")
+        assert result == "western_top"
+
+    def test_escape_named_footwear_stays_footwear_not_outerwear(self) -> None:
+        result = classify_anchor("footwear", "Email Escape : Mule Heels")
+        assert result == "footwear"
+
+    def test_capes_plural_facet_still_resolves_outerwear(self) -> None:
+        # "capes" (plural) is kept — both real facet values ("Ponchu &
+        # Capes", "Capes & Overlays") are always plural in this catalogue,
+        # so dropping the singular loses zero real coverage.
+        result = classify_anchor("Capes & Overlays", "Handcrafted Mustard Pure Woolen Cape")
+        assert result == "outerwear"
+
+
 class TestIsEthnicIsWestern:
     def test_kurta_is_ethnic(self) -> None:
         assert is_ethnic_item("Kurta") is True
@@ -98,6 +129,53 @@ class TestIsEthnicIsWestern:
 
     def test_kurta_is_not_western(self) -> None:
         assert is_western_item("Kurta") is False
+
+
+class TestClassifyAnchorBrandPrefixCollisionRegression2026_07_30:
+    """2026-07-30 brand-name/ethnic-keyword collision fix: a handful of real
+    catalogue BRAND names literally contain an unrelated garment keyword
+    (e.g. "Jaipur Kurti" sells trousers), which used to silently override the
+    item's real garment type via classify_anchor()'s combined product_type+
+    name keyword scan. See slots.py's _BRAND_PREFIX_COLLISIONS docstring for
+    the full catalogue-audit rationale.
+    """
+
+    def test_jaipur_kurti_trousers_is_western_not_ethnic(self) -> None:
+        # Was misclassified ethnic_top via the "Kurti" brand name in
+        # ETHNIC_TOP_KEYWORDS before this fix -- coherence.py's
+        # is_western_item() call bypassed classify_item()'s protective
+        # pt-alone early return entirely.
+        assert is_western_item(
+            "trousers", "Jaipur Kurti Women White Regular Fit Solid Regular Trousers"
+        ) is True
+
+    def test_salwar_studio_top_is_western_not_ethnic_bottom(self) -> None:
+        assert is_western_item("top", "SALWAR STUDIO Women Orange Solid Peplum Top") is True
+
+    def test_saree_swarg_tunic_is_ethnic_top_not_one_piece(self) -> None:
+        # The brand's "Saree" (ETHNIC_ONE_PIECE_KEYWORDS, checked before
+        # ETHNIC_TOP_KEYWORDS) used to force a genuine tunic to the wrong
+        # ethnic sub-class, excluding it from ever filling a "top" slot
+        # (SLOT_ALLOWED_CLASSES["top"] only accepts ethnic_top, not
+        # ethnic_one_piece).
+        result = classify_anchor("tunic", "Saree Swarg Green & Yellow Printed Tunic")
+        assert result == "ethnic_top"
+
+    def test_pepe_jeans_knitwear_is_not_western_bottom(self) -> None:
+        # "jeans" (WESTERN_BOTTOM_KEYWORDS) sitting in the brand name used to
+        # misclassify a Pepe Jeans sweater/cardigan as a bottom.
+        result = classify_anchor("knitwear", "Pepe Jeans Men Grey Solid Crew Neck Sweater")
+        assert result == "western_top"
+
+    def test_neudis_lehenga_skirt_stays_ethnic_one_piece(self) -> None:
+        """Negative control: a genuine (non-brand-collision) ethnic
+        descriptor elsewhere in the name must still correctly override a
+        generic/overloaded product_type facet -- the brand-prefix strip must
+        never regress this."""
+        result = is_ethnic_item(
+            "skirt", "NEUDIS Women Maroon & Pink Floral Print Flared Maxi Lehenga Skirt"
+        )
+        assert result is True
 
 
 class TestGetFillSlots:

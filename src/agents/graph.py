@@ -844,9 +844,14 @@ def _apply_loungewear_gate(items: list[dict], occasion_slug: str) -> list[dict]:
 # "wedding favors for mehendi" still surface the ishhaara favours collection
 # instead of being over-suppressed — same both-directions discipline as the
 # original rakhi fix.
+# 2026-07-30 addition: "gift card"/"gift cards" added alongside cleaning.py's
+# same-day gift-card addition (21 catalogue rows, 100% genuine, zero false
+# positives) so "buy a gift card for my anniversary" still surfaces gift
+# cards instead of being over-suppressed by the new exclusion.
 _OCCASION_MERCHANDISE_REQUEST_RE = re.compile(
     r"\brakhi\b|\brakhis\b|\bhamper\b|\bidol\b|\bidols\b|\bgift\b|\bgifts\b"
-    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b"
+    r"|\bgift\s*card\b|\bgift\s*cards\b",
     re.IGNORECASE,
 )
 
@@ -2738,6 +2743,7 @@ def build_graph(
         # off-register.
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
+        from src.agents.outfit.slots import NON_OUTFIT_ITEM_CLASSES as _occ_non_outfit_classes
         from src.agents.outfit.slots import classify_item as _occ_classify_item
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
         from src.agents.outfit.slots import is_attribute_contradiction as _occ_is_attr_contradiction
@@ -2803,7 +2809,9 @@ def build_graph(
         # "haldi outfit for women"/"bright haldi look for women" instead of
         # actual apparel. See _GENERIC_WEAR_ASK_RE above for why this is
         # narrower than "garment_type is None" alone. Pool-underflow
-        # protected, same discipline as every other gate here.
+        # protected, same discipline as every other gate here. 2026-07-30:
+        # also excludes standalone footwear (a lone shoe is no more "an
+        # outfit" than a lone bag) via NON_OUTFIT_ITEM_CLASSES.
         if (
             not _occ_intent.garment_type
             and _GENERIC_WEAR_ASK_RE.search(raw_query)
@@ -2813,7 +2821,7 @@ def build_graph(
                 it for it in items_out
                 if _occ_classify_item(
                     it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
-                ) != "accessory"
+                ) not in _occ_non_outfit_classes
             ]
             if _acc_filtered:
                 items_out = _acc_filtered

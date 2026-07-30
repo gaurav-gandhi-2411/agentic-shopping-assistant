@@ -137,9 +137,24 @@ def is_kids_item(prod_name: str | None) -> bool:
 #     occasion's keyword-matching set by volume and is exactly what the
 #     2026-07-23 multi-family accessory-retrieval fix (commit 1717265) exists
 #     to surface correctly for bridal/festive looks.
+# 2026-07-30 addition: bare "hampers"/"hamper" product_type_name values were
+# missing -- only compound phrases ("gift hamper", "rakhi hamper") were
+# covered. Confirmed via catalogue audit: product_type_name=="Hampers" is
+# exactly 3 rows, all "Mortantra X Zivame Bridal Hamper Box A/B/C" -- genuine
+# gift hampers, zero false-positive risk. This surfaced via "bridal look for
+# women" returning a literal hamper box in top-5 (see intent_parser's
+# "bridal" occasion-map addition, the compounding root cause for that leak).
+# 2026-07-30 SAME-DAY follow-up ("gift card"): live-proven via the new
+# "anniversary" occasion mapping (intent_parser.py) -- "anniversary party
+# outfit for women" ranked "Anniversary Day E-Gift Card" #1 of 5 results.
+# Confirmed via catalogue audit (\bgift.card\b over prod_name): 21 rows, 100%
+# genuine gift cards (e.g. "Rakhi E-Gift Card...", "Father's Day E-Gift
+# Card", "Happy Mother's Day : Gift Card"), zero false-positive risk. Facet
+# values found: "Gift-Card", "Gift Cards", "Gift Card".
 _OCCASION_MERCHANDISE_TYPES: frozenset[str] = frozenset({
     "rakhi", "rakhi hamper", "rakhi gift hamper", "silver rakhi",
-    "gift hamper", "idols",
+    "gift hamper", "idols", "hampers", "hamper",
+    "gift-card", "gift cards", "gift card",
 })
 
 
@@ -246,10 +261,17 @@ _GENERIC_PRODUCT_TYPES: frozenset[str] = frozenset({
 # combined (name OR desc) x (existing + favour) pattern under generic types,
 # catalogue-wide: 124 matching rows, zero false positives (98 ishhaara + 26
 # voylla, all previously-verified rakhi/idol/hamper/favour merchandise).
+# 2026-07-30 addition ("gift card"): the actual catch for the live-proven
+# "Anniversary Day E-Gift Card" leak (product_type_name=="Fashion", so the
+# type-only exclusion above never saw it). Catalogue audit (21 gift-card
+# rows, 100% genuine, zero false positives -- see _OCCASION_MERCHANDISE_TYPES
+# comment above) confirms "gift card"/"giftcard" text is a safe marker; the
+# pattern also matches "e-gift card"/"digital gift card" via the substring.
 _OCCASION_MERCHANDISE_NAME_RE = re.compile(
     r"\brakhi\b|\braksha\s*bandhan\b|\bhamper\b|\bidol\b|\bidols\b"
     r"|\bshowpiece\b|\btealight\b"
-    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b",
+    r"|\bfavour\b|\bfavours\b|\bfavor\b|\bfavors\b"
+    r"|\bgift\s*card\b",
     re.IGNORECASE,
 )
 

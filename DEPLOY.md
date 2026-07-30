@@ -317,6 +317,38 @@ A `REGRESSION - do not deploy` line means ranking/parser/composer quality silent
 fix before shipping. Not in ci.yml: `data/processed/unified` is gitignored and CI has no GCS
 credentials, so this gate runs locally as part of the deploy ritual.
 
+### Two-gold-set practice — dev set vs. cold holdout
+
+`eval/fixtures/strict_gold_queries.yaml` + `strict_gold_labels.yaml` is the **inspectable
+development set**: read it, reason about misses, add regression queries for every fix — this is
+normal and expected.
+
+A **separate, never-inspected holdout** is required whenever a generalization claim is being
+made ("does this class of fix hold beyond the exact queries used to develop it?"). The holdout
+must be:
+1. Written and hand-labeled cold, before any fix informed by it.
+2. Scored exactly once as a genuine out-of-sample check.
+3. Retired to development data the moment its results are read — see
+   `eval/fixtures/holdout_gold_queries.yaml`'s header for the canonical example (2026-07-25:
+   designed as a holdout, scored once at a true cold 0.862, then 3 of its 24 queries drove real
+   code fixes the same session — after that point it is honestly DEVELOPMENT DATA, not a holdout,
+   and citing its post-fix 0.881 as a "generalization" number would be fabrication by omission).
+
+**Never reuse an opened holdout as if it were still cold.** Once a holdout's results have been
+read (even just to hand-label it), it has informed the session and any responsive fix — it must
+be relabeled DEVELOPMENT DATA in its own file header, and a genuine next generalization check
+needs a **new** query set this session has never inspected. This is why validation must never be
+allowed to burn its own instrument: the whole value of a holdout number is that reading it comes
+before, not after, the fixes it's meant to validate.
+
+```bash
+# Cold-checking generalization: write a NEW eval/fixtures/<name>_queries.yaml +
+# <name>_labels.yaml that no fix this session has looked at, then:
+python scripts/eval_strict.py --mode pipeline \
+  --queries-path eval/fixtures/<name>_queries.yaml \
+  --labels-path eval/fixtures/<name>_labels.yaml
+```
+
 ### QA rule — proof must come from the live Cloud Run URL
 
 After any GCS upload + service restart, verify by hitting the **deployed Cloud Run URL**, not

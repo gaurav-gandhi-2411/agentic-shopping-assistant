@@ -274,6 +274,27 @@ queries:
   category: occasion
   query: formal office trousers for men
   gender: men
+# ── cocktail-occasion regression probes (added 2026-07-30) ───────────────────
+# Live-proven bug: intent_parser mapped "cocktail" -> "reception" (ETHNIC_HEAVY
+# register), so a plain Western cocktail-party query got hard-gated down to ~1
+# item despite 148 qualifying black dress/gown rows in the catalogue. Fixed by
+# remapping "cocktail" -> "party_evening" (EITHER register, matches how
+# "party"/"evening"/"date night" already resolve). occ_cocktail_003 is the
+# reverse-direction probe: an EITHER register must still admit a genuinely
+# ethnic/indo-western item for an Indian user who wants that for a cocktail
+# event, not silently become Western-only.
+- id: occ_cocktail_001
+  category: occasion
+  query: black gown for a cocktail party
+  gender: women
+- id: occ_cocktail_002
+  category: occasion
+  query: cocktail dress for women under 5000
+  gender: women
+- id: occ_cocktail_003
+  category: occasion
+  query: indo western outfit for a cocktail party
+  gender: women
 # ── multi-attribute stacked queries (added 2026-07-11) ───────────────────────
 - id: multi_001
   category: multi_attribute
@@ -418,4 +439,93 @@ queries:
 - id: kids_leak_002
   category: literal
   query: gold jewellery to go with red lehenga
+  gender: women
+# ── reception/wedding_guest thin-allow-list regression probes (2026-07-30) ───
+# Live-proven bug: the reception/wedding_guest "indo-western glam register"
+# exception in coherence.py gate 3 required a literal "gown"/"blazer"/
+# "trousers"/"shirt"/"suit"/"formal" substring in the item's own free-text
+# name — catalogue audit showed only 258/1580 plain "Dress"-typed rows
+# survived (16%) since almost none literally say "gown". Fixed by replacing
+# the name-substring scan with a structured product_type facet-equality check
+# (is_formal_capable_western_item) + casual-marker exclusion
+# (is_casual_marker_item, extended). occ_reception_002 is the negative
+# control: casual-marked trousers must still be rejected, not just "any
+# trousers admitted by default" (that would be the over-widening failure
+# mode the office-register gate hit before).
+- id: occ_reception_001
+  category: occasion
+  query: black dress for a reception
+  gender: women
+- id: occ_reception_002
+  category: occasion
+  query: navy blue blazer for a wedding reception
+  gender: men
+# ── bridal occasion-mapping + merchandise-gate regression probes (2026-07-30)
+# Live-proven bug: "bridal" was never in intent_parser._OCCASION_MAP, so
+# occasion_slug resolved to None for any "bridal ..." query -- silently
+# disabling EVERY occasion-gated protection (merchandise gate, loungewear
+# gate, ethnic/western coherence gates), not just the specific gift-hamper
+# leak that surfaced it ("Mortantra X Zivame Bridal Hamper Box C" ranking in
+# top-5 for "bridal look for women"). Fixed by mapping "bridal" ->
+# wedding_guest and adding bare "hamper"/"hampers" to
+# _OCCASION_MERCHANDISE_TYPES. occ_bridal_002 is the negative control: an
+# EXPLICIT hamper request must still return hampers, not be over-suppressed.
+- id: occ_bridal_001
+  category: occasion
+  query: bridal look for women
+  gender: women
+- id: occ_bridal_002
+  category: occasion
+  query: bridal hamper
+  gender: women
+# ── classification-gap + brand-collision regression probes (2026-07-30) ──────
+# occ_office_001/occ_festive_001: exercise the newly-classified footwear/
+# outerwear/knitwear/coord/ethnic keyword coverage (classify_item/
+# classify_anchor unknown-class fix, 8,021 -> 4,622 true-unknown rows).
+# occ_brand_001: exercises the brand-name/ethnic-keyword collision fix
+# (_BRAND_PREFIX_COLLISIONS) — "Jaipur Kurti" branded trousers must classify
+# western, not ethnic, so they're honestly labeled MISS for a sangeet
+# (ethnic_only) ask rather than silently masquerading as ethnic. Pool-
+# underflow protection means the top-5 items are identical whether the fix
+# is applied or not (no genuine ethnic "trousers" exist in this catalogue's
+# sangeet-appropriate inventory) — this query locks in the CORRECT miss
+# reason/register judgement, a genuine data-ceiling case, not a code gap.
+- id: occ_office_001
+  category: occasion
+  query: office wear for women
+  gender: women
+- id: occ_festive_001
+  category: occasion
+  query: festive look for women
+  gender: women
+- id: occ_brand_001
+  category: occasion
+  query: jaipur kurti trousers for sangeet
+  gender: women
+# ── missing high-traffic occasion-term regression probes (2026-07-30) ────────
+# Live-proven gap: "groom"/"dulhan"/"baraat"/"nikah"/"anniversary" were never
+# in intent_parser._OCCASION_MAP (occasion_slug=None silently disables every
+# occasion-gated protection). Audited real catalogue support before mapping
+# any of them (mundan/griha pravesh/housewarming were checked and rejected —
+# too thin/ambiguous, not mapped). groom/dulhan/baraat/nikah -> wedding_guest;
+# anniversary -> party_evening.
+- id: occ_groom_001
+  category: occasion
+  query: groom outfit for men
+  gender: men
+- id: occ_dulhan_001
+  category: occasion
+  query: dulhan look for women
+  gender: women
+- id: occ_baraat_001
+  category: occasion
+  query: baraat outfit for men
+  gender: men
+- id: occ_nikah_001
+  category: occasion
+  query: nikah outfit for women
+  gender: women
+- id: occ_anniversary_001
+  category: occasion
+  query: anniversary party outfit for women
   gender: women
