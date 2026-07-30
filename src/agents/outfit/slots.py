@@ -393,6 +393,19 @@ def _contains_word(text: str, phrase: str) -> bool:
     return re.search(rf"\b{re.escape(phrase)}\b", text) is not None
 
 
+# 2026-07-30: product_type_name facet VALUES that are themselves generic
+# catch-all buckets (no real type information on their own — see
+# classify_item's shortcut-skip comment below for the mechanism this
+# protects against). Exactly the bare/near-bare pt-alone keywords added by
+# the unknown-class keyword-coverage audit that could plausibly co-occur
+# with a MORE SPECIFIC, earlier-priority keyword (ethnic/men_formalwear)
+# elsewhere in a real item's own name.
+_GENERIC_FACET_VALUES: frozenset[str] = frozenset({
+    "outerwear", "footwear", "knitwear", "coord", "bottom", "bottoms",
+    "bottomwear", "tracksuit", "track suit",
+})
+
+
 def classify_item(product_type: str, prod_name: str = "") -> str:
     """Classify a CANDIDATE item (not just an anchor) into a slot-compatible class.
 
@@ -423,9 +436,32 @@ def classify_item(product_type: str, prod_name: str = "") -> str:
 
     if any(_contains_word(pt, kw) for kw in ACCESSORY_KEYWORDS):
         return "accessory"
-    pt_only_class = classify_anchor(product_type, "")
-    if pt_only_class != "unknown":
-        return pt_only_class
+    # 2026-07-30 fix (live-proven regression, test_price_outlier_guard.py's
+    # eid/men budgeted-look test): the pt-alone shortcut below is safe ONLY
+    # when `product_type` is itself a SPECIFIC facet value (top/trousers/
+    # dress/shirt/...) — that's the "Crop Top WITH Palazzo" case this
+    # shortcut was built for (pt="top" is already the correct, authoritative
+    # answer; "palazzo" in the name describes a BUNDLED second item, not
+    # this item's own type). It breaks when `product_type` is one of the
+    # GENERIC catch-all facet buckets added by the 2026-07-30 unknown-class
+    # keyword-coverage audit (outerwear/footwear/knitwear/coord/bottom/
+    # bottoms/bottomwear/tracksuit/track suit) — these facet values carry NO
+    # real type information on their own (that's WHY they used to resolve
+    # "unknown"), so pt-alone resolving via one of THEIR bare keywords must
+    # never short-circuit past a MORE SPECIFIC keyword sitting in the item's
+    # own full name. Live-proven: product_type=="outerwear",
+    # prod_name=="Cream Golden Floral Nehru Jacket" — pt-alone now resolves
+    # "outerwear" (bare keyword), silently skipping the MEN_FORMALWEAR_
+    # KEYWORDS "nehru jacket" match that classify_anchor(pt, name) [full
+    # text] correctly gives ("men_formalwear") — SLOT_ALLOWED_CLASSES
+    # doesn't accept men_formalwear for an "outerwear" slot, so this
+    # masqueraded the item into eligibility it should never have had,
+    # silently changing which candidate won a real composed look.
+    _pt_stripped = pt.strip()
+    if _pt_stripped not in _GENERIC_FACET_VALUES:
+        pt_only_class = classify_anchor(product_type, "")
+        if pt_only_class != "unknown":
+            return pt_only_class
 
     combined = pt + " " + name
     if any(_contains_word(combined, kw) for kw in ACCESSORY_KEYWORDS):
