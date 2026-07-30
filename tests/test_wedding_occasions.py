@@ -88,6 +88,21 @@ class TestIntentParsingNewOccasions:
     def test_cocktail(self) -> None:
         assert parse_intent("cocktail party outfit").occasion == "party_evening"
 
+    def test_groom_outfit(self) -> None:
+        assert parse_intent("groom outfit for men").occasion == "wedding_guest"
+
+    def test_dulhan_look(self) -> None:
+        assert parse_intent("dulhan look for women").occasion == "wedding_guest"
+
+    def test_baraat_outfit(self) -> None:
+        assert parse_intent("baraat outfit for men").occasion == "wedding_guest"
+
+    def test_nikah_outfit(self) -> None:
+        assert parse_intent("nikah outfit for women").occasion == "wedding_guest"
+
+    def test_anniversary_party_outfit(self) -> None:
+        assert parse_intent("anniversary party outfit for women").occasion == "party_evening"
+
 
 # ── (d) anchor query non-empty + contains signature tokens ──────────────────
 

@@ -405,6 +405,33 @@ _OCCASION_MAP: dict[str, str] = {
     # a bridal look is register-consistent with wedding_guest (ETHNIC_HEAVY,
     # formality 4), and the catalogue has no dedicated "bridal" Occasion entry.
     "bridal": "wedding_guest",
+    # 2026-07-30 audit of remaining wedding-adjacent gaps (word-boundary regex
+    # over prod_name + detail_desc in catalogue.parquet). Mapped to
+    # wedding_guest, register-consistent with "wedding"/"shaadi"/"bridal":
+    # "groom" (494 rows: groom jewellery, tuxedos, pagdi) is strong wedding-
+    # formal-menswear signal; "baraat" (84 rows: sherwanis, bandhgalas,
+    # Jodhpuri sets) is the groom's ceremonial procession; "nikah" (24 rows:
+    # groom sherwanis, sadri sets) is the Muslim wedding ceremony, same
+    # register; "dulhan" (only 8 rows but 100% genuinely bridal-specific --
+    # Hindi for "bride") is low-volume but zero-noise, unlike the terms
+    # rejected below.
+    "groom": "wedding_guest",
+    "dulhan": "wedding_guest",
+    "baraat": "wedding_guest",
+    "nikah": "wedding_guest",
+    # Mapped to party_evening (EITHER register, same as "party"/"evening"/
+    # "date night") rather than an ethnic-heavy slug: an anniversary
+    # celebration is generically festive, not specifically ethnic. 515 rows,
+    # mixed jewellery-gift framing plus genuine festive/party wear; the
+    # jewellery-gift framing is not a merchandise-leak risk here since
+    # jewellery is explicitly protected from the occasion-merchandise gate
+    # (see cleaning.py's _OCCASION_MERCHANDISE_TYPES docstring).
+    "anniversary": "party_evening",
+    # Audited and deliberately NOT mapped -- too thin/ambiguous in the
+    # catalogue to justify an occasion mapping (re-check catalogue support
+    # before re-litigating): "mundan" (2 rows, neither clearly mundan-
+    # specific), "griha pravesh" (4 rows, all sarees but very thin),
+    # "housewarming" (5 rows, 3 of 5 are non-apparel religious idols).
     "sangeet": "sangeet",
     "haldi": "haldi",
     "mehendi": "mehendi",
