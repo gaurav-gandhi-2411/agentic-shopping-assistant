@@ -1040,11 +1040,47 @@ HALDI_LIGHTWEIGHT_KEYWORDS: frozenset[str] = frozenset({
 FORMALITY_SOFTENER_VALUES: frozenset[str] = frozenset({"minimalist", "comfortable"})
 
 
+# 2026-07-30: brand-name/ethnic-keyword collision fix. classify_anchor()
+# scans the full product_type+name text for keyword matches -- a handful
+# of real catalogue BRAND names happen to literally contain an unrelated
+# garment keyword, which silently overrides the item's real garment type.
+# Confirmed via full-catalogue audit (product_type_name facet vs. combined
+# classify_anchor(pt, name) result, keyword match position in the first
+# 1-2 words of prod_name): "Jaipur Kurti" (36 rows, sells trousers/skirts/
+# jumpsuits/tops under a "Kurti"-named ethnic brand -- 31 collision rows,
+# e.g. "Jaipur Kurti Women White Regular Fit Solid Regular Trousers"
+# pt=="trousers" wrongly resolving ethnic_top via ETHNIC_TOP_KEYWORDS'
+# "kurti"), "SALWAR STUDIO" (25 rows, sells blouses/tops -- 24 collision
+# rows via ETHNIC_BOTTOM_KEYWORDS' "salwar"), "Saree Swarg" (5 rows,
+# sells tunics/kurtis -- collides with ETHNIC_ONE_PIECE_KEYWORDS' "saree",
+# which is checked BEFORE ETHNIC_TOP_KEYWORDS, forcing a genuine tunic/
+# kurti to the wrong ethnic SUB-class and excluding it from ever filling
+# a "top" slot), "Pepe Jeans" (25 rows, sells knitwear/outerwear too --
+# collides with WESTERN_BOTTOM_KEYWORDS' "jeans"). Deliberately a fixed,
+# audited denylist, NOT a blanket "trust product_type_name alone" rule --
+# that would regress legitimate cases where a generic/overloaded facet
+# value genuinely needs a real (non-brand) ethnic descriptor elsewhere in
+# the name to reclassify correctly, e.g. "NEUDIS Women ... Flared Maxi
+# Lehenga Skirt" (pt=="skirt") is CORRECTLY ethnic_one_piece today via
+# the legitimate "Lehenga" word in the name -- a facet-first rule would
+# break that. Stripped as a case-insensitive LEADING prefix only (same
+# discipline as src/catalogue/normalizer.py's brand-prefix strip) so the
+# rest of the name -- including genuine descriptors -- still classifies
+# normally.
+_BRAND_PREFIX_COLLISIONS: tuple[str, ...] = (
+    "jaipur kurti", "salwar studio", "saree swarg", "pepe jeans",
+)
+_BRAND_PREFIX_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(b) for b in _BRAND_PREFIX_COLLISIONS) + r")[\s\-_,|]+",
+    re.IGNORECASE,
+)
+
+
 def classify_anchor(product_type: str, prod_name: str = "") -> str:
     """Return anchor class: ethnic_top | ethnic_one_piece | ethnic_bottom |
     western_top | western_bottom | western_one_piece | outerwear | footwear | unknown."""
     pt = product_type.lower()
-    name = prod_name.lower()
+    name = _BRAND_PREFIX_RE.sub("", prod_name.lower())
     combined = pt + " " + name
 
     if any(kw in combined for kw in ETHNIC_ONE_PIECE_KEYWORDS):
