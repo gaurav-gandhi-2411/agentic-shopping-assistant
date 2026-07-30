@@ -78,7 +78,7 @@ class TestIntentParsingNewOccasions:
         assert parse_intent("shaadi guest look").occasion == "wedding_guest"
 
     def test_cocktail(self) -> None:
-        assert parse_intent("cocktail party outfit").occasion == "reception"
+        assert parse_intent("cocktail party outfit").occasion == "party_evening"
 
 
 # ── (d) anchor query non-empty + contains signature tokens ──────────────────

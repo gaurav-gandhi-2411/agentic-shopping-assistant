@@ -400,7 +400,7 @@ _OCCASION_MAP: dict[str, str] = {
     "mehendi": "mehendi",
     "mehndi": "mehendi",
     "reception": "reception",
-    "cocktail": "reception",
+    "cocktail": "party_evening",
     "engagement": "engagement",
     "roka": "engagement",
     "sagai": "engagement",

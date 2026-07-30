@@ -1753,3 +1753,27 @@ labels:
 - query_id: occ_adv_005
   items:
   - {article_id: "9351592640770", relevant: false, reason: data-mislabel, note: "catalogue gender field says 'women' but the product's own name explicitly says 'Men's Black Silk Blend Kurta...' -- catalogue field contradicts the product's own name, same Step-3 data-mislabel bucket as the Jodhpuri/kurta reclassification above, not code-fixable without risking rejecting genuine unisex-styled items"}
+# ── cocktail-occasion regression probes (2026-07-30 fix: "cocktail" remapped
+# reception -> party_evening in intent_parser._OCCASION_MAP). Retrieval
+# snapshot: commit 851097b + this fix, --mode pipeline. Labeled_by: Claude
+# (Fable 5), same rubric as the header.
+- query_id: occ_cocktail_001
+  items:
+  - {article_id: "7785146155230", relevant: true, note: "'Black Hosiery Sheath Party Dress' -- sheath silhouette, no explicit mini/short marker, black, party-appropriate for cocktail register"}
+  - {article_id: "9719882121513", relevant: true, note: "'Fae|Satin Stylised Back Maxi Gown' -- explicitly a maxi gown, black, exact type+colour match"}
+  - {article_id: "9034319495390", relevant: false, reason: attribute-contradiction, note: "'Black Off-Shoulder Party Dress' -- desc explicitly 'party mini dress'; mini contradicts the query's 'gown' (gown implies a long/floor silhouette)"}
+  - {article_id: "8702900535518", relevant: true, note: "'Black Glitter Sheath Party Dress' -- sheath, no length marker contradicting gown, black, party-appropriate"}
+  - {article_id: "8225722007774", relevant: true, note: "'Black Embellished Viscose Winter Dress' -- ruched bodycon, no explicit mini/short marker, black, embellished/party-appropriate"}
+- query_id: occ_cocktail_002
+  items:
+  - {article_id: "6883946594461", relevant: false, reason: occasion-register, note: "'Women Floral Print Maxi-Fit CASUAL Dress' -- desc/name explicitly casual register, mismatched formality for a cocktail-party (party_evening, formality 4) ask"}
+  - {article_id: "7553271726302", relevant: true, note: "'Women Yellow Pearl Embellished Flared Dress' -- pearl embellishment, party-appropriate formality, under 5000"}
+  - {article_id: "7999307841758", relevant: true, note: "'Women Teal Round Neck Sleeveless Dress' -- no explicit casual/loungewear marker, plausible cocktail dress, under 5000"}
+  - {article_id: "7599233171678", relevant: false, reason: occasion-register, note: "'Women Sky Blue Denim Flared Mini Dress' -- denim is an explicit western-casual marker, mismatched formality for a cocktail-party ask"}
+  - {article_id: "9971976143145", relevant: true, note: "'Lusy|100% Viscose A-Line Mini Dress' -- desc explicitly '...perfect for cocktail', direct match"}
+- query_id: occ_cocktail_003
+  items:
+  - {article_id: "9492010270978", relevant: false, reason: data-mislabel, note: "'Men Bottle Green...Indo-Western...Palazzo Set' -- catalogue gender field says 'women' but the product's own name explicitly says 'Men'; contradicts the query's women gender filter, same data-mislabel bucket as occ_adv_005 above"}
+  - {article_id: "8644788879515", relevant: true, note: "'Party Wear Floral Embroidered blue Lehenga' -- festive/embellished ethnic-glam, plausible for an indo-western-leaning cocktail-party ask; reverse-direction proof that party_evening's EITHER register still admits ethnic items"}
+  - {article_id: "8644941349019", relevant: true, note: "'Blue & Black Tie-Dye Festive Lehenga' -- festive/embellished, same reverse-direction register as above"}
+  - {article_id: "8644357030043", relevant: true, note: "'White Green Embroidered Party Wear Lehenga' -- festive/embellished, same reverse-direction register as above"}

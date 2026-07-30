@@ -274,6 +274,27 @@ queries:
   category: occasion
   query: formal office trousers for men
   gender: men
+# ── cocktail-occasion regression probes (added 2026-07-30) ───────────────────
+# Live-proven bug: intent_parser mapped "cocktail" -> "reception" (ETHNIC_HEAVY
+# register), so a plain Western cocktail-party query got hard-gated down to ~1
+# item despite 148 qualifying black dress/gown rows in the catalogue. Fixed by
+# remapping "cocktail" -> "party_evening" (EITHER register, matches how
+# "party"/"evening"/"date night" already resolve). occ_cocktail_003 is the
+# reverse-direction probe: an EITHER register must still admit a genuinely
+# ethnic/indo-western item for an Indian user who wants that for a cocktail
+# event, not silently become Western-only.
+- id: occ_cocktail_001
+  category: occasion
+  query: black gown for a cocktail party
+  gender: women
+- id: occ_cocktail_002
+  category: occasion
+  query: cocktail dress for women under 5000
+  gender: women
+- id: occ_cocktail_003
+  category: occasion
+  query: indo western outfit for a cocktail party
+  gender: women
 # ── multi-attribute stacked queries (added 2026-07-11) ───────────────────────
 - id: multi_001
   category: multi_attribute
