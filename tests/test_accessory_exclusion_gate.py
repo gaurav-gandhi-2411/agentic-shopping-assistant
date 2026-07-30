@@ -108,6 +108,83 @@ class TestClassifyItemJewelleryVocabularyGap2026_07_30:
         assert classify_item("Pocket Squares", "Silk Pocket Squares Set") == "accessory"
 
 
+class TestClassifyItemUnknownClassKeywordCoverageAudit2026_07_30:
+    """2026-07-30 unknown-class keyword-coverage audit: real catalogue
+    product_type_name facet values that classify_item() resolved to
+    "unknown" before this fix, verified against real per-row
+    classify_item(product_type_name, prod_name) — see slots.py's own
+    keyword-set comments for the full row-count audit trail per keyword.
+    """
+
+    def test_nose_pin_space_variant_is_accessory(self) -> None:
+        assert classify_item("Nose Pin", "Oxidised Nose Pin") == "accessory"
+
+    def test_maang_tikka_double_k_variant_is_accessory(self) -> None:
+        assert classify_item("Maang Tikka", "Bridal Kundan Maang Tikka") == "accessory"
+
+    def test_kamarband_is_accessory(self) -> None:
+        assert (
+            classify_item("Kamarband", "Sukkhi Alluring Pearl Gold Plated Kamarband For Women")
+            == "accessory"
+        )
+
+    def test_wallet_is_accessory(self) -> None:
+        assert classify_item("Wallet", "Men's Leather Bifold Wallet") == "accessory"
+
+    def test_bow_tie_is_accessory(self) -> None:
+        assert classify_item("Fashion", "Classic Satin Bow Tie") == "accessory"
+
+    def test_footwear_facet_alone_is_footwear(self) -> None:
+        assert classify_item("footwear", "Running Sneakers") == "footwear"
+
+    def test_chappals_is_footwear(self) -> None:
+        assert classify_item("Fashion", "1 Pair of Chappals") == "footwear"
+
+    def test_mules_is_footwear(self) -> None:
+        assert classify_item("Fashion", "Suede Leather Mules") == "footwear"
+
+    def test_outerwear_facet_alone_is_outerwear(self) -> None:
+        assert classify_item("outerwear", "Winter Layer") == "outerwear"
+
+    def test_shrug_is_outerwear(self) -> None:
+        assert classify_item("Fashion", "Winter Shrug") == "outerwear"
+
+    def test_knitwear_is_western_top(self) -> None:
+        assert classify_item("knitwear", "High Neck Textured Zipper Sweater") == "western_top"
+
+    def test_bottomwear_is_western_bottom(self) -> None:
+        assert classify_item("Bottomwear", "Men Cargos") == "western_bottom"
+
+    def test_coord_no_hyphen_is_western_one_piece(self) -> None:
+        assert classify_item("coord", "Blue Floral Printed Cotton Blend Co-Ord Set") == (
+            "western_one_piece"
+        )
+
+    def test_phiran_is_ethnic_top(self) -> None:
+        assert classify_item("Fashion", "Kashifa Black Pure Woollen Phiran") == "ethnic_top"
+
+    def test_plazzo_typo_is_ethnic_bottom(self) -> None:
+        assert classify_item("Fashion", "Narangi Cotton Slub Plazzos") == "ethnic_bottom"
+
+    def test_achkan_is_men_formalwear(self) -> None:
+        assert classify_item("Fashion", "Pink Brocade Embroidered Achkan") == "men_formalwear"
+
+    def test_jodhpuri_is_men_formalwear(self) -> None:
+        assert classify_item("Jodhpuri", "Blue Jodhpuri Suit") == "men_formalwear"
+
+    def test_swimwear_stays_unknown_deliberately_not_reclassified(self) -> None:
+        # Data-mislabeled facet value: samples as underwear ("Men Brief (Pack
+        # of 5)"), not beachwear, in this catalogue's pipeline — must NEVER
+        # be classified as a wearable top/one_piece (would let underwear
+        # fill an outfit slot, worse than leaving it "unknown").
+        assert classify_item("swimwear", "Men Brief (Pack of 5)") == "unknown"
+
+    def test_vest_stays_unknown_deliberately_not_reclassified(self) -> None:
+        # Same reasoning as swimwear above: samples as undershirts
+        # ("SayItLoud Men Vest (Pack of 5)"), not stylish outer vests.
+        assert classify_item("vest", "SayItLoud Men Vest (Pack of 5)") == "unknown"
+
+
 class TestNonOutfitItemClassesCoversFootwear:
     """2026-07-30 fix: classify_item() resolves "footwear" as its own class,
     disjoint from "accessory" — the gate's original `!= "accessory"` check

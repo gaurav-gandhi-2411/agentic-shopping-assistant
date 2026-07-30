@@ -83,6 +83,37 @@ class TestClassifyAnchor:
         assert result == "ethnic_one_piece"
 
 
+class TestClassifyAnchorSubstringCollisionRegression2026_07_30:
+    """2026-07-30 unknown-class keyword-coverage audit follow-up: bare
+    "lower" and bare "cape" were originally spec'd for WESTERN_BOTTOM_
+    KEYWORDS/OUTERWEAR_KEYWORDS but dropped after catalogue verification
+    showed they live-match as plain substrings inside unrelated words
+    ("flower", "escape"/"seascape") — classify_anchor() scans with plain
+    `kw in combined`, not word-boundary matching. This matters far beyond a
+    cosmetic mislabel: composer.py calls classify_anchor() directly on a
+    look's own ANCHOR item to decide get_fill_slots(anchor_class, ...) — the
+    entire slot composition for the look. These tests pin the CORRECT
+    classification down so a future re-addition of either bare keyword
+    regresses visibly here rather than silently corrupting anchor-driven
+    slot composition.
+    """
+
+    def test_flower_named_top_stays_western_top_not_bottom(self) -> None:
+        result = classify_anchor("top", "bebe Women Orchid Flower Essential Self Design Top")
+        assert result == "western_top"
+
+    def test_escape_named_footwear_stays_footwear_not_outerwear(self) -> None:
+        result = classify_anchor("footwear", "Email Escape : Mule Heels")
+        assert result == "footwear"
+
+    def test_capes_plural_facet_still_resolves_outerwear(self) -> None:
+        # "capes" (plural) is kept — both real facet values ("Ponchu &
+        # Capes", "Capes & Overlays") are always plural in this catalogue,
+        # so dropping the singular loses zero real coverage.
+        result = classify_anchor("Capes & Overlays", "Handcrafted Mustard Pure Woolen Cape")
+        assert result == "outerwear"
+
+
 class TestIsEthnicIsWestern:
     def test_kurta_is_ethnic(self) -> None:
         assert is_ethnic_item("Kurta") is True
