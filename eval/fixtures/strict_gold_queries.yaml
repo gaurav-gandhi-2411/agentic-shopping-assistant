@@ -460,3 +460,45 @@ queries:
   category: occasion
   query: navy blue blazer for a wedding reception
   gender: men
+# ── bridal occasion-mapping + merchandise-gate regression probes (2026-07-30)
+# Live-proven bug: "bridal" was never in intent_parser._OCCASION_MAP, so
+# occasion_slug resolved to None for any "bridal ..." query -- silently
+# disabling EVERY occasion-gated protection (merchandise gate, loungewear
+# gate, ethnic/western coherence gates), not just the specific gift-hamper
+# leak that surfaced it ("Mortantra X Zivame Bridal Hamper Box C" ranking in
+# top-5 for "bridal look for women"). Fixed by mapping "bridal" ->
+# wedding_guest and adding bare "hamper"/"hampers" to
+# _OCCASION_MERCHANDISE_TYPES. occ_bridal_002 is the negative control: an
+# EXPLICIT hamper request must still return hampers, not be over-suppressed.
+- id: occ_bridal_001
+  category: occasion
+  query: bridal look for women
+  gender: women
+- id: occ_bridal_002
+  category: occasion
+  query: bridal hamper
+  gender: women
+# ── classification-gap + brand-collision regression probes (2026-07-30) ──────
+# occ_office_001/occ_festive_001: exercise the newly-classified footwear/
+# outerwear/knitwear/coord/ethnic keyword coverage (classify_item/
+# classify_anchor unknown-class fix, 8,021 -> 4,622 true-unknown rows).
+# occ_brand_001: exercises the brand-name/ethnic-keyword collision fix
+# (_BRAND_PREFIX_COLLISIONS) — "Jaipur Kurti" branded trousers must classify
+# western, not ethnic, so they're honestly labeled MISS for a sangeet
+# (ethnic_only) ask rather than silently masquerading as ethnic. Pool-
+# underflow protection means the top-5 items are identical whether the fix
+# is applied or not (no genuine ethnic "trousers" exist in this catalogue's
+# sangeet-appropriate inventory) — this query locks in the CORRECT miss
+# reason/register judgement, a genuine data-ceiling case, not a code gap.
+- id: occ_office_001
+  category: occasion
+  query: office wear for women
+  gender: women
+- id: occ_festive_001
+  category: occasion
+  query: festive look for women
+  gender: women
+- id: occ_brand_001
+  category: occasion
+  query: jaipur kurti trousers for sangeet
+  gender: women

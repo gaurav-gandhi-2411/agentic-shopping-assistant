@@ -1812,3 +1812,43 @@ labels:
   items:
   - {article_id: "9114158792960", relevant: false, reason: occasion-register, note: "'AM:PM Dress' -- desc explicit 'breezy relaxed fit... 9-9 dress... deep side pockets... effortlessly chic', an everyday comfort dress with zero embellishment/glam signal, mismatched formality for reception; newly surfaced by the reception structural-type fix (admits 'dress' by default) -- a disclosed precision tradeoff of that fix, not caught by is_casual_marker_item since it never says 'casual' literally"}
   - {article_id: "14382336", relevant: false, reason: data-mislabel, note: "'DressBerry Women Pink Melange Effect Longline Front-Open' -- desc is explicitly a SWEATER ('front-open sweater, 2 pockets, long sleeves, straight hem, Acrylic'), not a dress at all; catalogue's own product_type_name=='dress' facet contradicts the item's own description"}
+# ── bridal occasion-mapping + merchandise-gate fix (2026-07-30): "bridal"
+# mapped to wedding_guest in intent_parser._OCCASION_MAP; bare "hamper"/
+# "hampers" added to _OCCASION_MERCHANDISE_TYPES. Retrieval snapshot: this
+# fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_bridal_001
+  items:
+  - {article_id: "8353474838683", relevant: true, note: "'Red Designer Bridal lehenga' -- red is the traditional Indian bridal colour, full ethnic ensemble"}
+  - {article_id: "8353470480539", relevant: true, note: "'Red Silk Bridal lehenga with paisely Butis' -- red, embellished, bridal-appropriate"}
+  - {article_id: "8353461469339", relevant: true, note: "'Dark Red Bridal Lehenga' -- traditional bridal colour, ethnic full ensemble"}
+  - {article_id: "8361603596443", relevant: true, note: "'Red Bridal lehenga with Heavy Hand work' -- red, heavily embellished, bridal-glam appropriate"}
+- query_id: occ_bridal_002
+  items:
+  - {article_id: "9275422900447", relevant: true, note: "'Mortantra X Zivame Bridal Hamper Box C' -- exactly a bridal-themed hamper, explicit merchandise request correctly NOT suppressed"}
+  - {article_id: "8387941204134", relevant: false, reason: occasion-register, note: "'The Blooming Affection Valentine Hamper' -- a hamper (type matches) but Valentine-themed, not bridal; theme mismatch for a 'bridal hamper' ask"}
+  - {article_id: "9275422343391", relevant: true, note: "'Mortantra X Zivame Bridal Hamper Box B' -- exactly a bridal-themed hamper"}
+  - {article_id: "7332701143083", relevant: false, reason: type-confusion, note: "'Customize Playing Cards' -- not a hamper at all"}
+  - {article_id: "8620936069286", relevant: false, reason: occasion-register, note: "'Glow of Love Karwa Chauth Gift Hamper' -- a hamper but Karwa Chauth-themed, not bridal; theme mismatch"}
+# ── classification-gap + brand-collision fix (2026-07-30). Retrieval
+# snapshot: this fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_office_001
+  items:
+  - {article_id: "7553271234782", relevant: true, note: "'Women Collared Viscose Printed Shirt' -- formal shirt, office-appropriate"}
+  - {article_id: "7553271169246", relevant: true, note: "'Women Zebra Printed Shirt' -- shirt, no casual marker"}
+  - {article_id: "7631150678238", relevant: false, reason: occasion-register, note: "'Women Black Animation Elephant Tee T-Shirt' -- novelty animal-print t-shirt, not office-appropriate"}
+  - {article_id: "7553272545502", relevant: false, reason: occasion-register, note: "'Women Navy Blue Round Neck Hosiery T-Shirt' -- plain t-shirt, casual register, not office-formal"}
+  - {article_id: "18205646", relevant: true, note: "'OFFICE & YOU Women Black Shrug' -- newly correctly classified 'outerwear' via the shrug-keyword fix (previously unknown/unclassified); light layering piece, explicitly office-branded, office-appropriate"}
+- query_id: occ_festive_001
+  items:
+  - {article_id: "6669758005405", relevant: false, reason: occasion-register, note: "'Women White Front Open Solid Shrug' -- plain solid, no embellishment/festive signal"}
+  - {article_id: "8404036616414", relevant: false, reason: occasion-register, note: "'Women Black V-Neck Cotton Kurta' -- plain cotton, no embellishment, everyday-register not festive"}
+  - {article_id: "8574022549654", relevant: true, note: "'Black Woven Design Wool Women's Shawl' -- woven-pattern shawl, festive-plausible"}
+  - {article_id: "16896084", relevant: true, note: "'GRACIT Women Set Of 2 Navy Blue & Turquoise Blue Embroidered Flared Ethnic Palazzos' -- embroidered ethnic palazzo, festive-appropriate"}
+  - {article_id: "70c42bb5-f9dc-526b-9409-736896965f6e", relevant: true, note: "'K J TRADERS Wool Woven Women, Men Shawl (Multicolor)' -- multicolor woven shawl, festive-plausible"}
+- query_id: occ_brand_001
+  items:
+  - {article_id: "2039873", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women Blue Solid Trousers' -- genuinely Western trousers (correctly classified western_bottom via the brand-collision fix -- the brand name 'Kurti' no longer wrongly forces ethnic_top), no ethnic register at all, mismatched for sangeet (ethnic_only); pool-underflow protected since no genuine sangeet-appropriate ethnic 'trousers' exist in this catalogue -- an honest data-ceiling case, not a code gap"}
+  - {article_id: "11053810", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women Black Trousers' -- same brand-collision fix, genuinely Western, same data-ceiling case"}
+  - {article_id: "14099266", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women White Regular Fit Solid Regular Trousers' -- same"}
+  - {article_id: "11054006", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women White Regular Cropped Trousers' -- same"}
+  - {article_id: "8702899159262", relevant: false, reason: occasion-register, note: "'Ultimate Stretchable Loose Fit Trousers' -- unrelated brand, still genuinely Western, same data-ceiling case"}
