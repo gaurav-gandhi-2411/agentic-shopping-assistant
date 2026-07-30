@@ -162,6 +162,38 @@ class GroqClient:
             api_key=api_key, timeout=llm_cfg.get("timeout_seconds", 60)
         )
         self.cost_reporter: Callable[[float], None] | None = None
+        # Lazy OpenRouter fallback for TPD (daily quota) exhaustion — see
+        # _get_fallback(). Config is retained (not the client itself) so
+        # construction — and its OPENROUTER_API_KEY check — is deferred until
+        # actually needed, and re-attempted at most once per GroqClient instance.
+        self._config = config
+        self._fallback_client = None
+        self._fallback_unavailable = False
+
+    def _get_fallback(self) -> "object | None":
+        """Return a lazily-constructed OpenRouterClient, or None if unavailable.
+
+        Incident (2026-07-29/30): Groq's 500k TPD budget gets exhausted by
+        cumulative traffic (eval runs + real usage), and the old behaviour —
+        wait up to 10x for 60s+ each on the SAME exhausted provider — produced
+        multi-minute hangs that the WS turn-deadline (90s) then had to cut off
+        as a user-facing timeout. Falling over to OpenRouter immediately avoids
+        that hang. Construction failure (e.g. missing/invalid key) is cached as
+        `_fallback_unavailable` so a dead fallback doesn't add per-call retry
+        overhead — see 2026-07-30 finding that the OpenRouter key was dead.
+        """
+        if self._fallback_unavailable:
+            return None
+        if self._fallback_client is None:
+            try:
+                from src.llm.openrouter_client import OpenRouterClient
+                self._fallback_client = OpenRouterClient(self._config)
+                self._fallback_client.cost_reporter = self.cost_reporter
+            except Exception as exc:
+                logger.error("[groq] OpenRouter fallback unavailable: %r", exc)
+                self._fallback_unavailable = True
+                return None
+        return self._fallback_client
 
     def chat(
         self,
@@ -212,13 +244,35 @@ class GroqClient:
             except Exception as exc:
                 attempt += 1
                 exc_str = str(exc)
-                if ("tokens per day" in exc_str or "(TPD)" in exc_str) and tpd_retries < 10:
-                    tpd_retries += 1
-                    wait = _parse_retry_after(exc_str)
-                    wait = max(wait, 60.0)  # minimum 60s for TPD
-                    logger.warning("[groq] attempt %d failed: %r. TPD limit — waiting %.0fs…", attempt, exc, wait)
-                    time.sleep(wait + 2)
-                    continue
+                if "tokens per day" in exc_str or "(TPD)" in exc_str:
+                    fallback = self._get_fallback()
+                    if fallback is not None:
+                        logger.warning(
+                            "[groq] attempt %d failed: TPD exhausted. Falling back to OpenRouter…",
+                            attempt,
+                        )
+                        try:
+                            return fallback.chat(
+                                messages, temperature=temperature, max_tokens=max_tokens
+                            )
+                        except Exception as fb_exc:
+                            logger.error(
+                                "[groq->openrouter fallback] failed: %r. Raising original Groq TPD error.",
+                                fb_exc,
+                            )
+                            raise exc from fb_exc
+                    # No fallback configured — preserve the legacy wait-and-retry
+                    # behaviour rather than fail fast on a transient-looking quota error.
+                    if tpd_retries < 10:
+                        tpd_retries += 1
+                        wait = _parse_retry_after(exc_str)
+                        wait = max(wait, 60.0)  # minimum 60s for TPD
+                        logger.warning(
+                            "[groq] attempt %d failed: %r. TPD limit, no fallback — waiting %.0fs…",
+                            attempt, exc, wait,
+                        )
+                        time.sleep(wait + 2)
+                        continue
                 delay = next(tpm_delays, None)
                 if delay is None:
                     raise
@@ -236,6 +290,7 @@ class GroqClient:
         output_tokens = 0
         cached_tokens = 0
         turn_id = str(uuid.uuid4())
+        yielded_any = False
         try:
             stream = self._client.chat.completions.create(
                 model=self.model,
@@ -251,6 +306,7 @@ class GroqClient:
                 if chunk.choices:
                     content = chunk.choices[0].delta.content
                     if content:
+                        yielded_any = True
                         yield content
                 if chunk.usage:
                     input_tokens = chunk.usage.prompt_tokens or 0
@@ -258,6 +314,22 @@ class GroqClient:
                     if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
                         cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", 0) or 0
         except Exception as exc:
+            exc_str = str(exc)
+            # Only fall back if nothing has streamed to the client yet — Groq's
+            # TPD 429 always fires at request-initiation, before any chunk, but
+            # this guards against re-sending a duplicate partial response if that
+            # ever changes.
+            if ("tokens per day" in exc_str or "(TPD)" in exc_str) and not yielded_any:
+                fallback = self._get_fallback()
+                if fallback is not None:
+                    logger.warning("[groq] chat_stream TPD exhausted. Falling back to OpenRouter…")
+                    try:
+                        yield from fallback.chat_stream(
+                            messages, temperature=temperature, max_tokens=max_tokens
+                        )
+                        return
+                    except Exception as fb_exc:
+                        logger.error("[groq->openrouter fallback stream] failed: %r", fb_exc)
             logger.error("[groq] chat_stream error: %s", exc, exc_info=True)
             yield STREAM_ERROR_SENTINEL
         finally:

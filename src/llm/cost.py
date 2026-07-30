@@ -20,6 +20,16 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "cached_read":  0.0,
         "cached_write": 0.0,
     },
+    # OpenRouter free-tier model (config.yaml llm.openrouter_model). $0 by
+    # OpenRouter's own pricing for ":free"-suffixed models — kept explicit
+    # rather than relying on the CONSTANTS.get() ollama fallback so a future
+    # switch to a paid OpenRouter model doesn't silently report $0 cost.
+    "google/gemma-3-27b-it:free": {
+        "input":        0.0,
+        "output":       0.0,
+        "cached_read":  0.0,
+        "cached_write": 0.0,
+    },
     # Anthropic — Wave 3 placeholders (rates as of 2026-05; 5-min prompt-cache TTL)
     "claude-haiku-4-5": {
         "input":        1.00,

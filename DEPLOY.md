@@ -164,10 +164,26 @@ env-block-replacement gotcha above.
 All LLM provider API keys on `asa-stylist-api` are Secret Manager references, never plain
 env vars: `GROQ_API_KEY` → `asa-groq-api-key`, `OPENROUTER_API_KEY` → `asa-openrouter-api-key`
 (added 2026-07-10 — Groq's free-tier daily token quota has been exhausted by heavy testing
-more than once; OpenRouter is the manual fallback, see `project_eval_providers` memory note).
-`LLM_PROVIDER` itself is a plain env var (not a secret) that selects which key is read.
+more than once).
 
-**To switch providers** (e.g. Groq's daily quota is exhausted):
+**As of 2026-07-30, `GroqClient` falls over to OpenRouter automatically** on a TPD
+(tokens-per-day) 429 — see `GroqClient._get_fallback()` in `src/llm/client.py`. No manual
+`LLM_PROVIDER` env-var swap is needed for a quota outage; `LLM_PROVIDER=groq` in production
+now carries an implicit OpenRouter fallback for both `chat()` and `chat_stream()`. The
+manual switch below is still the right tool for a *deliberate* provider change (e.g. cost or
+model-quality reasons), and remains the fallback of last resort if `OPENROUTER_API_KEY` is
+unset or its key is invalid (`_get_fallback()` catches construction failure and lets the
+pre-existing wait-and-retry-on-Groq behaviour run instead of hanging on a broken fallback).
+
+**Known gap (2026-07-30):** the `asa-openrouter-api-key` secret (version 1, created
+2026-07-10) currently fails OpenRouter's own auth check (`401 User not found` on both
+`/auth/key` and a real `chat/completions` call) — verified live, not from memory. Until a
+new key is generated in the OpenRouter dashboard and pushed via
+`gcloud secrets versions add asa-openrouter-api-key --data-file=-`, the automatic fallback
+above has nothing to fall over to, and Groq TPD exhaustion is a hard outage for `chat()`/
+`chat_stream()`, not a graceful degradation.
+
+**To switch providers deliberately** (e.g. for cost or model-quality reasons, not quota outages):
 
 ```bash
 gcloud run services update asa-stylist-api --region=asia-south1 \
