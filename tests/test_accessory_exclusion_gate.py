@@ -13,7 +13,7 @@ haldi look for women", "Green Meena Polki Symmetry Set" (a necklace) for
 from __future__ import annotations
 
 from src.agents.graph import _GENERIC_WEAR_ASK_RE
-from src.agents.outfit.slots import classify_item
+from src.agents.outfit.slots import NON_OUTFIT_ITEM_CLASSES, classify_item
 
 
 class TestGenericWearAskRegex:
@@ -58,3 +58,20 @@ class TestClassifyItemAccessoryDetection:
 
     def test_lehenga_is_not_accessory(self) -> None:
         assert classify_item("lehenga", "Red Embroidered Lehenga") != "accessory"
+
+
+class TestNonOutfitItemClassesCoversFootwear:
+    """2026-07-30 fix: classify_item() resolves "footwear" as its own class,
+    disjoint from "accessory" — the gate's original `!= "accessory"` check
+    never caught a standalone shoe. Live-proven miss: "Ladies Triveni
+    Kolhapuri Chappal" (article_id 8174367375495) ranked into the top-5 for
+    "bright haldi look for women" (occ_adv_002 in strict_gold_labels.yaml) —
+    a lone shoe is no more "an outfit" than a lone bag."""
+
+    def test_standalone_footwear_is_excluded_by_gate(self) -> None:
+        item_class = classify_item("footwear", "Ladies Triveni Kolhapuri Chappal")
+        assert item_class == "footwear"
+        assert item_class in NON_OUTFIT_ITEM_CLASSES
+
+    def test_kurta_is_not_in_non_outfit_classes(self) -> None:
+        assert classify_item("kurta", "Cotton Printed Kurta") not in NON_OUTFIT_ITEM_CLASSES

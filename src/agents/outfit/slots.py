@@ -195,6 +195,16 @@ SLOT_ALLOWED_CLASSES: dict[str, frozenset[str]] = {
 }
 
 
+# classify_item() classes that can never stand alone as "an outfit" for a
+# generic "outfit/look/wear" ask (see graph.py's + eval_strict.py's
+# accessory-exclusion gate, both of which import this) — a lone shoe fails
+# that bar the same way a lone bag does (2026-07-30 fix: "footwear" is its
+# own disjoint class from "accessory" in SLOT_ALLOWED_CLASSES above, so the
+# gate's original `!= "accessory"` check never caught a standalone footwear
+# item like "Ladies Triveni Kolhapuri Chappal" ranking for "haldi look").
+NON_OUTFIT_ITEM_CLASSES: frozenset[str] = frozenset({"accessory", "footwear"})
+
+
 def is_slot_type_allowed(slot_name: str, product_type: str, prod_name: str = "") -> bool:
     """Hard slot-type gate: reject a candidate whose classified item-type doesn't
     belong to the slot it's being considered for.

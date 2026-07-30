@@ -1777,3 +1777,16 @@ labels:
   - {article_id: "8644788879515", relevant: true, note: "'Party Wear Floral Embroidered blue Lehenga' -- festive/embellished ethnic-glam, plausible for an indo-western-leaning cocktail-party ask; reverse-direction proof that party_evening's EITHER register still admits ethnic items"}
   - {article_id: "8644941349019", relevant: true, note: "'Blue & Black Tie-Dye Festive Lehenga' -- festive/embellished, same reverse-direction register as above"}
   - {article_id: "8644357030043", relevant: true, note: "'White Green Embroidered Party Wear Lehenga' -- festive/embellished, same reverse-direction register as above"}
+# ── Kolhapuri footwear type-confusion fix (2026-07-30): NON_OUTFIT_ITEM_CLASSES
+# (slots.py) extends the accessory-exclusion gate to also reject standalone
+# footwear for a generic "look/wear" ask. Retrieval snapshot: this fix, --mode
+# pipeline. Two new items rose into occ_adv_002's top-5 once the Kolhapuri
+# chappal (article_id 8174367375495, labeled above at the earlier residual-gap
+# note) was correctly excluded. Labeled_by: Claude (Fable 5).
+- query_id: occ_adv_002
+  items:
+  - {article_id: "13001114", relevant: true, note: "'YASH GALLERY Women Plus Size Mustard Yellow Ethnic Printed Detail Keyhole Neck Kurta' -- mustard yellow is haldi's exact traditional palette, ethnic kurta"}
+  - {article_id: "8441023070363", relevant: true, note: "'Yellow Paisley Lehenga' -- yellow matches haldi's bright/festive palette, ethnic"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8663667048603", relevant: true, note: "'Rust Orange Saree with Embellished Border and Designer Blouse' -- rust/orange is within haldi's traditional yellow-orange palette, ethnic full-ensemble saree, newly risen into top-5 for this generic 'outfit' ask once the same footwear-exclusion fix (NON_OUTFIT_ITEM_CLASSES) demoted a non-apparel candidate that previously occupied this slot"}

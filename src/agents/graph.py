@@ -2738,6 +2738,7 @@ def build_graph(
         # off-register.
         from src.agents.intent_parser import parse_intent as _occ_parse_intent
         from src.agents.outfit.coherence import is_coherent_candidate as _occ_is_coherent
+        from src.agents.outfit.slots import NON_OUTFIT_ITEM_CLASSES as _occ_non_outfit_classes
         from src.agents.outfit.slots import classify_item as _occ_classify_item
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
         from src.agents.outfit.slots import is_attribute_contradiction as _occ_is_attr_contradiction
@@ -2803,7 +2804,9 @@ def build_graph(
         # "haldi outfit for women"/"bright haldi look for women" instead of
         # actual apparel. See _GENERIC_WEAR_ASK_RE above for why this is
         # narrower than "garment_type is None" alone. Pool-underflow
-        # protected, same discipline as every other gate here.
+        # protected, same discipline as every other gate here. 2026-07-30:
+        # also excludes standalone footwear (a lone shoe is no more "an
+        # outfit" than a lone bag) via NON_OUTFIT_ITEM_CLASSES.
         if (
             not _occ_intent.garment_type
             and _GENERIC_WEAR_ASK_RE.search(raw_query)
@@ -2813,7 +2816,7 @@ def build_graph(
                 it for it in items_out
                 if _occ_classify_item(
                     it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
-                ) != "accessory"
+                ) not in _occ_non_outfit_classes
             ]
             if _acc_filtered:
                 items_out = _acc_filtered

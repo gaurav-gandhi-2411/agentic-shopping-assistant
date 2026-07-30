@@ -142,6 +142,7 @@ def _retrieve_pipeline(
     from src.agents.outfit.coherence import is_coherent_candidate
     from src.agents.outfit.slots import (
         FORMALITY_SOFTENER_VALUES,
+        NON_OUTFIT_ITEM_CLASSES,
         classify_item,
         fabric_score_delta,
         is_attribute_contradiction,
@@ -227,13 +228,14 @@ def _retrieve_pipeline(
     # matching search_node exactly (2026-07-25 fix, "type-confusion" strict-
     # eval bucket): a generic "outfit/look/wear" ask with no garment_type
     # resolved must never surface a standalone accessory (bag/dupatta/
-    # jewellery) as an "outfit" result.
+    # jewellery) as an "outfit" result. 2026-07-30: also excludes standalone
+    # footwear via NON_OUTFIT_ITEM_CLASSES (gate-parity fix with search_node).
     if not intent.garment_type and _GENERIC_WEAR_ASK_RE.search(query) and items:
         acc_filtered = [
             it for it in items
             if classify_item(
                 it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
-            ) != "accessory"
+            ) not in NON_OUTFIT_ITEM_CLASSES
         ]
         if acc_filtered:
             items = acc_filtered
