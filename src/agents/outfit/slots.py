@@ -89,18 +89,62 @@ _WESTERN_FORMAL_CAPABLE_TYPES: frozenset[str] = frozenset({
 # so accessory_query_matches() can require a candidate to share a FAMILY with
 # the slot's own query — e.g. a dupatta-seeking slot must never accept a
 # handbag, and a "belt watch cap" slot must never accept a dupatta.
+# 2026-07-30 catalogue audit (Sukkhi "Kada" bangle + "Goddess Traditional
+# Haram" necklace live misses on a generic haldi-look query): audited every
+# distinct product_type_name facet value that classify_item() currently
+# resolves to "unknown" and is genuinely an accessory/jewellery item. Two root
+# causes found, both closed below across all four families that had gaps:
+#   1. Pluralization/typo mismatch — _contains_word requires a literal word
+#      match, so singular keywords ("bangle", "bracelet", "earring", "anklet",
+#      "pendant", "jhumka", "bag", "belt", "watch", "pocket square") never
+#      matched their PLURAL catalogue facet values ("Bangles", "Bracelets",
+#      "Anklets", "Pendants", "Jhumkas", "Bags", "Belts", "Watches", "Pocket
+#      Squares"), and vice versa.
+#   2. Missing vocabulary — genuine Indian bridal/traditional jewellery terms
+#      (juda/hair-bun ornament, passa, kalangi, borla, hathphool, mathapatti,
+#      oddiyanam, nath, chandbalis, mangalsutra, kada, haram, chura) were never
+#      covered at all. Every one of these was sampled against the real
+#      unified catalogue to confirm genuine jewellery/accessory rows with zero
+#      false-positive risk — e.g. "Judo" facet value -> "Multicolor Gold
+#      Plated Mishr Juda"/"White Color Gold Plated Jadau Kundan Juda" (a real,
+#      if misspelled/OCR'd, facet value for hair-bun jewellery); "Kalangi" ->
+#      "Kings of Rajasthan Haritansh Kalangi" (turban ornament); "Oddiyanam/
+#      Hip Belts" -> "Bridal Nethra Diamond Like Oddiyanam" (bridal waist
+#      jewellery, NOT a functional western belt).
+# "bascelet"/"nacklaces"/"imitation jewerllery" are real catalogue TYPOS (the
+# facet/name values themselves, not typos of this fix) — included verbatim so
+# the match fires against the actual data. Deliberately EXCLUDES garment-class
+# facet values (footwear/outerwear/knitwear/swimwear/nightwear/etc.) — a
+# separate, much larger classification gap, out of scope here.
 _ACCESSORY_DUPATTA_FAMILY: frozenset[str] = frozenset({"dupatta", "stole", "scarf"})
-_ACCESSORY_BAG_FAMILY: frozenset[str] = frozenset({"bag", "handbag", "sling", "clutch", "tote"})
+_ACCESSORY_BAG_FAMILY: frozenset[str] = frozenset(
+    {"bag", "handbag", "sling", "clutch", "tote", "bags", "potli", "potlis"}
+)
 _ACCESSORY_JEWELLERY_FAMILY: frozenset[str] = frozenset(
     # "pendant" added 2026-07-25 (out-of-sample validation finding): a
     # "Pendant" product_type row (126 in the catalogue, all jewellery) slipped
     # past the new accessory-exclusion gate for "office outfit for men" —
     # was never in ACCESSORY_KEYWORDS at all before this.
-    {"jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle", "pendant"}
+    {
+        "jewellery", "jewelry", "jhumka", "earrings", "necklace", "bangle", "pendant",
+        "ring", "rings", "bangles", "bracelet", "bracelets", "bascelet",
+        "necklaces", "nacklaces", "chokers", "earring", "toe ring", "toe rings",
+        "nose ring", "nosering", "nosepin", "pendants", "jhumkas",
+        "maangtikka", "maangteeka", "maang tika", "mang teeka", "mathapatti",
+        "borla", "nath", "chandbalis", "kada", "imitation jewellery",
+        "imitation jewerllery", "anklet", "anklets", "payal", "hair maatal",
+        "jada", "hair accessories", "hair accessory", "hairband", "oddiyanam",
+        "hip belts", "waist belts", "hipbelts", "brooch", "brooches",
+        "cufflink", "cufflinks", "hathphool", "kalangi", "passa", "judo",
+        "juda", "mangalsutra", "earchain", "earchains", "ear chain",
+        "haram", "chura",
+    }
 )
-_ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch"})
+_ACCESSORY_BELT_WATCH_FAMILY: frozenset[str] = frozenset({"belt", "watch", "belts", "watches"})
 _ACCESSORY_EYEWEAR_CAP_FAMILY: frozenset[str] = frozenset({"sunglasses", "cap"})
-_ACCESSORY_MENSWEAR_FORMAL_FAMILY: frozenset[str] = frozenset({"pocket square", "safa"})
+_ACCESSORY_MENSWEAR_FORMAL_FAMILY: frozenset[str] = frozenset(
+    {"pocket square", "safa", "pocket squares"}
+)
 
 _ACCESSORY_FAMILIES: tuple[frozenset[str], ...] = (
     _ACCESSORY_DUPATTA_FAMILY,

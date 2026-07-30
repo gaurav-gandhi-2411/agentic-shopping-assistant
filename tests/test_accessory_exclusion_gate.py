@@ -60,6 +60,54 @@ class TestClassifyItemAccessoryDetection:
         assert classify_item("lehenga", "Red Embroidered Lehenga") != "accessory"
 
 
+class TestClassifyItemJewelleryVocabularyGap2026_07_30:
+    """2026-07-30 catalogue audit: pluralization mismatches + genuine bridal/
+    traditional jewellery vocabulary that was never in ACCESSORY_KEYWORDS at
+    all — live-proven misses "Sukkhi Traditional Peacock Gold Plated Pair
+    Kada For Women" (product_type_name literally "Kada") and "Goddess
+    Traditional Haram" (product_type_name generic "Fashion", name contains
+    "Haram") both surfaced for a generic haldi-look query undetected."""
+
+    def test_kada_is_accessory(self) -> None:
+        assert (
+            classify_item("Kada", "Sukkhi Traditional Peacock Gold Plated Pair Kada For Women")
+            == "accessory"
+        )
+
+    def test_haram_name_fallback_is_accessory(self) -> None:
+        # product_type is a generic, otherwise-unresolved facet value —
+        # relies on the combined product_type + name fallback in
+        # classify_item() to catch "haram" in the freeform name.
+        assert classify_item("Fashion", "Goddess Traditional Haram") == "accessory"
+
+    def test_bangles_plural_is_accessory(self) -> None:
+        assert classify_item("Bangles", "Gold Plated Bangles Set") == "accessory"
+
+    def test_watches_plural_is_accessory(self) -> None:
+        assert classify_item("Watches", "Analog Wrist Watches for Men") == "accessory"
+
+    def test_potli_is_accessory(self) -> None:
+        assert classify_item("Potli", "Embroidered Silk Potli Bag") == "accessory"
+
+    def test_oddiyanam_hip_belts_is_accessory(self) -> None:
+        assert (
+            classify_item("Oddiyanam/Hip Belts", "Bridal Nethra Diamond Like Oddiyanam")
+            == "accessory"
+        )
+
+    def test_juda_typo_facet_is_accessory(self) -> None:
+        assert classify_item("Judo", "Multicolor Gold Plated Mishr Juda") == "accessory"
+
+    def test_kalangi_is_accessory(self) -> None:
+        assert classify_item("Kalangi", "Kings of Rajasthan Haritansh Kalangi") == "accessory"
+
+    def test_mangalsutra_is_accessory(self) -> None:
+        assert classify_item("Mangalsutra", "Gold Plated Mangalsutra Pendant") == "accessory"
+
+    def test_pocket_squares_plural_is_accessory(self) -> None:
+        assert classify_item("Pocket Squares", "Silk Pocket Squares Set") == "accessory"
+
+
 class TestNonOutfitItemClassesCoversFootwear:
     """2026-07-30 fix: classify_item() resolves "footwear" as its own class,
     disjoint from "accessory" — the gate's original `!= "accessory"` check
