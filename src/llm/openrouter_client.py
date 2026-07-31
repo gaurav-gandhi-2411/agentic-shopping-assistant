@@ -86,6 +86,7 @@ class OpenRouterClient:
                 logger.info(
                     json.dumps({
                         "event": "llm_call",
+                        "provider": "openrouter",
                         "model": self.model,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -152,6 +153,7 @@ class OpenRouterClient:
             logger.info(
                 json.dumps({
                     "event": "llm_call",
+                    "provider": "openrouter",
                     "model": self.model,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
