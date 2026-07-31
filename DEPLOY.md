@@ -214,6 +214,53 @@ touching anything further; Cloud Run does not cut traffic to a revision that fai
 startup health check, so the live service stays safe, but the *next* incremental update's
 base can still be silently wrong.
 
+### Groq free-tier quota ceiling (measured, 2026-07-30/31)
+
+Real production traffic on `asa-stylist-api` averages **~2,922 tokens/conversation** and
+**~2.07 LLM calls/conversation** (source: 31 real `llm_call` log events across 15 real
+conversations pulled from Cloud Run logs, 2026-07-30/31 — see the "LLM provider secrets"
+section above for why every real conversation still touches Groq unless the fallback below
+has already kicked in). Groq's free tier for `llama-3.1-8b-instant` (source:
+console.groq.com/docs/rate-limits) is RPM 30, RPD 14,400, TPM 6,000, TPD 500,000.
+
+Dividing the daily token budget by the measured per-conversation cost gives the real ceiling:
+**500,000 TPD / ~2,922 tokens ≈ ~170 real user conversations/day** before Groq's free tier
+exhausts. The TPM=6,000/min figure is a tighter bottleneck than it looks — roughly **2
+conversations/minute** of burst capacity before requests start hitting TPM 429s (handled by
+a short 1s/3s backoff in `GroqClient.chat`, not a hard failure, but it adds latency under
+bursty concurrent traffic).
+
+The OpenRouter fallback documented above is currently non-functional for the same reason
+noted in the "Known gap (2026-07-30)" callout: `asa-openrouter-api-key` (secret version 1,
+created 2026-07-10) returns `401 User not found` when tested directly against
+`openrouter.ai/api/v1/auth/key` (re-verified live 2026-07-31 — note: being rotated by GG as
+of this writing, so a future reader should re-check whether this line is still accurate).
+Even once the key is fixed, the fallback model (`google/gemma-3-27b-it:free`) is capped at
+50 requests/day unless the OpenRouter account has ever purchased ≥$10 in credits (then
+1,000/day) — source: openrouter.ai/docs/api-reference/limits.
+
+`DEMO_DAILY_REQUEST_CAP` was lowered from 700 to 150 on 2026-07-31 specifically to sit below
+the measured ~170-conversation Groq ceiling, so real users hit the app's own honest "Demo
+limit reached for today — try again tomorrow" message (see `api/routes/chat.py` /
+`api/routes/demo.py`) instead of a raw provider 429 or (worse, pre-`e846772`) a multi-minute
+hang mid-conversation.
+
+What it would take to raise the ceiling, each option labeled with what's actually verified
+vs. not:
+
+1. **Fix the OpenRouter fallback** (rotate the key) — adds at most 50-1,000 requests/day
+   depending on the account's credit history, not a large multiplier, and still a free-tier
+   model.
+2. **Groq's paid "Developer" tier** raises limits above the free tier, but the exact TPD/TPM
+   numbers and pricing are NOT published on console.groq.com/docs/rate-limits without logging
+   into the account's own billing page (console.groq.com/settings/billing/plans) — do not
+   assume a number here; this is a paid-tier decision and needs explicit sign-off before
+   adoption (project's $0-cost-by-default policy, see CLAUDE.md).
+3. **Reduce tokens/conversation** — already relatively lean at ~2.07 LLM calls/turn (the
+   router already fast-paths and skips an LLM call for simple product searches, e.g.
+   `[router] fast-path: search (items=4) -> respond (LLM skipped)` in the logs); further
+   reduction would need prompt-level auditing, not assumed here.
+
 ---
 
 ## Deploy Cloud Run services (legacy — per-brand)

@@ -33,11 +33,18 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
 _REPORTS_DIR = _ROOT / "reports"
+
+
+def _utc_stamp() -> str:
+    """Return a UTC timestamp in the same compact format eval_model.py uses for
+    its own report filenames (model_eval_<stamp>.json) — see that module's
+    _utc_stamp()."""
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def newest_report() -> Path:
@@ -59,17 +66,22 @@ def run_eval_stages() -> None:
 
 
 def run_strict_eval() -> dict:
-    with tempfile.TemporaryDirectory() as d:
-        json_path = Path(d) / "strict_gate.json"
-        cmd = [
-            sys.executable, str(_ROOT / "scripts" / "eval_strict.py"),
-            "--mode", "pipeline", "--json-out", str(json_path),
-        ]
-        print(f"gate: running {' '.join(cmd[1:])}")
-        result = subprocess.run(cmd, cwd=_ROOT)
-        if result.returncode != 0:
-            sys.exit(f"GATE FAIL: eval_strict.py exited {result.returncode}")
-        return json.loads(json_path.read_text(encoding="utf-8"))
+    """Run eval_strict.py --mode pipeline and persist its --json-out to reports/
+    (permanent, provenance-bearing) rather than a tempdir that vanished before
+    the strict gold P@5 number this gate gates on could ever be cited to a file.
+    """
+    _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    json_path = _REPORTS_DIR / f"strict_eval_{_utc_stamp()}.json"
+    cmd = [
+        sys.executable, str(_ROOT / "scripts" / "eval_strict.py"),
+        "--mode", "pipeline", "--json-out", str(json_path),
+    ]
+    print(f"gate: running {' '.join(cmd[1:])}")
+    result = subprocess.run(cmd, cwd=_ROOT)
+    if result.returncode != 0:
+        sys.exit(f"GATE FAIL: eval_strict.py exited {result.returncode}")
+    print(f"gate: strict eval JSON saved -> {json_path}")
+    return json.loads(json_path.read_text(encoding="utf-8"))
 
 
 def check(
