@@ -42,7 +42,7 @@ def _config(with_openrouter_key: bool = True) -> dict:
             "max_tokens": 400,
             "timeout_seconds": 60,
             "groq_model": "llama-3.1-8b-instant",
-            "openrouter_model": "google/gemma-3-27b-it:free",
+            "openrouter_model": "openai/gpt-oss-20b:free",
         }
     }
 

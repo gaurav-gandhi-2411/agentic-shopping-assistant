@@ -235,7 +235,9 @@ noted in the "Known gap (2026-07-30)" callout: `asa-openrouter-api-key` (secret 
 created 2026-07-10) returns `401 User not found` when tested directly against
 `openrouter.ai/api/v1/auth/key` (re-verified live 2026-07-31 — note: being rotated by GG as
 of this writing, so a future reader should re-check whether this line is still accurate).
-Even once the key is fixed, the fallback model (`google/gemma-3-27b-it:free`) is capped at
+Even once the key is fixed, the fallback model (`openai/gpt-oss-20b:free`, swapped in
+2026-07-31 after `google/gemma-3-27b-it:free` was deprecated by OpenRouter — see
+`config.yaml` `llm.openrouter_model`) is capped at
 50 requests/day unless the OpenRouter account has ever purchased ≥$10 in credits (then
 1,000/day) — source: openrouter.ai/docs/api-reference/limits.
 

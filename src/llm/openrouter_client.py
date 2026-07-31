@@ -44,7 +44,7 @@ class OpenRouterClient:
             raise ValueError("OPENROUTER_API_KEY environment variable is not set")
 
         llm_cfg = config["llm"]
-        self.model = llm_cfg.get("openrouter_model", "google/gemma-3-27b-it:free")
+        self.model = llm_cfg.get("openrouter_model", "openai/gpt-oss-20b:free")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         # Explicit per-request HTTP timeout — see GroqClient's identical comment

@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
-    """Wraps google-genai for Gemini 2.0 Flash.
+    """Wraps google-genai for Gemini 2.5 Flash.
     Requires: pip install google-genai  and  GEMINI_API_KEY env var."""
 
     def __init__(self, config: dict):
@@ -24,7 +24,7 @@ class GeminiClient:
             raise ValueError("GEMINI_API_KEY environment variable is not set")
 
         llm_cfg = config["llm"]
-        self.model_name = llm_cfg.get("gemini_model", "gemini-2.0-flash")
+        self.model_name = llm_cfg.get("gemini_model", "gemini-2.5-flash")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         # Explicit per-request HTTP timeout (milliseconds — see google-genai's
