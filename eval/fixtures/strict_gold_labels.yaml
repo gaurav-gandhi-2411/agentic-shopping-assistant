@@ -1869,13 +1869,19 @@ labels:
   - {article_id: "15051718", relevant: true, note: "'SHOPGARB Women Yellow' -- weak product title but desc confirms a full 'Yellow & Golden embellished semi-stitched lehenga...with dupatta', genuine bridal ensemble"}
   - {article_id: "7248712695851", relevant: true, note: "'Rajwadi Dulhan Chooda' -- genuine bridal chura bangles"}
   - {article_id: "8428299976926", relevant: false, reason: occasion-register, note: "'Beige Cotton Tailored Fit Waist Coat' -- a waistcoat is menswear-formal-adjacent, mismatched for a 'dulhan' (bride) look"}
+# 2026-07-31 loungewear-leak fix: "Men Solid Multicolor Top & Pyjama Set"
+# (article_id bcfabac3-3371-5bfc-8fff-4d4d66d10209, product_type=nightwear)
+# no longer surfaces in top-5 -- is_loungewear_text() now catches the
+# top+pyjama loungewear-combo naming pattern (catalogue-audited, see
+# cleaning.py's _TOP_PYJAMA_COMBO_RE docstring); replaced by a genuine
+# formal sherwani. Retrieval snapshot: this fix, --mode pipeline.
 - query_id: occ_baraat_001
   items:
-  - {article_id: "bcfabac3-3371-5bfc-8fff-4d4d66d10209", relevant: false, reason: occasion-register, note: "'Men Solid Multicolor Top & Pyjama Set' (product_type=nightwear) -- a sleepwear set, not formal wedding-procession wear; is_loungewear_text() does not catch this specific name (no 'night'/explicit sleepwear marker) -- a residual loungewear-detection gap, not caused by this occasion-mapping fix, flagged separately"}
   - {article_id: "8909856964763", relevant: true, note: "'Gold Sherwani with Doli Baraat Zardozi Work' -- explicitly baraat-marketed sherwani"}
   - {article_id: "8852950220952", relevant: true, note: "'Green Embroidered Cotton Kurta Set' -- formal ethnic menswear"}
   - {article_id: "8355974807707", relevant: true, note: "'Cream Colour Sherwani for Men' -- genuine wedding sherwani"}
   - {article_id: "9724035137842", relevant: true, note: "'Designer Mustard Yellow Printed Kurta' -- festive formal kurta"}
+  - {article_id: "8814734508187", relevant: true, note: "'Rose gold silk Sherwani with zardozi embroidery' -- explicitly groom-marketed heirloom sherwani, ₹30995"}
 - query_id: occ_nikah_001
   items:
   - {article_id: "6669758005405", relevant: true, note: "'Women White Front Open Solid Shrug' -- plausible formal layering piece, no casual marker"}

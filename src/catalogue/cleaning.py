@@ -335,22 +335,110 @@ def is_occasion_merchandise_name(
 # standalone garment noun used on 71 other catalogue rows (kurtas, tops,
 # tunics, co-ords) unrelated to loungewear, so matching on it alone would
 # badly over-exclude. "night dress"/"nightgown" is the precise, calibrated
-# signal — "night suit"/"night shorts" (192 legitimate nightwear-category
-# rows) are unaffected since they never contain the word "dress".
+# signal for THIS pattern family.
+#
+# 2026-07-31 CLASS-BROADENING (live-proven bug): "baraat outfit for men"
+# surfaced "Men Solid Multicolor Top & Pyjama Set" (product_type_name=
+# "nightwear") in the bottom slot — root cause is classify_anchor's
+# ETHNIC_BOTTOM_KEYWORDS containing a bare "pyjama" (added for genuine
+# "kurta pajama" ethnic sets), which also misclassifies loungewear "Top &
+# Pyjama"/"Night Suit" rows as ethnic_bottom, feeding them straight into
+# compose_outfit's candidate pool with no loungewear check at all (that
+# check only existed in graph.py's search_node path — see
+# src.agents.outfit.coherence.is_coherent_candidate's gate 6 for the fix on
+# the compose_outfit side). "night dress"/"nightgown" alone never catches
+# this item (its name has neither word), so the underlying predicate needed
+# broadening too, not just a new call site.
+#
+# Full catalogue audit (data/processed/unified/catalogue.parquet) of every
+# candidate pattern, same false-positive discipline as "kaftan" above:
+#   - "night suit"/"nightsuit": 209 name-level matches, zero false positives
+#     (every hit, including 3 rows typed "top"/"Tops & Blouson"/"shorts" and
+#     11 typed "All Products", is genuinely sleepwear on inspection — e.g.
+#     "Bewakoof Women White & Blue Printed Cotton Night Suit" is literally a
+#     "T-shirt and Pyjamas" set; "Black Floral Print Night Suit Set"'s own
+#     desc says "sleepwear collection"). The OLD comment above claiming
+#     "night suit" rows were "already correctly tagged" and therefore safe
+#     to leave unmatched was the latent bug: nothing downstream actually
+#     excluded them once classify_anchor's ETHNIC_BOTTOM_KEYWORDS pulled a
+#     "pyjama"-bearing one into an ethnic look's candidate pool.
+#   - "night set(s)": 7 matches, zero false positives (coord/Nightwear-typed
+#     rows, all genuine loungewear per their own desc, e.g. "Maroon Solid
+#     Round Neck Night Sets" -> "Tshirt and Lower ... comfort and style").
+#   - "loungewear"/"lounge wear"/"loungwear" (catalogue typo variant): 20
+#     matches (16 product_type_name=="Lounge Wear", 4 =="Nightwear"), zero
+#     false positives.
+#   - "sleepwear": 0 name-level matches catalogue-wide (only 2 rows carry it
+#     as a product_type_name FACET value, never in the free-text name) — no
+#     catalogue support for a text pattern, so none added, same "zero
+#     genuine support -> don't add" discipline as
+#     is_occasion_merchandise_name's rangoli/decor rejections.
+# "night suit"/"night shorts" no longer need the old carve-out — "night
+# suit" is now matched outright (above); "night shorts" is UNCHANGED and
+# still deliberately unmatched (a "Basic Shorts, Night Shorts, Gym Shorts"
+# multi-use item has no dedicated sleep-only signal the way "night suit"
+# does — see TestIsLoungewearText).
 _LOUNGEWEAR_MARKER_RE = re.compile(
-    r"\bnight\s*dress\b|\bnightgown\b|\bnight\s*gown\b", re.IGNORECASE
+    r"\bnight\s*dress\b|\bnightgown\b|\bnight\s*gown\b"
+    r"|\bnight\s*suit\b|\bnightsuit\b|\bnight\s*sets?\b"
+    r"|\bloungewear\b|\blounge\s*wear\b|\bloungwear\b",
+    re.IGNORECASE,
 )
+
+# "Top"/"T-shirt" + "pyjama(s)" co-occurring in the SAME name is the other
+# unambiguous loungewear signal this class-broadening found — the exact
+# live-bug item "Men Solid Multicolor Top & Pyjama Set" carries neither a
+# "night"/"lounge" word NOR a useful detail_desc (most of its 8 catalogue
+# duplicates have detail_desc "Good quality product"/"SOFT FABRIC"), so only
+# a name-level top+pyjama combo check catches it. Catalogue audit: 26
+# name-level matches. 25/26 genuine loungewear (T-shirt/top + pyjama
+# co-ord sets, e.g. "iki chic Women Multicoloured Printed T-shirt with
+# Pyjamas", "Sheomy Men Top - Pyjama Set Thermal"). The 1 exception —
+# "Libas Women Navy Blue Sequinned Top with Pyjamas & Longline Jacket" — is
+# a genuine ethnic 3-piece set (its own desc: "top, salwar and ethnic
+# jacket... sequinned top... longline ethnic jacket"; the freeform name
+# just mislabels the salwar as "pyjamas"), excluded via the "jacket" escape
+# below (zero collateral: it is the only jacket-bearing row among the 26).
+# Deliberately does NOT gate on a bare "pyjama" alone (no "top"/"t-shirt"
+# co-occurrence) — the wider audit for this task found the catalogue is
+# full of legitimate ethnic/festive bare-pyjama garments mistyped
+# product_type_name="nightwear" (e.g. "Men's Black Cotton Blend Patiala
+# Pyjama": desc "appropriate for a range of occasions... Style this for
+# wedding ceremonies or pujas and festivals"; "Navy Blue Solid Cotton Silk
+# Blend Aligarhi Pajama": desc "Perfect for traditional days, festivals,
+# weddings... Complete the look with Kolhapuri footwear and ethnic
+# kurtas"; VASTRAMAY-brand churidars/Patiala pyjamas throughout) — a bare
+# "pyjama" match would have badly over-excluded exactly the groom/baraat
+# formalwear this fix exists to protect. Same discipline applies to
+# "sherwani"/"indo western"/"jodhpuri" + pyjama combos (27 catalogue rows,
+# e.g. "Men Grey Kenzo Jacquard Silk Blend Sherwani with Cream Pyjama Set",
+# explicitly the churidar-pyjama worn under a groom's sherwani) — none of
+# those contain "top"/"t-shirt", so this pattern already leaves them
+# untouched without needing a separate escape.
+_TOP_PYJAMA_COMBO_RE = re.compile(
+    r"\b(top|t-shirt|tshirt)\b.*\bpyjamas?\b|\bpyjamas?\b.*\b(top|t-shirt|tshirt)\b",
+    re.IGNORECASE,
+)
+_TOP_PYJAMA_JACKET_ESCAPE_RE = re.compile(r"\bjacket\b", re.IGNORECASE)
 
 
 def is_loungewear_text(text: str | None) -> bool:
-    """Return True when *text* describes a sleepwear/loungewear "night dress".
+    """Return True when *text* describes sleepwear/loungewear — a "night
+    dress"/"nightgown", a "night suit"/"loungewear" item, or a "top"+"pyjama"
+    co-ord loungewear set (see _LOUNGEWEAR_MARKER_RE / _TOP_PYJAMA_COMBO_RE
+    docstrings above for the full catalogue audit each pattern is grounded
+    in).
 
     NOT wired in as an unconditional hard exclusion (unlike is_fabric_bolt_text
     and is_kids_item above) — a bare "night dress" query with no wedding/formal
     occasion signal has a legitimate reason to want these items. Callers must
     gate this predicate on occasion context before applying it.
     """
-    return bool(_LOUNGEWEAR_MARKER_RE.search(text or ""))
+    if _LOUNGEWEAR_MARKER_RE.search(text or ""):
+        return True
+    if _TOP_PYJAMA_COMBO_RE.search(text or ""):
+        return not _TOP_PYJAMA_JACKET_ESCAPE_RE.search(text or "")
+    return False
 
 
 def reclassify_finished_sarees(
