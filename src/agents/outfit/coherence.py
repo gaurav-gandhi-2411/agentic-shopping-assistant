@@ -225,6 +225,21 @@ def is_coherent_candidate(
     5. athletic_register occasion (gym): reject ethnic items and festive/quirky markers
        (same shape as gate 4), PLUS reject non-athletic footwear from the footwear slot.
 
+    NOTE: a loungewear/nightwear hard-reject for formal_ethnic occasions
+    (the "baraat outfit for men" fix, 2026-07-31) is deliberately NOT a gate
+    here — this function is also called from graph.py's search_node inside a
+    POOL-UNDERFLOW-PROTECTED coherence check (a filter that would empty the
+    candidate list is skipped there). Adding it here let a genuine "Kaftan
+    Night Dress" survive that earlier protected check as the pool's only
+    "coherent" item get REJECTED there instead, which caused the whole
+    protected filter to skip (regression: it un-did
+    tests/test_batch2_trust_fixes.py::test_minimalist_wedding_guest_dress_
+    gets_honest_canned_message, which depends on the kaftan surviving this
+    function so the LATER, non-underflow-protected _apply_loungewear_gate is
+    the one that empties the pool). See composer._score_candidates' own
+    loungewear hard gate (mirrors its price_outlier_cap gate) for the
+    compose_outfit-path fix instead.
+
     Args:
         skip_gender_gate: When True, skips gate 0b ONLY.  Set by composer.
             _find_best_candidate for the narrow gender-neutral-accessory

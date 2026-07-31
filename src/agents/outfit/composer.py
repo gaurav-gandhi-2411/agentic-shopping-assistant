@@ -16,6 +16,7 @@ from src.agents.outfit.coherence import (
 )
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
+    _FORMAL_ETHNIC_OCCASIONS,
     accessory_query_matches,
     classify_anchor,
     fabric_score_delta,
@@ -31,7 +32,7 @@ from src.agents.outfit.slots import (
     is_western_item,
     split_accessory_query_by_family,
 )
-from src.catalogue.cleaning import is_kids_item
+from src.catalogue.cleaning import is_kids_item, is_loungewear_text
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
@@ -993,6 +994,33 @@ def _score_candidates(
         # enough (live-proven: an office look's bottom slot filled with a
         # "M&H Juniors Girls ... Denim Skirts" item).
         if is_kids_item(item_name):
+            continue
+        # Loungewear hard gate (2026-07-31, "baraat outfit for men" fix):
+        # formal_ethnic occasions must never accept a loungewear/nightwear
+        # item, regardless of which class classify_anchor/classify_item
+        # resolved it to. Live-proven: classify_anchor's ETHNIC_BOTTOM_
+        # KEYWORDS matches a bare "pyjama" (added for genuine "kurta pajama"
+        # ethnic sets), which ALSO misclassifies loungewear "Top & Pyjama
+        # Set" rows (product_type_name="nightwear") as ethnic_bottom, so
+        # is_coherent_candidate's ethnic gates waved them straight through
+        # as if legitimate ethnic wear — "baraat outfit for men" (occasion=
+        # wedding_guest) composed "Men Solid Multicolor Top & Pyjama Set"
+        # into the bottom slot. Applied here (never a soft nudge, same
+        # "never an acceptable substitute" discipline as the price-outlier
+        # gate below and graph.py's own _apply_loungewear_gate) rather than
+        # as a coherence.is_coherent_candidate gate — that function is ALSO
+        # called from graph.py's search_node inside a POOL-UNDERFLOW-
+        # PROTECTED coherence check, where rejecting a genuine "Kaftan Night
+        # Dress" this early would skip the whole protected filter instead of
+        # falling through to the later, correctly-unprotected
+        # _apply_loungewear_gate (see is_coherent_candidate's own docstring
+        # note for the exact regression this caused when first tried there).
+        # _FORMAL_ETHNIC_OCCASIONS (not graph.py's private _LOUNGEWEAR_GATE_
+        # OCCASIONS, which also adds "gym") — a gym look's ethnic-item
+        # rejection (gate 5 above) already covers this item class, since
+        # ETHNIC_BOTTOM_KEYWORDS' bare "pyjama" match also makes
+        # is_ethnic_item true for it.
+        if occasion_slug in _FORMAL_ETHNIC_OCCASIONS and is_loungewear_text(item_name):
             continue
         # Phase B: hard formality gate — for occasion.formality >= 3 (office,
         # haldi, mehendi, party_evening, festive_puja, wedding_guest, engagement,

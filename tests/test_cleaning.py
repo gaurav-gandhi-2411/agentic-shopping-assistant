@@ -248,13 +248,58 @@ class TestIsLoungewearText:
             # from the real catalogue, unrelated to loungewear.
             ("Libas Women Blue & White Geometric Printed Pleated Cotton Kaftan Kurti", False),
             ("Sangria Mustard Yellow Floral Print Kaftan Top", False),
-            # "Night suit"/"night shorts" are a distinct, already-correctly
-            # tagged nightwear category — must not false-positive on bare
-            # "night" without an adjacent "dress"/"gown".
-            ("Men Solid Brown Night Suit Set", False),
+            # "night shorts" is still deliberately unmatched — a "Basic
+            # Shorts, Night Shorts, Gym Shorts" multi-use item has no
+            # dedicated sleep-only signal the way "night suit" now does
+            # (below) — must not false-positive on bare "night" without an
+            # adjacent "dress"/"gown"/"suit"/"set".
             ("Solid Men Black Basic Shorts, Night Shorts, Gym Shorts", False),
             ("", False),
             (None, False),
+            # 2026-07-31 CLASS-BROADENING: "baraat outfit for men" live bug
+            # (see _LOUNGEWEAR_MARKER_RE/_TOP_PYJAMA_COMBO_RE docstrings for
+            # the full catalogue audit). "Men Solid Brown Night Suit Set" was
+            # PREVIOUSLY asserted False here (the "already correctly tagged
+            # nightwear category" assumption) — that assumption was the
+            # latent bug: nothing downstream actually excluded it once
+            # classify_anchor's ETHNIC_BOTTOM_KEYWORDS pulled a
+            # "pyjama"-bearing nightwear row into an ethnic look's candidate
+            # pool. Now correctly True.
+            ("Men Solid Brown Night Suit Set", True),
+            ("Blue Printed Cotton Night Suit", True),
+            ("Black Cotton Solid Nightsuit", True),
+            ("Maroon Solid Round Neck Night Sets", True),
+            ("Brown Floral Embroidered Loungewear Set", True),
+            ("Black Floral Embroidered Loungwear Set", True),
+            # The exact live-repro item: no "night"/"lounge" word at all, only
+            # a "top" + "pyjama" name-level combo.
+            ("Men Solid Multicolor Top & Pyjama Set", True),
+            ("iki chic Women Multicoloured Printed T-shirt with Pyjamas", True),
+            ("Sheomy Men Top - Pyjama Set Thermal", True),
+            # Bare "pyjama"/"pajama" WITHOUT a "top"/"t-shirt"/night/lounge
+            # signal is a legitimate standalone ethnic bottom in this
+            # catalogue (churidar/Patiala pyjama, worn under a kurta) —
+            # verified via detail_desc explicitly marketing these for
+            # weddings/festivals despite product_type_name="nightwear" — and
+            # must NOT match, mirroring the bare-"kaftan" carve-out above.
+            ("Men's Black Cotton Blend Patiala Pyjama", False),
+            ("Navy Blue Solid Cotton Silk Blend Aligarhi Pajama", False),
+            ("VASTRAMAY Men's Grey Solid Churidar", False),
+            ("Men's White Cotton Pyjama", False),
+            # "kurta"/"sherwani"/"indo western"/"jodhpuri" + pyjama combos are
+            # genuine groom/festive formalwear (the churidar-pyjama worn
+            # under a sherwani/kurta) — must never match, even though they
+            # also carry a "pyjama" word.
+            ("Men Kurta and Pyjama Set Jacquard", False),
+            ("Men Grey Kenzo Jacquard Silk Blend Sherwani with Cream Pyjama Set", False),
+            ("Men Cream Mirror Work Silk Blend Indo-Western with Pant Style Pyjama Set", False),
+            ("Men's Purple Silk Blend Jodhpuri Pyjama Set", False),
+            # A "top"+"pyjama" combo that ALSO names a jacket is a genuine
+            # ethnic 3-piece ensemble in this catalogue (own desc: "top,
+            # salwar and ethnic jacket... sequinned top... longline ethnic
+            # jacket"), not loungewear — the freeform name just mislabels the
+            # salwar as "pyjamas". Must not match.
+            ("Libas Women Navy Blue Sequinned Top with Pyjamas & Longline Jacket", False),
         ],
     )
     def test_cases(self, text: str | None, expected: bool) -> None:

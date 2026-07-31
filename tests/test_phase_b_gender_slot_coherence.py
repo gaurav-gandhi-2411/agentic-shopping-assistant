@@ -681,6 +681,182 @@ class TestWesternRegisterGateOffice:
         assert is_coherent_candidate(item, "office", "men", "top") is True
 
 
+def _loungewear_candidate(
+    article_id: str, prod_name: str, product_type: str = "nightwear", gender: str = "men"
+) -> dict:
+    return {
+        "article_id": article_id,
+        "prod_name": prod_name,
+        "display_name": prod_name,
+        "product_type": product_type,
+        "colour": "black",
+        "gender": gender,
+        "score": 0.9,
+        "price_inr": 999.0,
+        "store": "myntra",
+        "detail_desc": "",
+    }
+
+
+class TestFindBestCandidateFormalEthnicLoungewearGate:
+    """_score_candidates' loungewear hard gate (2026-07-31, "baraat outfit
+    for men" fix): formal_ethnic occasions must reject loungewear/nightwear
+    candidates outright.
+
+    Catalogue audit (data/processed/unified/catalogue.parquet): of the 273
+    catalogue-wide rows is_loungewear_text flags, 5 are NEITHER a
+    composer.is_multi_piece_set listing NOR classified "unknown" by
+    classify_item — i.e. they would otherwise slip straight past
+    is_coherent_candidate's ethnic/western register gates into a real slot.
+    Verified (each test below re-confirms with is_loungewear_text stubbed
+    out) that these specific two survive EVERY pre-existing gate on their
+    own and are rejected ONLY by this new one — is_coherent_candidate's
+    gates 2/3 only ever reject WESTERN-classified items (is_western_item),
+    so an item classify_item resolves to "outerwear" (outside is_western_
+    item's western_top/bottom/one_piece set) or "ethnic_top"/"ethnic_bottom"
+    is never touched by them, regardless of occasion:
+      - "Shacket-Style Winter Night Suit" (product_type_name="Nightwear")
+        resolves "outerwear" via slots.OUTERWEAR_KEYWORDS' "shacket" —
+        slot-allowed for "outerwear", not caught by is_western_marker_item
+        either (no denim/bomber/hoodie/sneaker/t-shirt/blazer word).
+      - "Pink Cotton Printed Kaftan Nightdress" (product_type_name=
+        "kaftan") resolves "ethnic_top" — slot-allowed for "top", and
+        ethnic-classified items are exactly what gates 2/3 exist to ALLOW
+        for ethnic occasions, not reject.
+    Most "Top & Pyjama SET"-style listings (e.g. the exact live-repro item)
+    are ALSO already rejected by the pre-existing is_multi_piece_set gate on
+    their own, independent of this fix — see the "genuine ... not gated"
+    tests below for why a bare, non-Set loungewear item is the sharper
+    isolation case. Exercised via _find_best_candidate (not
+    is_coherent_candidate directly) — see that function's own docstring for
+    why this gate lives in composer._score_candidates instead."""
+
+    def test_shacket_night_suit_rejected_for_wedding_guest_outerwear(self) -> None:
+        # Real catalogue row, product_type_name="Nightwear" — classify_item
+        # resolves "outerwear" via the "shacket" keyword, slot-allowed for
+        # "outerwear", and NOT caught by is_coherent_candidate's gates 2/3
+        # (those only reject WESTERN-classified items; "outerwear" isn't
+        # one — see class docstring). Not a multi_piece_set listing either.
+        item = _loungewear_candidate(
+            "N1", "Shacket-Style Winter Night Suit", product_type="Nightwear", gender="women",
+        )
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="outerwear festive embroidered",
+            slot_name="outerwear",
+            occasion_slug="wedding_guest",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is None
+
+    def test_kaftan_nightdress_rejected_for_sangeet_top(self) -> None:
+        # Real catalogue row, product_type_name="kaftan" -> classify_item
+        # resolves ethnic_top, slot-allowed for "top" (the same class a
+        # genuine festive kaftan-style kurti would resolve to).
+        item = _loungewear_candidate(
+            "N2", "Pink Cotton Printed Kaftan Nightdress",
+            product_type="kaftan", gender="women",
+        )
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="kaftan festive embroidered",
+            slot_name="top",
+            occasion_slug="sangeet",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_bottom",
+        )
+        assert winner is None
+
+    def test_loungewear_not_gated_for_casual(self) -> None:
+        """The gate is scoped to _FORMAL_ETHNIC_OCCASIONS only — a bare
+        "night suit" query with no formal-occasion context is untouched,
+        mirroring graph.py's _apply_loungewear_gate."""
+        item = _loungewear_candidate(
+            "N3", "Bewakoof Women White & Blue Printed Cotton Night Suit",
+            product_type="top", gender="women",
+        )
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="top casual",
+            slot_name="top",
+            occasion_slug="casual",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_bottom",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "N3"
+
+    def test_genuine_bare_patiala_pyjama_not_gated_for_wedding_guest(self) -> None:
+        # Genuine ethnic wedding-appropriate bottomwear (a Patiala pyjama,
+        # mistyped product_type_name="nightwear" by the catalogue; own
+        # detail_desc markets it "Style this for wedding ceremonies or pujas
+        # and festivals") must never be rejected by this gate — bare
+        # "pyjama" without a night/lounge/top-combo signal is deliberately
+        # NOT flagged by is_loungewear_text (see its docstring).
+        item = _loungewear_candidate("N4", "Men's Black Cotton Blend Patiala Pyjama")
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="pyjama churidar festive embroidered",
+            slot_name="bottom",
+            occasion_slug="wedding_guest",
+            gender="men",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "N4"
+
+    def test_genuine_aligarhi_pajama_not_gated_for_wedding_guest(self) -> None:
+        # Real catalogue row, own detail_desc: "Elevate your ethnic style
+        # with Navy Blue Solid Cotton Silk Blend Aligarhi Pajama for men.
+        # Perfect for traditional days, festivals, weddings, and regular
+        # wear." — genuine groom-adjacent ethnic bottomwear, mistyped
+        # product_type_name="nightwear"; must never be rejected. Not a
+        # multi_piece_set listing (no "Set"/"with"), so this specifically
+        # isolates the new gate from that pre-existing one.
+        item = _loungewear_candidate("N5", "Navy Blue Solid Cotton Silk Blend Aligarhi Pajama")
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="pyjama churidar festive embroidered",
+            slot_name="bottom",
+            occasion_slug="wedding_guest",
+            gender="men",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "N5"
+
+
 # ---------------------------------------------------------------------------
 # Phase B (follow-up): pool-underflow fallback — a live-reported regression
 # where the WESTERN_REGISTER + multi-piece-set + casual-marker gates,
@@ -1531,6 +1707,33 @@ class TestOfflineRealIndexCompositionEvidence:
             text = ((c.get("prod_name") or "") + " " + (c.get("product_type") or "")).lower()
             assert "sneaker" not in text and "denim" not in text, f"western marker leaked: {c}"
             assert c["gender"] == "women"
+
+    def test_baraat_wedding_guest_look_no_loungewear_leak(self, _unified_index: tuple) -> None:
+        """2026-07-31 fix: reproduces "baraat outfit for men" (occasion maps
+        to wedding_guest per intent_parser._OCCASION_MAP) via compose_outfit
+        directly, the same path the live bug went through. Before gate 6
+        (coherence.is_coherent_candidate), classify_anchor's bare "pyjama"
+        ETHNIC_BOTTOM_KEYWORDS match let "Men Solid Multicolor Top & Pyjama
+        Set" (product_type_name="nightwear") into the bottom slot."""
+        from src.catalogue.cleaning import is_loungewear_text
+
+        retriever, catalogue_df = _unified_index
+        anchor_id = _find_article_id(catalogue_df, "men", "kurta")
+        look = compose_outfit(
+            catalogue_df, retriever,
+            seed_article_id=anchor_id, occasion_slug="wedding_guest", gender="men",
+        )
+        print("\n=== baraat/wedding_guest look for men (kurta anchor) ===")
+        print("seed:", look["seed_item"]["prod_name"], look["seed_item"]["gender"])
+        for c in look["complements"]:
+            print(" complement:", c["_slot"], "|", c["prod_name"], "|", c["product_type"], "|", c["gender"])
+
+        assert look["seed_item"] is not None
+        leaked = [
+            c for c in look["complements"]
+            if is_loungewear_text(c.get("prod_name") or c.get("display_name") or "")
+        ]
+        assert not leaked, f"loungewear item(s) leaked into baraat/wedding_guest look: {leaked}"
 
     def test_three_variants_pairwise_disjoint_complements(self, _unified_index: tuple) -> None:
         """S6 fix: EVERY pair of variants (not just base-vs-alternate) must have
