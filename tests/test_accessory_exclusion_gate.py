@@ -200,3 +200,113 @@ class TestNonOutfitItemClassesCoversFootwear:
 
     def test_kurta_is_not_in_non_outfit_classes(self) -> None:
         assert classify_item("kurta", "Cotton Printed Kurta") not in NON_OUTFIT_ITEM_CLASSES
+
+
+class TestFullAccessoryVocabularyAudit2026_08_06:
+    """2026-08-06: full accessory-vocabulary audit (not another incremental
+    pass) — enumerated every distinct product_type_name resolving to
+    "unknown" across the full 112,425-row unified catalogue, sampled real
+    rows for each bucket, and closed the genuine accessory gaps. Catalogue-
+    wide impact: 4,019 -> 2,398 unknown rows (1,621 closed), accessory class
+    36,951 (+1,625). See slots.py's _ACCESSORY_JEWELLERY_FAMILY /
+    _ACCESSORY_FACET_VALUES comments for the full per-term audit rationale.
+    """
+
+    # -- new keyword-family additions (word-boundary, verified low collision) --
+
+    def test_choker_singular_is_accessory(self) -> None:
+        assert classify_item("Fashion", "Exclusive Rajwadi Kundan Choker") == "accessory"
+
+    def test_kundan_is_accessory(self) -> None:
+        assert classify_item("Fashion", "Mesmerising Kundan Fusion Set") == "accessory"
+
+    def test_hasli_is_accessory(self) -> None:
+        assert classify_item("Fashion", "Glowing Hasli Necklace") == "accessory"
+
+    def test_rakhi_is_accessory(self) -> None:
+        assert classify_item("Rakhi", "Best Bhai Gold Tone Bracelet Style Rakhi") == "accessory"
+
+    def test_rakhi_gift_combo_still_accessory(self) -> None:
+        # A bundled gift combo still centres on a real wearable rakhi --
+        # same "bundle keeps its core item's classification" precedent as
+        # "kurta with dupatta".
+        assert classify_item("Rakhi", "Evil Eye Rakhi Gift Combo With Mug For Brother") == (
+            "accessory"
+        )
+
+    def test_earcuff_is_accessory(self) -> None:
+        assert classify_item("Fashion", "Peacock Cluster Earcuff") == "accessory"
+
+    def test_pagri_is_accessory(self) -> None:
+        assert classify_item("Pagri", "MLS Cotton Silk Pagri") == "accessory"
+
+    def test_handkerchief_is_accessory(self) -> None:
+        assert classify_item(
+            "Clothing Accessories", "Cotson Premium Cotton Handkerchief for Men"
+        ) == "accessory"
+
+    def test_bandana_is_accessory(self) -> None:
+        assert classify_item("Accessories", "SNITCH x BISMIL Printed Cotton Bandana") == (
+            "accessory"
+        )
+
+    # -- new facet-equality additions (exact product_type_name match only) --
+
+    def test_clothing_accessories_facet_is_accessory(self) -> None:
+        assert classify_item("Clothing Accessories", "Men Solid Mid-Calf/Crew (Pack of 3)") == (
+            "accessory"
+        )
+
+    def test_accessories_facet_is_accessory(self) -> None:
+        assert classify_item("Accessories", "Black Toned Snake Chain") == "accessory"
+
+    def test_muffler_facet_is_accessory(self) -> None:
+        assert classify_item("Muffler", "Men Printed Black Muffler") == "accessory"
+
+    def test_socks_facet_is_accessory(self) -> None:
+        assert classify_item("Socks", "Campus Unisex Socks Pack of 3") == "accessory"
+
+    def test_shawls_facet_is_accessory(self) -> None:
+        assert classify_item("Shawls", "Black Woven Design Wool Wrap Shawl") == "accessory"
+
+    # -- negative controls: collisions found and deliberately declined --
+
+    def test_shawl_collar_cardigan_not_accessory(self) -> None:
+        # Bare "shawl" was deliberately NOT added as a keyword -- "shawl
+        # collar"/"shawl neck" is a real cardigan/sweater style descriptor,
+        # not a shawl accessory, and knitwear is a _GENERIC_FACET_VALUES
+        # entry so it isn't protected by the pt-alone shortcut.
+        assert classify_item("knitwear", "LUXE CATCH ME IF YOU CAN Shawl Collar Cardigan") != (
+            "accessory"
+        )
+
+    def test_tie_dye_kurta_not_accessory(self) -> None:
+        # Bare "tie" was deliberately NOT added -- it collides with
+        # "tie-dye"/"tie and dye" print-pattern descriptors across hundreds
+        # of tops/dresses/sarees/kurtas.
+        assert classify_item(
+            "saree", "Swtantra Grey & Black Tie and Dye Organza Saree"
+        ) == "ethnic_one_piece"
+
+    def test_wrap_dress_not_accessory(self) -> None:
+        # Bare "wrap" was deliberately NOT added -- "wrap dress"/"wrap top"/
+        # "wrap skirt" is a garment silhouette, dominant over any genuine
+        # wrap/shawl accessory sense in this catalogue's vocabulary.
+        assert classify_item("dress", "Linen Tie-Front Midi Wrap Dress") == "western_one_piece"
+
+    def test_muffler_bundled_coat_stays_outerwear_not_accessory(self) -> None:
+        # 2026-08-06 same-day fix: "muffler" was tried as a combined-text
+        # keyword first and reverted after this exact collision was found
+        # live -- a coat BUNDLING a muffler (same "Crop Top WITH Palazzo"
+        # bundle-listing shape) is not itself a muffler. Facet equality
+        # (see test_muffler_facet_is_accessory above) has no such risk.
+        assert classify_item("outerwear", "MLS COAT WITH MUFFLER 1PC") == "outerwear"
+
+    def test_football_studs_not_accessory(self) -> None:
+        # Pre-existing collision (the "stud"/"studs" jewellery keyword
+        # predates this audit) -- documented here, not fixed, since footwear
+        # is a _GENERIC_FACET_VALUES entry and closing it properly needs
+        # bundle-listing-aware priority between the accessory and garment
+        # scans, out of this audit's keyword-coverage scope.
+        result = classify_item("footwear", "Fizer Football Studs Football Shoes For Men (Orange)")
+        assert result == "accessory"  # documented pre-existing gap, not asserted as correct
