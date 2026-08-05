@@ -322,24 +322,27 @@ def is_coherent_candidate(
     # bottom slot filled with a "Quirky Floral Printed Cotton Anarkali
     # Sharara Set" (ethnic + festive). Also rejects a "Jodhpuri" outerwear
     # item (structured Indian formal jacket, not Western tailoring — see
-    # _JODHPURI_OUTERWEAR_RE), any outerwear item whose OWN desc markets it
-    # paired with ethnic footwear (see _ETHNIC_FOOTWEAR_PAIRING_RE), and any
-    # product_type_name=="indowestern" item (Indo-Western ensembles are
-    # ethnic-crossover festive wear, never office-appropriate — 586 rows,
-    # live-proven: a "Beige Jacquard Indo Western for Men" surfaced for
-    # "office outfit for men"). Checked against the exact facet value, not a
-    # name substring — "indo-western"/"indowestern" also appears inside 54
-    # trousers, 41 sherwani, 18 kurta, and 16 NIGHTWEAR rows' free-text names,
-    # where a substring match would have wrongly reclassified unrelated
-    # items. All four are 2026-07-25 fixes; the first two shipped as part of
-    # the "occasion-register" strict-eval bucket, the latter two (indowestern,
+    # _JODHPURI_OUTERWEAR_RE) and any outerwear item whose OWN desc markets it
+    # paired with ethnic footwear (see _ETHNIC_FOOTWEAR_PAIRING_RE). All four
+    # are 2026-07-25 fixes; the first two shipped as part of the
+    # "occasion-register" strict-eval bucket, the latter two (indowestern,
     # pendant→jewellery in slots.py) found by the out-of-sample validation
     # pass and tightened in the same commit.
+    #
+    # 2026-08-05: the indowestern case (Indo-Western ensembles are
+    # ethnic-crossover festive wear, never office-appropriate — 586 rows,
+    # live-proven: a "Beige Jacquard Indo Western for Men" surfaced for
+    # "office outfit for men") used to need its own explicit
+    # `pt.lower().strip() == "indowestern"` check here because
+    # classify_anchor() didn't recognise the facet at all. Promoted to a
+    # first-class facet-equality short-circuit inside classify_anchor()
+    # itself (see slots.py) — is_ethnic_item(pt, name) now covers every
+    # indowestern row unconditionally, so the explicit check here would be
+    # pure duplication of that single source of truth.
     if occasion_slug in _WESTERN_REGISTER_OCCASIONS and (
         is_ethnic_item(pt, name)
         or _FESTIVE_MARKER_RE.search(name)
         or _JODHPURI_OUTERWEAR_RE.search(name)
-        or pt.lower().strip() == "indowestern"
         or (
             pt.lower().strip() in _OUTERWEAR_PRODUCT_TYPES
             and _ETHNIC_FOOTWEAR_PAIRING_RE.search(candidate.get("detail_desc") or "")

@@ -16,6 +16,7 @@ from src.agents.outfit.composer import (
 from src.agents.outfit.occasions import OCCASIONS, get_occasion
 from src.agents.outfit.slots import (
     classify_anchor,
+    classify_item,
     fabric_score_delta,
     get_fill_slots,
     is_ethnic_item,
@@ -176,6 +177,195 @@ class TestClassifyAnchorBrandPrefixCollisionRegression2026_07_30:
             "skirt", "NEUDIS Women Maroon & Pink Floral Print Flared Maxi Lehenga Skirt"
         )
         assert result is True
+
+
+class TestClassifyAnchorBrandPrefixCollisionRegression2026_08_05:
+    """2026-08-05 follow-up audit: re-ran the 2026-07-30 brand-collision audit
+    across the full unified catalogue and found 8 more real brand/keyword
+    collisions of the same shape. See slots.py's _BRAND_PREFIX_COLLISIONS
+    docstring for the full audit rationale, including why "Annabelle by
+    Pantaloons" and "SF Jeans by Pantaloons" were audited but NOT added
+    (their rows never actually collide).
+    """
+
+    def test_dressberry_top_is_western_top_not_one_piece(self) -> None:
+        # "dress" (WESTERN_ONE_PIECE_KEYWORDS) in the brand name used to
+        # misclassify a plain DressBerry top as western_one_piece.
+        assert is_western_item(
+            "top", "DressBerry Women White & Black Striped Pure Cotton Top"
+        ) is True
+        assert classify_anchor(
+            "top", "DressBerry Women White & Black Striped Pure Cotton Top"
+        ) == "western_top"
+
+    def test_20dresses_jeans_is_western_bottom_not_one_piece(self) -> None:
+        result = classify_anchor(
+            "jeans", "20Dresses Women Blue Mildly Distressed Light Fade Jeans"
+        )
+        assert result == "western_bottom"
+
+    def test_akkriti_by_pantaloons_top_is_western_top_not_bottom(self) -> None:
+        # "pant" (WESTERN_BOTTOM_KEYWORDS) inside "Pantaloons" used to
+        # misclassify a plain top as western_bottom.
+        result = classify_anchor("top", "AKKRITI BY PANTALOONS Women Off-White Embroidered Boxy Top")
+        assert result == "western_top"
+
+    def test_ajile_by_pantaloons_sweatshirt_is_western_top_not_bottom(self) -> None:
+        result = classify_anchor(
+            "knitwear", "Ajile by Pantaloons Women Black Solid Cotton Sweatshirt"
+        )
+        assert result == "western_top"
+
+    def test_honey_by_pantaloons_pullover_is_western_top_not_bottom(self) -> None:
+        result = classify_anchor("Fashion", "Honey by Pantaloons Women Brown Cable Knit Pullover")
+        assert result == "western_top"
+
+    def test_rangmanch_by_pantaloons_dupatta_stays_unresolved_not_bottom(self) -> None:
+        # A bare dupatta (no ethnic/western garment keyword of its own)
+        # should stay "unknown" -- not get swept into western_bottom via
+        # the "pant" collision in the brand name.
+        result = classify_anchor(
+            "dupatta", "RANGMANCH BY PANTALOONS Women Gold-Toned Woven Design Dupatta"
+        )
+        assert result == "unknown"
+
+    def test_kraus_jeans_sweater_is_western_top_not_bottom(self) -> None:
+        result = classify_anchor("knitwear", "Kraus Jeans Women Red Ribbed Pullover Sweater")
+        assert result == "western_top"
+
+    def test_annabelle_by_pantaloons_shrug_not_added_to_denylist_still_correct(self) -> None:
+        """Negative control: brands audited but found to have NO real
+        collision (an earlier-priority keyword always wins first) must not
+        be added to the denylist -- confirms the un-stripped brand name
+        still classifies correctly via classify_anchor's own priority
+        order."""
+        result = classify_anchor(
+            "Fashion", "Annabelle by Pantaloons Women Grey Solid Open Front Winter Shrug"
+        )
+        assert result == "outerwear"
+
+    def test_sf_jeans_by_pantaloons_jeans_not_added_to_denylist_still_correct(self) -> None:
+        result = classify_anchor("jeans", "SF JEANS by Pantaloons Women Black High-Rise Jeans")
+        assert result == "western_bottom"
+
+
+class TestClassifyAnchorIndowesternFirstClass2026_08_05:
+    """2026-08-05: "indowestern" (product_type_name=="indowestern", 586
+    catalogue rows, ~98% men's Kurta+Churidar/Dhoti/Trousers full ensembles)
+    promoted from a one-off coherence.py gate special case to a first-class
+    facet-equality short-circuit inside classify_anchor(). See slots.py's
+    classify_anchor()/`_GENERIC_FACET_VALUES` comments for the full
+    catalogue-audit rationale.
+    """
+
+    def test_bare_indowestern_set_is_ethnic_one_piece(self) -> None:
+        assert classify_anchor("indowestern", "MLS INDO WESTERN 2PCS") == "ethnic_one_piece"
+
+    def test_indowestern_with_pant_collision_is_ethnic_one_piece_not_western_bottom(self) -> None:
+        # Previously misclassified western_bottom via the same "pant"
+        # substring-collision mechanism as the brand-name fixes above.
+        result = classify_anchor(
+            "indowestern",
+            "Men's Black Rayon Geometry Thigh Length Indo Western Set with Wide Leg Pant",
+        )
+        assert result == "ethnic_one_piece"
+        assert is_western_item(
+            "indowestern",
+            "Men's Black Rayon Geometry Thigh Length Indo Western Set with Wide Leg Pant",
+        ) is False
+
+    def test_indowestern_with_dhoti_is_ethnic_one_piece_not_ethnic_bottom(self) -> None:
+        # Previously landed on ethnic_bottom (a real ETHNIC_BOTTOM_KEYWORDS
+        # "dhoti" match) instead of the full-ensemble class -- correct
+        # direction (still ethnic) but SLOT_ALLOWED_CLASSES doesn't accept
+        # ethnic_bottom for a "top" slot, so a 2-piece set candidate could
+        # never itself fill a top+bottom anchor role consistently.
+        result = classify_anchor("indowestern", "Men's Black Indowestern Set With Dhoti")
+        assert result == "ethnic_one_piece"
+
+    def test_indowestern_jewellery_mislabel_is_accessory_not_ethnic_one_piece(self) -> None:
+        """Negative control: a handful of catalogue rows are jewellery
+        mislabeled with product_type_name=="indowestern" (e.g. a necklace
+        set) -- these must resolve "accessory" via classify_item(), not get
+        swept into the new ethnic_one_piece short-circuit."""
+        result = classify_item(
+            "indowestern", "Multicoloured Gemstone Indo Western Necklace Set"
+        )
+        assert result == "accessory"
+
+    def test_indowestern_name_substring_in_other_types_stays_unaffected(self) -> None:
+        """Negative control: the short-circuit is keyed on the exact facet
+        value, not a name substring -- "indo-western" also appears inside
+        trousers/sherwani/kurta/nightwear rows' free-text names, where a
+        substring match would wrongly reclassify unrelated items."""
+        result = classify_anchor("nightwear", "Indo-Western Style Comfort Nightwear")
+        assert result != "ethnic_one_piece"
+
+    def test_is_ethnic_item_true_for_every_indowestern_row_unconditionally(self) -> None:
+        assert is_ethnic_item("indowestern", "Green Indowestern | Azania") is True
+        assert is_ethnic_item(
+            "indowestern", "Multicoloured Gemstone Indo Western Necklace Set"
+        ) is True
+
+
+class TestClassifyAnchorUnknownRowApparelAudit2026_08_05:
+    """2026-08-05: five product_type_name facets found genuinely apparel
+    during the unknown-row audit, closed via exact facet-equality matches
+    (never a name substring — each has a documented false-positive risk
+    elsewhere in the catalogue if matched as a substring instead). See
+    slots.py's classify_anchor() comment for the full per-facet rationale.
+    """
+
+    def test_jodhpuri_facet_is_men_formalwear(self) -> None:
+        assert classify_anchor("Jodhpuri", "Men's Black Silk Blend Jodhpuri") == "men_formalwear"
+
+    def test_jodhpuri_footwear_name_substring_unaffected(self) -> None:
+        """Negative control: bare "jodhpuri" was deliberately dropped from
+        MEN_FORMALWEAR_KEYWORDS as a substring because it also appears
+        inside footwear rows ("Jodhpuri Mojaris") -- confirms the new
+        facet-EQUALITY check (product_type_name=="footwear", not
+        "jodhpuri") never reaches those rows."""
+        result = classify_anchor("footwear", "Jodhpuri Mojaris")
+        assert result == "footwear"
+
+    def test_pathani_suit_is_ethnic_one_piece(self) -> None:
+        assert classify_anchor("PATHANI SUIT", "MLS PATHANI SUIT 2PCS") == "ethnic_one_piece"
+
+    def test_kids_pathani_suit_is_ethnic_one_piece(self) -> None:
+        assert classify_anchor(
+            "KIDS PATHANI SUIT", "MLS KIDS PATHANI SUIT 2PCS"
+        ) == "ethnic_one_piece"
+
+    def test_business_plain_suit_is_outerwear(self) -> None:
+        assert classify_anchor("BUSINESS PLAIN SUIT", "MLS DOUBLE BREASTED SUIT") == "outerwear"
+
+    def test_lower_facet_is_western_bottom(self) -> None:
+        assert classify_anchor("Lower", "Grey Regular Fit Lower For Men") == "western_bottom"
+
+    def test_lower_flower_name_substring_unaffected(self) -> None:
+        """Negative control: bare "lower"/"lowers" was deliberately dropped
+        from WESTERN_BOTTOM_KEYWORDS as a substring because it live-matches
+        inside "flower"/"sunflower" -- confirms the new facet-EQUALITY check
+        never reaches a floral-printed top typed with something other than
+        "lower"."""
+        result = classify_anchor("top", "Sunflower Print Boxy Top")
+        assert result == "western_top"
+
+    def test_loafer_singular_is_footwear(self) -> None:
+        assert classify_anchor("Men's Loafer", "Victor") == "footwear"
+
+    def test_sadri_is_outerwear(self) -> None:
+        result = classify_anchor("sadri", "Charcoal Grey Multi-Button Sadri")
+        assert result == "outerwear"
+
+    def test_vest_pack_undergarment_stays_unknown(self) -> None:
+        """Negative control: pt=="vest" (244 rows, sampled as multi-packs
+        of plain undershirts, e.g. "VIP Men Vest (Pack of 11)") is
+        deliberately NOT classified -- same precedent as the already-
+        declined "swimwear"==briefs finding. Classifying undergarments
+        would let them fill outfit slots."""
+        result = classify_anchor("vest", "VIP Men Vest (Pack of 11)")
+        assert result == "unknown"
 
 
 class TestGetFillSlots:
