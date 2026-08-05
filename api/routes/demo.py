@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 import api.deps as deps
 from api.demo.guards import check_daily_cap, check_daily_cost
+from src.retrieval.index_store import resolve_brand
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -44,7 +45,15 @@ async def create_demo_session(request: Request) -> DemoSessionResponse:
 
     # client_ip is not used here; per-IP rate limit is enforced at the chat endpoint.
     # The Request object is kept in the signature for future middleware use.
-    brand = os.environ.get("BRAND", "hm")
+    #
+    # 2026-08-06: this used to default bare os.environ.get("BRAND", "hm") — a
+    # leftover pre-unified default that silently diverged from every other
+    # brand-resolving call site in the process (all of which resolve
+    # "unified" when BRAND/UNIFIED are unset, the live production case).
+    # See resolve_brand()'s docstring for the live-confirmed consequence:
+    # this endpoint's own daily-cap/cost pre-check was checking a "hm"
+    # bucket nothing else ever wrote to, so it always passed.
+    brand = resolve_brand()
     engine = deps.get_db_engine()
 
     if engine is not None:

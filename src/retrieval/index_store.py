@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -16,6 +17,39 @@ _CLIP_FILES = frozenset(["clip.faiss", "clip_article_ids.npy"])
 # Sentinel value: when BRAND is set to this string (or left unset with UNIFIED=1),
 # the service loads the cross-store unified index instead of a per-brand index.
 UNIFIED_BRAND = "unified"
+
+
+def resolve_brand() -> str:
+    """Resolve the active brand slug from the BRAND/UNIFIED env vars.
+
+    Single source of truth for "what brand is this request-serving process
+    running as" — unified (cross-store) mode when UNIFIED=1, BRAND=unified,
+    or BRAND is unset (the default for the cross-store B2C deployment);
+    legacy per-brand mode otherwise, returning the BRAND value as-is.
+
+    2026-08-06: consolidated from three near-identical inline copies
+    (api/main.py's startup brand resolution, api/routes/chat.py's own
+    `_resolve_brand()`, api/routes/image_style.py's inline block) plus one
+    outright DIVERGENT copy — api/routes/demo.py's create_demo_session()
+    defaulted bare `os.environ.get("BRAND", "hm")`, a leftover pre-unified
+    default that never got updated when the other three call sites moved to
+    "unified" as part of the B2C cross-store pivot. Live-confirmed: with
+    BRAND/UNIFIED both unset in production, POST /demo/session returned
+    `"brand":"hm"` while every other brand-resolving call site in the same
+    process resolved "unified" — session creation's own daily-cap/cost
+    pre-check (api/demo/guards.py's check_daily_cap/check_daily_cost) was
+    silently checking a "hm" bucket that nothing else ever wrote to, so it
+    always passed regardless of real demo volume. The actual
+    DEMO_DAILY_REQUEST_CAP enforcement on message volume (api/routes/
+    chat.py's post_chat, which already called its own now-removed
+    `_resolve_brand()` copy) was NOT affected — it correctly bucketed under
+    "unified" throughout, since that call site never had the "hm" bug.
+    """
+    unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
+    brand_env = os.environ.get("BRAND", "")
+    if unified_flag or brand_env == UNIFIED_BRAND or not brand_env:
+        return UNIFIED_BRAND
+    return brand_env
 
 
 def ensure_index_dir(

@@ -185,6 +185,29 @@ def test_demo_session_returns_200_when_demo_mode_true(
     assert body["brand"] == "snitch"
 
 
+def test_demo_session_brand_unset_defaults_to_unified_not_hm(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    """2026-08-06 regression: create_demo_session() used to default bare
+    os.environ.get("BRAND", "hm") -- diverging from every other brand-
+    resolving call site in the process, which all resolve "unified" when
+    BRAND/UNIFIED are unset (the actual production env). Same bug class as
+    test_unified_brand.py's guard on get_brand_config()'s own default,
+    recurring in a sibling function that guard didn't cover. Live-confirmed
+    consequence: this endpoint's own daily-cap/cost pre-check was silently
+    checking a "hm" bucket nothing else ever wrote to.
+    """
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.delenv("BRAND", raising=False)
+    monkeypatch.delenv("UNIFIED", raising=False)
+    monkeypatch.setattr(deps, "_db_engine", None)
+    monkeypatch.setattr("api.auth.mint_ws_ticket", lambda user_id: "fake-ticket")
+
+    resp = client.post("/demo/session")
+    assert resp.status_code == 200
+    assert resp.json()["brand"] == "unified"
+
+
 def test_demo_session_returns_404_when_demo_mode_false(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
