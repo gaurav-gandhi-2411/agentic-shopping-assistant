@@ -395,30 +395,6 @@ _OCCASION_MAP: dict[str, str] = {
     "ring ceremony": "engagement",
     "wedding": "wedding_guest",
     "shaadi": "wedding_guest",
-    # "bridal" was previously unmapped (flagged as a known gap in
-    # eval/fixtures/strict_gold_labels.yaml's kids_leak_001 note), which left
-    # EVERY occasion-gated protection -- the merchandise gate, loungewear
-    # gate, ethnic/western coherence gates, footwear-required gate -- inert
-    # for any "bridal ..." query (they all no-op when occasion_slug is None),
-    # not just the merchandise-hamper leak that surfaced it (2026-07-30).
-    # Mapped to the existing wedding_guest slug rather than a new occasion:
-    # a bridal look is register-consistent with wedding_guest (ETHNIC_HEAVY,
-    # formality 4), and the catalogue has no dedicated "bridal" Occasion entry.
-    "bridal": "wedding_guest",
-    # 2026-07-30 audit of remaining wedding-adjacent gaps (word-boundary regex
-    # over prod_name + detail_desc in catalogue.parquet). Mapped to
-    # wedding_guest, register-consistent with "wedding"/"shaadi"/"bridal":
-    # "groom" (494 rows: groom jewellery, tuxedos, pagdi) is strong wedding-
-    # formal-menswear signal; "baraat" (84 rows: sherwanis, bandhgalas,
-    # Jodhpuri sets) is the groom's ceremonial procession; "nikah" (24 rows:
-    # groom sherwanis, sadri sets) is the Muslim wedding ceremony, same
-    # register; "dulhan" (only 8 rows but 100% genuinely bridal-specific --
-    # Hindi for "bride") is low-volume but zero-noise, unlike the terms
-    # rejected below.
-    "groom": "wedding_guest",
-    "dulhan": "wedding_guest",
-    "baraat": "wedding_guest",
-    "nikah": "wedding_guest",
     # Mapped to party_evening (EITHER register, same as "party"/"evening"/
     # "date night") rather than an ethnic-heavy slug: an anniversary
     # celebration is generically festive, not specifically ethnic. 515 rows,
@@ -481,6 +457,58 @@ _OCCASION_MAP: dict[str, str] = {
     "athleisure": "gym",
     "athletic wear": "gym",
     "yoga": "gym",
+    # 2026-08-06: this whole cluster (bridal/groom/dulhan/baraat/nikah/bride)
+    # is DELIBERATELY placed LAST in the dict, not alongside "wedding"/
+    # "shaadi" above where it used to live. _extract_occasion() resolves
+    # same-LENGTH ties by dict insertion order (Python's sort is stable, so
+    # equal-length keys keep their relative input order) -- these are
+    # generic wedding-PARTY-ROLE words, not ceremony names, so when a query
+    # names both (a real, live-proven case: "haldi ceremony outfit for the
+    # bride's friend" -- expected occasion "haldi", not "wedding_guest"),
+    # the actual ceremony name must win. Moving this cluster to the end
+    # means it can never win a same-length tie against any other occasion
+    # term in this dict, only against each other or truly unmatched text.
+    # Live-proven regression this fix closes (found via eval_gate's own
+    # "intent all-exact" metric dropping 94.4% -> 93.9% when "bride" was
+    # first added alongside "wedding"/"shaadi"/"groom" above): "bride" (5
+    # chars) tied with "haldi" (5 chars) and, being inserted earlier, won
+    # every time -- "haldi ceremony outfit for the bride's friend" resolved
+    # occasion="wedding_guest" instead of the correct "haldi". Any future
+    # gendered wedding-role term (another relation/role noun, not a new
+    # ceremony) belongs in THIS block, not up with "wedding"/"shaadi".
+    #
+    # "bridal" was previously unmapped (flagged as a known gap in
+    # eval/fixtures/strict_gold_labels.yaml's kids_leak_001 note), which left
+    # EVERY occasion-gated protection -- the merchandise gate, loungewear
+    # gate, ethnic/western coherence gates, footwear-required gate -- inert
+    # for any "bridal ..." query (they all no-op when occasion_slug is None),
+    # not just the merchandise-hamper leak that surfaced it (2026-07-30).
+    # Mapped to the existing wedding_guest slug rather than a new occasion:
+    # a bridal look is register-consistent with wedding_guest (ETHNIC_HEAVY,
+    # formality 4), and the catalogue has no dedicated "bridal" Occasion entry.
+    "bridal": "wedding_guest",
+    # 2026-07-30 audit of remaining wedding-adjacent gaps (word-boundary regex
+    # over prod_name + detail_desc in catalogue.parquet). Mapped to
+    # wedding_guest, register-consistent with "wedding"/"shaadi"/"bridal":
+    # "groom" (494 rows: groom jewellery, tuxedos, pagdi) is strong wedding-
+    # formal-menswear signal; "baraat" (84 rows: sherwanis, bandhgalas,
+    # Jodhpuri sets) is the groom's ceremonial procession; "nikah" (24 rows:
+    # groom sherwanis, sadri sets) is the Muslim wedding ceremony, same
+    # register; "dulhan" (only 8 rows but 100% genuinely bridal-specific --
+    # Hindi for "bride") is low-volume but zero-noise, unlike the terms
+    # rejected below.
+    "groom": "wedding_guest",
+    "dulhan": "wedding_guest",
+    "baraat": "wedding_guest",
+    "nikah": "wedding_guest",
+    # 2026-08-06 (gender-inference-gap audit follow-up): "bride" -- the
+    # English counterpart to the already-mapped "dulhan" -- was never
+    # audited/added at the same time. 1,358 rows word-boundary matching
+    # "bride" in prod_name/detail_desc (31 in prod_name alone: Necklace,
+    # Earrings, Oddiyanam, Jewelry, Nath, Bangles -- 100% genuine bridal
+    # jewellery/apparel), zero collision risk (word-boundary correctly
+    # excludes "bridesmaid"/"bridge").
+    "bride": "wedding_guest",
 }
 
 _OCCASION_SORTED: list[tuple[str, str]] = sorted(

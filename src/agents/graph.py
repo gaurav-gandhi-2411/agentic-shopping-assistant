@@ -7,6 +7,8 @@ import statistics
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
+
 from src.agents.grounding import validate_response
 from src.agents.outfit.body_type import (
     body_type_ack_message,
@@ -94,13 +96,35 @@ _SET_INTENT_RE = re.compile(
 # garment_type=None, and gating on that alone would wrongly empty their
 # results too (their only real matches ARE accessory-classified).
 _GENERIC_WEAR_ASK_RE = re.compile(r"\b(outfit|look|wear)\b", re.IGNORECASE)
+
+# 2026-08-06 fix: this used to be a hand-maintained regex duplicating
+# intent_parser._OCCASION_MAP's own keyword list -- the two drifted out of
+# sync every time a new occasion term was added to ONE but not the OTHER.
+# Root-caused via a live-proven bug: "groom outfit for men" / "groom
+# accessories look for men" resolved a WOMEN'S look despite the explicit
+# "for men" and "groom"->wedding_guest already being a real, correctly-
+# mapped _OCCASION_MAP entry (added 2026-07-30). The reason: this regex
+# (used as the gate for router_node's DETERMINISTIC occasion-outfit fast
+# path, which reuses intent_parser's own already-correct occasion/gender
+# extraction) never had "groom" added alongside it, so the query silently
+# fell through past the reliable deterministic branch to router_backend
+# .decide()'s LLM-driven plan -- whose few-shot prompt examples have no
+# "groom"/wedding-party example at all, and which empirically does not
+# reliably infer gender=men from "groom" on its own. Same gap existed for
+# "dulhan"/"baraat"/"nikah"/"bridal"/"anniversary" (all added to
+# _OCCASION_MAP on the same 2026-07-30 date, all missing here) -- these
+# would have hit the identical bug the first time a query combined one of
+# them with an explicit, opposite-gender "for men"/"for women" that
+# disagreed with the LLM's own guess.
+#
+# Fixed as a class, not an instance: this regex is now BUILT from
+# _OCCASION_MAP's own keys, so it can never drift out of sync with it
+# again -- any future occasion term addition automatically routes through
+# the reliable deterministic path with zero extra code.
 _OUTFIT_OCCASION_RE = re.compile(
-    r"\b(sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
-    r"party|festive|puja|traditional|ethnic|"
-    r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
-    r"raksha\s+bandhan|rakhi|eid|"
-    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation|"
-    r"gym|workout|work\s+out|athleisure|yoga)\b",
+    r"\b("
+    + "|".join(sorted((r"\s+".join(re.escape(w) for w in k.split()) for k in _INTENT_OCCASION_MAP), key=len, reverse=True))
+    + r")\b",
     re.IGNORECASE,
 )
 
@@ -113,13 +137,16 @@ _OUTFIT_OCCASION_RE = re.compile(
 # requires the occasion word to be the token directly before "look" — so
 # "look for black dresses" / "looking for shirts" (no occasion word directly
 # before "look", and in fact no occasion word at all) never match.
+#
+# 2026-08-06: same _OCCASION_MAP-derived fix as _OUTFIT_OCCASION_RE above —
+# this was an independent hand-maintained copy of the identical word list
+# (a second, separate place the groom/dulhan/baraat/nikah/bridal/anniversary
+# drift bug lived in). "dulhan look for women" specifically needs this one
+# fixed (immediately-adjacent "<occasion> look" phrasing, no action verb).
 _OCCASION_LOOK_RE = re.compile(
-    r"\b(?:sangeet|haldi|mehendi|wedding|shaadi|reception|engagement|roka|sagai|"
-    r"party|festive|puja|traditional|ethnic|"
-    r"diwali|deepavali|navratri|garba|dandiya|karva\s+chauth|karwa\s+chauth|"
-    r"raksha\s+bandhan|rakhi|eid|"
-    r"brunch|dinner|date\s+night|office|work|casual|cocktail|beach|resort|vacation|"
-    r"gym|workout|work\s+out|athleisure|yoga)"
+    r"\b(?:"
+    + "|".join(sorted((r"\s+".join(re.escape(w) for w in k.split()) for k in _INTENT_OCCASION_MAP), key=len, reverse=True))
+    + r")"
     r"\s+look\b",
     re.IGNORECASE,
 )
@@ -1142,9 +1169,17 @@ STRICT RULES — follow in order:
        Riviera", "complete this look").
    (c) Query carries CLEAR occasion + outfit-building intent even at items_retrieved=0.
        Signals: explicit occasion name (casual, brunch, dinner, date night, office, work,
-       cocktail, beach, resort, vacation, sangeet, festive, wedding, haldi, puja,
-       traditional, ethnic, party) PLUS an action verb (outfit, build, create, put together,
-       make, style, compose, suggest, give me, show me a complete/full look).
+       cocktail, beach, resort, vacation, sangeet, festive, wedding, haldi, mehendi, puja,
+       traditional, ethnic, party, reception, engagement, groom, bride, bridal, dulhan,
+       baraat, nikah, anniversary, diwali, navratri, eid, gym) PLUS an action verb (outfit,
+       build, create, put together, make, style, compose, suggest, give me, show me a
+       complete/full look).
+       GENDER — resolve from the query's OWN explicit words ("for men"/"for women"/"for
+       her"/"for him"), never from the occasion word alone: "groom"/"baraat"/"dulhan"
+       (wedding-party ROLE terms) do NOT by themselves imply a gender if the query names
+       one explicitly — "groom accessories look for men" is gender: "men" (the explicit
+       "for men" wins), even though "groom" the role is traditionally male; a query with NO
+       explicit gender word defaults from context as usual.
        Use {{"article_id": null}} — the composer will find an anchor automatically.
        Examples:
        - "outfit for a casual brunch" → {{"action": "outfit", "article_id": null, "occasion": "casual", "gender": "women", "budget_inr": null}}
@@ -1152,6 +1187,8 @@ STRICT RULES — follow in order:
        - "Build me a sangeet look under ₹5000" → {{"action": "outfit", "article_id": null, "occasion": "sangeet", "gender": "women", "budget_inr": 5000}}
        - "Create a festive kurta outfit for men" → {{"action": "outfit", "article_id": null, "occasion": "festive_puja", "gender": "men", "budget_inr": null}}
        - "Put together a wedding guest look" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "women", "budget_inr": null}}
+       - "groom accessories look for men" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "men", "budget_inr": null}}
+       - "dulhan look for women" → {{"action": "outfit", "article_id": null, "occasion": "wedding_guest", "gender": "women", "budget_inr": null}}
    Always include "occasion" (one of: casual, smart_casual, office, haldi, mehendi,
    party_evening, festive_puja, wedding_guest, engagement, sangeet, traditional_ethnic,
    reception — default "casual"), "gender"
