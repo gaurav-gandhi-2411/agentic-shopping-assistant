@@ -33,8 +33,8 @@ llm:
   max_tokens: 400
   timeout_seconds: 60
   groq_model: "llama-3.1-8b-instant"
-  gemini_model: "gemini-2.0-flash-lite"
-  openrouter_model: "google/gemma-3-27b-it:free"
+  gemini_model: "gemini-2.5-flash"
+  openrouter_model: "openai/gpt-oss-20b:free"
 
 agent:
   max_iterations: 6

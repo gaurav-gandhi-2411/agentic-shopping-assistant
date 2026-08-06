@@ -185,6 +185,33 @@ class TestColourGarmentCombos:
         intent = parse_intent("navy jacket")
         assert intent.colour == "Navy Blue"
 
+    def test_pastel_recognized_as_colour(self) -> None:
+        """BUG 2 regression: 'pastel' was not in _COLOUR_MAP at all — colour
+        stayed None for 'pastel lehenga' so no colour filtering happened."""
+        intent = parse_intent("pastel lehenga")
+        assert intent.colour == "Pastel"
+        assert intent.garment_type == "lehenga"
+
+    def test_pastel_widens_to_light_catalogue_colours(self) -> None:
+        """The retrieval-filter widening (colour_filter_values) must expand
+        'Pastel' to the verified-populated light/pastel catalogue buckets."""
+        from src.agents.intent_parser import colour_filter_values
+
+        intent = parse_intent("pastel saree")
+        widened = colour_filter_values(intent.colour)
+        assert widened == (
+            "Light Pink", "Light Blue", "Lavender", "Cream", "Light Beige", "White",
+        )
+
+    def test_light_pink_not_widened_by_pastel_family(self) -> None:
+        """A genuine 'light pink' query must NOT be widened by the new Pastel
+        family entry — Pastel and Light Pink are deliberately separate keys."""
+        from src.agents.intent_parser import colour_filter_values
+
+        intent = parse_intent("light pink dress")
+        assert intent.colour == "Light Pink"
+        assert colour_filter_values(intent.colour) == "Light Pink"
+
 
 # ---------------------------------------------------------------------------
 # Group 4: Refinement-only inputs — all must be is_product_query=True
@@ -301,6 +328,123 @@ class TestCompoundGarmentRules:
 
 
 # ---------------------------------------------------------------------------
+# Group 6a: BUG 4 — "kurta pajama"/"pyjama" queries were routing to
+# garment_type="nightwear" instead of "kurta" ("pajama" is rightmost and wins
+# the position scan over "kurta"). See src/catalogue/normalizer.py for the
+# mirrored ingest-time fix.
+# ---------------------------------------------------------------------------
+
+
+class TestKurtaPajamaCompound:
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "kurta pajama for father in law",
+            "kurta pyjama set",
+            "kurta and pyjama set for dad",
+            "kurta and pajama for husband",
+            "white kurta pajama for men",
+        ],
+    )
+    def test_kurta_pajama_resolves_to_kurta_not_nightwear(self, query: str) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == "kurta", (
+            f"query={query!r}: expected garment_type='kurta', got {intent.garment_type!r}"
+        )
+
+    def test_bare_pyjama_still_resolves_to_nightwear(self) -> None:
+        """Without 'kurta', a bare pyjama-set query must stay nightwear —
+        the fix must not blanket-map all pyjama mentions to kurta."""
+        intent = parse_intent("men's pyjama set for sleeping")
+        assert intent.garment_type == "nightwear"
+
+
+# ---------------------------------------------------------------------------
+# Group 6b: live bug — "juttis for a lehenga" was resolving garment_type=
+# "lehenga" instead of the actually-requested footwear item. Root cause:
+# jutti/mojari/kolhapuri/chappal (ethnic footwear nouns with real inventory —
+# see src/catalogue/normalizer.py's identical 2026-07-19 fix) were entirely
+# absent from the footwear rule, so a query naming both a footwear noun and an
+# ethnic-wear noun had only the ethnic noun as a candidate match and it won by
+# default (not a rightmost-match or precedence issue — the footwear noun was
+# never even a candidate). Mirrors normalizer.py's footwear rule fix.
+# ---------------------------------------------------------------------------
+
+
+class TestJuttiFootwearRecognition:
+    @pytest.mark.parametrize(
+        "query, expected_garment",
+        [
+            ("juttis for a lehenga", "footwear"),
+            ("footwear for my lehenga", "footwear"),  # already worked; guards no regression
+            ("juttis", "footwear"),
+            ("jutti", "footwear"),
+            ("mojaris for a sherwani", "footwear"),
+            ("mojari", "footwear"),
+            ("kolhapuris for a saree", "footwear"),
+            ("kolhapuri", "footwear"),
+            ("chappals for a kurta", "footwear"),
+        ],
+    )
+    def test_jutti_family_resolves_to_footwear(self, query: str, expected_garment: str) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == expected_garment, (
+            f"query={query!r}: expected garment={expected_garment!r}, got {intent.garment_type!r}"
+        )
+
+    def test_bare_lehenga_still_resolves_to_lehenga(self) -> None:
+        """The fix must not blanket-suppress lehenga — a query naming ONLY
+        the ethnic-wear noun (no footwear word) must still resolve to it."""
+        intent = parse_intent("lehenga for a wedding")
+        assert intent.garment_type == "lehenga"
+
+
+# ---------------------------------------------------------------------------
+# Group 6c: live bug — "gold jewellery for a wedding" was resolving
+# garment_type=None (no jewellery noun recognised at all), so a 2-turn session
+# where turn 1 was "juttis for a lehenga" silently inherited garment_type=
+# "footwear" from session context via merge_with_context() and hard-filtered
+# turn 2 to footwear too — returning MORE juttis instead of jewellery. See
+# tests/test_ws_jewellery_category_carryover.py for the full 2-turn graph-level
+# regression test. "necklace"/"earrings"/"jhumka" use the exact garment_type
+# strings that are also real catalogue product_type_name facet values (mirrors
+# src/catalogue/normalizer.py's identical jewellery-noun rule).
+# ---------------------------------------------------------------------------
+
+
+class TestJewelleryRecognition:
+    @pytest.mark.parametrize(
+        "query, expected_garment",
+        [
+            ("gold jewellery for a wedding", "jewellery"),
+            ("jewelry for a wedding", "jewellery"),
+            ("necklace for a saree", "necklace"),
+            ("necklaces for a saree", "necklace"),
+            ("earrings for a lehenga", "earrings"),
+            ("earring for a lehenga", "earrings"),
+            ("jhumkas for a saree", "jhumka"),
+            ("jhumka", "jhumka"),
+        ],
+    )
+    def test_jewellery_noun_resolves_to_expected_garment(
+        self, query: str, expected_garment: str
+    ) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == expected_garment, (
+            f"query={query!r}: expected garment={expected_garment!r}, "
+            f"got {intent.garment_type!r}"
+        )
+
+    def test_jewellery_query_is_a_garment_pivot_against_footwear_context(self) -> None:
+        """The exact seam of the live bug: merge_with_context() must NEVER
+        let a stale prior-turn garment_type ("footwear") survive onto a turn
+        that names an explicit, different product noun ("jewellery")."""
+        intent = parse_intent("gold jewellery for a wedding")
+        merged = merge_with_context(intent, {"garment_type": "footwear", "gender": "women"})
+        assert merged.garment_type == "jewellery"
+
+
+# ---------------------------------------------------------------------------
 # Group 7: Budget extraction
 # ---------------------------------------------------------------------------
 
@@ -346,6 +490,93 @@ class TestBudgetExtraction:
         assert intent.budget_max_inr == 2000
         assert intent.garment_type == "jeans"
         assert intent.colour == "Blue"
+
+
+# ---------------------------------------------------------------------------
+# Group 7a: Price qualifier extraction (BUG 1 — "cheap"/vague price adjectives
+# produced no signal at all; budget_max_inr stayed None so no price filtering
+# happened. price_qualifier is a separate slot — a downstream consumer
+# resolves it against the retrieved pool's own price distribution).
+# ---------------------------------------------------------------------------
+
+
+class TestPriceQualifierExtraction:
+    @pytest.mark.parametrize(
+        "query, expected_qualifier",
+        [
+            ("cheap lehenga", "cheap"),
+            ("budget-friendly saree", "cheap"),
+            ("budget friendly saree", "cheap"),
+            ("inexpensive kurti", "cheap"),
+            ("affordable dress", "cheap"),
+            ("expensive lehenga", "expensive"),
+            ("premium saree", "expensive"),
+            ("high-end blazer", "expensive"),
+            ("luxury lehenga", "expensive"),
+        ],
+    )
+    def test_price_qualifier(self, query: str, expected_qualifier: str) -> None:
+        intent = parse_intent(query)
+        assert intent.price_qualifier == expected_qualifier, (
+            f"query={query!r}: expected price_qualifier={expected_qualifier!r}, "
+            f"got {intent.price_qualifier!r}"
+        )
+
+    def test_no_price_qualifier(self) -> None:
+        intent = parse_intent("black dress for wedding")
+        assert intent.price_qualifier is None
+
+    def test_price_qualifier_coexists_with_exact_budget(self) -> None:
+        """'cheap lehenga under 3000' keeps BOTH the exact budget and the qualifier."""
+        intent = parse_intent("cheap lehenga under 3000")
+        assert intent.price_qualifier == "cheap"
+        assert intent.budget_max_inr == 3000
+
+    def test_cheap_lehenga_no_longer_none(self) -> None:
+        """Regression for the exact reported bug: 'cheap lehenga' produced no
+        signal at all (budget_max_inr stayed None, price_qualifier didn't
+        exist) so a ₹28,900 item could sit in a 'cheap lehenga' result set."""
+        intent = parse_intent("cheap lehenga")
+        assert intent.price_qualifier == "cheap"
+
+
+# ---------------------------------------------------------------------------
+# Group 7b: Formality softener extraction (BUG 3 — no formality/embellishment
+# qualifier slot existed; extraction only, ranking wiring is a downstream
+# consumer's job).
+# ---------------------------------------------------------------------------
+
+
+class TestFormalitySoftenerExtraction:
+    @pytest.mark.parametrize(
+        "query, expected_softener",
+        [
+            ("not too flashy lehenga", "minimalist"),
+            ("minimalist saree", "minimalist"),
+            ("simple kurti", "minimalist"),
+            ("understated saree", "minimalist"),
+            ("subtle lehenga", "minimalist"),
+            ("comfortable kurta", "comfortable"),
+            ("not too heavy lehenga", "comfortable"),
+            ("flashy lehenga", "flashy"),
+        ],
+    )
+    def test_formality_softener(self, query: str, expected_softener: str) -> None:
+        intent = parse_intent(query)
+        assert intent.formality_softener == expected_softener, (
+            f"query={query!r}: expected formality_softener={expected_softener!r}, "
+            f"got {intent.formality_softener!r}"
+        )
+
+    def test_no_formality_softener(self) -> None:
+        intent = parse_intent("black dress for wedding")
+        assert intent.formality_softener is None
+
+    def test_not_too_flashy_beats_bare_flashy(self) -> None:
+        """'not too flashy' must resolve to 'minimalist', not 'flashy' —
+        negation checked before the bare-word match."""
+        intent = parse_intent("something not too flashy for the reception")
+        assert intent.formality_softener == "minimalist"
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +652,23 @@ class TestMergeWithContext:
         assert merged is not intent
         assert intent.garment_type is None  # original not mutated
 
+    def test_price_qualifier_carried_forward_from_context(self) -> None:
+        """A refinement turn with no price adjective inherits the prior
+        turn's price_qualifier from session_context."""
+        intent = parse_intent("in blue")
+        merged = merge_with_context(intent, {"price_qualifier": "cheap"})
+        assert merged.price_qualifier == "cheap"
+
+    def test_new_price_qualifier_overwrites_context(self) -> None:
+        intent = parse_intent("show me an expensive lehenga")
+        merged = merge_with_context(intent, {"price_qualifier": "cheap"})
+        assert merged.price_qualifier == "expensive"
+
+    def test_formality_softener_carried_forward_from_context(self) -> None:
+        intent = parse_intent("in blue")
+        merged = merge_with_context(intent, {"formality_softener": "minimalist"})
+        assert merged.formality_softener == "minimalist"
+
 
 # ---------------------------------------------------------------------------
 # Group 9: Store filter extraction
@@ -462,3 +710,160 @@ class TestRawQueryPreservation:
         intent = parse_intent(q)
         assert intent.raw_query == "Navy BLUE Kurti"
         assert intent.colour == "Navy Blue"  # canonical form used internally
+
+
+# ---------------------------------------------------------------------------
+# Group 11 (2026-07-24): Wave 9 activewear + churidar vocabulary gaps.
+#
+# "leggings"/"joggers"/"skort" had NO garment_type rule at all before this
+# fix — a query naming them resolved garment_type=None entirely. "sports
+# bra"/"track pants"/"cargo pants" DID partially resolve (via the generic
+# bare-noun "\bbra\b"/"\bpants\b" rules) but collapsed to the wrong, too-
+# generic value ("innerwear"/"trousers") instead of the catalogue's own
+# normalized product_type_name facet ("sports_bra"/"track_pants"/
+# "cargo_pants" — see src/catalogue/normalizer.py, this file's mirror
+# source of truth). "churidar" is mapped to the catalogue's existing
+# "salwar" facet (near-synonym merge, thin real inventory) rather than an
+# unbacked distinct value — see the _GARMENT_RULES churidar entry's comment.
+# ---------------------------------------------------------------------------
+
+
+class TestActivewearAndChuridarVocabulary:
+    @pytest.mark.parametrize(
+        "query, expected_garment",
+        [
+            ("leggings for women", "leggings"),
+            ("printed leggings", "leggings"),
+            ("joggers for men", "joggers"),
+            ("sweatpants for men", "joggers"),
+            ("skort for women", "skort"),
+            ("skorts for the gym", "skort"),
+            ("sports bra for women", "sports_bra"),
+            ("track pants for men", "track_pants"),
+            ("cargo pants for men", "cargo_pants"),
+            ("churidar for women", "salwar"),
+        ],
+    )
+    def test_new_vocabulary_resolves(self, query: str, expected_garment: str) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == expected_garment, (
+            f"query={query!r}: expected garment={expected_garment!r}, got {intent.garment_type!r}"
+        )
+
+    def test_bare_pants_still_resolves_to_trousers(self) -> None:
+        """The generic "pants" rule must still catch plain trousers queries —
+        only the specific "track pants"/"cargo pants" compound phrases are
+        redirected to their own distinct types."""
+        intent = parse_intent("formal pants for men")
+        assert intent.garment_type == "trousers"
+
+    def test_bare_bra_still_resolves_to_innerwear(self) -> None:
+        """Only the specific "sports bra" compound phrase is redirected —
+        a bare "bra" query must stay the generic innerwear bucket."""
+        intent = parse_intent("bra for women")
+        assert intent.garment_type == "innerwear"
+
+
+# ---------------------------------------------------------------------------
+# Group 12 (2026-07-24): multi-garment "X and Y" / "X & Y" query parsing.
+#
+# Live-proven bug: "sports bra and leggings" only ever surfaced sports bra
+# items — garment_type is architecturally single-valued (see
+# _extract_garment_type's docstring), so "leggings" never had a chance to be
+# searched at all. garment_type_secondary is populated only for a genuine
+# two-garment conjunction resolving to two DISTINCT, real garment types.
+# ---------------------------------------------------------------------------
+
+
+class TestMultiGarmentConjunctionSplit:
+    @pytest.mark.parametrize(
+        "query, primary, secondary",
+        [
+            ("sports bra and leggings", "sports_bra", "leggings"),
+            ("joggers and t-shirt", "joggers", "top"),
+            ("kurta and palazzo", "kurta", "palazzo"),
+            ("saree and blouse", "saree", "blouse"),
+            ("sherwani and churidar", "sherwani", "salwar"),
+            ("sports bra & leggings", "sports_bra", "leggings"),  # "&" variant
+        ],
+    )
+    def test_two_distinct_garments_split(
+        self, query: str, primary: str, secondary: str
+    ) -> None:
+        intent = parse_intent(query)
+        assert intent.garment_type == primary, (
+            f"query={query!r}: expected primary={primary!r}, got {intent.garment_type!r}"
+        )
+        assert intent.garment_type_secondary == secondary, (
+            f"query={query!r}: expected secondary={secondary!r}, "
+            f"got {intent.garment_type_secondary!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "sports bra for women",
+            "kurta for men",
+            "black dress for women",
+            "cheap lehenga under 5000",
+            "leggings for the gym",
+        ],
+    )
+    def test_single_garment_queries_unaffected(self, query: str) -> None:
+        """Ordinary single-garment queries must resolve exactly as they did
+        before this fix, with garment_type_secondary always None — the split
+        mechanism is a strict no-op unless a genuine two-garment conjunction
+        is present."""
+        intent = parse_intent(query)
+        assert intent.garment_type_secondary is None, (
+            f"query={query!r}: expected no secondary, got "
+            f"{intent.garment_type_secondary!r}"
+        )
+
+    def test_kurta_and_kurti_treated_as_synonym_not_distinct(self) -> None:
+        """'kurta and kurti' is near-synonym browsing language ('kurta-or-
+        kurti style'), not a request for two distinct complementary pieces —
+        must NOT trigger the multi-garment split."""
+        intent = parse_intent("kurta and kurti for women")
+        assert intent.garment_type == "kurta"
+        assert intent.garment_type_secondary is None
+
+    def test_kurta_and_pyjama_stays_single_type_not_split(self) -> None:
+        """'kurta and pyjama' is a fixed compound-table SET idiom (see
+        _COMPOUND_TERMS) — the "and" there is internal to the idiom, not a
+        conjunction joining two independently-searchable garments."""
+        intent = parse_intent("kurta and pyjama set for dad")
+        assert intent.garment_type == "kurta"
+        assert intent.garment_type_secondary is None
+
+    def test_second_side_unresolved_falls_back_to_single_garment(self) -> None:
+        """When one side of the conjunction names no recognisable garment
+        noun at all, fall back to the unsplit whole-query extraction
+        (existing single-garment behaviour) rather than a bogus secondary."""
+        intent = parse_intent("kurta and something nice")
+        assert intent.garment_type == "kurta"
+        assert intent.garment_type_secondary is None
+
+    def test_conjunction_outside_garment_context_no_split(self) -> None:
+        """An "and" that has nothing to do with garment nouns at all (store
+        names) must not produce a spurious secondary — identical to this
+        query's pre-fix garment_type resolution (plural "tops" doesn't match
+        the singular "\\btop\\b" rule; a separate, pre-existing gap outside
+        this fix's scope — see TestStoreFilter.test_multiple_stores, which
+        exercises this exact query for store_filter only)."""
+        intent = parse_intent("compare tops on myntra and snitch")
+        assert intent.garment_type is None
+        assert intent.garment_type_secondary is None
+
+    def test_secondary_not_inherited_across_turns(self) -> None:
+        """garment_type_secondary is a property of THIS turn's raw query
+        shape, not something session context should resurrect on a later,
+        unrelated turn (mirrors store_filter/is_product_query — see
+        merge_with_context's docstring)."""
+        intent = parse_intent("in blue")
+        session_context = {
+            "garment_type": "sports_bra",
+            "garment_type_secondary": "leggings",
+        }
+        merged = merge_with_context(intent, session_context)
+        assert merged.garment_type_secondary is None

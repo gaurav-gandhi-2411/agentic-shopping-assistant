@@ -1,0 +1,17 @@
+display_name: "Sukkhi"
+logo_url: null
+primary_colour: "#B8860B"
+accent_colour: "#FFF9E6"
+tagline: "Affordable fashion jewellery for every occasion"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "women"
+catalogue_path: "data/raw/shopify/sukkhi/products.csv"
+pdp_url_template: "https://sukkhi.com/products/{handle}"
+suggestion_chips:
+  - "Gold plated necklace set"
+  - "Bangles for wedding"
+  - "Earrings under ₹1000"
+  - "Kundan jewellery set"
+  - "Anniversary gift for wife"

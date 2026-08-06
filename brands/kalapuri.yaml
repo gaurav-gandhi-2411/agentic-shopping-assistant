@@ -1,0 +1,27 @@
+display_name: "Kalapuri"
+logo_url: null
+primary_colour: "#263859"
+accent_colour: "#EFEAD6"
+tagline: "Kolhapuri chappals and Kolhapuri-style jewellery from Maharashtra"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# DUAL-CATEGORY store: 114/357 rows are Kolhapuri chappals (with explicit
+# "Men's"/"Women's"/"Kids" tags) and 189/357 are Kolhapuri-style jewellery
+# (necklaces, chokers, mangalsutra -- traditionally women's), plus a smaller
+# tail of baskets, sarees, and men's Maharashtrian headwear (Gandhi Topi,
+# Pheta, Dhoti Uparna). A fresh pull found no Rs.0 outlier rows (the
+# in-stock filter already dropped 7 unavailable rows before price
+# filtering; none of the remaining 357 rows are near-zero-priced). Given
+# the jewellery line is women's-only and the chappal/headwear lines split
+# across both genders, "mixed" reflects the genuinely dual-gender,
+# dual-category catalogue rather than forcing either one.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/kalapuri/products.csv"
+pdp_url_template: "https://kalapuri.com/products/{handle}"
+suggestion_chips:
+  - "Kolhapuri chappal for women"
+  - "Men's Kolhapuri chappal for festive wear"
+  - "Kolhapuri-style necklace and earring set"
+  - "Temple jewellery choker"
+  - "Kids Kolhapuri chappal"

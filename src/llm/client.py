@@ -104,6 +104,7 @@ class OllamaClient:
             logger.info(
                 json.dumps({
                     "event": "llm_call",
+                    "provider": "ollama",
                     "model": self.model,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
@@ -162,6 +163,81 @@ class GroqClient:
             api_key=api_key, timeout=llm_cfg.get("timeout_seconds", 60)
         )
         self.cost_reporter: Callable[[float], None] | None = None
+        # Lazy fallback chain for TPD (daily quota) exhaustion — see
+        # _iter_fallback_tiers(). Config is retained (not the clients
+        # themselves) so construction — and each tier's own API-key check —
+        # is deferred until actually needed, and re-attempted at most once
+        # per GroqClient instance per tier.
+        self._config = config
+        self._openrouter_client = None
+        self._openrouter_unavailable = False
+        self._gemini_client = None
+        self._gemini_unavailable = False
+
+    def _get_openrouter_fallback(self) -> "object | None":
+        """Return a lazily-constructed OpenRouterClient, or None if unavailable.
+
+        Incident (2026-07-29/30): Groq's 500k TPD budget gets exhausted by
+        cumulative traffic (eval runs + real usage), and the old behaviour —
+        wait up to 10x for 60s+ each on the SAME exhausted provider — produced
+        multi-minute hangs that the WS turn-deadline (90s) then had to cut off
+        as a user-facing timeout. Falling over to OpenRouter immediately avoids
+        that hang. Construction failure (e.g. missing/invalid key) is cached as
+        `_openrouter_unavailable` so a dead fallback doesn't add per-call retry
+        overhead — see 2026-07-30 finding that the OpenRouter key was dead.
+
+        First tier of the fallback chain — see _iter_fallback_tiers(). Gemini
+        (_get_gemini_fallback) was added 2026-07-31 as a second tier once
+        OpenRouter's free-tier model (a reasoning model) was found to
+        sometimes return empty content when max_tokens is too tight for it
+        to finish its hidden reasoning.
+        """
+        if self._openrouter_unavailable:
+            return None
+        if self._openrouter_client is None:
+            try:
+                from src.llm.openrouter_client import OpenRouterClient
+                self._openrouter_client = OpenRouterClient(self._config)
+                self._openrouter_client.cost_reporter = self.cost_reporter
+            except Exception as exc:
+                logger.error("[groq] OpenRouter fallback unavailable: %r", exc)
+                self._openrouter_unavailable = True
+                return None
+        return self._openrouter_client
+
+    def _get_gemini_fallback(self) -> "object | None":
+        """Return a lazily-constructed GeminiClient, or None if unavailable.
+
+        Second tier of the fallback chain, tried only when OpenRouter is
+        itself unavailable or its call fails/returns empty — see
+        _iter_fallback_tiers(). Same lazy-construct-and-cache pattern as
+        _get_openrouter_fallback (construction failure cached in
+        `_gemini_unavailable` so a dead/missing key isn't retried every call).
+        """
+        if self._gemini_unavailable:
+            return None
+        if self._gemini_client is None:
+            try:
+                from src.llm.gemini_client import GeminiClient
+                self._gemini_client = GeminiClient(self._config)
+                self._gemini_client.cost_reporter = self.cost_reporter
+            except Exception as exc:
+                logger.error("[groq] Gemini fallback unavailable: %r", exc)
+                self._gemini_unavailable = True
+                return None
+        return self._gemini_client
+
+    def _iter_fallback_tiers(self):
+        """Yield (provider_name, client) for each fallback tier that
+        successfully constructs, in priority order (OpenRouter first,
+        Gemini second)."""
+        for name, getter in (
+            ("openrouter", self._get_openrouter_fallback),
+            ("gemini", self._get_gemini_fallback),
+        ):
+            client = getter()
+            if client is not None:
+                yield name, client
 
     def chat(
         self,
@@ -196,6 +272,7 @@ class GroqClient:
                 logger.info(
                     json.dumps({
                         "event": "llm_call",
+                        "provider": "groq",
                         "model": self.model,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -212,13 +289,69 @@ class GroqClient:
             except Exception as exc:
                 attempt += 1
                 exc_str = str(exc)
-                if ("tokens per day" in exc_str or "(TPD)" in exc_str) and tpd_retries < 10:
-                    tpd_retries += 1
-                    wait = _parse_retry_after(exc_str)
-                    wait = max(wait, 60.0)  # minimum 60s for TPD
-                    logger.warning("[groq] attempt %d failed: %r. TPD limit — waiting %.0fs…", attempt, exc, wait)
-                    time.sleep(wait + 2)
-                    continue
+                if "tokens per day" in exc_str or "(TPD)" in exc_str:
+                    tried_tiers: list[str] = []
+                    for name, fb_client in self._iter_fallback_tiers():
+                        tried_tiers.append(name)
+                        try:
+                            result = fb_client.chat(
+                                messages, temperature=temperature, max_tokens=max_tokens
+                            )
+                        except Exception as fb_exc:
+                            logger.warning(
+                                "[groq->%s fallback] failed: %r, trying next tier", name, fb_exc
+                            )
+                            continue
+                        # Empty/None content is not an exception on either provider —
+                        # OpenRouter's free reasoning model (gpt-oss-20b:free) can burn
+                        # its whole max_tokens budget on hidden reasoning and return
+                        # content: None; Gemini can return an empty response on
+                        # safety-filtered or empty-candidate output. Treat both as a
+                        # failed tier rather than surfacing blank text to the caller.
+                        if not result or not result.strip():
+                            logger.warning(
+                                "[groq->%s fallback] returned empty response, trying next tier",
+                                name,
+                            )
+                            continue
+                        logger.warning(
+                            json.dumps({
+                                "event": "llm_fallback_served",
+                                "from_provider": "groq",
+                                "to_provider": name,
+                                "reason": "tpd_exhausted",
+                                "turn_id": turn_id,
+                            })
+                        )
+                        return result
+                    logger.error(
+                        json.dumps({
+                            "event": "llm_fallback_exhausted",
+                            "provider_attempts": tried_tiers,
+                            "turn_id": turn_id,
+                        })
+                    )
+                    # Chain exhausted (zero tiers configured, or every configured
+                    # tier failed/returned empty) — fall through to the legacy
+                    # wait-and-retry behaviour below rather than fail fast.
+                    # Deliberately NOT distinguishing "nothing configured" from
+                    # "everything down": a daily quota won't recover in 60s
+                    # either way, but retrying Groq once more is a defensible
+                    # last resort when every fallback has also failed, and
+                    # splitting the two cases adds complexity for a rare
+                    # (all-providers-down) edge case with no clear behavioural
+                    # win.
+                    if tpd_retries < 10:
+                        tpd_retries += 1
+                        wait = _parse_retry_after(exc_str)
+                        wait = max(wait, 60.0)  # minimum 60s for TPD
+                        logger.warning(
+                            "[groq] attempt %d failed: %r. TPD limit, fallback chain "
+                            "exhausted (tried=%s) — waiting %.0fs…",
+                            attempt, exc, tried_tiers, wait,
+                        )
+                        time.sleep(wait + 2)
+                        continue
                 delay = next(tpm_delays, None)
                 if delay is None:
                     raise
@@ -236,6 +369,7 @@ class GroqClient:
         output_tokens = 0
         cached_tokens = 0
         turn_id = str(uuid.uuid4())
+        yielded_any = False
         try:
             stream = self._client.chat.completions.create(
                 model=self.model,
@@ -251,6 +385,7 @@ class GroqClient:
                 if chunk.choices:
                     content = chunk.choices[0].delta.content
                     if content:
+                        yielded_any = True
                         yield content
                 if chunk.usage:
                     input_tokens = chunk.usage.prompt_tokens or 0
@@ -258,6 +393,63 @@ class GroqClient:
                     if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
                         cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", 0) or 0
         except Exception as exc:
+            exc_str = str(exc)
+            # Only fall back if nothing has streamed to the client yet — Groq's
+            # TPD 429 always fires at request-initiation, before any chunk, but
+            # this guards against re-sending a duplicate partial response if that
+            # ever changes.
+            if ("tokens per day" in exc_str or "(TPD)" in exc_str) and not yielded_any:
+                tried_tiers: list[str] = []
+                for name, fb_client in self._iter_fallback_tiers():
+                    tried_tiers.append(name)
+                    try:
+                        # Fully buffer before yielding anything. Fallback
+                        # clients catch their OWN errors internally and yield
+                        # STREAM_ERROR_SENTINEL rather than raising (see
+                        # OpenRouterClient/GeminiClient.chat_stream), so a
+                        # try/except around `yield from` would never see a
+                        # failure — the sentinel would already be mid-stream
+                        # to the real caller. Buffering also lets the empty-
+                        # response case (reasoning-model budget exhaustion /
+                        # safety filtering) be detected before committing to
+                        # this tier. Accepted tradeoff: fallback-tier
+                        # responses are not truly token-streamed to the end
+                        # user — a rare degraded-mode path, not the common one.
+                        buffer = list(fb_client.chat_stream(
+                            messages, temperature=temperature, max_tokens=max_tokens
+                        ))
+                    except Exception as fb_exc:
+                        logger.warning(
+                            "[groq->%s fallback] failed: %r, trying next tier", name, fb_exc
+                        )
+                        continue
+                    if STREAM_ERROR_SENTINEL in buffer or not "".join(buffer).strip():
+                        logger.warning(
+                            "[groq->%s fallback] returned empty response, trying next tier",
+                            name,
+                        )
+                        continue
+                    logger.warning(
+                        json.dumps({
+                            "event": "llm_fallback_served",
+                            "from_provider": "groq",
+                            "to_provider": name,
+                            "reason": "tpd_exhausted",
+                            "turn_id": turn_id,
+                        })
+                    )
+                    yield from buffer
+                    return
+                logger.error(
+                    json.dumps({
+                        "event": "llm_fallback_exhausted",
+                        "provider_attempts": tried_tiers,
+                        "turn_id": turn_id,
+                    })
+                )
+            # Chain exhausted (or nothing configured) — unlike chat(), there
+            # is no pre-existing retry loop here to fall through to; preserve
+            # the current chat_stream() behaviour of yielding the sentinel.
             logger.error("[groq] chat_stream error: %s", exc, exc_info=True)
             yield STREAM_ERROR_SENTINEL
         finally:
@@ -266,6 +458,7 @@ class GroqClient:
             logger.info(
                 json.dumps({
                     "event": "llm_call",
+                    "provider": "groq",
                     "model": self.model,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,

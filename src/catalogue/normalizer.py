@@ -16,6 +16,12 @@ Mandatory spot-check results (verified by test_normalizer.py):
     "DressBerry Sweater"                -> knitwear   (high)  [brand-strip]
     "Black Floral Maxi Dress"           -> dress      (high)
     "Kurti For Women"                   -> kurti      (high)  [barrier before "For Women" stops no garment noun]
+    "Ultimate Printed Leggings"         -> leggings   (high)
+    "High Impact Action Sports Bra"     -> sports_bra (high)  [compound table]
+    "TraqLite Track Pants Black"        -> track_pants (high) [compound table]
+    "TraqPace Cargo Pants Lilac"        -> cargo_pants (high) [compound table]
+    "TraqEase Sweatpants Black"         -> joggers    (high)  [synonym merge]
+    "The Do-It All Skorts"              -> skort      (high)
 """
 
 from __future__ import annotations
@@ -53,6 +59,28 @@ _COMPOUND_TERMS: dict[str, str] = {
     "dress shirt": "shirt",
     "co-ord": "coord",
     "unstitched": "fabric_material",      # any "unstitched X" title = raw material
+    # 2026-07-13 fix: "kurta and pyjama"/"pajama" SET titles (e.g. "Men Kurta and
+    # Pyjama Set Dupion Silk") were resolving to garment_type="nightwear" —
+    # "pyjama"/"pajama" is rightmost and wins the position scan over "kurta"
+    # (see _GARMENT_RULES's nightwear rule). These are ethnic kurta-pajama sets,
+    # not nightwear. Deliberately narrow to the kurta-combination phrases only —
+    # bare "pyjama set"/"pajama set" (no "kurta") must still resolve to
+    # nightwear (genuine men's pyjama-only sets). Mirrored in
+    # src/agents/intent_parser.py's _COMPOUND_TERMS (same algorithm — see this
+    # module's docstring).
+    "kurta and pyjama": "kurta",
+    "kurta pyjama": "kurta",
+    "kurta pajama": "kurta",
+    "kurta and pajama": "kurta",
+    # 2026-07-23 activewear wave (blissclub.com, silvertraq.com — closing the
+    # gym-query catalogue gap). These three must be compound-table entries, not
+    # position-scan rules, because the bare noun ("pants"/"bra") they end in is
+    # already claimed by an existing generic rule (trousers' "\bpants\b",
+    # innerwear's "\bbra\b") which would otherwise win the rightmost-noun scan —
+    # same reason "dress shirt" -> "shirt" is a compound entry above.
+    "sports bra": "sports_bra",
+    "track pants": "track_pants",
+    "cargo pants": "cargo_pants",
 }
 
 # Pre-sorted longest → shortest so the first match wins when phrases overlap
@@ -67,10 +95,25 @@ _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
 _GARMENT_RULES: list[tuple[str, str, str]] = [
     # Bottoms & shorts — specific first so "under dresses" purpose clause doesn't win
     (r"\bshorts?\b", "shorts", "apparel"),
+    # Skort ("skirt" + "shorts" hybrid) is a distinct noun in real titles
+    # (blissclub/silvertraq "Skort(s)") — does not share a substring with the
+    # "shorts" rule above, so no collision/compound entry needed.
+    (r"\bskorts?\b", "skort", "apparel"),
     (r"\bminiskirt\b|\bmini skirt\b", "skirt", "apparel"),
     (r"\bskirt\b", "skirt", "apparel"),
     (r"\btrouser\b|\btrousers\b|\bpants\b|\bchino\b|\bchinos\b", "trousers", "apparel"),
     (r"\bjean\b|\bjeans\b|\bdenim\b", "jeans", "apparel"),
+    # Activewear (2026-07-23, blissclub.com/silvertraq.com gym-query gap wave).
+    # "leggings" never collides with the generic "\bpants\b" rule above (distinct
+    # word), so it's a plain position-scan rule. "joggers"/"sweatpants" are
+    # synonyms in this data (silvertraq's own store label groups "TraqEase
+    # Sweatpants" under product_type "Joggers") — merged into one canonical
+    # value rather than spawning a "sweatpants" type for a distinction the
+    # catalogue itself doesn't make. "sports bra"/"track pants"/"cargo pants"
+    # are handled above in _COMPOUND_TERMS (they collide with existing generic
+    # bare-noun rules and need the compound short-circuit).
+    (r"\bleggings?\b", "leggings", "apparel"),
+    (r"\bjoggers?\b|\bsweatpants?\b", "joggers", "apparel"),
     # Ethnic
     (r"\bsarees?\b|\bsari\b", "saree", "apparel"),
     (r"\blehenga\b", "lehenga", "apparel"),
@@ -81,6 +124,18 @@ _GARMENT_RULES: list[tuple[str, str, str]] = [
     (r"\bkurta\b", "kurta", "apparel"),
     (r"\bdupatta\b", "dupatta", "apparel"),
     (r"\bsalwar\b", "salwar", "apparel"),
+    # Wedding/formal ethnic wear (2026-07-19, men's-ethnic-depth wave). Sherwani,
+    # bandhgala, jodhpuri suit, and indo-western are kept as "apparel" (not
+    # "outerwear") for the same reason kurta/lehenga/anarkali above are: each is
+    # the complete/main garment of the outfit, not a layer worn over another
+    # garment the way a blazer/jacket is. No separate "ethnic_wear" category
+    # exists in this schema, so these share "apparel" with the ethnic rules above.
+    (r"\bsherwani\b", "sherwani", "apparel"),
+    # Real feeds use both spellings ("Black Bandhgala", "Grey Bandgala Suit").
+    (r"\bband(?:h)?gala\b", "bandhgala", "apparel"),
+    (r"\bjodhpuri\s+suits?\b", "jodhpuri_suit", "apparel"),
+    # Covers "indo western", "indo-western", and "indowestern" (no separator).
+    (r"\bindo\s*-?\s*western\b", "indowestern", "apparel"),
     # Swimwear
     (r"\bmonokini\b|\bswimsuit\b|\bbikini\b|\bswimwear\b", "swimwear", "apparel"),
     # One-piece
@@ -110,12 +165,59 @@ _GARMENT_RULES: list[tuple[str, str, str]] = [
     # Footwear
     (
         r"\bfootwear\b|\bshoe\b|\bshoes\b|\bsandal\b|\bsandals\b|\bsneaker\b|\bsneakers\b"
-        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b",
+        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b"
+        # 2026-07-19 fix: ethnic-footwear brands (kraftojodhpur, houseofvian,
+        # 5-elements, taurjuttis, fizzygoblet) use jutti/mojari/kolhapuri/chappal
+        # as their footwear noun — none of these were in the rule set, so titles
+        # like "Amber Jute Men's Sherwani Jutti" fell through to "sherwani" (the
+        # only recognized noun) instead of footwear. "kolhapuris" plural is listed
+        # explicitly (not just "kolhapuri") because real titles ("Rangeena
+        # Kolhapuris & Handbag Combo") use the plural and \bkolhapuri\b does not
+        # match inside "kolhapuris" (no word boundary between "i" and the "s").
+        r"|\bjutti\b|\bjuttis\b|\bmojari\b|\bmojaris\b|\bkolhapuri\b|\bkolhapuris\b"
+        r"|\bchappal\b|\bchappals\b",
         "footwear",
         "footwear",
     ),
     # Bags
     (r"\bhandbag\b|\btote\b|\bcrossbody\b|\bpurse\b|\bclutch\b|\bbag\b", "bag", "accessories"),
+    # Jewellery / fine accessories (2026-07-19 jewellery-inventory-gap wave).
+    # theamethyststore/southtemplejewellery/daivik are dedicated jewellery
+    # stores whose titles put an apparel-fragment word ("short", "shirt",
+    # "saree") *before* the actual jewellery noun — e.g. "Simrath Short
+    # Necklace Set", "James Shirt Button Clip", "Laksmi Lotus Saree Pin".
+    # Confirmed live: 1,488 theamethyststore rows ("Short Necklace Set" ->
+    # garment_type="shorts"), 60 theamethyststore rows ("Shirt Button Clip"
+    # -> "shirt"), 57 southtemplejewellery rows ("Short Necklace Set" variants
+    # -> "shorts", including via the store's own product_type_name label
+    # "Short Necklaces" being re-scanned by the _fallback_product_type path),
+    # and 56 daivik rows ("... Short ... Necklace/Haram ...") + 11 daivik rows
+    # ("Saree Pin" -> "saree"). None of these jewellery nouns existed in the
+    # rule set at all, so the coincidental apparel-fragment word was the ONLY
+    # match and won by default. Adding the real jewellery nouns here is
+    # sufficient — the existing rightmost-noun scan (Step 5) already prefers
+    # the noun that sits after "short"/"shirt"/"saree" in every confirmed
+    # title, no separate override step needed (contrast with the footwear-led
+    # combo override above, where the bag noun sits to the *right* of the
+    # noun that should win).
+    # "necklace"/"earrings"/"jhumka" use the exact garment_type strings
+    # src/agents/outfit/slots.py's _ACCESSORY_JEWELLERY_FAMILY already expects
+    # (that constant predates this fix and was previously unreachable for
+    # these brands); other jewellery nouns fall to generic "jewellery", which
+    # that same frozenset also recognizes.
+    (r"\bnecklaces?\b", "necklace", "accessories"),
+    (r"\bearrings?\b", "earrings", "accessories"),
+    (r"\bjhumkas?\b", "jhumka", "accessories"),
+    (r"\bharams?\b", "jewellery", "accessories"),
+    (r"\bpendants?\b", "jewellery", "accessories"),
+    (r"\bchains?\b", "jewellery", "accessories"),
+    (r"\bpins?\b", "jewellery", "accessories"),
+    (r"\bclips?\b", "jewellery", "accessories"),
+    (r"\bkasumalai\b", "jewellery", "accessories"),
+    (r"\bguttapusalu\b|\bguttaspusalu\b", "jewellery", "accessories"),
+    # "Jada Billa"/"Jadabilla"/"JadaBillai" (hair-ornament, daivik).
+    (r"\bjada\s*billa(?:i)?\b", "jewellery", "accessories"),
+    (r"\bmattal\b", "jewellery", "accessories"),
     # Coord set (catch-all for coord after compound table)
     (r"\bco-?ord\b", "coord", "apparel"),
     # Kaftan
@@ -146,6 +248,23 @@ _BARRIER_RE = re.compile(r"\b(for|under|with|to)\b", re.IGNORECASE)
 _SAREE_WORD_RE = re.compile(r"\bsarees?\b|\bsari\b", re.IGNORECASE)
 _BLOUSE_PIECE_RE = re.compile(r"blouse\s*piece", re.IGNORECASE)
 
+# Footwear noun / bag noun — co-occurrence means a footwear-led combo listing
+# (see Step 1.6 override below), e.g. "Firdaus Juttis & Clutch Combo" and
+# "Rangeela Kolhapuris & Handbag Combo" (real kraftojodhpur/houseofvian/
+# 5-elements titles, 2026-07-19 ethnic-footwear wave). The bag noun ("clutch",
+# "handbag") is always the second, bundled item and sits to the right of the
+# footwear noun, so it would otherwise win the rightmost-noun scan in Step 5.
+_FOOTWEAR_WORD_RE = re.compile(
+    r"\bfootwear\b|\bshoe\b|\bshoes\b|\bsandal\b|\bsandals\b|\bsneaker\b|\bsneakers\b"
+    r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b"
+    r"|\bjutti\b|\bjuttis\b|\bmojari\b|\bmojaris\b|\bkolhapuri\b|\bkolhapuris\b"
+    r"|\bchappal\b|\bchappals\b",
+    re.IGNORECASE,
+)
+_BAG_WORD_RE = re.compile(
+    r"\bhandbag\b|\btote\b|\bcrossbody\b|\bpurse\b|\bclutch\b|\bbag\b", re.IGNORECASE
+)
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -162,9 +281,15 @@ def normalize_garment_type(
     Algorithm
     ---------
     1. Brand-prefix strip — remove leading brand token from the lowercased name.
+       1.5/1.6. Early-return overrides for finished-saree-with-blouse-piece and
+       footwear-led bag combos (see inline comments) that would otherwise be
+       mis-resolved by the generic rightmost-noun scan below.
     2. Compound-term lookup — exact whole-word phrase match for ambiguous combos
        such as "dress shirt" → "shirt".
     3. Full garment-rule scan with position tracking.
+       3.5. Jewellery-noun precedence — drop "shorts"/"shirt"/"saree"/"top"
+       matches outright when a real jewellery noun (necklace/earrings/jhumka/
+       jewellery) is also present, regardless of which side it falls on.
     4. Preposition barrier — discard garment nouns that appear after the first
        occurrence of "for/under/with/to" following the earliest garment match.
     5. Select the rightmost remaining match (head noun in a compound).
@@ -211,6 +336,19 @@ def normalize_garment_type(
     if _SAREE_WORD_RE.search(residual) and _BLOUSE_PIECE_RE.search(residual):
         return NormalizationResult(garment_type="saree", category="apparel", type_confidence="high")
 
+    # ── Step 1.6: footwear-led combo override ───────────────────────────────────
+    # A footwear noun (jutti/mojari/kolhapuri/chappal/shoe/etc.) co-occurring with
+    # a bag noun (clutch/handbag/potli-adjacent "bag") is a footwear item bundled
+    # with an accessory add-on, not a bag — the footwear is the lead product being
+    # sold (e.g. "Firdaus Juttis & Clutch Combo"). Only fires when the footwear
+    # noun appears before the bag noun, matching the real combo-title convention;
+    # this must run before Step 5's rightmost-noun scan, which would otherwise let
+    # the trailing bag noun win.
+    _footwear_match = _FOOTWEAR_WORD_RE.search(residual)
+    _bag_match = _BAG_WORD_RE.search(residual)
+    if _footwear_match and _bag_match and _footwear_match.start() < _bag_match.start():
+        return NormalizationResult(garment_type="footwear", category="footwear", type_confidence="high")
+
     # ── Step 2: compound-term lookup ────────────────────────────────────────────
     for phrase, gtype in _COMPOUND_SORTED:
         # Whole-word phrase match anywhere in the residual
@@ -232,6 +370,32 @@ def normalize_garment_type(
 
     if not matches:
         # Fall through to product_type_name fallback below
+        return _fallback_product_type(product_type_name)
+
+    # ── Step 3.5: jewellery-noun precedence over apparel-fragment words ────────
+    # "shorts"/"shirt"/"saree"/"top" are generic apparel-fragment keywords that
+    # collide with dedicated-jewellery titles where they are a modifier of the
+    # jewellery noun, not a head noun — and unlike the footwear-led-combo case,
+    # the jewellery noun can land on EITHER side of the fragment word (e.g.
+    # "Simrath Short Necklace Set" — noun after; "Antique Gold-Plated Temple
+    # Necklace Set - Bridal Short Design K-1835" — noun before; "South Indian
+    # Laxmi Jhumkas - Gold-Plated Ruby Floral Top R-2733" — "top" trailing).
+    # So this can't be solved by the rightmost-noun scan alone; whenever a real
+    # jewellery noun is present anywhere in the title, the fragment match is
+    # dropped outright. Confirmed live (2026-07-19 jewellery-inventory-gap
+    # wave): theamethyststore (1,488 "shorts" + 60 "shirt" + 9 "saree"),
+    # southtemplejewellery (57 "shorts" + 1 "top"), daivik (56 "shorts" + 11
+    # "saree"). Safe beyond these 3 brands too: a real shorts/shirt/saree/top
+    # garment listing essentially never also contains a necklace/earring/
+    # jhumka/jewellery noun in the same title.
+    _APPAREL_FRAGMENT_GTYPES = {"shorts", "shirt", "saree", "top"}
+    _JEWELLERY_GTYPES = {"jewellery", "necklace", "earrings", "jhumka"}
+    if any(gt in _JEWELLERY_GTYPES for _, gt, _ in matches) and any(
+        gt in _APPAREL_FRAGMENT_GTYPES for _, gt, _ in matches
+    ):
+        matches = [(pos, gt, cat) for pos, gt, cat in matches if gt not in _APPAREL_FRAGMENT_GTYPES]
+
+    if not matches:
         return _fallback_product_type(product_type_name)
 
     # ── Step 4: preposition barrier ─────────────────────────────────────────────
@@ -262,7 +426,7 @@ def _category_for(garment_type: str) -> str:
     """Return the coarse category string for a canonical garment_type token."""
     if garment_type in {"footwear"}:
         return "footwear"
-    if garment_type in {"bag"}:
+    if garment_type in {"bag", "jewellery", "necklace", "earrings", "jhumka"}:
         return "accessories"
     if garment_type in {"blazer", "outerwear"}:
         return "outerwear"
@@ -297,6 +461,17 @@ def _fallback_product_type(product_type_name: str | None) -> NormalizationResult
     for compiled_re, gtype, cat in _COMPILED_RULES:
         for m in compiled_re.finditer(label_lower):
             matches.append((m.start(), gtype, cat))
+
+    # Jewellery-noun precedence over apparel-fragment words — see Step 3.5 in
+    # normalize_garment_type (same collision, e.g. store label "Short Necklaces").
+    _apparel_fragment_gtypes = {"shorts", "shirt", "saree", "top"}
+    _jewellery_gtypes = {"jewellery", "necklace", "earrings", "jhumka"}
+    if any(gt in _jewellery_gtypes for _, gt, _ in matches) and any(
+        gt in _apparel_fragment_gtypes for _, gt, _ in matches
+    ):
+        matches = [
+            (pos, gt, cat) for pos, gt, cat in matches if gt not in _apparel_fragment_gtypes
+        ]
 
     if not matches:
         return NormalizationResult(garment_type=None, category="unknown", type_confidence="unknown")

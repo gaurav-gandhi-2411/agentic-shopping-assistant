@@ -23,6 +23,10 @@ interface Props {
   /** Called when the user picks and confirms an image for /style/from-image.
    *  text is the textarea content at submission time (may be empty). */
   onSendImage?: (file: File, text?: string) => void
+  /** Gender already resolved from the conversation ("men"/"women"/"unisex"),
+   *  or null when genuinely unknown — passed straight through to
+   *  BodyShapeUpload's men's-picker gating. See ChatThread.tsx's derivation. */
+  knownGender?: string | null
 }
 
 /** Small thumbnail preview chip shown after the user picks an image. */
@@ -55,7 +59,9 @@ function ImageChip({
   )
 }
 
-export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }: Props) {
+export function ChatInput({
+  onSend, onCancel, isSending, disabled, onSendImage, knownGender,
+}: Props) {
   const [text, setText] = useState("")
   const [pendingImage, setPendingImage] = useState<File | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -154,6 +160,9 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
         <div className="flex-1 flex flex-col gap-1">
           <textarea
             ref={textareaRef}
+            id="chat-message-input"
+            name="message"
+            autoComplete="off"
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
@@ -190,14 +199,15 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="chip"
             onClick={handleImagePickerClick}
             disabled={disabled}
             title="Style what you own"
             aria-label="Style what you own"
-            className="shrink-0 h-9 px-2.5"
+            className="shrink-0"
           >
             <ImagePlus className="h-4 w-4" />
+            <span className="hidden sm:inline text-xs">Photo</span>
           </Button>
         )}
 
@@ -205,24 +215,26 @@ export function ChatInput({ onSend, onCancel, isSending, disabled, onSendImage }
             (different photo, different purpose, different icon from the garment
             upload above: this one's photo is processed on-device and never
             uploaded, unlike the garment upload's POST /style/from-image). */}
-        {!isSending && <BodyShapeUpload onSend={onSend} disabled={disabled} />}
+        {!isSending && (
+          <BodyShapeUpload onSend={onSend} disabled={disabled} knownGender={knownGender} />
+        )}
 
         {isSending ? (
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="chip"
             onClick={onCancel}
-            className="shrink-0 h-9 px-3"
+            className="shrink-0"
           >
             Stop
           </Button>
         ) : (
           <Button
             type="submit"
-            size="sm"
+            size="chip"
             disabled={!canSend || disabled}
-            className="shrink-0 h-9 px-3"
+            className="shrink-0"
           >
             Send
           </Button>

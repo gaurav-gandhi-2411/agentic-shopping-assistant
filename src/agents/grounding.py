@@ -33,11 +33,15 @@ _FALLBACK_MSGS: dict[str, str] = {
 }
 
 
+_PRICE_GROUNDED_PATTERNS: frozenset[str] = frozenset({r"\bprice\b", r"\bcost\b", r"[\$€£]\d"})
+
+
 def validate_response(
     response: str,
     retrieved_items: list[dict],
     *,
     allow_budget_mentions: bool = False,
+    allow_price_mentions: bool = False,
 ) -> tuple[str, list[str]]:
     """Scan LLM response for ungrounded attribute claims.
 
@@ -54,6 +58,15 @@ def validate_response(
             scrubbed as an ungrounded price claim. Other price words (cost,
             cheaper, expensive, sale, discount) are still scrubbed since
             nothing grounds those as true.
+        allow_price_mentions: when True, exempts the literal "\\bprice\\b"/
+            "\\bcost\\b"/currency-symbol patterns (see _PRICE_GROUNDED_PATTERNS)
+            — used by respond_node now that every retrieved item dict carries a
+            real price_inr value shown to the LLM (Part B fix, 2026-07-13): the
+            word "price" no longer needs to appear verbatim in an item's own
+            field values for a genuine price citation to survive the scrub.
+            Subjective/unsupported price words (cheaper, expensive, affordable,
+            sale, discount) are still scrubbed — a raw price number does not
+            ground a claim that it's a "sale" or "affordable".
     """
     if not response:
         return response, []
@@ -61,6 +74,33 @@ def validate_response(
     backing = " ".join(
         " ".join(str(v or "") for v in it.values()) for it in retrieved_items
     ).lower()
+
+    # 2026-07-19 fix (live bug: "cheap kurta for men" response falsely claimed
+    # "I don't have pricing information" despite every returned item carrying a
+    # real price_inr): a sentence like "This affordable kurta at ₹449 is a great
+    # pick" was wholesale replaced by the price fallback purely because it used
+    # a subjective price adjective ("affordable") that doesn't appear verbatim in
+    # any item's field values — even though the SAME sentence cited a real price
+    # (₹449) that genuinely belongs to a returned item. allow_price_mentions only
+    # exempted the literal words "price"/"cost"/a bare currency-symbol pattern
+    # (_PRICE_GROUNDED_PATTERNS), not adjectives like affordable/cheaper/budget/
+    # sale/discount — exactly the vocabulary an LLM naturally reaches for when
+    # asked about a "cheap" item. A sentence whose own rupee figure matches one
+    # of this pool's actual prices is now price-grounded outright, regardless of
+    # which price vocabulary it's phrased with — but ONLY when the caller has
+    # already opted into allow_price_mentions (respond_node's contract per the
+    # 2026-07-13 Part B fix: items visibly carry real price_inr for this call).
+    # Gated behind the same flag validate_rationale deliberately does NOT pass
+    # (its docstring guarantees cost/cheaper/expensive/sale/discount stay
+    # scrubbed unconditionally there) so this fix cannot silently loosen that
+    # separate contract.
+    item_prices: set[float] = set()
+    if allow_price_mentions:
+        item_prices = {
+            round(float(it["price_inr"]), 2)
+            for it in retrieved_items
+            if isinstance(it.get("price_inr"), (int, float))
+        }
 
     sentences = re.split(r"(?<=[.!?])\s+", response.strip())
     cleaned: list[str] = []
@@ -72,9 +112,17 @@ def validate_response(
         hit_cat: str | None = None
         hit_pat: str | None = None
 
+        sentence_price_grounded = item_prices and any(
+            abs(amt - p) < 1.0 for amt in _extract_rupee_amounts(sentence) for p in item_prices
+        )
+
         for category, patterns in FORBIDDEN_PATTERNS.items():
+            if category == "price" and sentence_price_grounded:
+                continue
             for pat in patterns:
                 if allow_budget_mentions and pat == r"\bbudget\b":
+                    continue
+                if allow_price_mentions and pat in _PRICE_GROUNDED_PATTERNS:
                     continue
                 if re.search(pat, s_lower) and not re.search(pat, backing):
                     hit_cat = category

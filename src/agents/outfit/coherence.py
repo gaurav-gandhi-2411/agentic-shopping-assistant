@@ -6,10 +6,14 @@ from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
     WOMEN_ONLY_ETHNIC_KEYWORDS,
     gender_allowed,
+    is_athletic_footwear_item,
+    is_casual_marker_item,
     is_ethnic_item,
+    is_formal_capable_western_item,
     is_western_item,
     is_western_marker_item,
 )
+from src.catalogue.cleaning import has_gender_text_conflict
 
 # Phase B (product gap 1): symmetric to the ETHNIC_ONLY gate below (gate 2) —
 # a WESTERN-REGISTER occasion's slot candidates must never be ethnic-festive
@@ -23,11 +27,80 @@ from src.agents.outfit.slots import (
 # those are already correctly ethnic-leaning and must never be gated toward western.
 _WESTERN_REGISTER_OCCASIONS: frozenset[str] = frozenset({"office"})
 
+# Wave 9 (2026-07-23, gym occasion): a SEPARATE frozenset from
+# _WESTERN_REGISTER_OCCASIONS above rather than folding "gym" into it —
+# gym's ethnic+festive-marker rejection is identical to office's (gate 5
+# below reuses the same _FESTIVE_MARKER_RE check), but gym additionally
+# rejects non-athletic FOOTWEAR outright (office has no such footwear-
+# specific rule, and office's is_western_register_occasion() helper feeds
+# composer.py's western-TROUSERS pool-underflow fallback, which would be
+# actively wrong for gym — a "trousers" fallback bottom is not gym-
+# appropriate). Kept as its own frozenset/gate so office's existing
+# behaviour and tests are untouched.
+_ATHLETIC_REGISTER_OCCASIONS: frozenset[str] = frozenset({"gym"})
+
 # Live-proven: an "office look for women" board's bottom slot filled with a
 # "Quirky Floral Printed Cotton Anarkali Sharara Set" — ethnic AND carrying an
 # explicit festive/quirky marker.  Checked as a simple word-boundary denylist,
 # same conservative style as _WESTERN_MARKER_KEYWORDS in slots.py.
 _FESTIVE_MARKER_RE = re.compile(r"\b(quirky|festive)\b", re.IGNORECASE)
+
+# 2026-07-25 (occasion-register strict-eval fix): "Jodhpuri" names a
+# structured Indian formal jacket style (bandhgala-adjacent), never standard
+# Western business tailoring -- a "Men's Navy Blue Sequin Geometric Jodhpuri
+# Blazer" ranked for "navy blue slim fit blazer for office under 5000".
+# Deliberately NOT added to slots.py's MEN_FORMALWEAR_KEYWORDS/classify_anchor
+# (that shared path also classifies "Jodhpuri Mojaris"/"Jodhpuri Jutti"
+# FOOTWEAR rows -- 19 in the catalogue -- and would have reclassified them out
+# of SLOT_ALLOWED_CLASSES["footwear"], breaking outfit-composer footwear-slot
+# matching for those items). Scoped narrowly here to gate 4 only, checked
+# only when the item's own name ALSO names an outerwear garment (jacket/
+# blazer/coat/waistcoat) so a hypothetical unrelated "jodhpuri" mention never
+# fires this gate for non-outerwear candidates.
+_JODHPURI_OUTERWEAR_RE = re.compile(r"\bjodhpuri\b.*\b(blazer|jacket|coat|waistcoat)\b", re.IGNORECASE)
+
+# 2026-07-25 (occasion-register strict-eval fix): this catalogue's dominant
+# ethnic-crossover-blazer marketing template explicitly recommends styling
+# the item WITH ethnic footwear ("...traditional occasion. Style it with a
+# kurta and mojris for a complete look.") -- a strong, catalogue-verified
+# ethnic-crossover signal even when the blazer's own name/fabric words don't
+# say "festive"/"quirky". Verified against every OUTERWEAR row (blazer/
+# jacket/coat/cardigan/waistcoat, 374 rows) carrying this marker in
+# detail_desc: 14/14 are genuinely embellished/festive-fabric pieces
+# (sequin/glitter/velvet/embroidered/woven-design), zero plain business
+# blazers -- a much narrower, safer signal than a broad "wedding"/"festive"
+# desc scan, which was independently checked and found 2 genuine false
+# positives (linen tailored blazers explicitly marketed as ALSO
+# office-appropriate) among 8 hits, so that broader scan was deliberately
+# NOT shipped. Deliberately scoped to _OUTERWEAR_PRODUCT_TYPES below — the
+# same marker words appear 2770x catalogue-wide (footwear listings ARE
+# juttis/mojaris themselves, kurtas mention them as a styling accessory,
+# etc.), so this predicate must never be applied unscoped.
+_ETHNIC_FOOTWEAR_PAIRING_RE = re.compile(
+    r"\b(mojri|mojris|mojaris|mojari|jutti|juttis|kolhapuri|kolhapuris)\b", re.IGNORECASE
+)
+_OUTERWEAR_PRODUCT_TYPES: frozenset[str] = frozenset({
+    "blazer", "jacket", "coat", "cardigan", "waistcoat", "outerwear",
+})
+
+# Wave 9 fix 2 (2026-07-24 live-proof): a "workout outfit for men" look's
+# outerwear slot filled with a "Regular Fit Knitted Polo Cardigan"
+# (store=snitch) — not gym-appropriate. Gate 5's ethnic/festive rejection has
+# no equivalent for FORMAL/DRESSY western outerwear. Unlike footwear (see
+# is_athletic_footwear_item's docstring), this catalogue's outerwear
+# inventory has no clean "genuinely athletic" INCLUSION signal (0 hoodie/
+# track-jacket/windbreaker-labeled rows), so this is a conservative
+# EXCLUSION of unambiguously formal/dressy markers instead — same shape as
+# _FESTIVE_MARKER_RE above. Catalogue audit (data/processed/unified/
+# catalogue.parquet, classify_item()=="outerwear", 3256 rows): 1204 rows
+# carry one of these markers; a hand-audit of the 5 bare "suit" matches found
+# zero false positives ("2 Piece Solid Men Suit", "Men's Beige Wedding Tuxedo
+# Suit with Blazer", etc. — all genuinely formal). No genuine athletic
+# tracksuit is caught here: Track-Suit listings are multi-piece SETS, already
+# excluded by is_multi_piece_set before gate 5 ever runs.
+_FORMAL_OUTERWEAR_MARKER_RE = re.compile(
+    r"\b(blazer|cardigan|waistcoat|coat|suit)\b", re.IGNORECASE
+)
 
 
 def is_western_register_occasion(occasion_slug: str) -> bool:
@@ -38,6 +111,16 @@ def is_western_register_occasion(occasion_slug: str) -> bool:
     used by the coherence gate, rather than duplicating the list.
     """
     return occasion_slug in _WESTERN_REGISTER_OCCASIONS
+
+
+def is_athletic_register_occasion(occasion_slug: str) -> bool:
+    """Return True if `occasion_slug` is one of the athletic-register
+    occasions gated by is_coherent_candidate's gate 5 (see
+    _ATHLETIC_REGISTER_OCCASIONS above). Exposed publicly for symmetry with
+    is_western_register_occasion() above, for any future caller that needs
+    to key off the same occasion set as the coherence gate.
+    """
+    return occasion_slug in _ATHLETIC_REGISTER_OCCASIONS
 
 # Muted/earthy tones added for Phase B Part 1 (real catalogue colour audit — see
 # offline check).  These coordinate well with each other in BOTH ethnic (jewel/
@@ -140,6 +223,23 @@ def is_coherent_candidate(
     3. ethnic_heavy occasion: reject western_casual items (western_formal OK for men's
        wedding_guest, and for either gender's reception — indo-western glam register).
     4. western_register occasion (office): reject ethnic items and festive/quirky markers.
+    5. athletic_register occasion (gym): reject ethnic items and festive/quirky markers
+       (same shape as gate 4), PLUS reject non-athletic footwear from the footwear slot.
+
+    NOTE: a loungewear/nightwear hard-reject for formal_ethnic occasions
+    (the "baraat outfit for men" fix, 2026-07-31) is deliberately NOT a gate
+    here — this function is also called from graph.py's search_node inside a
+    POOL-UNDERFLOW-PROTECTED coherence check (a filter that would empty the
+    candidate list is skipped there). Adding it here let a genuine "Kaftan
+    Night Dress" survive that earlier protected check as the pool's only
+    "coherent" item get REJECTED there instead, which caused the whole
+    protected filter to skip (regression: it un-did
+    tests/test_batch2_trust_fixes.py::test_minimalist_wedding_guest_dress_
+    gets_honest_canned_message, which depends on the kaftan surviving this
+    function so the LATER, non-underflow-protected _apply_loungewear_gate is
+    the one that empties the pool). See composer._score_candidates' own
+    loungewear hard gate (mirrors its price_outlier_cap gate) for the
+    compose_outfit-path fix instead.
 
     Args:
         skip_gender_gate: When True, skips gate 0b ONLY.  Set by composer.
@@ -165,6 +265,17 @@ def is_coherent_candidate(
         candidate_gender = (candidate.get("gender") or "unknown").lower()
         if not gender_allowed(candidate_gender, gender):
             return False
+        # 2026-08-06 cross-gender leak fix: the catalogue's own gender
+        # column is unreliable for a real, audited slice of rows (385,
+        # e.g. "Men's Yellow - Dupatta" carries gender="women") -- name
+        # text is the more trustworthy signal here. Deliberately still
+        # gated by skip_gender_gate (the narrow gender-neutral-accessory
+        # fallback callers use) for the same reason gate 0b itself is —
+        # composer._find_best_candidate applies this same check
+        # unconditionally on its own copy of the fallback candidates; see
+        # has_gender_text_conflict's own docstring.
+        if has_gender_text_conflict(name, gender):
+            return False
 
     # Gate 1: dupatta is women-only
     if slot_name == "accessory" and is_men:
@@ -184,27 +295,35 @@ def is_coherent_candidate(
 
     # Gate 3: ethnic_heavy occasions reject western_casual items (same marker
     # extension as gate 2 above).
+    #
+    # 2026-07-30 fix: the wedding_guest/reception exceptions below used to be
+    # a name-substring scan requiring the literal word "gown" (or blazer/
+    # trousers/shirt/suit/formal) somewhere in the item's free-text listing
+    # copy. Catalogue audit (data/processed/unified/catalogue.parquet):
+    # product_type_name=="dress" rows almost never literally say "gown"
+    # (4/1580), so that scan rejected 84% of genuinely reception-appropriate
+    # dresses; conversely "trousers"/"shirt"/"blazer" typed rows survived at
+    # ~100% NOT because of real formality detection but because the
+    # allow-list keywords happened to equal those facet values, letting
+    # genuinely casual items ("Grey Solid Uno Fit Casual Trouser", "Casual
+    # Shirt", "Casual Blazer") through as a false positive. Replaced with a
+    # structured facet-equality check (is_formal_capable_western_item — same
+    # exact-match pattern as gate 4's "indowestern" check below) PLUS the
+    # existing casual-marker exclusion (is_casual_marker_item, extended
+    # 2026-07-30 to also catch the bare word "casual").
     if occasion.ethnic_lean == ETHNIC_HEAVY and (
         is_western_item(pt, name) or is_western_marker_item(pt, name)
     ):
-        # Western formal (blazer/trousers/shirt) may be OK for men's wedding_guest
+        # Western formal (blazer/trousers/shirt/dress/...) may be OK for
+        # men's wedding_guest.
         if is_men and occasion_slug == "wedding_guest":
-            combined = (pt + " " + name).lower()
-            is_formal_western = any(
-                kw in combined for kw in ("blazer", "trousers", "shirt", "suit", "formal")
-            )
-            if is_formal_western:
+            if is_formal_capable_western_item(pt, name) and not is_casual_marker_item(name):
                 return True  # allowed
         # Reception is an indo-western glam evening register for EITHER gender
-        # (see _anchor_query_for_occasion's "reception" query) — a formal gown
-        # is also allowed alongside blazer/trousers/shirt/suit.
+        # (see _anchor_query_for_occasion's "reception" query) — a formal
+        # dress/gown is also allowed alongside blazer/trousers/shirt.
         if occasion_slug == "reception":
-            combined = (pt + " " + name).lower()
-            is_formal_western = any(
-                kw in combined
-                for kw in ("blazer", "trousers", "shirt", "suit", "formal", "gown")
-            )
-            if is_formal_western:
+            if is_formal_capable_western_item(pt, name) and not is_casual_marker_item(name):
                 return True  # allowed
         return False
 
@@ -213,11 +332,61 @@ def is_coherent_candidate(
     # ethnic-classified items AND anything carrying an explicit festive/quirky
     # marker, symmetric to gates 2/3 above.  Live-proven: an office look's
     # bottom slot filled with a "Quirky Floral Printed Cotton Anarkali
-    # Sharara Set" (ethnic + festive).
+    # Sharara Set" (ethnic + festive). Also rejects a "Jodhpuri" outerwear
+    # item (structured Indian formal jacket, not Western tailoring — see
+    # _JODHPURI_OUTERWEAR_RE) and any outerwear item whose OWN desc markets it
+    # paired with ethnic footwear (see _ETHNIC_FOOTWEAR_PAIRING_RE). All four
+    # are 2026-07-25 fixes; the first two shipped as part of the
+    # "occasion-register" strict-eval bucket, the latter two (indowestern,
+    # pendant→jewellery in slots.py) found by the out-of-sample validation
+    # pass and tightened in the same commit.
+    #
+    # 2026-08-05: the indowestern case (Indo-Western ensembles are
+    # ethnic-crossover festive wear, never office-appropriate — 586 rows,
+    # live-proven: a "Beige Jacquard Indo Western for Men" surfaced for
+    # "office outfit for men") used to need its own explicit
+    # `pt.lower().strip() == "indowestern"` check here because
+    # classify_anchor() didn't recognise the facet at all. Promoted to a
+    # first-class facet-equality short-circuit inside classify_anchor()
+    # itself (see slots.py) — is_ethnic_item(pt, name) now covers every
+    # indowestern row unconditionally, so the explicit check here would be
+    # pure duplication of that single source of truth.
     if occasion_slug in _WESTERN_REGISTER_OCCASIONS and (
-        is_ethnic_item(pt, name) or _FESTIVE_MARKER_RE.search(name)
+        is_ethnic_item(pt, name)
+        or _FESTIVE_MARKER_RE.search(name)
+        or _JODHPURI_OUTERWEAR_RE.search(name)
+        or (
+            pt.lower().strip() in _OUTERWEAR_PRODUCT_TYPES
+            and _ETHNIC_FOOTWEAR_PAIRING_RE.search(candidate.get("detail_desc") or "")
+        )
     ):
         return False
+
+    # Gate 5 (Wave 9, gym occasion): ATHLETIC_REGISTER occasions (currently
+    # only "gym" — see _ATHLETIC_REGISTER_OCCASIONS docstring) reject
+    # ethnic-classified items AND festive/quirky markers, identical in shape
+    # to gate 4 above (a gym look has zero ethnic-register legitimacy at
+    # all — there is no "athletic sherwani" equivalent). ADDITIONALLY
+    # (footwear-specific, honest-suppression requirement): a gym look's
+    # footwear slot must ONLY accept a genuine athletic-typed shoe — never a
+    # jutti/mojari/formal oxford/wedding heel as a fallback when athletic
+    # inventory is scarce (catalogue audit: see is_athletic_footwear_item's
+    # docstring — ~0 women's, ~20 men's athletic-labeled footwear rows).
+    # When no candidate survives this, composer._find_best_candidate returns
+    # None and the slot goes through honest suppression
+    # (composer._suppression_reason) instead of a wrong substitute.
+    # FURTHER ADDITIONALLY (outerwear-specific, 2026-07-24 live-proof — see
+    # _FORMAL_OUTERWEAR_MARKER_RE's docstring): a gym look's outerwear slot
+    # must never accept an unambiguously formal/dressy item (blazer/
+    # cardigan/waistcoat/coat/suit) — a knitted polo cardigan is not
+    # gym-appropriate.
+    if occasion_slug in _ATHLETIC_REGISTER_OCCASIONS:
+        if is_ethnic_item(pt, name) or _FESTIVE_MARKER_RE.search(name):
+            return False
+        if slot_name == "footwear" and not is_athletic_footwear_item(name):
+            return False
+        if slot_name == "outerwear" and _FORMAL_OUTERWEAR_MARKER_RE.search(name):
+            return False
 
     return True
 
@@ -247,6 +416,36 @@ def colour_score(
     the ethnic_heavy _JEWEL_TONES tier below rather than inventing new scoring
     machinery); pale/light casual tones score low — an evening indo-western
     reception look should read glam, not light-daytime pastel.
+
+    Diwali palette override: gold/red/maroon/jewel-glam tones score highest
+    (festival-of-lights register); black and pastel-family tones score low.
+
+    Navratri palette override: bright, saturated multicolour scores highest —
+    a loud, dance-friendly garba palette, deliberately distinct from sangeet's
+    generic jewel-tone-embellished register (navratri gets its OWN override
+    rather than falling into the generic ethnic branch below); muted/earthy
+    tones and black score low.
+
+    Karva Chauth palette override: red/maroon/traditional-bridal-adjacent
+    tones score highest (red carries real cultural significance for this
+    occasion); black/white/pastel-family tones score low.
+
+    Eid palette override: pastels/white/soft-metallic tones score highest;
+    dark/jewel-glam tones (including diwali's gold/red palette) score low —
+    deliberately the visual INVERSE of the diwali override above so the two
+    festivals never bleed into each other's colour bias.
+
+    Raksha Bandhan: no dedicated override — formality 2/EITHER-lean, so it
+    falls through to the generic western/EITHER branch below like casual/
+    party_evening.
+
+    Gym: no dedicated override, same reasoning as Raksha Bandhan — an
+    activewear look has no strong colour-register convention worth encoding
+    (unlike Diwali's gold/red or Eid's pastels), so it falls through to the
+    generic western/EITHER branch below. The athletic-register vs ethnic
+    rejection is already fully handled by is_coherent_candidate's gate 5
+    (ethnic items never reach colour_score for a gym look in the first
+    place), so no clash-suspension logic is needed here either.
     """
     occasion = get_occasion(occasion_slug)
     c_lower = candidate_colour.lower()
@@ -282,6 +481,54 @@ def colour_score(
             return 0.3
         if c_lower == a_lower:
             return 0.85
+        return 0.6
+
+    # Diwali override
+    if occasion_slug == "diwali":
+        _diwali_palette = {"gold", "red", "dark red", "maroon", "burgundy", "wine",
+                            "orange", "dark orange"}
+        _diwali_low = {"black", "light pink", "light blue", "lavender", "cream",
+                        "light beige", "white", "off white", "light grey"}
+        if c_lower in _diwali_palette:
+            return 1.0
+        if c_lower in _diwali_low:
+            return 0.2
+        return 0.6
+
+    # Navratri override — bright saturated multicolour, not muted/earthy
+    if occasion_slug == "navratri":
+        _navratri_palette = {"red", "dark red", "pink", "dark pink", "orange",
+                              "dark orange", "yellow", "dark yellow", "green",
+                              "dark green", "blue", "dark blue", "purple",
+                              "dark purple", "turquoise", "dark turquoise"}
+        _navratri_low = _MUTED_COORDINATING_COLOURS | {"black", "dark grey", "charcoal"}
+        if c_lower in _navratri_palette:
+            return 1.0
+        if c_lower in _navratri_low:
+            return 0.2
+        return 0.6
+
+    # Karva Chauth override — red bears real cultural significance here
+    if occasion_slug == "karva_chauth":
+        _karva_chauth_palette = {"red", "dark red", "maroon", "burgundy", "wine", "gold"}
+        _karva_chauth_low = {"black", "white", "off white", "light pink",
+                              "light blue", "lavender", "light grey"}
+        if c_lower in _karva_chauth_palette:
+            return 1.0
+        if c_lower in _karva_chauth_low:
+            return 0.2
+        return 0.6
+
+    # Eid override — pastels/white/soft-metallic; deliberate visual inverse of
+    # diwali's gold/red palette so the two festivals never bleed together.
+    if occasion_slug == "eid":
+        _eid_palette = {"white", "off white", "cream", "light beige", "light pink",
+                         "light blue", "lavender", "silver", "light grey"}
+        _eid_low = {"black", "dark red", "maroon", "gold", "dark orange", "burgundy"}
+        if c_lower in _eid_palette:
+            return 1.0
+        if c_lower in _eid_low:
+            return 0.2
         return 0.6
 
     # Ethnic festive occasions: no clash penalty; jewel tones co-star

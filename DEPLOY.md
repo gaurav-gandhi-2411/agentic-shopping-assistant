@@ -164,10 +164,38 @@ env-block-replacement gotcha above.
 All LLM provider API keys on `asa-stylist-api` are Secret Manager references, never plain
 env vars: `GROQ_API_KEY` → `asa-groq-api-key`, `OPENROUTER_API_KEY` → `asa-openrouter-api-key`
 (added 2026-07-10 — Groq's free-tier daily token quota has been exhausted by heavy testing
-more than once; OpenRouter is the manual fallback, see `project_eval_providers` memory note).
-`LLM_PROVIDER` itself is a plain env var (not a secret) that selects which key is read.
+more than once).
 
-**To switch providers** (e.g. Groq's daily quota is exhausted):
+**As of 2026-07-31, `GroqClient` falls over to a 3-tier chain automatically** on a TPD
+(tokens-per-day) 429: Groq → OpenRouter → Gemini — see `GroqClient._iter_fallback_tiers()`
+in `src/llm/client.py`. No manual `LLM_PROVIDER` env-var swap is needed for a quota outage;
+`LLM_PROVIDER=groq` in production now carries an implicit 2-tier fallback for both `chat()`
+and `chat_stream()`. Each tier is tried in order; a tier that raises OR returns falsy/empty
+content (OpenRouter's free model is a reasoning model that can burn its whole token budget
+on hidden reasoning and return `None`; Gemini can return empty output on safety-filtered
+responses) is treated as failed and the chain advances to the next tier — a wired-but-silent
+empty response is not treated as success. The manual switch below is still the right tool
+for a *deliberate* provider change (e.g. cost or model-quality reasons), and the whole chain
+falls back to the legacy wait-and-retry-on-Groq behaviour if literally no tier can construct
+(all keys unset/invalid) rather than hanging on a broken fallback.
+
+Every fallthrough is logged as a structured event — `{"event": "llm_fallback_served",
+"from_provider": "groq", "to_provider": "<openrouter|gemini>", "reason": "tpd_exhausted"}` —
+so degraded-mode traffic is visible in Cloud Logging (`jsonPayload.msg:"llm_fallback_served"`)
+instead of only discoverable via user complaints. Full chain exhaustion logs
+`llm_fallback_exhausted` with the list of tiers attempted. Every `llm_call` log line (from
+any of the four client classes) also now carries an explicit `"provider"` field.
+
+**Resolved 2026-07-31 (was "Known gap 2026-07-30"):** `asa-openrouter-api-key` was rotated
+to a new version (v2) with a valid key, live-verified against `openrouter.ai/api/v1/auth/key`
+and a real `chat/completions` call. The *model* it was pointed at also needed fixing
+separately — `google/gemma-3-27b-it:free` was deprecated by OpenRouter entirely (`404`, not
+a key problem) — swapped to `openai/gpt-oss-20b:free`. `GEMINI_API_KEY` (secret
+`asa-gemini-api-key`) was added as the third tier the same day, after finding the
+previously-configured `gemini-2.0-flash-lite` also had zero free-tier quota (`limit: 0`,
+confirmed via the API's own error) — swapped to `gemini-2.5-flash`, live-verified working.
+
+**To switch providers deliberately** (e.g. for cost or model-quality reasons, not quota outages):
 
 ```bash
 gcloud run services update asa-stylist-api --region=asia-south1 \
@@ -197,6 +225,91 @@ actually serving traffic (`status.traffic`, not `status.latestReadyRevisionName`
 touching anything further; Cloud Run does not cut traffic to a revision that fails its
 startup health check, so the live service stays safe, but the *next* incremental update's
 base can still be silently wrong.
+
+### Free-tier quota ceiling — 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
+
+Real production traffic on `asa-stylist-api` averages **~2,922 tokens/conversation** and
+**~2.07 LLM calls/conversation** (source: 31 real `llm_call` log events across 15 real
+conversations pulled from Cloud Run logs, 2026-07-30/31 — this is Groq-tier traffic; the
+fallback tiers weren't live yet when this sample was taken).
+
+**Tier 1 — Groq** (`llama-3.1-8b-instant`, source: console.groq.com/docs/rate-limits):
+RPM 30, RPD 14,400, TPM 6,000, TPD 500,000. Dividing the daily token budget by the measured
+per-conversation cost: **500,000 TPD / ~2,922 tokens ≈ ~170 real user conversations/day**
+before this tier exhausts. TPM=6,000/min is a tighter bottleneck than it looks — roughly
+**2 conversations/minute** of burst capacity before requests start hitting TPM 429s (short
+1s/3s backoff, not a hard failure, but adds latency under bursty concurrent traffic).
+
+**Tier 2 — OpenRouter** (`openai/gpt-oss-20b:free`, source:
+openrouter.ai/docs/api-reference/limits): a hard **50 requests/day** cap (not token-based),
+or **1,000/day** if the account has ever purchased ≥$10 in credits (this account hasn't, per
+`is_free_tier: true` confirmed live 2026-07-31) — adds a flat **+50 conversations/day** once
+Groq's tier exhausts, regardless of how token-heavy each conversation is.
+
+**Tier 3 — Gemini** (`gemini-2.5-flash`): Google no longer publishes a static RPD/TPM table
+(`ai.google.dev/gemini-api/docs/rate-limits` redirects to the account's own dashboard at
+`aistudio.google.com/rate-limit`, which requires login no session here has). **2026-08-06:
+measured by controlled empirical probing instead of reading the dashboard** — real,
+non-mocked `google-genai` calls against the live API, request shape matched to this app's
+own measured production average (system+user prompt sized to land the model's reported
+`prompt_token_count` near the ~925-1,739 token range, `max_output_tokens=400` matching
+`config.yaml`), sent rapid-fire with no artificial delay until the API's own 429 fired, one
+phase at a time, stopping immediately on first failure rather than exhausting the account
+(9 total calls: 8 succeeded, 1 hit the limit; ~9,150 tokens spent probing).
+
+- **RPM = 5, authoritative** — read directly off the 429's own structured error body, not
+  inferred: `quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', quotaValue: '5'`.
+  6 requests landed before the 7th tripped it (window-boundary effect); the quota system's own
+  reported value (5) is the number to plan against. In conversations/minute terms (÷ the
+  measured ~2.07 calls/conversation): **~2.4 conversations/minute of burst capacity**, the
+  same shape as Groq's own TPM-derived "~2 conversations/minute" figure above.
+- **TPM: no separate binding ceiling found at realistic sizes** — a second phase sent 2
+  requests at ~1,739 input tokens each (1.9x the phase-1 size, still comfortably above this
+  app's real per-call average) inside one RPM window; both succeeded with no token-based
+  violation. The quotaId itself confirms this is a request-COUNT quota ("...Requests",
+  "...PerMinute"), not token-gated, so TPM (if any exists) sits above what this app's real
+  conversations would ever approach.
+- **RPD / TPD: not measured, deliberately** — discovering these would mean sustaining calls
+  past RPM=5 for a full day, i.e. actually exhausting the tier's real daily quota to find its
+  edge. That's the opposite of "probe enough to bound the number, not exhaust it," and would
+  burn the same quota real fallback traffic might need that day. Do not treat the absence of a
+  measured RPD as "unlimited" — it is genuinely unknown, not zero-risk.
+
+**Combined measured floor: ~170 (Groq) + 50 (OpenRouter) = ~220 conversations/day, PLUS
+Gemini's own measured ~2.4 conversations/minute of burst capacity once tiers 1+2 exhaust, for
+as long as Gemini's (unmeasured) daily quota lasts.** Do not collapse this into a single
+combined "conversations/day" number — Groq/OpenRouter's 220 is a real full-day figure, while
+Gemini's contribution is a *rate* (minute-level), not yet a *volume* (day-level); multiplying
+5 RPM × 1,440 minutes to get a theoretical 7,200/day would be exactly the kind of unverified
+extrapolation this section exists to avoid (free-tier RPD caps are routinely far tighter than
+RPM×1440 would suggest). All three tiers verified live end-to-end 2026-07-31 (real, non-mocked
+calls forcing Groq+OpenRouter failures and confirming Gemini serves a real response, for both
+`chat()` and `chat_stream()`); Gemini's RPM specifically re-verified live 2026-08-06.
+
+`DEMO_DAILY_REQUEST_CAP` was lowered from 700 to 150 on 2026-07-31, before the OpenRouter/
+Gemini tiers were fixed — it sits below the Groq-only ~170 ceiling so real users hit the
+app's own honest "Demo limit reached for today — try again tomorrow" message (see
+`api/routes/chat.py` / `api/routes/demo.py`) instead of a raw provider 429 or a multi-minute
+hang. Now that tiers 2+3 add real headroom above 170, this cap is conservative rather than
+tight — tighter than necessary fails safe (an honest cap message), tighter is not a
+production risk. Gemini's RPD remains genuinely unknown (see above), so there still isn't a
+safe combined-conversations/day number to raise the cap against.
+
+What it would take to raise the ceiling further, each option labeled with what's actually
+verified vs. not:
+
+1. **Check Gemini's real RPD** in the account's AI Studio dashboard (still login-walled) —
+   free, no code change; this is the one number empirical probing deliberately declined to
+   chase (see above) since finding it would mean exhausting it.
+2. **Groq's paid "Developer" tier** raises limits above the free tier, but the exact TPD/TPM
+   numbers and pricing are NOT published on console.groq.com/docs/rate-limits without logging
+   into the account's own billing page (console.groq.com/settings/billing/plans) — do not
+   assume a number here; this is a paid-tier decision and needs explicit sign-off before
+   adoption (project's $0-cost-by-default policy, see CLAUDE.md).
+3. **Reduce tokens/conversation** — already relatively lean at ~2.07 LLM calls/turn (the
+   router already fast-paths and skips an LLM call for simple product searches, e.g.
+   `[router] fast-path: search (items=4) -> respond (LLM skipped)` in the logs); further
+   reduction would need prompt-level auditing, not assumed here.
 
 ---
 
@@ -316,6 +429,38 @@ precision@5 >= 0.80, NDCG@10 >= 0.85, intent all-exact >= 88%, correctness gates
 A `REGRESSION - do not deploy` line means ranking/parser/composer quality silently dropped —
 fix before shipping. Not in ci.yml: `data/processed/unified` is gitignored and CI has no GCS
 credentials, so this gate runs locally as part of the deploy ritual.
+
+### Two-gold-set practice — dev set vs. cold holdout
+
+`eval/fixtures/strict_gold_queries.yaml` + `strict_gold_labels.yaml` is the **inspectable
+development set**: read it, reason about misses, add regression queries for every fix — this is
+normal and expected.
+
+A **separate, never-inspected holdout** is required whenever a generalization claim is being
+made ("does this class of fix hold beyond the exact queries used to develop it?"). The holdout
+must be:
+1. Written and hand-labeled cold, before any fix informed by it.
+2. Scored exactly once as a genuine out-of-sample check.
+3. Retired to development data the moment its results are read — see
+   `eval/fixtures/holdout_gold_queries.yaml`'s header for the canonical example (2026-07-25:
+   designed as a holdout, scored once at a true cold 0.862, then 3 of its 24 queries drove real
+   code fixes the same session — after that point it is honestly DEVELOPMENT DATA, not a holdout,
+   and citing its post-fix 0.881 as a "generalization" number would be fabrication by omission).
+
+**Never reuse an opened holdout as if it were still cold.** Once a holdout's results have been
+read (even just to hand-label it), it has informed the session and any responsive fix — it must
+be relabeled DEVELOPMENT DATA in its own file header, and a genuine next generalization check
+needs a **new** query set this session has never inspected. This is why validation must never be
+allowed to burn its own instrument: the whole value of a holdout number is that reading it comes
+before, not after, the fixes it's meant to validate.
+
+```bash
+# Cold-checking generalization: write a NEW eval/fixtures/<name>_queries.yaml +
+# <name>_labels.yaml that no fix this session has looked at, then:
+python scripts/eval_strict.py --mode pipeline \
+  --queries-path eval/fixtures/<name>_queries.yaml \
+  --labels-path eval/fixtures/<name>_labels.yaml
+```
 
 ### QA rule — proof must come from the live Cloud Run URL
 

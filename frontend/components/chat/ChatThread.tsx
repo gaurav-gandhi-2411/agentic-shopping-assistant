@@ -6,6 +6,7 @@ import { useChatStream } from "@/hooks/useChatStream"
 import { ConversationSidebar } from "./ConversationSidebar"
 import { MessageList } from "./MessageList"
 import { ChatInput } from "./ChatInput"
+import { deriveKnownGender } from "@/lib/knownGender"
 import type { ChatMessage, ConversationDetail } from "@/lib/api/types"
 
 // Convert backend conversation history to ChatMessage objects.
@@ -93,6 +94,11 @@ export function ChatThread({ initialConversationId }: Props) {
     sendMessage(text, activeId)
   }
 
+  // Area 1 (2026-07-25): see lib/knownGender.ts's docstring for the full
+  // rationale (bias-only signal, never guessed, shared across every chat
+  // surface after a live-proof gap found it missing on /demo/chat).
+  const knownGender = deriveKnownGender(messages)
+
   return (
     <div className="flex flex-1 min-h-0">
       <ConversationSidebar
@@ -111,6 +117,7 @@ export function ChatThread({ initialConversationId }: Props) {
           onSend={handleSend}
           onCancel={cancel}
           isSending={isSending}
+          knownGender={knownGender}
         />
       </div>
     </div>

@@ -1,0 +1,24 @@
+display_name: "Krafto Jodhpur"
+logo_url: null
+primary_colour: "#2B5876"
+accent_colour: "#EAF2F5"
+tagline: "Handcrafted leather juttis & mojaris from Jodhpur"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Catalogue is majority (89/97, 92%) men's Jodhpuri mojaris with a smaller
+# women's jutti line (9/97) and no per-brand gender split in the "type" field
+# (uniformly "Ethnic Footwear") -- per-item gender is resolved from explicit
+# "Men's"/"Women's" tokens already present in most titles (see
+# src.catalogue.adapter.derive_item_gender). "mixed" leaves the 2 genuinely
+# ambiguous rows (a "test" listing, a floral rhinestone mojari with no
+# gender word) as "unknown" rather than forcing them to one gender.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/kraftojodhpur/products.csv"
+pdp_url_template: "https://www.kraftojodhpur.com/products/{handle}"
+suggestion_chips:
+  - "Men's leather mojaris under 1000"
+  - "Jodhpuri mojaris for wedding"
+  - "Tan leather jutti for men"
+  - "Women's ethnic jutti"
+  - "Comfortable mojaris for daily wear"

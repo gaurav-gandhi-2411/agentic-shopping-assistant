@@ -1,0 +1,17 @@
+display_name: "Bhasin Brothers"
+logo_url: null
+primary_colour: "#3B2A1A"
+accent_colour: "#EFE1C6"
+tagline: "Designer sherwani & bandhgala house — bridal lehengas, indo-western & tuxedos"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/bhasinbrothers/products.csv"
+pdp_url_template: "https://bhasinbrothers.com/products/{handle}"
+suggestion_chips:
+  - "Sherwani for wedding"
+  - "Bandhgala jacket for groom"
+  - "Indo western for men"
+  - "Designer tuxedo for men"
+  - "Bridal lehenga"

@@ -1,0 +1,17 @@
+display_name: "Jompers"
+logo_url: null
+primary_colour: "#C1440E"
+accent_colour: "#FFF3E0"
+tagline: "Men's ethnic wear since 2003 — Nehru jackets, kurta pyjama sets & indo western"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+gender_default: "men"
+catalogue_path: "data/raw/shopify/jompers/products.csv"
+pdp_url_template: "https://jompers.com/products/{handle}"
+suggestion_chips:
+  - "Nehru jacket with kurta"
+  - "Kurta pyjama set for men"
+  - "Indo western set for men"
+  - "Embroidered kurta for men"
+  - "Waistcoat with kurta pyjama"

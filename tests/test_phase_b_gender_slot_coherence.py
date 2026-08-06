@@ -47,13 +47,14 @@ from src.agents.outfit.slots import (
     classify_item,
     is_casual_marker_item,
     is_gender_neutral_accessory,
-    is_kids_item,
     is_multi_piece_set,
     is_novelty_item,
     is_slot_type_allowed,
     is_western_marker_item,
     resolve_look_gender,
+    split_accessory_query_by_family,
 )
+from src.catalogue.cleaning import is_kids_item
 
 UNIFIED_DIR = Path("data/processed/unified")
 
@@ -190,6 +191,58 @@ class TestAccessoryQueryMatches:
 
 
 # ---------------------------------------------------------------------------
+# 2b. split_accessory_query_by_family — bridal jewellery retrieval-pool fix
+# ---------------------------------------------------------------------------
+
+
+class TestSplitAccessoryQueryByFamily:
+    """2026-07-19 bridal jewellery gap fix: a combined multi-family accessory
+    query (e.g. the bridal ethnic_one_piece slot's own "dupatta jewellery
+    clutch ethnic accessory") never surfaced a single jewellery candidate in
+    retrieval, even at a top-500 window, because dupatta/clutch listings'
+    own catalogue text so heavily overlaps the shared query terms
+    ("ethnic"/"embroidered"/"accessory") that they crowd out every other
+    family. See the function's docstring for the live-index evidence.
+    """
+
+    def test_bridal_query_splits_into_three_family_queries(self) -> None:
+        sub_queries = split_accessory_query_by_family(
+            "dupatta jewellery clutch ethnic accessory festive embroidered"
+        )
+        assert len(sub_queries) == 3
+        # Each sub-query keeps ONLY its own family's word(s) plus every
+        # non-family (register/occasion) word — never another family's word.
+        joined = " ".join(sub_queries)
+        dupatta_query = next(q for q in sub_queries if "dupatta" in q)
+        jewellery_query = next(q for q in sub_queries if "jewellery" in q)
+        clutch_query = next(q for q in sub_queries if "clutch" in q)
+        assert "jewellery" not in dupatta_query and "clutch" not in dupatta_query
+        assert "dupatta" not in jewellery_query and "clutch" not in jewellery_query
+        assert "dupatta" not in clutch_query and "jewellery" not in clutch_query
+        # Register/occasion tokens are preserved in every split sub-query.
+        for q in sub_queries:
+            assert "ethnic" in q and "accessory" in q
+            assert "festive" in q and "embroidered" in q
+        assert joined  # sanity: non-empty
+
+    def test_single_family_query_is_not_split(self) -> None:
+        # "dupatta ethnic dupatta" only ever matches the DUPATTA family —
+        # every single-family accessory SlotSpec must be a full no-op here.
+        assert split_accessory_query_by_family("dupatta ethnic dupatta") == []
+        assert split_accessory_query_by_family(
+            "pocket square safa ethnic accessory"
+        ) == []
+
+    def test_unrecognised_query_is_not_split(self) -> None:
+        assert split_accessory_query_by_family("some unrelated query text") == []
+
+    def test_two_family_menswear_default_query_splits(self) -> None:
+        # The default men's accessory query spans BELT_WATCH + EYEWEAR_CAP.
+        sub_queries = split_accessory_query_by_family("belt watch cap men accessory")
+        assert len(sub_queries) == 2
+
+
+# ---------------------------------------------------------------------------
 # 3. is_novelty_item — literal piano-handbag rejection
 # ---------------------------------------------------------------------------
 
@@ -291,6 +344,25 @@ class TestIsCasualMarkerItem:
 
     def test_ripped_rejected(self) -> None:
         assert is_casual_marker_item("Ripped Skinny Jeans") is True
+
+    def test_bare_casual_rejected(self) -> None:
+        """2026-07-30 extension: the bare word "casual" is now itself a
+        casual-register marker — catalogue-audited root cause of the reception/
+        wedding_guest western-formal-capable-type false positive (a "Casual
+        Trouser" was previously accepted purely because its product_type
+        facet equalled the old allow-list keyword "trousers")."""
+        assert is_casual_marker_item("Grey Solid Uno Fit Casual Trouser") is True
+
+    def test_semi_casual_not_rejected(self) -> None:
+        """"semi casual" is a real, distinct business-casual register in this
+        catalogue (467 rows) — must stay admissible for formal-register
+        looks, not caught by the new bare-"casual" pattern."""
+        assert is_casual_marker_item("Black Solid Smart Fit Semi Casual Shirt") is False
+
+    def test_smart_casual_not_rejected(self) -> None:
+        """"smart casual" (6 rows) is likewise business-casual, not fully
+        casual."""
+        assert is_casual_marker_item("Blue Checked Smart Casual Blazer") is False
 
     def test_plain_tailored_trouser_not_rejected(self) -> None:
         assert is_casual_marker_item("Black Formal Tailored Trousers") is False
@@ -533,7 +605,258 @@ class TestWesternRegisterGateOffice:
         assert is_western_register_occasion("office") is True
         assert is_western_register_occasion("wedding_guest") is False
         assert is_western_register_occasion("casual") is False
+
+    def test_jodhpuri_blazer_rejected_for_office(self) -> None:
+        # 2026-07-25 fix: "Jodhpuri" names a structured Indian formal jacket
+        # style, not Western business tailoring — real strict-eval miss.
+        item = {
+            "product_type": "blazer",
+            "prod_name": "Men's Navy Blue Sequin Geometric Jodhpuri Blazer with Satin Lining",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_plain_jodhpuri_mention_outside_outerwear_not_rejected(self) -> None:
+        # _JODHPURI_OUTERWEAR_RE requires an outerwear garment word alongside
+        # "jodhpuri" in the same name — a bare "Jodhpuri Mojaris" FOOTWEAR
+        # item (not a blazer/jacket) must not be caught by this gate.
+        item = {
+            "product_type": "footwear",
+            "prod_name": "Tan Leather Men's Classic Jodhpuri Mojaris",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "footwear") is True
+
+    def test_ethnic_footwear_pairing_desc_rejected_for_office_blazer(self) -> None:
+        # 2026-07-25 fix: this catalogue's dominant ethnic-crossover-blazer
+        # marketing template recommends styling WITH ethnic footwear even
+        # when the item's own name has no festive/quirky word.
+        item = {
+            "product_type": "blazer",
+            "prod_name": "Men's Navy Blue Zig Zag Glitter Silk Blend Blazer",
+            "gender": "men",
+            "detail_desc": (
+                "Get a perfect ethnic look with this jacket by VASTRAMAY for any "
+                "traditional occasion. Style it with a kurta and mojris for a "
+                "complete look."
+            ),
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_ethnic_footwear_pairing_desc_ignored_outside_outerwear(self) -> None:
+        # Same marker words appear catalogue-wide on unrelated product types
+        # (footwear listings ARE juttis, kurtas mention them as a styling
+        # accessory) — must never fire outside the outerwear product types.
+        item = {
+            "product_type": "footwear",
+            "prod_name": "Women's Jutti",
+            "gender": "women",
+            "detail_desc": "Handcrafted leather jutti, pairs well with a kurta.",
+        }
+        assert is_coherent_candidate(item, "office", "women", "footwear") is True
         assert is_western_register_occasion("party_evening") is False
+
+    def test_indowestern_rejected_for_office(self) -> None:
+        # 2026-07-25 out-of-sample validation finding: "Beige Jacquard Indo
+        # Western for Men" (product_type_name="indowestern", 586 catalogue
+        # rows) surfaced for "office outfit for men". 2026-08-05: now caught
+        # by is_ethnic_item itself (classify_anchor's own first-class
+        # indowestern short-circuit — see slots.py), no longer a gate-4
+        # special case.
+        item = {
+            "product_type": "indowestern",
+            "prod_name": "Beige Jacquard Indo Western for Men",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "outerwear") is False
+
+    def test_indowestern_name_substring_in_other_types_not_rejected(self) -> None:
+        # Deliberately checked against the exact product_type facet value,
+        # not a name substring -- "indo-western"/"indowestern" also appears
+        # inside trousers/sherwani/kurta/NIGHTWEAR rows' free-text names,
+        # where a substring match would wrongly reclassify unrelated items.
+        item = {
+            "product_type": "nightwear",
+            "prod_name": "Indo-Western Style Comfort Nightwear",
+            "gender": "men",
+        }
+        assert is_coherent_candidate(item, "office", "men", "top") is True
+
+
+def _loungewear_candidate(
+    article_id: str, prod_name: str, product_type: str = "nightwear", gender: str = "men"
+) -> dict:
+    return {
+        "article_id": article_id,
+        "prod_name": prod_name,
+        "display_name": prod_name,
+        "product_type": product_type,
+        "colour": "black",
+        "gender": gender,
+        "score": 0.9,
+        "price_inr": 999.0,
+        "store": "myntra",
+        "detail_desc": "",
+    }
+
+
+class TestFindBestCandidateFormalEthnicLoungewearGate:
+    """_score_candidates' loungewear hard gate (2026-07-31, "baraat outfit
+    for men" fix): formal_ethnic occasions must reject loungewear/nightwear
+    candidates outright.
+
+    Catalogue audit (data/processed/unified/catalogue.parquet): of the 273
+    catalogue-wide rows is_loungewear_text flags, 5 are NEITHER a
+    composer.is_multi_piece_set listing NOR classified "unknown" by
+    classify_item — i.e. they would otherwise slip straight past
+    is_coherent_candidate's ethnic/western register gates into a real slot.
+    Verified (each test below re-confirms with is_loungewear_text stubbed
+    out) that these specific two survive EVERY pre-existing gate on their
+    own and are rejected ONLY by this new one — is_coherent_candidate's
+    gates 2/3 only ever reject WESTERN-classified items (is_western_item),
+    so an item classify_item resolves to "outerwear" (outside is_western_
+    item's western_top/bottom/one_piece set) or "ethnic_top"/"ethnic_bottom"
+    is never touched by them, regardless of occasion:
+      - "Shacket-Style Winter Night Suit" (product_type_name="Nightwear")
+        resolves "outerwear" via slots.OUTERWEAR_KEYWORDS' "shacket" —
+        slot-allowed for "outerwear", not caught by is_western_marker_item
+        either (no denim/bomber/hoodie/sneaker/t-shirt/blazer word).
+      - "Pink Cotton Printed Kaftan Nightdress" (product_type_name=
+        "kaftan") resolves "ethnic_top" — slot-allowed for "top", and
+        ethnic-classified items are exactly what gates 2/3 exist to ALLOW
+        for ethnic occasions, not reject.
+    Most "Top & Pyjama SET"-style listings (e.g. the exact live-repro item)
+    are ALSO already rejected by the pre-existing is_multi_piece_set gate on
+    their own, independent of this fix — see the "genuine ... not gated"
+    tests below for why a bare, non-Set loungewear item is the sharper
+    isolation case. Exercised via _find_best_candidate (not
+    is_coherent_candidate directly) — see that function's own docstring for
+    why this gate lives in composer._score_candidates instead."""
+
+    def test_shacket_night_suit_rejected_for_wedding_guest_outerwear(self) -> None:
+        # Real catalogue row, product_type_name="Nightwear" — classify_item
+        # resolves "outerwear" via the "shacket" keyword, slot-allowed for
+        # "outerwear", and NOT caught by is_coherent_candidate's gates 2/3
+        # (those only reject WESTERN-classified items; "outerwear" isn't
+        # one — see class docstring). Not a multi_piece_set listing either.
+        item = _loungewear_candidate(
+            "N1", "Shacket-Style Winter Night Suit", product_type="Nightwear", gender="women",
+        )
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="outerwear festive embroidered",
+            slot_name="outerwear",
+            occasion_slug="wedding_guest",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is None
+
+    def test_kaftan_nightdress_rejected_for_sangeet_top(self) -> None:
+        # Real catalogue row, product_type_name="kaftan" -> classify_item
+        # resolves ethnic_top, slot-allowed for "top" (the same class a
+        # genuine festive kaftan-style kurti would resolve to).
+        item = _loungewear_candidate(
+            "N2", "Pink Cotton Printed Kaftan Nightdress",
+            product_type="kaftan", gender="women",
+        )
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="kaftan festive embroidered",
+            slot_name="top",
+            occasion_slug="sangeet",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_bottom",
+        )
+        assert winner is None
+
+    def test_loungewear_not_gated_for_casual(self) -> None:
+        """The gate is scoped to _FORMAL_ETHNIC_OCCASIONS only — a bare
+        "night suit" query with no formal-occasion context is untouched,
+        mirroring graph.py's _apply_loungewear_gate."""
+        item = _loungewear_candidate(
+            "N3", "Bewakoof Women White & Blue Printed Cotton Night Suit",
+            product_type="top", gender="women",
+        )
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="top casual",
+            slot_name="top",
+            occasion_slug="casual",
+            gender="women",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="western_bottom",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "N3"
+
+    def test_genuine_bare_patiala_pyjama_not_gated_for_wedding_guest(self) -> None:
+        # Genuine ethnic wedding-appropriate bottomwear (a Patiala pyjama,
+        # mistyped product_type_name="nightwear" by the catalogue; own
+        # detail_desc markets it "Style this for wedding ceremonies or pujas
+        # and festivals") must never be rejected by this gate — bare
+        # "pyjama" without a night/lounge/top-combo signal is deliberately
+        # NOT flagged by is_loungewear_text (see its docstring).
+        item = _loungewear_candidate("N4", "Men's Black Cotton Blend Patiala Pyjama")
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="pyjama churidar festive embroidered",
+            slot_name="bottom",
+            occasion_slug="wedding_guest",
+            gender="men",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "N4"
+
+    def test_genuine_aligarhi_pajama_not_gated_for_wedding_guest(self) -> None:
+        # Real catalogue row, own detail_desc: "Elevate your ethnic style
+        # with Navy Blue Solid Cotton Silk Blend Aligarhi Pajama for men.
+        # Perfect for traditional days, festivals, weddings, and regular
+        # wear." — genuine groom-adjacent ethnic bottomwear, mistyped
+        # product_type_name="nightwear"; must never be rejected. Not a
+        # multi_piece_set listing (no "Set"/"with"), so this specifically
+        # isolates the new gate from that pre-existing one.
+        item = _loungewear_candidate("N5", "Navy Blue Solid Cotton Silk Blend Aligarhi Pajama")
+        retriever = _FilterRecordingRetriever([item])
+        winner = _find_best_candidate(
+            query="pyjama churidar festive embroidered",
+            slot_name="bottom",
+            occasion_slug="wedding_guest",
+            gender="men",
+            anchor_colour="black",
+            seen_ids=set(),
+            seen_prod_colour=set(),
+            retriever=retriever,
+            budget_remaining=None,
+            pairing_stats=None,
+            anchor_class="ethnic_top",
+        )
+        assert winner is not None
+        assert winner["article_id"] == "N5"
 
 
 # ---------------------------------------------------------------------------
@@ -1387,6 +1710,33 @@ class TestOfflineRealIndexCompositionEvidence:
             assert "sneaker" not in text and "denim" not in text, f"western marker leaked: {c}"
             assert c["gender"] == "women"
 
+    def test_baraat_wedding_guest_look_no_loungewear_leak(self, _unified_index: tuple) -> None:
+        """2026-07-31 fix: reproduces "baraat outfit for men" (occasion maps
+        to wedding_guest per intent_parser._OCCASION_MAP) via compose_outfit
+        directly, the same path the live bug went through. Before gate 6
+        (coherence.is_coherent_candidate), classify_anchor's bare "pyjama"
+        ETHNIC_BOTTOM_KEYWORDS match let "Men Solid Multicolor Top & Pyjama
+        Set" (product_type_name="nightwear") into the bottom slot."""
+        from src.catalogue.cleaning import is_loungewear_text
+
+        retriever, catalogue_df = _unified_index
+        anchor_id = _find_article_id(catalogue_df, "men", "kurta")
+        look = compose_outfit(
+            catalogue_df, retriever,
+            seed_article_id=anchor_id, occasion_slug="wedding_guest", gender="men",
+        )
+        print("\n=== baraat/wedding_guest look for men (kurta anchor) ===")
+        print("seed:", look["seed_item"]["prod_name"], look["seed_item"]["gender"])
+        for c in look["complements"]:
+            print(" complement:", c["_slot"], "|", c["prod_name"], "|", c["product_type"], "|", c["gender"])
+
+        assert look["seed_item"] is not None
+        leaked = [
+            c for c in look["complements"]
+            if is_loungewear_text(c.get("prod_name") or c.get("display_name") or "")
+        ]
+        assert not leaked, f"loungewear item(s) leaked into baraat/wedding_guest look: {leaked}"
+
     def test_three_variants_pairwise_disjoint_complements(self, _unified_index: tuple) -> None:
         """S6 fix: EVERY pair of variants (not just base-vs-alternate) must have
         disjoint complement id sets.
@@ -1424,3 +1774,60 @@ class TestOfflineRealIndexCompositionEvidence:
                     f"({variants[j].get('variant_label')}) must have disjoint complement "
                     f"ids, overlap={overlap}"
                 )
+
+    def test_bridal_wedding_look_has_a_real_shot_at_jewellery(self, _unified_index: tuple) -> None:
+        """2026-07-19 bridal jewellery gap fix — root-cause regression test.
+
+        Live-proven bug: a "complete bridal wedding look" composition (lehenga/
+        saree/anarkali anchor -> ethnic_one_piece -> single "accessory" slot
+        shared by dupatta/clutch/jewellery) NEVER surfaced a jewellery item
+        across 3 live phrasing variants, despite 18,796 real jewellery rows in
+        the unified catalogue — because the combined accessory retrieval query
+        ("dupatta jewellery clutch ethnic accessory") let dupatta/clutch
+        vocabulary crowd every jewellery candidate out of the retrieval window
+        entirely (see composer._find_best_candidate / slots.
+        split_accessory_query_by_family for the mechanism).
+
+        This test composes several independent wedding_guest looks (excluding
+        each prior seed + accessory so each trial draws a genuinely different
+        candidate pool) and asserts jewellery wins the accessory slot at least
+        once — a real, non-zero shot, not a guarantee it always wins (dupatta/
+        clutch remain legitimate, frequently-correct choices too).
+        """
+        retriever, catalogue_df = _unified_index
+        exclude_ids: set[str] = set()
+        jewellery_wins = 0
+        accessory_fill_count = 0
+        n_trials = 12
+
+        for _ in range(n_trials):
+            look = compose_outfit(
+                catalogue_df, retriever,
+                seed_article_id=None, occasion_slug="wedding_guest", gender="women",
+                brand_gender_default="women", exclude_ids=exclude_ids,
+            )
+            seed = look.get("seed_item")
+            if seed is not None:
+                exclude_ids.add(seed["article_id"])
+            accessory = next(
+                (c for c in look.get("complements", []) if c.get("_slot") == "accessory"), None
+            )
+            if accessory is None:
+                continue
+            accessory_fill_count += 1
+            exclude_ids.add(accessory["article_id"])
+            text = (
+                (accessory.get("product_type") or "") + " " + (accessory.get("prod_name") or "")
+            ).lower()
+            if any(w in text for w in ("jewel", "necklace", "earring", "bangle", "jhumka")):
+                jewellery_wins += 1
+
+        print(f"\n=== bridal wedding_guest accessory slot: {n_trials} trials ===")
+        print(f"accessory slot filled: {accessory_fill_count}/{n_trials}")
+        print(f"jewellery wins: {jewellery_wins}/{accessory_fill_count}")
+
+        assert accessory_fill_count > 0, "accessory slot was never filled across any trial"
+        assert jewellery_wins > 0, (
+            "jewellery must win the bridal accessory slot at least once across "
+            f"{accessory_fill_count} filled trials — got 0 (the live-proven bug)"
+        )

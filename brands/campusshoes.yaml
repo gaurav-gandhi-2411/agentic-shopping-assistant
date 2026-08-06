@@ -1,0 +1,30 @@
+display_name: "Campus Shoes"
+logo_url: null
+primary_colour: "#1B1F3B"
+accent_colour: "#FF6B35"
+tagline: "Athletic footwear for men, women and kids — running, training and sports shoes"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): of 2,069 in-stock rows, 485 carry an explicit "women"/
+# "women's" token (type breakdown: Women Sneakers 154, Women Walking Shoes 112,
+# Women Running Shoes 107, Women Sports Shoes 49, plus smaller casual/sandal/
+# clog/slide lines) and 1,363 carry an explicit "men"/"men's" token (Men
+# Running Shoes 479, Men Sneakers 260, Men Sports Shoes 200, Men Walking Shoes
+# 118, plus sandals/casual lines). 211 rows are "Kids" (no men/women token,
+# resolve to "unknown" per-item — expected, kids sizing is out of scope for
+# this store's use case here). This is a genuinely mixed-gender catalogue with
+# real depth on both sides — closes the women's athletic-footwear gap
+# (sneakers/running/walking/sports shoes) that was ~0-2 rows catalogue-wide
+# before this ingestion. "mixed" leaves per-item inference
+# (src.catalogue.adapter.derive_item_gender) to resolve each row from its own
+# title/type text, same pattern as chappers/tjori.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/campusshoes/products.csv"
+pdp_url_template: "https://campusshoes.com/products/{handle}"
+suggestion_chips:
+  - "Running shoes for women"
+  - "Men's training shoes"
+  - "Women's sneakers for gym"
+  - "Men's sports shoes for running"
+  - "Walking shoes for daily wear"

@@ -1,0 +1,24 @@
+display_name: "ShopKop"
+logo_url: null
+primary_colour: "#4F6B2E"
+accent_colour: "#F3F6EC"
+tagline: "Pure leather Kolhapuri chappals from Kolhapur"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Catalogue is small (32 rows) with 12 explicit "Ladies" tags, 2 explicit
+# "Men's" tags, and 18 unlabeled rows using traditional regional style names
+# (Bantoo, Senapati, Sarkar, Maharaja) that don't carry a gender word but are
+# historically unisex/men's Kolhapuri patterns. Per-item scan
+# (src.catalogue.adapter.derive_item_gender) resolves the explicit rows
+# correctly; "mixed" leaves the traditionally-named remainder as "unknown"
+# rather than forcing them to the numerically larger "ladies" tag.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/shopkop/products.csv"
+pdp_url_template: "https://shopkop.in/products/{handle}"
+suggestion_chips:
+  - "Ladies Kolhapuri chappal under 2000"
+  - "Men's typical Kolhapuri chappal"
+  - "Pure leather chappal for daily wear"
+  - "Kapashi Kolhapuri for festive wear"
+  - "Handmade leather loafers"

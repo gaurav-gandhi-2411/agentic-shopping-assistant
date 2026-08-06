@@ -58,6 +58,24 @@ function getPoseLandmarker(): Promise<PoseLandmarker> {
         },
         runningMode: "IMAGE",
         numPoses: 1,
+        // MediaPipe's own "was a person actually detected" gates — these are
+        // the only detection-confidence signal exposed at this API boundary
+        // (PoseLandmarkerResult never surfaces an overall score, only
+        // per-landmark `visibility`; see detectPoseLandmarks's doc comment).
+        // Left unset, both default to 0.5, which is lenient enough that a
+        // flat garment photo's spurious folds/edges can score a plausible-
+        // looking "pose" and sail through to poseShape.ts's landmark gates
+        // (confirmed P0: t-shirt.webp, a photo with no person in it,
+        // produced a confident body-shape suggestion). 0.75 is chosen as a
+        // meaningfully stricter floor than the 0.5 default while staying
+        // below MediaPipe's own suggested "very strict" range (0.9+, which
+        // start rejecting real photos with partial occlusion/cropping) —
+        // this is a starting point, not empirically tuned against live
+        // photos; the reasoning above is the residual risk to revisit if
+        // real-browser testing (t-shirt.webp vs. a real person photo)
+        // shows it's still too lenient or newly too strict.
+        minPoseDetectionConfidence: 0.75,
+        minPosePresenceConfidence: 0.75,
       })
     })()
     // Reset the cache on failure so a later retry can attempt a fresh load

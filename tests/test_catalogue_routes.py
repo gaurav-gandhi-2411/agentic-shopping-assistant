@@ -62,6 +62,27 @@ def _catalogue_df() -> pd.DataFrame:
                 "department_name": "Ladieswear",
             },
         },
+        {
+            # 2026-08-06 regression: colour_group_name=None (27.5% of the real
+            # catalogue, e.g. "Kundan Dabka Jutti") used to 500 this route --
+            # dict.get(key, "") only applies the "" default when the key is
+            # ABSENT, not when it's present with value None, and ItemSummary's
+            # `colour: str` field rejects None at construction.
+            "article_id": "333",
+            "prod_name": "Kundan Dabka Jutti",
+            "display_name": "Kundan Dabka Jutti (footwear)",
+            "gender": "women",
+            "price_inr": 1650.0,
+            "image_url": None,
+            "detail_desc": "A kundan-embellished jutti.",
+            "pdp_handle": None,
+            "store": "taurjuttis",
+            "facets": {
+                "colour_group_name": None,
+                "product_type_name": "footwear",
+                "department_name": None,
+            },
+        },
     ]
     return pd.DataFrame(rows).set_index("article_id", drop=False)
 
@@ -158,3 +179,23 @@ def test_item_detail_accepts_demo_token(client: TestClient) -> None:
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["article_id"] == "111"
+
+
+def test_item_detail_null_colour_returns_200_not_500(client: TestClient) -> None:
+    """2026-08-06 regression: a real catalogue shape (colour_group_name=None,
+    27.5% of rows) must not 500 -- it must coerce to an empty string, same as
+    ItemSummary.from_agent_item()'s existing _ns() helper does on the /chat
+    path."""
+    token = create_demo_token(anon_id="anon:test-user", brand="hm")
+
+    resp = client.get(
+        "/catalogue/333",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["article_id"] == "333"
+    assert body["colour"] == ""
+    assert body["department"] == ""
+    assert body["product_type"] == "footwear"

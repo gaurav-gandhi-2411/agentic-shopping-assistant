@@ -19,9 +19,11 @@ import re
 from typing import TYPE_CHECKING
 
 from src.agents.grounding import validate_rationale
+from src.agents.intent_parser import _COLOUR_MAP as _INTENT_COLOUR_MAP
 from src.agents.outfit.body_type import (
     BASE_SHAPES,
     POSITIVE_TEMPLATES,
+    POSITIVE_TEMPLATES_MEN,
     contains_banned_framing,
 )
 
@@ -59,6 +61,21 @@ _NOTE_GARMENT_NOUNS: tuple[str, ...] = (
     "gown", "dress", "shirt", "jacket", "coat", "sweater", "cardigan", "shrug",
     "heels", "sandals", "loafers", "oxfords", "boots", "sneakers", "juttis",
     "mojaris", "shoes", "belt", "watch", "clutch", "necklace", "earrings", "top",
+    # Wave 9 activewear vocabulary (2026-07-24, live-proven bug: a gym look's
+    # stylist note read "The classic sports_bra anchors this gym look" — the
+    # raw snake_case product_type value leaked verbatim because none of these
+    # activewear nouns existed here, so _display_noun's name-scan found
+    # nothing and fell through to the raw-product_type fallback, see
+    # _display_noun's docstring). Phrasing verified against real catalogue
+    # prod_name text (data/processed/unified/catalogue.parquet): "Ultimate
+    # Printed Comfort Sports Bra", "Pink Ultra Stretchable Active Leggings",
+    # "Dark Grey Skinny Legging" (10 rows use the singular), "Grey
+    # Stretchable Cotton Joggers", "White Cotton Straight Fit Jogger" (mixed
+    # singular/plural in real inventory, both forms needed), "The Do-It All
+    # Skorts", "TraqFlex Skort White", "TraqLite Track Pants Olive",
+    # "TraqPace Cargo Pants Lilac".
+    "sports bra", "leggings", "legging", "joggers", "jogger", "skorts", "skort",
+    "track pants", "cargo pants",
 )
 
 # Nouns that take a plural verb ("the trousers keep…", not "keeps").
@@ -67,14 +84,44 @@ _PLURAL_NOUNS: frozenset[str] = frozenset({
     "oxfords", "boots", "sneakers", "juttis", "mojaris", "shoes", "earrings",
 })
 
-# Colour words as they appear in real product names — multi-word first.
-_NOTE_COLOUR_WORDS: tuple[str, ...] = (
-    "navy blue", "off white", "sea green", "dark red", "dark green", "dark blue",
-    "light beige", "light pink", "wine", "maroon", "burgundy", "rust", "teal",
-    "olive", "mustard", "lavender", "peach", "cream", "beige", "khaki",
-    "charcoal", "turquoise", "navy", "black", "white", "grey", "gold", "silver",
-    "red", "blue", "green", "purple", "pink", "orange", "yellow", "brown",
-)
+# Colour words as they appear in real product names — multi-word first (order
+# doesn't affect correctness, see _first_vocab_match's tie-break, but is kept
+# for readability).
+#
+# 2026-07-23 fix: a "Pastel Seafoam Embroidered Kurta Pajama | TULA" item
+# (data/processed/unified/catalogue.parquet: colour_group_name mislabeled
+# "Red" for that exact row) was narrated as "the red kurta anchors this eid
+# look" — "pastel" was entirely missing from this vocabulary, so the name-scan
+# below found no match and _display_colour silently fell back to the
+# catalogue's (wrong) colour_group_name field. Catalogue-wide this is not a
+# one-item fluke: 140 rows say "pastel" in prod_name, but only 54 carry
+# colour_group_name="Pastel" — the other 86 carry a mismatched single-hue
+# field value.
+#
+# The mechanism fix: UNION this file's own catalogue-display words (some,
+# like "gold"/"silver"/"sea green", are common jewellery/product colours with
+# no intent_parser query-side equivalent) with intent_parser._COLOUR_MAP's
+# keys — reusing the SAME source of truth intent-parsing already uses,
+# mirroring src.catalogue.cleaning's identical pattern for catalogue-side
+# colour backfill ("reusing the intent-parser colour vocabulary so query-side
+# and catalogue-side colour matching share one source of truth"). This closes
+# the "pastel" gap and any future intent_parser colour synonym automatically,
+# rather than requiring a parallel hand-edit here every time. Preferring the
+# NAME's own colour word over the catalogue's colour_group_name field is
+# already this module's established behaviour (see _display_colour's
+# docstring) — the residual gap this fix narrows is vocabulary coverage, not
+# the preference logic itself. tuple(sorted(...)) rather than a bare set for
+# deterministic iteration order (rule: determinism over convenience).
+_NOTE_COLOUR_WORDS: tuple[str, ...] = tuple(sorted(
+    {
+        "navy blue", "off white", "sea green", "dark red", "dark green", "dark blue",
+        "light beige", "light pink", "wine", "maroon", "burgundy", "rust", "teal",
+        "olive", "mustard", "lavender", "peach", "cream", "beige", "khaki",
+        "charcoal", "turquoise", "navy", "black", "white", "grey", "gold", "silver",
+        "red", "blue", "green", "purple", "pink", "orange", "yellow", "brown",
+    }
+    | set(_INTENT_COLOUR_MAP.keys())
+))
 
 
 def _first_vocab_match(text: str, vocab: tuple[str, ...]) -> str | None:
@@ -90,11 +137,24 @@ def _first_vocab_match(text: str, vocab: tuple[str, ...]) -> str | None:
 
 def _display_noun(product_type: object, prod_name: object) -> str:
     """A short garment noun safe to put in prose. Prefers the product NAME's own
-    garment word; falls back to a clean (<=2 words, no comma) product_type."""
+    garment word; falls back to a clean (<=2 words, no comma) product_type.
+
+    Live-proven bug (2026-07-24): a gym look's stylist note read "The classic
+    sports_bra anchors this gym look" — the raw snake_case product_type value
+    ("sports_bra", a real catalogue facet written by
+    src/catalogue/normalizer.py's activewear compound-term rules) leaked
+    verbatim into user-facing prose. The word-list fix above (_NOTE_GARMENT_NOUNS
+    now has "sports bra" etc.) closes the specific words known today, but a
+    hand-maintained word list is never complete — this fallback branch is the
+    SYSTEMIC fix: any future product_type with an underscore (e.g. a new
+    store's "yoga_pants") is sanitized to spaces here before being returned,
+    so it can never leak a raw snake_case identifier into prose again even if
+    _NOTE_GARMENT_NOUNS hasn't been updated yet.
+    """
     name_noun = _first_vocab_match(_safe_str(prod_name), _NOTE_GARMENT_NOUNS)
     if name_noun:
         return name_noun
-    pt = _safe_str(product_type).strip().lower()
+    pt = _safe_str(product_type).strip().lower().replace("_", " ")
     if pt and "," not in pt and len(pt.split()) <= 2:
         return pt
     pt_noun = _first_vocab_match(pt, _NOTE_GARMENT_NOUNS)
@@ -175,6 +235,12 @@ _OCCASION_REGISTER_HINTS: dict[str, str] = {
     "mehendi": "green-themed daytime ceremony",
     "reception": "glamorous evening event",
     "engagement": "elegant semi-formal ceremony",
+    "diwali": "festive-glam evening",
+    "navratri": "dance-friendly festive daytime",
+    "karva_chauth": "traditional red ceremony",
+    "raksha_bandhan": "casual festive family occasion",
+    "eid": "elegant festive gathering",
+    "gym": "casual athletic workout",
 }
 
 
@@ -190,6 +256,7 @@ def build_fact_sheet(
     anchor_is_owned: bool = False,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    gender: str | None = None,
 ) -> dict:
     """Extract only real, grounded attributes from a look dict.
 
@@ -280,7 +347,8 @@ def build_fact_sheet(
 
     if body_type and body_type in BASE_SHAPES:
         fact_sheet["body_type"] = body_type.replace("_", " ")
-        style_hint = POSITIVE_TEMPLATES.get(body_type)
+        templates = POSITIVE_TEMPLATES_MEN if gender == "men" else POSITIVE_TEMPLATES
+        style_hint = templates.get(body_type)
         if style_hint:
             fact_sheet["body_type_style_hint"] = style_hint
     if body_modifiers:
@@ -364,6 +432,7 @@ def generate_rationales(
             anchor_is_owned=anchor_is_owned,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            gender=gender,
         )
         for look in looks
     ]
@@ -411,7 +480,7 @@ def generate_rationales(
                 "using body-positive template fallback",
                 i,
             )
-            results.append(_body_type_template_rationale(look, body_type))
+            results.append(_body_type_template_rationale(look, body_type, gender))
             continue
 
         if llm_text:
@@ -437,26 +506,35 @@ def generate_rationales(
                     "[rationale] grounding dropped all sentences for look %d — using template",
                     i,
                 )
-                results.append(_body_type_template_rationale(look, body_type))
+                results.append(_body_type_template_rationale(look, body_type, gender))
             else:
                 results.append(cleaned)
         else:
-            results.append(_body_type_template_rationale(look, body_type))
+            results.append(_body_type_template_rationale(look, body_type, gender))
 
     return results
 
 
-def _body_type_template_rationale(look: dict, body_type: str | None) -> str:
+def _body_type_template_rationale(
+    look: dict, body_type: str | None, gender: str | None = None
+) -> str:
     """Template fallback for a body-type turn — grounded template + POSITIVE_TEMPLATES.
 
     Used whenever the LLM rationale is unavailable, fails grounding, or trips
     the banned-framing guardrail. When body_type is None (or unknown), this is
     identical to template_rationale(look) — fully backward compatible with
     every non-body-type call site.
+
+    gender: selects POSITIVE_TEMPLATES_MEN over POSITIVE_TEMPLATES when
+    "men" — see build_fact_sheet's identical selection for why (a photo-
+    classified "pear" for a man has no men's entry, so this falls through to
+    the plain template with no garment-specific sentence, never a wrong-
+    gendered one).
     """
     base = template_rationale(look)
-    if body_type and body_type in POSITIVE_TEMPLATES:
-        return f"{base} {POSITIVE_TEMPLATES[body_type]}"
+    templates = POSITIVE_TEMPLATES_MEN if gender == "men" else POSITIVE_TEMPLATES
+    if body_type and body_type in templates:
+        return f"{base} {templates[body_type]}"
     return base
 
 

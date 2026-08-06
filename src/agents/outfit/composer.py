@@ -16,6 +16,7 @@ from src.agents.outfit.coherence import (
 )
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import (
+    _FORMAL_ETHNIC_OCCASIONS,
     accessory_query_matches,
     classify_anchor,
     fabric_score_delta,
@@ -24,13 +25,14 @@ from src.agents.outfit.slots import (
     is_casual_marker_item,
     is_ethnic_item,
     is_gender_neutral_accessory,
-    is_kids_item,
     is_multi_piece_set,
     is_novelty_item,
     is_rugged_footwear_item,
     is_slot_type_allowed,
     is_western_item,
+    split_accessory_query_by_family,
 )
+from src.catalogue.cleaning import has_gender_text_conflict, is_kids_item, is_loungewear_text
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,36 @@ FLYWHEEL_MIN_SIGNALS: int = 10
 # a same-store candidate needs to score >~18% higher than the best other-store candidate to
 # still be picked; near-tied candidates from a new store win instead.
 STORE_DIVERSITY_PENALTY: float = 0.85
+
+# Absurd price-outlier guard (2026-07-23): an UNBUDGETED look must never
+# include a slot item priced far above the look's own hero (anchor) price.
+# Live-proven bug: an "eid outfit for men" anchored on a ₹12,632 "Pastel
+# Seafoam Embroidered Kurta Pajama" picked "THE SHEHENSHAH TRADITIONAL NEHRU
+# WAISTCOAT" (store=rathore) at ₹3,19,999 for the outerwear slot — 25.3x the
+# anchor price, pushing the look total to ₹3,33,979 for a demo user who gave
+# no budget signal at all.
+#
+# A per-product-type percentile cap (the other option the spec considered)
+# does NOT catch this: the offending row's product_type_name is mislabeled
+# "Fashion" (not "waistcoat"), and that catalogue-wide bucket (7,628 rows,
+# mixing ₹300 earrings with ₹12+ lakh luxury pieces) has its own p99 of
+# ₹3,76,729 — the item sits INSIDE that bucket's "normal" range, so a
+# type-relative cap is defeated by the same mislabeling that let the item
+# through in the first place. Anchoring the cap to THIS LOOK's own hero price
+# instead is robust to that mislabeling and mirrors _CHEAP_OUTLIER_FACTOR's
+# established shape (graph.py) — a multiplier of the look's own price signal,
+# never a hardcoded INR threshold.
+#
+# Calibrated well below the real repro's 25.3x ratio so ordinary pricier
+# complements (a sherwani/bandhgala accent piece) still survive: verified
+# against data/processed/unified/catalogue.parquet medians — sherwani
+# ₹18,999 (~9.5x a ₹1,999-median kurta), footwear ₹2,400, dupatta ₹1,999,
+# jewellery ₹12,370 — all comfortably under an 8x cap relative to a
+# typical anchor. Skipped entirely (see compose_outfit) when the user gave
+# an explicit budget — budget_remaining's own gate already bounds price
+# there, and an explicit high budget is an intentional request for
+# expensive items.
+_PRICE_OUTLIER_FACTOR: float = 8.0
 
 
 @dataclass
@@ -93,6 +125,7 @@ def compose_outfit(
     exclude_ids: set[str] | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict:
     """Compose an outfit for a given occasion, optionally anchored to a seed item.
 
@@ -118,6 +151,13 @@ def compose_outfit(
         body_modifiers: P3 — list of MODIFIER_SLUGS ("petite"/"tall"/
             "plus_size"), or None. Composes with body_type (union of
             recommend/deprioritize keyword sets — see body_type_score_delta).
+        formality_override: Batch 2 (2026-07-13) — "minimalist"/"comfortable",
+            the sibling intent-parser signal a query like "something comfortable
+            for sangeet dancing" or "not too flashy" surfaces (see
+            slots.fabric_score_delta's docstring). Opt-in bias only (never a
+            filter), same treatment as body_type above: nudges complement
+            scoring via fabric_score_delta, threaded straight through to every
+            _find_best_candidate call. None (default) is a full no-op.
 
     Returns a dict with: look_id, seed_item, complements, outfit_rationale,
     empty_slots, suppressed_slots, occasion, gender, budget_total_inr.
@@ -139,24 +179,45 @@ def compose_outfit(
         # gender_allowed() re-check right below is now belt-and-suspenders, not the
         # only gate.  Skipped for "unisex" (no single-gender filter makes sense).
         anchor_query = _anchor_query_for_occasion(occasion_slug, gender)
-        _bt_tokens = body_type_query_tokens(body_type, body_modifiers)
+        _bt_tokens = body_type_query_tokens(body_type, body_modifiers, gender)
         if _bt_tokens:
             anchor_query = f"{anchor_query} {_bt_tokens}"
         anchor_filters = {"gender": gender} if gender in ("men", "women") else None
-        candidates = retriever.search(anchor_query, top_k=10, filters=anchor_filters)
+        # 2026-07-19 fix (39-store catalogue regression): the default top_k=10
+        # anchor window is budget-BLIND — it is filled by relevance score alone,
+        # so a handful of newly-added premium-tier brands (much higher-priced,
+        # equally or more relevant for occasion terms like "reception") can
+        # monopolize the top 10 and push every genuinely-affordable anchor
+        # candidate out of the window before the budget gate below ever sees
+        # them (live-proven: "reception outfit under ₹15000" — 0/10 anchors
+        # were within budget at top_k=10, but 2/50 were once the window
+        # widened). Mirrors the same truncate-before-filter defect graph.py's
+        # search_node fixed for price_qualifier/formality_softener (commit
+        # 2c78af9) — widen the pre-filter pool whenever a budget constraint is
+        # present so the budget gate has a meaningfully larger pool to draw
+        # from. No-op (top_k stays 10) when no budget is stated.
+        _anchor_top_k = 30 if budget_inr is not None else 10
+        candidates = retriever.search(anchor_query, top_k=_anchor_top_k, filters=anchor_filters)
         # Filter by occasion coherence AND gender compatibility. S5 fix: also
         # reject juniors/girls/boys/kids items as a look ANCHOR — the same
         # catalogue mislabeling that lets them fill complement slots (see
         # is_kids_item) would otherwise let one become the seed itself.
+        _anchor_look_gender = gender if gender != "unisex" else "unisex"
         valid = [
             c
             for c in candidates
             if _anchor_matches_occasion(c, occasion_slug)
-            and gender_allowed(
-                (c.get("gender") or "unknown").lower(),
-                gender if gender != "unisex" else "unisex",
-            )
+            and gender_allowed((c.get("gender") or "unknown").lower(), _anchor_look_gender)
             and not is_kids_item(c.get("prod_name") or c.get("display_name") or "")
+            # 2026-08-06 cross-gender leak fix: the catalogue's own gender
+            # column is unreliable for a real, audited slice of rows (385,
+            # concentrated in vastramay/voylla/jompers) -- e.g. "Men's
+            # Yellow - Dupatta" carries gender="women". Name text is the
+            # more trustworthy signal here, same shape as is_kids_item()
+            # above. See has_gender_text_conflict's own docstring.
+            and not has_gender_text_conflict(
+                c.get("prod_name") or c.get("display_name") or "", _anchor_look_gender
+            )
         ]
         # Budget gate (live-proven bug: "I'm pear-shaped, sangeet look under
         # ₹8000" boarded a ₹9,900 lehenga ANCHOR — this filter previously
@@ -228,6 +289,16 @@ def compose_outfit(
     # the start, as before.
     running_total = 0.0 if owned_anchor else (seed_item.get("price_inr") or 0.0)
 
+    # Absurd price-outlier guard (2026-07-23) — see _PRICE_OUTLIER_FACTOR's
+    # module-level docstring for the full rationale. Skipped when the user
+    # gave an explicit budget (budget_remaining already bounds price there,
+    # and a stated budget is an intentional request) or when the anchor has
+    # no catalogue price to anchor against (owned/uploaded seed item).
+    _anchor_price_for_cap = seed_item.get("price_inr") or 0.0
+    price_outlier_cap: float | None = None
+    if budget_inr is None and _anchor_price_for_cap > 0:
+        price_outlier_cap = _anchor_price_for_cap * _PRICE_OUTLIER_FACTOR
+
     for slot_spec in fill_slots:
         candidate = _find_best_candidate(
             query=slot_spec.search_query,
@@ -244,6 +315,8 @@ def compose_outfit(
             seen_stores=seen_stores,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            formality_override=formality_override,
+            price_outlier_cap=price_outlier_cap,
         )
         if candidate is None and slot_spec.slot_name == "bottom" and effective_gender == "men":
             # Live defect 2026-07-10: the men's ethnic bottom query (churidar/
@@ -267,6 +340,8 @@ def compose_outfit(
                 seen_stores=seen_stores,
                 body_type=body_type,
                 body_modifiers=body_modifiers,
+                formality_override=formality_override,
+                price_outlier_cap=price_outlier_cap,
             )
         if candidate:
             candidate["_slot"] = slot_spec.slot_name
@@ -354,7 +429,13 @@ def _suppression_reason(slot_name: str, gender: str) -> str:
         "bottom": "bottoms",
         "top": "tops",
     }
-    label = labels.get(slot_name, slot_name)
+    # 2026-07-24 sweep (same failure class as rationale._display_noun's
+    # sports_bra leak fix): every slot_name in use today is covered by
+    # `labels` above, but the .get() fallback previously returned the raw
+    # slot_name UNSANITIZED if a future slot type were ever added without
+    # also updating this dict — sanitize defensively so a hypothetical raw
+    # "some_new_slot" can never leak an underscore into user-facing prose.
+    label = labels.get(slot_name, slot_name.replace("_", " "))
     # "that match this look" — the honest claim. A bare "No men's bottoms in our
     # partner stores yet" was live-proven FALSE (4,668 exist); suppression only
     # means no candidate survived THIS look's gates, never an inventory absence.
@@ -374,6 +455,7 @@ def compose_outfit_variants(
     owned_anchor: bool = False,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> list[dict]:
     """Compose 2-3 look variants around the same seed and occasion.
 
@@ -411,6 +493,8 @@ def compose_outfit_variants(
         body_type:           P3 — see ``compose_outfit`` docstring. Applied to
             every variant (base + biased).
         body_modifiers:      P3 — see ``compose_outfit`` docstring.
+        formality_override:  Batch 2 — see ``compose_outfit`` docstring. Applied
+            to every variant (base + biased).
 
     Returns:
         List of 1–3 look dicts.  Always non-empty (falls back to base-only).
@@ -428,6 +512,7 @@ def compose_outfit_variants(
         owned_anchor=owned_anchor,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     base["variant_label"] = "Base"
 
@@ -465,6 +550,7 @@ def compose_outfit_variants(
         extra_exclude_ids=accumulated_ids,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     if alt_colour_look and _is_distinct_look(alt_colour_look, variants):
         alt_colour_look["variant_label"] = "Colour story"
@@ -488,6 +574,7 @@ def compose_outfit_variants(
         extra_exclude_ids=accumulated_ids,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     if formality_look and _is_distinct_look(formality_look, variants):
         # Label: ethnic/formal occasions get "Lighter"; western/casual get "Dressier"
@@ -536,6 +623,7 @@ def compose_biased_look(
     extra_exclude_ids: set[str] | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict | None:
     """Compose a variant look using a biased retriever wrapper.
 
@@ -609,6 +697,7 @@ def compose_biased_look(
             exclude_ids=exclude_ids,
             body_type=body_type,
             body_modifiers=body_modifiers,
+            formality_override=formality_override,
         )
         if look.get("seed_item") is None:
             return None
@@ -837,6 +926,8 @@ def _score_candidates(
     neutral_fallback_ids: set[str],
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
+    price_outlier_cap: float | None = None,
 ) -> list[tuple[float, dict]]:
     """Run every hard gate + score every surviving candidate.
 
@@ -849,6 +940,17 @@ def _score_candidates(
     added to the score alongside fabric_score_delta (never a gate — every
     candidate that survives the hard gates above is still scored and
     returned; body type only nudges which one wins).
+
+    formality_override: Batch 2 (2026-07-13) — passed straight to
+    fabric_score_delta (see that function's docstring). Same "nudge, never a
+    gate" treatment as body_type above.
+
+    price_outlier_cap: 2026-07-23 — see _PRICE_OUTLIER_FACTOR's module-level
+    docstring. A hard gate (unlike body_type/formality_override above): any
+    candidate priced above this cap is rejected outright, never merely
+    nudged, mirroring _apply_loungewear_gate's "never an acceptable
+    substitute" discipline in graph.py. None (the default, and always the
+    value passed when the user gave an explicit budget) is a full no-op.
     """
     scored: list[tuple[float, dict]] = []
     for item in candidates:
@@ -867,6 +969,19 @@ def _score_candidates(
         is_neutral_fallback_item = item["article_id"] in neutral_fallback_ids
         if not is_neutral_fallback_item and not gender_allowed(
             (item.get("gender") or "unknown").lower(), gender
+        ):
+            continue
+        # 2026-08-06 cross-gender leak fix: applies to EVERY slot (top/
+        # bottom/footwear/outerwear/accessory), not just accessory -- the
+        # live-proven leak was "Men's Yellow - Dupatta" in a women's haldi
+        # look's accessory slot, but the catalogue's gender-column
+        # unreliability (385 audited rows) is not accessory-specific.
+        # Unconditional, including neutral-fallback items -- an item chosen
+        # via the unisex-accessory fallback for its UNKNOWN gender column
+        # must still be rejected if its own name explicitly states the
+        # wrong gender. See has_gender_text_conflict's own docstring.
+        if has_gender_text_conflict(
+            item.get("prod_name") or item.get("display_name") or "", gender
         ):
             continue
         # Slot-type hard gate: reject candidates whose classified item-type
@@ -900,6 +1015,33 @@ def _score_candidates(
         # "M&H Juniors Girls ... Denim Skirts" item).
         if is_kids_item(item_name):
             continue
+        # Loungewear hard gate (2026-07-31, "baraat outfit for men" fix):
+        # formal_ethnic occasions must never accept a loungewear/nightwear
+        # item, regardless of which class classify_anchor/classify_item
+        # resolved it to. Live-proven: classify_anchor's ETHNIC_BOTTOM_
+        # KEYWORDS matches a bare "pyjama" (added for genuine "kurta pajama"
+        # ethnic sets), which ALSO misclassifies loungewear "Top & Pyjama
+        # Set" rows (product_type_name="nightwear") as ethnic_bottom, so
+        # is_coherent_candidate's ethnic gates waved them straight through
+        # as if legitimate ethnic wear — "baraat outfit for men" (occasion=
+        # wedding_guest) composed "Men Solid Multicolor Top & Pyjama Set"
+        # into the bottom slot. Applied here (never a soft nudge, same
+        # "never an acceptable substitute" discipline as the price-outlier
+        # gate below and graph.py's own _apply_loungewear_gate) rather than
+        # as a coherence.is_coherent_candidate gate — that function is ALSO
+        # called from graph.py's search_node inside a POOL-UNDERFLOW-
+        # PROTECTED coherence check, where rejecting a genuine "Kaftan Night
+        # Dress" this early would skip the whole protected filter instead of
+        # falling through to the later, correctly-unprotected
+        # _apply_loungewear_gate (see is_coherent_candidate's own docstring
+        # note for the exact regression this caused when first tried there).
+        # _FORMAL_ETHNIC_OCCASIONS (not graph.py's private _LOUNGEWEAR_GATE_
+        # OCCASIONS, which also adds "gym") — a gym look's ethnic-item
+        # rejection (gate 5 above) already covers this item class, since
+        # ETHNIC_BOTTOM_KEYWORDS' bare "pyjama" match also makes
+        # is_ethnic_item true for it.
+        if occasion_slug in _FORMAL_ETHNIC_OCCASIONS and is_loungewear_text(item_name):
+            continue
         # Phase B: hard formality gate — for occasion.formality >= 3 (office,
         # haldi, mehendi, party_evening, festive_puja, wedding_guest, engagement,
         # sangeet, traditional_ethnic, reception), reject any candidate carrying a casual/denim-
@@ -929,11 +1071,16 @@ def _score_candidates(
             price = item.get("price_inr") or 0.0
             if price > budget_remaining:
                 continue
+        # Absurd price-outlier guard — see _PRICE_OUTLIER_FACTOR docstring.
+        if price_outlier_cap is not None:
+            price = item.get("price_inr") or 0.0
+            if price > price_outlier_cap:
+                continue
 
         base_score = item.get("score") or 0.5
         c_score = colour_score(item.get("colour") or "", anchor_colour, occasion_slug)
-        fab_delta = fabric_score_delta(item, occasion_slug)
-        bt_delta = body_type_score_delta(item, body_type, body_modifiers)
+        fab_delta = fabric_score_delta(item, occasion_slug, formality_override=formality_override)
+        bt_delta = body_type_score_delta(item, body_type, body_modifiers, gender)
         fw_boost = _flywheel_boost(anchor_class, slot_name, occasion_slug, pairing_stats)
 
         final_score = (
@@ -966,6 +1113,8 @@ def _find_best_candidate(
     seen_stores: set[str] | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
+    price_outlier_cap: float | None = None,
 ) -> dict | None:
     # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
     # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
@@ -976,7 +1125,32 @@ def _find_best_candidate(
     # conservative "never guess gender in" rule as gender_allowed() below, now
     # enforced on the retrieval window itself, not just on whatever slipped
     # through unfiltered.
-    candidates = retriever.search(query, top_k=40, filters={"gender": gender})
+    #
+    # Multi-family accessory split (2026-07-19 bridal jewellery fix): when the
+    # accessory slot's own query spans more than one accessory family (e.g.
+    # the bridal "dupatta jewellery clutch ethnic accessory" query spans
+    # DUPATTA + BAG + JEWELLERY), retrieving it as ONE combined query lets
+    # whichever family dominates lexical/semantic overlap crowd every other
+    # family out of the retrieval window entirely (live-proven: jewellery
+    # never appeared even in a top-500 window for that combined query — see
+    # split_accessory_query_by_family's docstring). Issue one retrieval call
+    # per matched family instead and merge the pools (dedup by article_id)
+    # so every family gets a genuine, undiluted shot at being scored below —
+    # a no-op (single retriever.search call, identical to before) for every
+    # single-family accessory query and every non-accessory slot.
+    family_queries = (
+        split_accessory_query_by_family(query) if slot_name == "accessory" else []
+    )
+    if family_queries:
+        candidates = []
+        _seen_candidate_ids: set[str] = set()
+        for family_query in family_queries:
+            for item in retriever.search(family_query, top_k=40, filters={"gender": gender}):
+                if item["article_id"] not in _seen_candidate_ids:
+                    candidates.append(item)
+                    _seen_candidate_ids.add(item["article_id"])
+    else:
+        candidates = retriever.search(query, top_k=40, filters={"gender": gender})
 
     # Gender-neutral accessory fallback: fires ONLY when the gendered search
     # above returned nothing for an accessory slot.  Widens to an unfiltered
@@ -1011,6 +1185,8 @@ def _find_best_candidate(
         neutral_fallback_ids=neutral_fallback_ids,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
+        price_outlier_cap=price_outlier_cap,
     )
 
     # Phase B pool-underflow fallback (live-proven: "office look for women"
@@ -1060,6 +1236,8 @@ def _find_best_candidate(
                 neutral_fallback_ids=set(),
                 body_type=body_type,
                 body_modifiers=body_modifiers,
+                formality_override=formality_override,
+                price_outlier_cap=price_outlier_cap,
             )
 
     if not scored:
@@ -1081,6 +1259,7 @@ def swap_slot_in_look(
     pairing_stats: dict | None = None,
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
+    formality_override: str | None = None,
 ) -> dict | None:
     """Replace ONLY the complement occupying ``slot_name``, keeping the seed and
     every other complement in the current session look unchanged.
@@ -1155,6 +1334,22 @@ def swap_slot_in_look(
         others_total = seed_price + sum(c.get("price_inr") or 0.0 for c in others)
         budget_remaining = budget_inr - others_total
 
+    # Absurd price-outlier guard (2026-07-25 — closes a gap flagged since
+    # 2026-07-23): compose_outfit's own per-slot loop always passes
+    # price_outlier_cap into _find_best_candidate (see its computation right
+    # before that loop), but this function never did, so "swap the
+    # footwear" (etc.) had no protection against an absurdly-priced outlier
+    # replacing a single slot — the exact same guard, just never wired into
+    # the swap path. Same logic as compose_outfit: anchor against the SEED
+    # item's own price (never one of the OTHER unchanged complements, and
+    # never the slot being replaced), skipped when the user gave an explicit
+    # budget (budget_remaining already bounds price there) or the seed has
+    # no catalogue price (owned/uploaded anchor).
+    _anchor_price_for_cap = seed_item.get("price_inr") or 0.0
+    price_outlier_cap: float | None = None
+    if budget_inr is None and _anchor_price_for_cap > 0:
+        price_outlier_cap = _anchor_price_for_cap * _PRICE_OUTLIER_FACTOR
+
     new_candidate = _find_best_candidate(
         query=slot_spec.search_query,
         slot_name=slot_spec.slot_name,
@@ -1168,8 +1363,10 @@ def swap_slot_in_look(
         pairing_stats=pairing_stats,
         anchor_class=anchor_class,
         seen_stores=seen_stores,
+        price_outlier_cap=price_outlier_cap,
         body_type=body_type,
         body_modifiers=body_modifiers,
+        formality_override=formality_override,
     )
     if new_candidate is None:
         return None
@@ -1258,10 +1455,36 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
             else "lehenga anarkali saree wedding ethnic formal"
         ),
         "traditional_ethnic": "saree lehenga traditional ethnic",
+        "diwali": (
+            "kurta bandhgala festive gold embellished"
+            if is_men
+            else "lehenga saree anarkali gold embellished festive glam"
+        ),
+        "navratri": (
+            "kurta bright colourful festive dance"
+            if is_men
+            else "chaniya choli lehenga bright colourful dance garba"
+        ),
+        "karva_chauth": (
+            "kurta red traditional ethnic"
+            if is_men
+            else "red saree lehenga traditional bridal ethnic"
+        ),
+        "raksha_bandhan": ("kurta casual festive light" if is_men else "kurti casual festive light"),
+        "eid": (
+            "kurta pajama pastel elegant festive"
+            if is_men
+            else "anarkali kurta set pastel elegant festive"
+        ),
         "party_evening": ("shirt formal party" if is_men else "dress evening party top formal"),
         "office": ("shirt formal office" if is_men else "top blouse formal shirt"),
         "smart_casual": ("shirt casual" if is_men else "top casual blouse"),
         "casual": ("shirt casual tshirt" if is_men else "blouse top casual women"),
+        "gym": (
+            "t-shirt shorts joggers gym athletic"
+            if is_men
+            else "sports bra leggings gym athletic activewear"
+        ),
     }
     return queries.get(occasion_slug, "top casual")
 

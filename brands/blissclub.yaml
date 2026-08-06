@@ -1,0 +1,23 @@
+display_name: "BlissClub"
+logo_url: null
+primary_colour: "#1E1B4B"
+accent_colour: "#E8F5C8"
+tagline: "Women's activewear — leggings, sports bras and gym-to-street athleisure"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): 0/181 rows carry an explicit "men" token vs 2 explicit
+# "women" tokens, and there is no men's line at all in the raw feed -- every
+# dominant category is a women's-only silhouette (sports bras: 14 rows across
+# "Bra"/"comfort sports bra"/"Powerup sports bra" types, leggings: 24 rows,
+# built-in-bra tank tops, maternity leggings, swim dresses). "women" is the
+# evidence-backed default.
+gender_default: "women"
+catalogue_path: "data/raw/shopify/blissclub/products.csv"
+pdp_url_template: "https://blissclub.com/products/{handle}"
+suggestion_chips:
+  - "Sports bra for gym"
+  - "High waist leggings for workout"
+  - "Joggers for gym"
+  - "Cloud shorts for yoga"
+  - "Gym tank top for women"

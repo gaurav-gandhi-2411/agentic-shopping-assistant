@@ -280,6 +280,112 @@ class TestSwapSlotInLook:
         assert new_bottom["article_id"] == "C3"
 
 
+class _SwapBottomOutlierFakeRetriever:
+    """Bottom-slot query returns an absurdly-priced outlier (highest score) plus
+    a reasonably-priced alternative — mirrors the real live-proven repro shape
+    (compose_outfit's own price-outlier guard test fixture)."""
+
+    def __init__(self, outlier_price: float) -> None:
+        self._outlier_price = outlier_price
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None  # noqa: ARG002
+    ) -> list[dict]:
+        if "trousers" in query or "jeans" in query or "skirt" in query:
+            return [
+                {
+                    "article_id": "OUTLIER",
+                    "prod_name": "Designer Trousers",
+                    "display_name": "Designer Trousers",
+                    "store": "myntra",
+                    "colour": "black",
+                    "product_type": "Trousers",
+                    "detail_desc": "",
+                    "score": 0.99,  # highest score — would win without the guard
+                    "price_inr": self._outlier_price,
+                    "gender": "women",
+                },
+                {
+                    "article_id": "C3",
+                    "prod_name": "Blue Jeans",
+                    "display_name": "Blue Jeans",
+                    "store": "myntra",
+                    "colour": "blue",
+                    "product_type": "Jeans",
+                    "detail_desc": "",
+                    "score": 0.9,
+                    "price_inr": 899.0,
+                    "gender": "women",
+                },
+            ]
+        return []
+
+
+class TestSwapSlotInLookPriceOutlierGuard:
+    """2026-07-25: swap_slot_in_look's _find_best_candidate call never passed
+    price_outlier_cap, unlike every other call site (compose_outfit's own
+    per-slot loop) — so "swap the {slot}" had no protection against an
+    absurdly-priced outlier replacing a single slot. Mirrors compose_outfit's
+    own price-outlier guard test shape (_PRICE_OUTLIER_FACTOR=8.0)."""
+
+    def test_outlier_priced_candidate_rejected_when_no_explicit_budget(self) -> None:
+        base = _compose_base_look(price_inr=799.0)  # cap = 799 * 8.0 = 6392
+        new_look = swap_slot_in_look(
+            _SwapBottomOutlierFakeRetriever(outlier_price=50000.0),
+            seed_item=base["seed_item"],
+            complements=base["complements"],
+            slot_name="bottom",
+            occasion_slug="casual",
+            gender="women",
+        )
+        assert new_look is not None
+        new_bottom = next(c for c in new_look["complements"] if c["_slot"] == "bottom")
+        assert new_bottom["article_id"] == "C3", (
+            "the Rs50,000 outlier (highest score) must be rejected in favour of "
+            "the Rs899 alternative, same guard compose_outfit already applies"
+        )
+
+    def test_candidate_just_under_the_cap_is_accepted(self) -> None:
+        """Precision check: the guard must not be so aggressive it rejects a
+        genuinely pricier-but-reasonable complement (e.g. a sherwani/bandhgala
+        accent piece) — only the true outlier above 8x the anchor price."""
+        base = _compose_base_look(price_inr=799.0)  # cap = 6392
+        new_look = swap_slot_in_look(
+            _SwapBottomOutlierFakeRetriever(outlier_price=6000.0),  # under cap
+            seed_item=base["seed_item"],
+            complements=base["complements"],
+            slot_name="bottom",
+            occasion_slug="casual",
+            gender="women",
+        )
+        assert new_look is not None
+        new_bottom = next(c for c in new_look["complements"] if c["_slot"] == "bottom")
+        assert new_bottom["article_id"] == "OUTLIER", (
+            "Rs6000 is under the Rs6392 cap and has the highest score — must win"
+        )
+
+    def test_guard_skipped_when_explicit_budget_given(self) -> None:
+        """Matches compose_outfit's documented behaviour: an explicit budget is
+        an intentional request for expensive items, so the outlier cap is
+        skipped entirely (budget_remaining is the only gate in that case)."""
+        base = _compose_base_look(price_inr=799.0)
+        new_look = swap_slot_in_look(
+            _SwapBottomOutlierFakeRetriever(outlier_price=5000.0),
+            seed_item=base["seed_item"],
+            complements=base["complements"],
+            slot_name="bottom",
+            occasion_slug="casual",
+            gender="women",
+            budget_inr=50000.0,  # explicit budget — outlier cap skipped
+        )
+        assert new_look is not None
+        new_bottom = next(c for c in new_look["complements"] if c["_slot"] == "bottom")
+        assert new_bottom["article_id"] == "OUTLIER", (
+            "explicit budget_inr must skip the outlier-cap guard entirely, "
+            "same as compose_outfit"
+        )
+
+
 # ---------------------------------------------------------------------------
 # owned-anchor budget fix (compose_outfit)
 # ---------------------------------------------------------------------------

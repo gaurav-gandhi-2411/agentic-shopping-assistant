@@ -40,11 +40,13 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Unauthenticated users may only access /login, /auth/*, /demo/*, /embed/*, /pdp-demo/*, /look/*.
+  // Unauthenticated users may only access /login, /auth/*, /demo/*, /embed/*, /pdp-demo/*, /look/*, /saved-looks*.
   // /embed and /pdp-demo are public-facing widget routes — they bootstrap their
   // own anonymous demo session via POST /demo/session (same as /demo).
   // /look/[id] is a capability URL (unguessable UUID) for sharing saved looks —
   // it must be publicly viewable without login, like a shared link.
+  // /saved-looks reads only localStorage (no backend session needed) and is the
+  // retrieval surface for looks saved during an anonymous demo session.
   if (
     !user &&
     !pathname.startsWith("/login") &&
@@ -53,6 +55,7 @@ export async function middleware(request: NextRequest) {
     !pathname.startsWith("/embed") &&
     !pathname.startsWith("/pdp-demo") &&
     !pathname.startsWith("/look") &&
+    !pathname.startsWith("/saved-looks") &&
     // Site-wide OG card (app/opengraph-image.tsx): fetched by link-preview
     // crawlers (WhatsApp/Twitter) with no session — gating it behind auth
     // serves them the login page instead of the image.

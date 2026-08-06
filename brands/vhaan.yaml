@@ -1,0 +1,26 @@
+display_name: "Vhaan"
+logo_url: null
+primary_colour: "#4E342E"
+accent_colour: "#F2E6DE"
+tagline: "Men's leather footwear, wallets and Kolhapuri chappals"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Catalogue (97 rows after in-stock/price filtering) is men's-leather-goods
+# dominant -- 55 rows carry an explicit "men"/"male" token ("Men's
+# Footwear", "Mens Kolhapuri") vs 19 explicit "women" rows ("Women's
+# Footwear") -- plus gender-neutral leather accessories (wallets, card
+# holders, belts, and repair parts like "Kolhapuri Naal" and "Rubber Sole"
+# priced Rs.99-200, which are legitimate low-cost spare parts, not data
+# errors). Per-item scan (src.catalogue.adapter.derive_item_gender) resolves
+# the explicit rows correctly; "mixed" (not "men") preserves the genuine
+# women's footwear line and leaves neutral accessories as "unknown".
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/vhaan/products.csv"
+pdp_url_template: "https://vhaan.in/products/{handle}"
+suggestion_chips:
+  - "Men's leather Kolhapuri chappal"
+  - "Women's leather footwear"
+  - "Leather wallet under 1000"
+  - "Handcrafted leather card holder"
+  - "Men's formal leather footwear"

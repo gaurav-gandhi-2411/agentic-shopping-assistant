@@ -98,9 +98,61 @@ _CLIP_UNIFIED_DIR = _CLIP_DIR / "unified"
 EXCLUDED_STORES: frozenset[str] = frozenset({"hm", "berrylush"})
 
 # Canonical set of live stores included in the unified index (all have working deep-links + images).
+# vastramay/kisah/mohanlalsons added 2026-07-19 (men's-ethnic depth wave — sherwani/bandhgala/
+# kurta-set inventory). Per-brand data/processed/<brand>/ has NOT been built yet for these
+# three — this registration is inert until a per-brand index build (01_build_retrieval.py)
+# runs against their raw CSVs in data/raw/shopify/{vastramay,kisah,mohanlalsons}/products.csv.
+# kraftojodhpur/coralhaze/houseofvian added 2026-07-19 (ethnic-footwear wedge — jutti/mojari/
+# kolhapuri gap). Same caveat: per-brand data/processed/<brand>/ has NOT been built yet; this
+# registration is inert until a per-brand index build runs against
+# data/raw/shopify/{kraftojodhpur,coralhaze,houseofvian}/products.csv.
+# sukkhi/priyaasi/voylla/ishhaara added 2026-07-19 (fashion/imitation jewellery gap). Same
+# caveat: per-brand data/processed/<brand>/ has NOT been built yet; this registration is inert
+# until a per-brand index build runs against
+# data/raw/shopify/{sukkhi,priyaasi,voylla,ishhaara}/products.csv.
+# kalpraag/jompers/jadeblue/tjori added 2026-07-19 (round-2 men's-ethnic depth wave — luxury
+# sherwani tier, Nehru-jacket/kurta-pyjama depth, established-chain shirts+kurta-pyjama; tjori
+# is a genuinely mixed men's+women's catalogue, gender_default left "mixed" so per-item
+# inference resolves it). Same caveat: per-brand data/processed/<brand>/ has NOT been built
+# yet; this registration is inert until a per-brand index build runs against
+# data/raw/shopify/{kalpraag,jompers,jadeblue,tjori}/products.csv.
+# rathore/bhasinbrothers added 2026-07-19 (premium men's-ethnic depth — bandhgala/sherwani/
+# achkan; unblocked via the curl.exe Cloudflare-TLS-fingerprint fallback in
+# scripts/download_shopify.py). Same caveat: per-brand data/processed/<brand>/ has NOT been
+# built yet; this registration is inert until a per-brand index build runs against
+# data/raw/shopify/{rathore,bhasinbrothers}/products.csv.
+# korakari/juttichooindia/shopkop/irasoles/chappers/5-elements/taurjuttis/vhaan/fizzygoblet/
+# kalapuri added 2026-07-19 (round-2 ethnic-footwear inventory gap — jutti/Kolhapuri/Peshawari
+# depth across men's, women's and mixed-gender catalogues; kalapuri and 5-elements are
+# dual-category stores spanning footwear plus jewellery/lifestyle goods respectively, see their
+# brands/*.yaml comments). Same caveat: per-brand data/processed/<brand>/ has NOT been built
+# yet; this registration is inert until a per-brand index build runs against
+# data/raw/shopify/{korakari,juttichooindia,shopkop,irasoles,chappers,5-elements,taurjuttis,
+# vhaan,fizzygoblet,kalapuri}/products.csv.
+# blissclub/silvertraq added 2026-07-23 (activewear/gym-query inventory gap — women's sports
+# bras, leggings, joggers/track pants were too thin catalogue-wide to honestly serve gym
+# queries; both unblocked via the download_shopify.py curl.exe fallback after it was extended
+# to also treat a plain, marker-less HTTP 503 as block-shaped — see that script's module
+# docstring). Per-brand data/processed/{blissclub,silvertraq}/ was built via 01_build_retrieval.py
+# before this registration lands, so unlike the entries above this pair is NOT inert.
+# campusshoes added 2026-07-24 (activewear-footwear gap — women's genuine athletic shoes were
+# ~0-2 rows catalogue-wide; campusshoes.com is a mixed-gender Shopify store with 485 women's
+# and 1,363 men's in-stock rows, real depth on running/sneakers/walking/sports shoes for both
+# genders). Per-brand data/processed/campusshoes/ (dense+bm25) and data/processed/clip/campusshoes/
+# were both built via 01_build_retrieval.py / build_clip_index.py before this registration
+# lands, so this entry is NOT inert.
 UNIFIED_STORES: tuple[str, ...] = (
     "myntra", "flipkart", "snitch", "fashor", "powerlook", "virgio",
-    "globalrepublic", "libas",
+    "globalrepublic", "libas", "vastramay", "kisah", "mohanlalsons",
+    "kraftojodhpur", "coralhaze", "houseofvian",
+    "sukkhi", "priyaasi", "voylla", "ishhaara",
+    "theamethyststore", "southtemplejewellery", "daivik", "mortantra", "thejewelbox",
+    "kalpraag", "jompers", "jadeblue", "tjori",
+    "rathore", "bhasinbrothers",
+    "korakari", "juttichooindia", "shopkop", "irasoles", "chappers",
+    "5-elements", "taurjuttis", "vhaan", "fizzygoblet", "kalapuri",
+    "blissclub", "silvertraq",
+    "campusshoes",
 )
 
 # Directory layout: all brands live in data/processed/<brand>/

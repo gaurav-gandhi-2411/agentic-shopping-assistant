@@ -1,0 +1,22 @@
+display_name: "Korakari"
+logo_url: null
+primary_colour: "#B5502B"
+accent_colour: "#FBEEE2"
+tagline: "Handcrafted jutti & Kolhapuri chappals for men and women"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Catalogue is a near-even men/women split (62 rows carry an explicit
+# "women"/"ladies" token, 58 carry "men"/"male", 9 unlabeled -- mostly
+# wallets/gift-type rows) resolved per-item via title+type keyword scan
+# (src.catalogue.adapter.derive_item_gender). "mixed" leaves the small
+# unlabeled remainder as "unknown" rather than forcing a majority gender.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/korakari/products.csv"
+pdp_url_template: "https://korakari.com/products/{handle}"
+suggestion_chips:
+  - "Men's Kolhapuri sandals under 2000"
+  - "Women's embroidered jutti for festive wear"
+  - "Comfortable jutti for daily wear"
+  - "Bantu style mojaris for men"
+  - "Leather sandals for wedding season"

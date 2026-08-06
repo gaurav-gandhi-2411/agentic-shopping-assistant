@@ -12,12 +12,26 @@ where <slug> is the first segment of the domain (e.g. "snitch" from "snitch.co.i
 
 Checks robots.txt before fetching. Skips if /products.json returns non-Shopify content.
 Pauses 0.5 s between pages. Max 60 pages (15 000 products).
+
+Cloudflare/edge TLS-fingerprint fallback (2026-07-19, extended 2026-07-23): several
+Indian D2C Shopify stores sit behind bot-management that fingerprints Python's
+requests/OpenSSL TLS ClientHello and returns HTTP 429 "Verifying your connection..."
+or a plain HTTP 503 — while curl.exe (Windows' native Schannel TLS stack) gets a
+normal 200 on the identical URL. This is a TLS-fingerprint-level block, not a true
+rate limit (retrying with different headers/UA does not help). When a request
+returns a block-shaped response (HTTP 429, any HTTP 503, or a 200 body containing a
+Cloudflare challenge marker), _get() transparently retries that single request via
+`curl.exe` (subprocess) and wraps the stdout in a requests.Response look-alike so all
+downstream code (pagination, JSON parsing, robots check) is unchanged. requests
+remains the default/primary path — curl is only invoked on a detected block, so the
+common (unblocked) case pays no subprocess overhead.
 """
 from __future__ import annotations
 
 import argparse
 import html
 import re
+import subprocess
 import sys
 import time
 import urllib.robotparser
@@ -30,6 +44,102 @@ MAX_PAGES = 60
 PAGE_SIZE = 250
 PAUSE_S = 0.5
 UA = "Mozilla/5.0 (compatible; demo-pull/1.0; +https://github.com/gaurav-gandhi-2411)"
+
+# Substrings seen in Cloudflare's bot-management challenge/interstitial page —
+# case-sensitive markers Cloudflare actually emits, checked case-insensitively below.
+_CLOUDFLARE_MARKERS: tuple[str, ...] = (
+    "verifying your connection",
+    "checking your browser",
+    "cf-browser-verification",
+    "cloudflare",
+    "attention required",
+)
+
+
+def _looks_like_cloudflare_challenge(resp: requests.Response) -> bool:
+    """Return True if *resp* looks like a Cloudflare/edge bot-management block.
+
+    HTTP 429 from these stores is not a real rate limit — it's Cloudflare's TLS
+    fingerprint check rejecting python-requests' OpenSSL ClientHello. A 200 body
+    containing a known Cloudflare challenge marker is treated the same way.
+
+    HTTP 503 is treated as block-shaped unconditionally (2026-07-23: blissclub.com
+    and silvertraq.com both return Shopify's generic branded 503 error page — no
+    "cloudflare" marker in the body, just Shopify's own edge rejecting the
+    ClientHello — while curl.exe reaches the real 200 on the identical URL). A
+    genuine, non-block 503 would fail either way, so retrying once via curl on
+    every 503 costs nothing in the failure case and recovers the block case.
+    """
+    if resp.status_code == 429:
+        return True
+    if resp.status_code == 503:
+        return True
+    if resp.status_code == 200:
+        body_lower = resp.text[:2000].lower()
+        return any(marker in body_lower for marker in _CLOUDFLARE_MARKERS)
+    return False
+
+
+class _CurlResponse:
+    """Minimal requests.Response look-alike wrapping curl.exe's stdout.
+
+    Only the surface used by this script (status_code, text, .json()) is
+    implemented — just enough for fetch_all_products()/probe logic to treat it
+    identically to a real requests.Response.
+    """
+
+    def __init__(self, text: str, status_code: int = 200) -> None:
+        self.text = text
+        self.status_code = status_code
+
+    def json(self) -> dict:
+        import json
+
+        return json.loads(self.text)
+
+
+def _curl_fallback(url: str, timeout: int) -> _CurlResponse:
+    """Fetch *url* via curl.exe (Windows' native Schannel TLS stack).
+
+    Used only when a request via `requests` looks like a Cloudflare TLS-fingerprint
+    block (see _looks_like_cloudflare_challenge) — curl's TLS ClientHello is not
+    fingerprinted the same way python-requests'/OpenSSL's is, so it reaches the
+    real origin response instead of the challenge page.
+
+    Raises subprocess.CalledProcessError if curl.exe itself fails (network error,
+    non-2xx handled by caller via the returned body/status).
+
+    encoding="utf-8" is explicit (2026-07-23 fix): subprocess.run's text=True alone
+    decodes stdout using the OS default codepage (cp1252 on Windows), which raises
+    UnicodeDecodeError on any non-Latin-1 byte in a product description — Shopify's
+    /products.json is always UTF-8 regardless of the host locale.
+    """
+    result = subprocess.run(
+        ["curl.exe", "-s", "-A", UA, "--max-time", str(timeout), url],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    return _CurlResponse(result.stdout, status_code=200)
+
+
+def _get(session: requests.Session, url: str, timeout: int) -> requests.Response | _CurlResponse:
+    """GET *url* via requests; fall back to curl.exe on a Cloudflare-shaped block.
+
+    requests is always tried first (common case, no subprocess overhead). Only when
+    the response looks like a Cloudflare challenge do we retry the SAME request via
+    curl.exe and return that instead.
+    """
+    resp = session.get(url, timeout=timeout)
+    if _looks_like_cloudflare_challenge(resp):
+        print(f"  [INFO] Cloudflare-shaped block on {url} (HTTP {resp.status_code}) — retrying via curl.exe.")
+        try:
+            return _curl_fallback(url, timeout)
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"  [WARN] curl.exe fallback failed: {exc}")
+            return resp
+    return resp
 
 
 def _domain_slug(domain: str) -> str:
@@ -67,7 +177,7 @@ def fetch_all_products(domain: str, session: requests.Session) -> list[dict]:
     for page in range(1, MAX_PAGES + 1):
         url = f"https://{domain}/products.json?limit={PAGE_SIZE}&page={page}"
         try:
-            resp = session.get(url, timeout=15)
+            resp = _get(session, url, timeout=15)
         except requests.RequestException as exc:
             print(f"  [WARN] page {page} failed: {exc}")
             break
@@ -182,7 +292,7 @@ def main() -> None:
     # Probe
     probe_url = f"https://{domain}/products.json?limit=1"
     try:
-        probe = session.get(probe_url, timeout=10)
+        probe = _get(session, probe_url, timeout=10)
     except requests.RequestException as exc:
         print(f"[ERROR] Cannot reach {domain}: {exc}", file=sys.stderr)
         sys.exit(1)

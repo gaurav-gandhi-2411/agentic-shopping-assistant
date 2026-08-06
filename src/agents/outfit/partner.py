@@ -39,6 +39,7 @@ from src.agents.outfit.coherence import couple_harmony_palette
 from src.agents.outfit.composer import _anchor_matches_occasion, compose_outfit
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import gender_allowed
+from src.catalogue.cleaning import has_gender_text_conflict
 from src.retrieval.hybrid_search import HybridRetriever
 
 # ── Intent detection ────────────────────────────────────────────────────────
@@ -56,8 +57,24 @@ _WOMEN_WORD_RE = re.compile(r"\b(wife|girlfriend)\b", re.IGNORECASE)
 
 # Weaker signal: only counts alongside an explicit styling/coordination verb
 # in the SAME query — mirrors the "for him"/"for her" treatment below.
-_GROOM_RE = re.compile(r"\bgroom\b", re.IGNORECASE)
-_BRIDE_RE = re.compile(r"\bbride\b", re.IGNORECASE)
+# Negative lookahead excludes "groom's"/"bride's" immediately followed by a
+# RELATIONAL noun (sister, brother, mother, ...) — that phrasing names a
+# THIRD PARTY related to the groom/bride ("groom's sister outfit ideas"), not
+# a request to style the groom/bride themselves, and must not be confused
+# with a direct-object garment/styling phrase ("groom's sherwani", "the groom
+# needs a matching look"). Live-proven 2026-07-12: "groom's sister outfit
+# ideas" (a first-person wedding-guest query) misrouted into partner-styling
+# because "groom" + "outfit" co-occurred, same as the direct-styling case.
+_RELATIONAL_NOUN_ALT = (
+    r"sisters?|brothers?|mothers?|fathers?|moms?|dads?|family|friends?|"
+    r"cousins?|siblings?|aunts?|uncles?|side"
+)
+_GROOM_RE = re.compile(
+    rf"\bgroom\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)", re.IGNORECASE
+)
+_BRIDE_RE = re.compile(
+    rf"\bbride\b(?!(?:'s)?\s+(?:{_RELATIONAL_NOUN_ALT})\b)", re.IGNORECASE
+)
 
 # Words that name a partner WITHOUT implying a specific gender — resolved
 # against the anchor look's own gender (opposite of it) by resolve_partner_gender.
@@ -77,6 +94,24 @@ _STYLING_VERB_RE = re.compile(
     r"\b(style|wear|match|matching|coordinate|coordinated|outfit|dress|look)\b",
     re.IGNORECASE,
 )
+
+# 2026-08-06 live-proven fix: "groom outfit for men" / "groom accessories look
+# for men" / "bride outfit for women" false-triggered partner-styling intent
+# via _GROOM_RE/_BRIDE_RE below (styling verb + groom/bride, no relational-
+# noun exclusion applies) even though these queries explicitly restate the
+# role's OWN natural gender in the same breath -- a genuine partner-styling
+# query never does this ("the groom needs a matching look" states no gender
+# at all; a real "style my partner" request wants the groom/bride's own look,
+# not a redundant re-statement of it). This is a plain first-person occasion+
+# gender request, structurally identical to "wedding outfit for men", and
+# must resolve via the deterministic occasion-outfit path (graph.py's
+# _OUTFIT_OCCASION_RE branch), not the cross-gender partner-look path.
+# "groom ... for women" / "bride ... for men" (gender-INCONSISTENT with the
+# role) are deliberately NOT excluded here -- that contradiction is itself a
+# signal something unusual is being asked (possibly genuinely about a
+# partner), left to the existing behaviour.
+_FOR_MEN_RE = re.compile(r"\bfor\s+men\b", re.IGNORECASE)
+_FOR_WOMEN_RE = re.compile(r"\bfor\s+women\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -112,6 +147,13 @@ def detect_partner_intent(raw_query: str) -> PartnerIntent:
 
     Never fires on ambiguous phrasing with no relationship signal at all —
     e.g. "also show me shirts" or "women's shirts for me too".
+
+    Also never fires on "groom's"/"bride's" immediately followed by a
+    RELATIONAL noun (sister, brother, mother, family, side, ...) — that
+    names a third party related to the groom/bride, not the groom/bride
+    themselves, even with a styling verb in the same query — e.g. "groom's
+    sister outfit ideas" is a first-person wedding-guest query, not a
+    request to style the groom.
     """
     if _HIS_AND_HERS_RE.search(raw_query):
         return PartnerIntent(True, "opposite", "his and hers")
@@ -133,9 +175,17 @@ def detect_partner_intent(raw_query: str) -> PartnerIntent:
         return PartnerIntent(True, "men", "for him")
     if has_styling_verb and _FOR_HER_RE.search(raw_query):
         return PartnerIntent(True, "women", "for her")
-    if has_styling_verb and _GROOM_RE.search(raw_query):
+    if (
+        has_styling_verb
+        and _GROOM_RE.search(raw_query)
+        and not _FOR_MEN_RE.search(raw_query)
+    ):
         return PartnerIntent(True, "men", "groom")
-    if has_styling_verb and _BRIDE_RE.search(raw_query):
+    if (
+        has_styling_verb
+        and _BRIDE_RE.search(raw_query)
+        and not _FOR_WOMEN_RE.search(raw_query)
+    ):
         return PartnerIntent(True, "women", "bride")
 
     return PartnerIntent(False, None, None)
@@ -231,12 +281,26 @@ def compose_partner_look(
     palette = couple_harmony_palette(anchor_colour)
     seed_query = _partner_seed_query(occasion_slug, partner_gender, palette)
 
-    candidates = retriever.search(seed_query, top_k=15, filters={"gender": partner_gender})
+    # 2026-07-19 fix: mirror composer.compose_outfit's anchor-window widening
+    # for the same budget-blind-truncation defect — a fixed top_k here would
+    # let a handful of newly-added premium-tier brands crowd out affordable
+    # in-budget seed candidates before the budget gate below ever sees them.
+    # No-op (top_k stays 15) when no budget is stated.
+    _seed_top_k = 30 if budget_inr is not None else 15
+    candidates = retriever.search(seed_query, top_k=_seed_top_k, filters={"gender": partner_gender})
     valid = [
         c
         for c in candidates
         if _anchor_matches_occasion(c, occasion_slug)
         and gender_allowed((c.get("gender") or "unknown").lower(), partner_gender)
+        # 2026-08-06 cross-gender leak fix: same catalogue gender-column
+        # unreliability composer.compose_outfit's own anchor selection now
+        # guards against (see has_gender_text_conflict's docstring) —
+        # applies here too since a partner-look ANCHOR is exactly the same
+        # kind of candidate.
+        and not has_gender_text_conflict(
+            c.get("prod_name") or c.get("display_name") or "", partner_gender
+        )
     ]
     # Budget gate (mirrors compose_outfit's occasion-driven anchor path, commit
     # 85078b1): reject over-budget seed candidates before any complement is
@@ -402,9 +466,19 @@ def build_coordinated_with_text(anchor_item: dict, partner_look: dict, occasion_
         cream complement it at the same smart-casual level."
     """
     anchor_colour = (anchor_item.get("colour") or "").lower().strip()
+    # 2026-07-24 sweep (same failure class as rationale._display_noun's
+    # sports_bra leak fix): anchor_item["product_type"] is a raw catalogue
+    # facet — e.g. "sports_bra" — read directly into this deterministic
+    # user-facing sentence with no humanization at all. Sanitizing the
+    # underscore here is the minimal, consistent fix (mirrors the identical
+    # ".replace('_', ' ')" idiom already used throughout this file/rationale.py/
+    # composer.py/graph.py for occasion_slug/body_type/slot_name); a full
+    # vocabulary-based humanization (_display_noun) is deliberately not
+    # imported here to keep this fix minimal and avoid new cross-module
+    # coupling to rationale.py's private helpers.
     anchor_type = (
         (anchor_item.get("product_type") or anchor_item.get("prod_name") or "item")
-    ).lower().strip()
+    ).lower().strip().replace("_", " ")
     anchor_desc = f"{anchor_colour} {anchor_type}".strip() if anchor_colour else anchor_type
 
     seed = partner_look.get("seed_item") or {}

@@ -150,6 +150,36 @@ class TestDetectPartnerIntentNegatives:
         result = detect_partner_intent("")
         assert result.matched is False
 
+    def test_groom_outfit_for_men_does_not_trigger(self) -> None:
+        # 2026-08-06 live-proven fix: "groom outfit for men" false-triggered
+        # partner-styling (matched=True, gender_hint="men") even though it's
+        # a plain first-person occasion+gender request, structurally
+        # identical to "wedding outfit for men" -- the query explicitly
+        # restates "groom"'s own natural gender ("for men"), which a genuine
+        # partner-styling request never does. This was the actual root
+        # cause of a live "groom outfit for men" -> women's-look bug: the
+        # partner-look branch fired instead of the deterministic occasion-
+        # outfit path, which resolves gender correctly.
+        result = detect_partner_intent("groom outfit for men")
+        assert result.matched is False
+
+    def test_groom_accessories_look_for_men_does_not_trigger(self) -> None:
+        result = detect_partner_intent("groom accessories look for men")
+        assert result.matched is False
+
+    def test_bride_outfit_for_women_does_not_trigger(self) -> None:
+        result = detect_partner_intent("bride outfit for women")
+        assert result.matched is False
+
+    def test_groom_gender_inconsistent_for_women_still_triggers(self) -> None:
+        # Negative control: "groom ... for WOMEN" (inconsistent with groom's
+        # own natural gender) is deliberately NOT excluded -- the
+        # contradiction itself is a signal something unusual is being
+        # asked, left to the existing partner-styling behaviour.
+        result = detect_partner_intent("groom outfit for women")
+        assert result.matched is True
+        assert result.gender_hint == "men"
+
 
 # ---------------------------------------------------------------------------
 # 2. resolve_partner_gender
@@ -232,6 +262,25 @@ class TestBuildCoordinatedWithText:
         }
         text = build_coordinated_with_text(anchor_item, partner_look, "office")
         assert text.lower().count("grey") == 1
+
+    def test_snake_case_product_type_never_leaks_underscore(self) -> None:
+        """2026-07-24 sweep fix: same failure class as
+        rationale._display_noun's live-proven sports_bra leak — this function
+        reads anchor_item["product_type"] directly with no humanization at
+        all, so a raw activewear facet value ("sports_bra") previously leaked
+        the underscore verbatim into this deterministic (no-LLM) sentence."""
+        anchor_item = {
+            "colour": "Black",
+            "product_type": "sports_bra",
+            "prod_name": "Ultimate Comfort Sports Bra",
+        }
+        partner_look = {
+            "seed_item": {"colour": "Navy"},
+            "complements": [{"colour": "Grey"}],
+        }
+        text = build_coordinated_with_text(anchor_item, partner_look, "gym")
+        assert "_" not in text
+        assert "sports bra" in text.lower()
 
 
 # ---------------------------------------------------------------------------

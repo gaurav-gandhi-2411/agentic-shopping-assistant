@@ -77,8 +77,40 @@ class TestIntentParsingNewOccasions:
     def test_shaadi_guest_look(self) -> None:
         assert parse_intent("shaadi guest look").occasion == "wedding_guest"
 
+    def test_bridal_look(self) -> None:
+        """2026-07-30 fix: "bridal" was previously unmapped in _OCCASION_MAP,
+        which left every occasion-gated protection (merchandise gate,
+        loungewear gate, coherence gates, footwear-required gate) inert for
+        "bridal ..." queries. Mapped to wedding_guest (register-consistent,
+        no dedicated "bridal" catalogue Occasion exists)."""
+        assert parse_intent("bridal look for women").occasion == "wedding_guest"
+
     def test_cocktail(self) -> None:
-        assert parse_intent("cocktail party outfit").occasion == "reception"
+        assert parse_intent("cocktail party outfit").occasion == "party_evening"
+
+    def test_groom_outfit(self) -> None:
+        assert parse_intent("groom outfit for men").occasion == "wedding_guest"
+
+    def test_dulhan_look(self) -> None:
+        assert parse_intent("dulhan look for women").occasion == "wedding_guest"
+
+    def test_baraat_outfit(self) -> None:
+        assert parse_intent("baraat outfit for men").occasion == "wedding_guest"
+
+    def test_nikah_outfit(self) -> None:
+        assert parse_intent("nikah outfit for women").occasion == "wedding_guest"
+
+    def test_bride_outfit(self) -> None:
+        # 2026-08-06: "bride" -- the English counterpart to "dulhan" -- was
+        # never audited/added at the same time. 1,358 rows word-boundary
+        # matching "bride" (31 in prod_name alone: Necklace, Earrings,
+        # Oddiyanam, Jewelry, Nath, Bangles -- 100% genuine bridal jewellery/
+        # apparel), zero collision risk (word-boundary excludes
+        # "bridesmaid"/"bridge").
+        assert parse_intent("bride outfit for women").occasion == "wedding_guest"
+
+    def test_anniversary_party_outfit(self) -> None:
+        assert parse_intent("anniversary party outfit for women").occasion == "party_evening"
 
 
 # ── (d) anchor query non-empty + contains signature tokens ──────────────────
@@ -196,3 +228,54 @@ class TestNewOccasionFastPathRouting:
 
     def test_cocktail_look_routes_to_outfit(self) -> None:
         assert _routes_to_outfit("cocktail look") is True
+
+
+class TestGenderedWeddingTermFastPathRouting2026_08_06:
+    """2026-08-06 root-cause fix: _OUTFIT_OCCASION_RE/_OCCASION_LOOK_RE were
+    hand-maintained regexes duplicating intent_parser._OCCASION_MAP's own
+    keyword list -- they drifted out of sync every time a new occasion term
+    was added to the map but not to these two copies. Live-proven bug:
+    "groom outfit for men" resolved a WOMEN'S composed look despite the
+    explicit "for men", because "groom" (added to _OCCASION_MAP 2026-07-30)
+    was never added to _OUTFIT_OCCASION_RE, so the query fell through the
+    RELIABLE deterministic router_node fast path (which reuses
+    intent_parser's own already-correct occasion/gender extraction) to
+    router_backend.decide()'s LLM path, whose few-shot prompt has no
+    "groom" example and does not reliably infer gender=men from it alone.
+    Fixed by building both regexes FROM _OCCASION_MAP's keys, so this
+    specific drift can never recur. Same gap existed for "dulhan"/"baraat"/
+    "nikah"/"bridal"/"anniversary" (all added to _OCCASION_MAP the same day,
+    all missing from both regexes) -- verified fixed for all of them here.
+    """
+
+    def test_groom_outfit_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("groom outfit for men") is True
+
+    def test_dulhan_look_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("dulhan look for women") is True
+
+    def test_baraat_outfit_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("baraat outfit for men") is True
+
+    def test_nikah_outfit_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("nikah outfit for men") is True
+
+    def test_bride_outfit_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("bride outfit for women") is True
+
+    def test_bridal_look_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("bridal look for women") is True
+
+    def test_anniversary_outfit_routes_to_outfit(self) -> None:
+        assert _routes_to_outfit("anniversary party outfit for women") is True
+
+    def test_groom_outfit_gender_resolves_men_via_deterministic_path(self) -> None:
+        # The actual live-proven symptom: gender must come from the query's
+        # own explicit "for men", not silently default to women.
+        intent = parse_intent("groom outfit for men")
+        assert intent.occasion == "wedding_guest"
+        assert intent.gender == "men"
+
+    def test_baraat_outfit_gender_resolves_men(self) -> None:
+        intent = parse_intent("baraat outfit for men")
+        assert intent.gender == "men"

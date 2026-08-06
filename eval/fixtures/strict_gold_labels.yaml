@@ -935,3 +935,988 @@ labels:
 - query_id: multi_014
   items:
   - {article_id: "7710573035606", relevant: true, note: "'Mirror Embroidered' — embellishment matches sangeet register; lime green = mint/green family"}
+# ── kids-leak regression labels (added 2026-07-12) ────────────────────────────
+# retrieval_snapshot: commit 880c42c (pre-fix HEAD) + the P0 kids-leak fix
+# applied on top, data/processed/unified, HybridRetriever.search(query,
+# top_k=50, filters={gender})[:5] (raw mode, mirrors R1 stage). Labeled_by:
+# Claude (Sonnet 5), same rubric as the header. Confirmed via direct
+# reproduction: on pre-fix code these two queries returned kids items
+# ("Bitiya by Bhama GIRLS...", "Cutiekins Girls...", "The Magic Wand Girls...",
+# "BownBee Girls...", "Campana Girls...") ranked alongside/above the adult
+# items labeled below; the post-fix raw-mode top-5 snapshot below contains
+# zero kids items.
+- query_id: kids_leak_001
+  items:
+  - {article_id: "14122722", relevant: true, note: "red/pink embellished ready-to-wear lehenga, bridal-appropriate register"}
+  - {article_id: "11999050", relevant: true, note: "red/gold printed lehenga with dupatta — festive-coded gold print, not plain cotton"}
+  - {article_id: "17589250", relevant: true, note: "red/yellow printed, made-to-measure — bridal tier"}
+  - {article_id: "10898760", relevant: true, note: "₹19999 red lehenga with dupatta — clearly bridal price/register tier"}
+  - {article_id: "10811418", relevant: false, reason: attribute-contradiction,
+     note: "'MIMOSA Green & Pink...Bridal Lehenga' — bridal register correct (name says Bridal) but colour is green/pink, not red-family; query named red explicitly"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "16465418", relevant: false, reason: data-ceiling,
+     note: "query asks for jewellery; catalogue has ~2 jewellery-adjacent rows total (verified scan) — retriever falls back to red/gold lehengas, no better TYPE-matching item exists"}
+  - {article_id: "18672330", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "14210976", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "11999050", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "11717870", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+
+# ── Batch 9 (2026-07-13): kids-leak fix's unconditional strip (mirrored into
+# eval_strict.py's _retrieve_pipeline, commit ffec039) changed which items
+# surface in --mode pipeline top-5 for several queries — 13 newly-surfaced
+# items hand-labeled against the same rubric so eval_gate.py runs with zero
+# unlabeled. retrieval_snapshot: commit 3f5cb32, data/processed/unified,
+# eval_strict.py --mode pipeline (mirrors search_node's filter+gate+rerank).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header. None of these 13
+# are kids/children's items — confirms _retrieve_pipeline's mirror stays
+# clean post-fix, consistent with the independent live-browser verification
+# of "red lehenga bridal" / "gold jewellery to go with red lehenga".
+- query_id: gold_002
+  items:
+  - {article_id: "10025796239657", relevant: true, note: "'Maxi Shirt Dress' explicit"}
+- query_id: gold_004
+  items:
+  - {article_id: "8245862072470", relevant: true, note: "'Straight Kurta' explicit"}
+- query_id: gold_013
+  items:
+  - {article_id: "8274559074526", relevant: true, note: "'Black...Dress' explicit"}
+- query_id: gold_014
+  items:
+  - {article_id: "8661207023766", relevant: true, note: "red embellished tissue saree — festive register plausible for wedding"}
+- query_id: gold_016
+  items:
+  - {article_id: "8494541734038", relevant: true, note: "₹649, well under the ₹1500 cap"}
+- query_id: kids_leak_001
+  items:
+  - {article_id: "16190872", relevant: true,
+     note: "red/white printed lehenga choli with dupatta — festive register, colour attribute Red matches"}
+  - {article_id: "17745514", relevant: true,
+     note: "red/green woven-design lehenga choli with dupatta — festive weave, colour attribute Red matches"}
+  - {article_id: "14976120", relevant: true,
+     note: "red/black embroidered mirror-work made-to-measure lehenga — heavily embellished, bridal tier, colour attribute Red matches"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "14122722", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "15293570", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "16190872", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "17745514", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+
+# ── Batch 10 (2026-07-13): batch-2 trust fixes (honest disclosure, price
+# grounding, ranking) + occasion-expansion formality-awareness changed which
+# items surface into top-5 for 3 queries — 4 newly-surfaced items hand-labeled
+# against the same rubric so eval_gate.py runs with zero unlabeled. The 4th
+# (kids_leak_002 rank 5) is the same pre-existing data-ceiling pattern as the
+# other 4 items already labeled for that query (jewellery query, no jewellery
+# in catalogue, lehenga items surface instead).
+# retrieval_snapshot: commit 00c04ae, data/processed/unified, eval_strict.py
+# --mode pipeline (mirrors search_node's filter+gate+rerank).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "8491606311062", relevant: true, note: "desc explicit 'Straight-fit Kurta', product_type kurta, gender women, ₹689"}
+- query_id: multi_010
+  items:
+  - {article_id: "19029826", relevant: false, reason: budget, note: "₹11250 > ₹10000 cap"}
+  - {article_id: "18069518", relevant: false, reason: colour-family,
+     note: "listed colour Lavender, not Pink — query explicitly names pink, not just 'pastel'; Lavender and Pink are distinct pastel shades (cf. line 480 Purple/Lavender-vs-wine precedent); within budget at ₹8471 but colour mismatch alone disqualifies"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+  - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
+# --- Wave-7 catalogue-merge follow-up (2026-07-19) ---
+# labeled_by: Claude (executor agent, wave-7 inventory-gap follow-up)
+# labeled_on: 2026-07-19
+# retrieval_snapshot: commit f0f0859, data/processed/unified,
+#   HybridRetriever.search(query, top_k=50, filters={gender})[:5]  (mirrors R1 stage)
+# Context: commit f0f0859 merged 31 new Shopify brands into the unified catalogue
+#   (closing ethnic-footwear/jewellery/mens-ethnic-depth gaps), nearly doubling the
+#   index. 121 of the top-5 retrieved slots came from these new brands and had no
+#   label entry yet; this block hand-labels every one of them using the same
+#   rubric/taxonomy as the 2026-07-11 header above. One note per entry states the
+#   specific product-copy evidence the label rests on. Two labels
+#   (kids_leak_002, all 5 items) explicitly supersede the stale 2026-07-11
+#   data-ceiling rationale for that query_id: the merge added ~19.7k
+#   jewellery-typed rows, so "no better item exists" no longer holds — these are
+#   now honestly re-reasoned as type-confusion (a genuine retrieval gap), not a
+#   data ceiling.
+- query_id: gold_003
+  items:
+  - {article_id: "9231168405726", relevant: true}
+- query_id: gold_004
+  items:
+  - {article_id: "8438472114326", relevant: false, reason: set-not-single, note: "'Plus Size Pink Printed Cotton Straight Kurta Set' -- desc explicit 2-piece kurta+pants"}
+  - {article_id: "8404036616414", relevant: true, note: "silhouette unstated, not contradicted"}
+- query_id: gold_005
+  items:
+  - {article_id: "17014770", relevant: true, note: "'Anarkali shape' explicit in desc"}
+  - {article_id: "7797987967198", relevant: true, note: "'Anarkali Kurta' explicit in title"}
+  - {article_id: "7621248286882", relevant: false, reason: set-not-single, note: "'Akriti Pink (Kurta Set)' -- title marks it a set"}
+- query_id: gold_007
+  items:
+  - {article_id: "9325337837826", relevant: false, reason: attribute-contradiction, note: "desc explicit 'The straight-fit, full-sleeve design' -- contradicts 'slim fit'"}
+  - {article_id: "7701130084610", relevant: true, note: "desc explicit 'slim-fit smart looking blazer'"}
+  - {article_id: "9605051810098", relevant: true, note: "'Slim Fit' explicit in title and desc"}
+  - {article_id: "7699681050882", relevant: true, note: "desc explicit 'slim-fit smart looking blazer'"}
+- query_id: gold_012
+  items:
+  - {article_id: "9210033995998", relevant: true}
+- query_id: gold_016
+  items:
+  - {article_id: "8595169280150", relevant: true, note: "kurti, Rs.1199 <= Rs.1500 cap"}
+  - {article_id: "8454969098390", relevant: true, note: "kurti, Rs.649 <= Rs.1500 cap"}
+- query_id: gold_025
+  items:
+  - {article_id: "10114837610802", relevant: true}
+- query_id: gold_026
+  items:
+  - {article_id: "15162584", relevant: true, note: "no colour named in query"}
+- query_id: gold_027
+  items:
+  - {article_id: "16911488", relevant: true, note: "Rs.1999 <= Rs.2500 cap"}
+- query_id: gold_028
+  items:
+  - {article_id: "8891596013720", relevant: false, reason: set-not-single, note: "'Multi Printed Patchwork Kurta Set' -- desc explicit kurta+trouser set"}
+  - {article_id: "9724033270066", relevant: true}
+  - {article_id: "8921516146840", relevant: true}
+  - {article_id: "9724033335602", relevant: true}
+  - {article_id: "8976982049026", relevant: true, note: "desc explicit 'printed kurta ... bandhani prints'"}
+- query_id: gold_029
+  items:
+  - {article_id: "17685166", relevant: true}
+  - {article_id: "9959088816425", relevant: true}
+- query_id: gold_030
+  items:
+  - {article_id: "10145255063858", relevant: true, note: "Rs.1189 <= Rs.1500 cap"}
+- query_id: gold_031
+  items:
+  - {article_id: "9488851140866", relevant: false, reason: data-mislabel, note: "title+desc explicit 'Men's ... palazzo pants' ('Ideal for pairing with kurtas ... for festive and evening wear') -- catalogue gender=women disagrees with the product's own copy"}
+  - {article_id: "9072841359618", relevant: false, reason: data-mislabel, note: "title explicit 'Men's Cream Cotton Palazzo' -- catalogue gender=women disagrees with the product's own copy"}
+- query_id: gold_032
+  items:
+  - {article_id: "10045029515570", relevant: true, note: "Rs.979 <= Rs.2000 cap"}
+  - {article_id: "10034682757426", relevant: true, note: "Rs.1312 <= Rs.2000 cap"}
+- query_id: gold_014
+  items:
+  - {article_id: "8551110639778", relevant: true, note: "structured colour field=Red is authoritative per this file's convention even though desc emphasises the bronze/gold base tone; wedding-appropriate per desc"}
+- query_id: gold_015
+  items:
+  - {article_id: "10092845924658", relevant: true, note: "desc explicit 'elevating your everyday office attire'"}
+  - {article_id: "7565065093358", relevant: true, note: "desc explicit 'formal office wear flair'"}
+  - {article_id: "10092848021810", relevant: true, note: "desc explicit 'seamlessly transitions from office meetings to evening outings'"}
+  - {article_id: "9300199145730", relevant: false, reason: occasion-register, note: "Vastramay blazer marketed exclusively 'for weddings and festive occasions ... Navratri, Diwali, Festive Glitz events' -- zero office/business-register language, an Indo-western festive crossover piece not standard office wear"}
+  - {article_id: "10034685935922", relevant: true, note: "desc explicit 'from business meetings to evening events ... everyday office attire'"}
+- query_id: gold_017
+  items:
+  - {article_id: "8558004732059", relevant: true, note: "desc explicit 'Perfect for weddings, sangeet, and festive occasions'"}
+  - {article_id: "8733153067163", relevant: true, note: "desc explicit 'Sangeet & Mehendi: The flowy skirt and cape dupatta move beautifully on the dance floor'"}
+  - {article_id: "7664872947867", relevant: true, note: "desc explicit 'Sangeet & Haldi Functions'"}
+  - {article_id: "8060893659298", relevant: true, note: "heavily embellished (zig-zag embroidery, pearls, Gota work) -- matches sangeet's embellished register"}
+  - {article_id: "8060790079650", relevant: true, note: "heavily embellished (ghungroo, sequins, Gota work) -- matches sangeet's embellished register"}
+- query_id: gold_019
+  items:
+  - {article_id: "8447041044635", relevant: true, note: "'Mehendi Green Lehenga' -- name itself names the occasion, green"}
+  - {article_id: "9351592640770", relevant: false, reason: data-mislabel, note: "title/desc explicit 'Men's Black Silk Blend Kurta with Pant Pyjama & Mehendi Green Dupatta Set' -- a men's 3-piece ensemble mislabeled gender=women in catalogue; dominant colour black, only the dupatta is green"}
+  - {article_id: "8446817665179", relevant: true, note: "'Green Lehenga', green"}
+  - {article_id: "8644111138971", relevant: true, note: "desc explicit 'Occasion: Mehendi, Engagement, Sangeet, Festive Parties' and FAQ 'Is this lehenga suitable for a mehendi ceremony? A: Absolutely.'"}
+  - {article_id: "4840236711979", relevant: false, reason: type-confusion, note: "'Green Meena Polki Symmetry Set' -- product_type=Necklace, not an outfit"}
+- query_id: gold_020
+  items:
+  - {article_id: "9724033040690", relevant: true, note: "desc explicit 'Perfect for festivities with delicate embroidery'"}
+  - {article_id: "9022112858370", relevant: false, reason: set-not-single, note: "desc explicit 'all-black three-piece ensemble ... kurta, traditional patiala'"}
+  - {article_id: "9595973108018", relevant: false, reason: set-not-single, note: "'Green Kurta Pajama' -- kurta+pajama 2-piece explicit in title"}
+  - {article_id: "8607579603122", relevant: false, reason: data-mislabel, note: "2026-07-25 reclassified from type-confusion (Step 3): catalogue product_type_name='kurta' contradicts the product's own name/desc -- 'PICHWAI GREEN JODHPURI SET', desc explicit 'structured jacket ... paired with a sleek shirt and tailored trousers', a bandhgala/jodhpuri jacket ensemble, never a kurta. Not code-fixable without risking false positives on genuine kurta listings -- the catalogue's own facet field is simply wrong for this row."}
+  - {article_id: "7817485451502", relevant: false, reason: set-not-single, note: "'Paired with slim fit ivory trousers' phrasing mirrors the (confirmed 3-piece) Jodhpuri listing's construction, and Rs.41999 is far outside this catalogue's single-kurta price range -- read as a bundled kurta+trouser ensemble"}
+- query_id: gold_024
+  items:
+  - {article_id: "8355968155803", relevant: true, note: "'Pink Sherwani For Groom' -- exact title match"}
+  - {article_id: "8609172422834", relevant: true, note: "desc confirms sherwani+kurta+churidar+turban is the conventional groom sherwani ensemble (like lehenga's skirt+blouse+dupatta bundle), not a set-not-single violation"}
+  - {article_id: "8359366197403", relevant: true, note: "'Ivory Sherwani for Groom' -- exact title match"}
+  - {article_id: "8453684199730", relevant: true, note: "single sherwani, wedding-marketed"}
+  - {article_id: "8559557050523", relevant: true, note: "'Navy Blue Groom Indo-Western Sherwani' -- exact title match"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "7337346662443", relevant: false, reason: type-confusion, note: "'Women Gotta Flower Purse' -- a bag, not an outfit"}
+  - {article_id: "7332650352683", relevant: false, reason: type-confusion, note: "'Peacock Brooch' -- a wedding-favour brooch, not an outfit"}
+  - {article_id: "7337374154795", relevant: false, reason: type-confusion, note: "'Special Hamper For Wedding Favours' -- a gift hamper, not an outfit"}
+  - {article_id: "7332515610667", relevant: false, reason: type-confusion, note: "'Ellaichi Brooch' -- a wedding-favour brooch, not an outfit"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "7337346662443", relevant: false, reason: type-confusion, note: "'Women Gotta Flower Purse' -- a bag, not an outfit/look"}
+  - {article_id: "9001735815426", relevant: false, reason: type-confusion, note: "'Men's Yellow - Dupatta' -- a standalone accessory piece, not a full outfit/look"}
+  - {article_id: "7332650352683", relevant: false, reason: type-confusion, note: "'Peacock Brooch' -- a wedding-favour brooch, not an outfit"}
+  - {article_id: "7337374154795", relevant: false, reason: type-confusion, note: "'Special Hamper For Wedding Favours' -- a gift hamper, not an outfit"}
+  - {article_id: "7332636065835", relevant: false, reason: type-confusion, note: "'Evil Eye Brooch' -- a wedding-favour brooch, not an outfit"}
+- query_id: occ_adv_004
+  items:
+  - {article_id: "7596215042203", relevant: true, note: "desc explicit 'ideal for mehndi ceremonies, sangeet nights'"}
+  - {article_id: "8733153067163", relevant: true, note: "desc explicit 'Occasion: Cocktail Party, Reception, Engagement, Sangeet, Festive Celebration'"}
+  - {article_id: "8727401005211", relevant: true, note: "desc explicit 'perfect for a mehendi, sangeet, or spring/summer wedding reception'"}
+  - {article_id: "8060893659298", relevant: true, note: "heavily embellished (zig-zag embroidery, pearls, Gota work) -- matches sangeet's embellished register"}
+  - {article_id: "8060790079650", relevant: true, note: "heavily embellished (ghungroo, sequins, Gota work) -- matches sangeet's embellished register"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "7337346662443", relevant: false, reason: type-confusion, note: "'Women Gotta Flower Purse' -- a bag, not an outfit"}
+  - {article_id: "7332667392043", relevant: false, reason: type-confusion, note: "'Elachi Patka' -- a wedding-favour accessory, not an outfit"}
+  - {article_id: "8447041044635", relevant: true, note: "'Mehendi Green Lehenga' -- genuine lehenga named for the exact occasion"}
+  - {article_id: "7332655628331", relevant: false, reason: type-confusion, note: "'Elaichi Swagat Mala' -- a welcome-garland favour, not an outfit"}
+  - {article_id: "7332515610667", relevant: false, reason: type-confusion, note: "'Ellaichi Brooch' -- a wedding-favour brooch, not an outfit"}
+- query_id: occ_adv_007
+  items:
+  - {article_id: "7909351096475", relevant: true, note: "desc FAQ explicit 'Is this saree suitable for a wedding? A: Absolutely ... ideal choice for wedding guests'"}
+  - {article_id: "7554437677211", relevant: true, note: "desc FAQ explicit 'Can I wear this saree to a wedding as a guest? A: Absolutely'"}
+  - {article_id: "8477131079835", relevant: true, note: "desc FAQ explicit 'Is this saree suitable for a wedding? Absolutely ... whether you're attending as a guest'"}
+  - {article_id: "8551110639778", relevant: true, note: "desc explicit 'ideal choice for weddings and festive celebrations'; no colour constraint in this query"}
+- query_id: occ_adv_008
+  items:
+  - {article_id: "72e85c49-e5c2-5f58-bcd9-470491247bb3", relevant: true, note: "desc explicit 'as you sail through your office hours'"}
+  - {article_id: "10055493452082", relevant: true, note: "'Formal Trouser' explicit"}
+  - {article_id: "10092846154034", relevant: true, note: "'Formal Trouser' explicit"}
+- query_id: multi_002
+  items:
+  - {article_id: "7482626605218", relevant: false, reason: budget, note: "Rs.19000 >> Rs.2000 cap; also a kurta set"}
+- query_id: multi_003
+  items:
+  - {article_id: "8711091880091", relevant: false, reason: budget, note: "Rs.16795 > Rs.15000 cap"}
+  - {article_id: "8341275541659", relevant: false, reason: budget, note: "Rs.15995 > Rs.15000 cap"}
+  - {article_id: "8865974124699", relevant: false, reason: budget, note: "Rs.29995 >> Rs.15000 cap"}
+  - {article_id: "7664872947867", relevant: false, reason: budget, note: "Rs.45995 >> Rs.15000 cap"}
+- query_id: multi_004
+  items:
+  - {article_id: "8510086578326", relevant: true, note: "Rs.749 <= Rs.1500 cap, yellow, cotton, single kurta"}
+- query_id: multi_005
+  items:
+  - {article_id: "9635301523762", relevant: false, reason: budget, note: "Rs.8318 > Rs.5000 cap"}
+  - {article_id: "8228810359042", relevant: true, note: "navy, within budget (Rs.2639), fit unstated and not contradicted"}
+  - {article_id: "10197549252914", relevant: false, reason: budget, note: "Rs.7999 > Rs.5000 cap; also title explicit 'Regular Fit' contradicts 'slim fit'"}
+  - {article_id: "8823364616498", relevant: false, reason: budget, note: "Rs.8217 > Rs.5000 cap; also desc explicit 'Regular Fit'"}
+  - {article_id: "9761007567154", relevant: false, reason: budget, note: "Rs.6321 > Rs.5000 cap; also desc explicit 'Regular Fit' contradicts 'slim fit'"}
+- query_id: multi_006
+  items:
+  - {article_id: "9724032287026", relevant: false, reason: attribute-contradiction, note: "desc explicit 'Classic White Regular Fit Solid Kurta' -- 'Regular Fit' contradicts 'straight fit'"}
+  - {article_id: "9488847175938", relevant: false, reason: budget, note: "Rs.2369 > Rs.2000 cap"}
+  - {article_id: "9484724306178", relevant: true, note: "desc explicit 'straight silhouette'"}
+  - {article_id: "9724032581938", relevant: true, note: "desc explicit 'side-button straight cut'; colour field=White is authoritative over the 'Pink & White' title"}
+- query_id: multi_008
+  items:
+  - {article_id: "8438476636310", relevant: false, reason: attribute-contradiction, note: "desc explicit 'features a straight-fit kurta' -- contradicts 'anarkali'; also a 2-piece set and desc says 'perfect for casual outings' (reception mismatch)"}
+- query_id: multi_009
+  items:
+  - {article_id: "10045032726834", relevant: false, reason: budget, note: "Rs.6999 > Rs.6000 cap"}
+  - {article_id: "8228526063874", relevant: false, reason: budget, note: "Rs.6399 > Rs.6000 cap"}
+  - {article_id: "8978189877554", relevant: false, reason: budget, note: "Rs.6847 > Rs.6000 cap"}
+  - {article_id: "10092847661362", relevant: false, reason: budget, note: "Rs.6599 > Rs.6000 cap"}
+  - {article_id: "10034685051186", relevant: false, reason: budget, note: "Rs.7374 > Rs.6000 cap"}
+- query_id: multi_010
+  items:
+  - {article_id: "8727401005211", relevant: false, reason: budget, note: "Rs.25995 >> Rs.10000 cap"}
+  - {article_id: "8445691756699", relevant: false, reason: budget, note: "Rs.34995 >> Rs.10000 cap"}
+  - {article_id: "8366272839835", relevant: false, reason: budget, note: "Rs.22795 >> Rs.10000 cap"}
+  - {article_id: "8309108146331", relevant: false, reason: budget, note: "Rs.24995 >> Rs.10000 cap; also listed colour White, not pastel pink"}
+- query_id: multi_011
+  items:
+  - {article_id: "8561050288283", relevant: false, reason: budget, note: "Rs.44995 >> Rs.12000 cap"}
+  - {article_id: "8972232360194", relevant: true, note: "colour Blue (royal-blue family), within budget (Rs.6449), wedding-marketed; bundled dhoti is the conventional sherwani ensemble"}
+- query_id: multi_013
+  items:
+  - {article_id: "8629267595414", relevant: false, reason: occasion-register, note: "desc explicit 'Highlighted with captivating floral Print, this style is perfect for Casual Wear' -- a casual cotton midi dress, not gown-register reception wear"}
+- query_id: multi_014
+  items:
+  - {article_id: "8658941378710", relevant: true, note: "'2-piece Anarkali ... complemented with lining and embroidered dupatta' -- kurta+dupatta is the anarkali convention, not a genuine set; green, festive, within budget"}
+  - {article_id: "7869435314262", relevant: false, reason: set-not-single, note: "title explicit 'Anarkali with Pant & Scalloped Dupatta' -- genuine 3-piece (top+pant+dupatta)"}
+  - {article_id: "8605945397398", relevant: false, reason: set-not-single, note: "desc explicit '3-piece green chiffon Anarkali kurta set ... straight trouser pants'"}
+- query_id: kids_leak_001
+  items:
+  - {article_id: "8353474838683", relevant: true, note: "'Red Designer Bridal lehenga' -- exact match"}
+  - {article_id: "8361603596443", relevant: true, note: "'Red Bridal lehenga with Heavy Hand work' -- exact match"}
+  - {article_id: "8353401766043", relevant: true, note: "'Red Bridal Lehenga - Handcrafted Silk Wedding Lehenga' -- exact match"}
+  - {article_id: "8353470480539", relevant: true, note: "'Red Silk Bridal lehenga with paisely Butis' -- exact match"}
+  - {article_id: "8603406401758", relevant: false, reason: occasion-register, note: "'Set of 3 Ajrakh Printed Red Lehenga' -- an Ajrakh block-print festive/wedding-guest lehenga; desc markets it for 'weddings and traditional celebrations' generally, not specifically bridal-weight wear"}
+- query_id: kids_leak_002
+  items:
+  - {article_id: "8428939837595", relevant: false, reason: type-confusion, note: "'Golden Silk Lehenga' -- query asks for gold JEWELLERY, this is a lehenga; note: post-merge the catalogue now has ~19.7k jewellery-typed rows (verified scan), so the earlier 'data-ceiling' rationale (2 jewellery rows total) recorded for this query_id no longer holds -- this is a genuine retrieval type-confusion, not a data ceiling"}
+  - {article_id: "8353474838683", relevant: false, reason: type-confusion, note: "'Red Designer Bridal lehenga' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge (jewellery now exists in catalogue)"}
+  - {article_id: "8643937468571", relevant: false, reason: type-confusion, note: "'Gold Heavy Embroidered Party Wear Lehenga' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}
+  - {article_id: "8353479164059", relevant: false, reason: type-confusion, note: "'Red Bridal lehenga' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}
+  # 2026-07-23: 4 NEW top-5 slots surfaced by re-running the pipeline against
+  # the current working tree (commit 1717265 "split multi-family accessory
+  # retrieval so bridal jewellery gets a real shot" landed since the labels
+  # above were written and now genuinely returns jewellery-typed items for
+  # this query, superseding the all-lehenga top-5 the labels above describe).
+  # Unrelated to this session's own task (Wave 8 festival-occasion fixtures in
+  # model_eval_queries.yaml, which do not feed strict_gold_queries.yaml at
+  # all) -- hand-labeled honestly per the 2e57a7b rubric while closing the
+  # eval_gate n_unlabeled=0 gate this session was asked to leave green.
+  - {article_id: "9021843243235", relevant: true, note: "'Red Heart Chain With Earrings' -- desc explicit '92.5 silver base with 24kt gold plated details'; genuinely gold-plated jewellery, women, no budget stated"}
+  - {article_id: "8200577745092", relevant: true, note: "'Deity-Inspired Hair Clip with Antique Finish' -- desc explicit 'antique gold finish'; bridal/festive hair jewellery, pairs with the red-lehenga context ('wedding, pooja, or festive occasion')"}
+  - {article_id: "8475620376798", relevant: true, note: "'Five layered kemp long haram with Balis' -- kemp jewellery is a South Indian craft category definitionally set in gold-tone metal (no silver/other-metal kemp convention exists); desc does not contradict with any other base metal, type is jewellery, gender women"}
+  - {article_id: "9236245446883", relevant: true, note: "'Radhae Krishna Nagas Pendant' -- desc explicit 'handcrafted in 92.5 silver and plated with 24kt gold'; genuinely gold-plated jewellery, women"}
+  - {article_id: "8603406401758", relevant: false, reason: type-confusion, note: "'Set of 3 Ajrakh Printed Red Lehenga Set' -- lehenga returned for a jewellery query; data-ceiling no longer applies post-merge"}
+
+# ── Batch 11 (2026-07-23): Wave 8 activewear ingestion (blissclub +
+# silvertraq added, catalogue 109,871 -> 110,358) changed which items surface
+# into top-5 for 5 queries -- 5 newly-surfaced items hand-labeled against the
+# same rubric so eval_gate.py runs with zero unlabeled. Only 1 of the 5
+# (gold_011) is actually a new-store item; the other 4 are pre-existing items
+# whose rank shifted because a larger unified index changes top-5 competition
+# for some queries -- an expected side-effect of any catalogue rebuild, not a
+# retrieval-logic change.
+# retrieval_snapshot: data/processed/unified rebuilt 2026-07-23 (41 stores),
+# eval_strict.py --mode pipeline (mirrors search_node's filter+gate+rerank).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_002
+  items:
+  - {article_id: "7712093765718", relevant: true, note: "'Ethnic Printed & Embroidered A-Line Plated Maxi Dress' -- desc explicit 'A-line maxi dress', product_type dress, gender women, no budget stated"}
+- query_id: gold_011
+  items:
+  - {article_id: "9136755704064", relevant: true, note: "'Ultimate Stretch Pencil Skirt' (blissclub, new store) -- title explicit 'Pencil Skirt', product_type skirt, gender women, direct literal match"}
+- query_id: gold_029
+  items:
+  - {article_id: "9959089013033", relevant: true, note: "'Aanya|Cotton Denim Jacket' -- title/desc explicit 'classic denim jacket', product_type outerwear, gender women"}
+- query_id: gold_032
+  items:
+  - {article_id: "8567191928987", relevant: false, reason: budget, note: "'White shirt with floral design' -- query states 'under 2000', item price ₹5,995; direct budget contradiction, formal-shirt/men/white attributes otherwise match"}
+- query_id: occ_adv_003
+  items:
+  - {article_id: "7553272545502", relevant: false, reason: occasion-register, note: "'Women Navy Blue Round Neck Hosiery T-Shirt' -- 'office wear' mention in desc is generic templated boilerplate ('Women's tops are a versatile and essential wardrobe staple...ideal for casual outings, office wear, travel, and daily activities' -- same stock phrase pattern likely reused across many unrelated tee listings, not an item-specific claim); a basic round-neck hosiery tee is casual register, doesn't match this app's office occasion's smart-casual/formal western_register gate"}
+
+# ── Batch 12 (2026-07-24): Wave 9 campusshoes ingestion (catalogue 110,358
+# -> 112,425) plus the multi-garment/vocabulary fixes (leggings/joggers/
+# skort/sports_bra/track_pants/cargo_pants/churidar->salwar) changed which
+# items surface into top-5 for 3 queries -- hand-labeled against the same
+# rubric so eval_gate.py runs with zero unlabeled. None of the 3 are
+# campusshoes items; all are pre-existing items whose rank shifted from the
+# larger index / adjusted garment-type resolution, the same expected
+# side-effect documented in Batch 11.
+# retrieval_snapshot: data/processed/unified rebuilt 2026-07-24 (42 stores),
+# eval_strict.py --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "9099862704350", relevant: false, reason: set-not-single, note: "'Sea Green Winter Ethnic 3-Piece Set' -- desc explicit 'sleeveless kurta, layered shrug and matching straight fit pants'; a 3-piece SET returned for a single 'straight fit kurta' query, and the sleeveless kurta component itself is not independently confirmed straight-fit (the 'straight fit' phrase in the desc describes the PANTS, not the kurta)"}
+- query_id: gold_010
+  items:
+  - {article_id: "10118346637609", relevant: true, note: "'Rosaue|Viscose Wrapstyle Flared Dress' -- desc explicit 'wrap style silhouette' and 'self tie waist'; genuinely a wrap dress, women, no budget stated"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "7332515610667", relevant: false, reason: type-confusion, note: "'Ellaichi Brooch' (ishhaara) -- product_type 'Fashion', desc explicitly frames it as a 'Haldi & Mehendi Favours' GIFT/FAVOUR for guests, not an apparel item to wear; a decorative gift brooch returned for a 'haldi LOOK' (apparel-intent) query. Same failure class as the occasion-merchandise-leak fix (commits d4bd933/01cbfd5) but for haldi-favor gift items specifically, which that fix's product-type/name pattern list does not cover -- flagged as a possible future extension, not fixed here (out of scope for a hand-labeling pass)."}
+
+# ── Batch 13 (2026-07-24): the favour/favor occasion-merchandise-gate
+# broadening (commit fe057ab) plus the eval_strict.py pipeline-parity fix
+# (commit 26898e9, which made this pipeline actually apply the gate for the
+# first time) together removed the Ellaichi Brooch and its "Haldi & Mehendi
+# Favours" collection-mates from top-5 for occ_adv_001/002/005 -- 5 new items
+# surfaced into their place, all genuinely relevant apparel/jewellery for a
+# haldi/mehendi bright-colour-palette query.
+# retrieval_snapshot: data/processed/unified (42 stores), eval_strict.py
+# --mode pipeline post-fe057ab/26898e9.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8613252202651", relevant: true, note: "'Sunshine Glow Orange Lehenga' -- desc explicit 'rich orange flared skirt, embroidered blouse with mirror and beadwork, orange dupatta'; orange is within the haldi bright-yellow/orange palette, women, no budget stated"}
+  - {article_id: "10088965275943", relevant: true, note: "'Haldi - Kolhapuri sandals' -- 'Haldi' literally in the title, colour Yellow (haldi palette), genuine footwear, women"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "8613252202651", relevant: true, note: "same item as occ_adv_001 above -- 'Sunshine Glow Orange Lehenga', bright orange matches 'bright haldi look' explicitly"}
+  - {article_id: "10088965275943", relevant: true, note: "same item as occ_adv_001 above -- 'Haldi - Kolhapuri sandals', yellow, literally named for the occasion"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "8849333813410", relevant: true, note: "'Mayuri Ghungroo Openable Bracelet' (5-elements, product_type has a catalogue typo 'Bascelet') -- desc explicit 'perfect for weddings, haldi-mehendi ceremonies, and festive gatherings'; genuine jewellery with ghungroo bells, women"}
+  - {article_id: "8663701553307", relevant: true, note: "'Teal Green Lehenga' -- green is THE mehendi palette colour, desc explicit bridal/wedding context, women, no budget stated"}
+  - {article_id: "8123427782811", relevant: true, note: "'Green Chinon Lehenga with embellishments' -- green mehendi palette, desc explicit 'intricate embroidery, sequin work, pearl detailing', women"}
+
+# --- Batch 14 (2026-07-25): gold-set expansion for statistical stability ---
+# Requested because multi_attribute's 95% CI was +/-11.4pt (n=14 queries, 66
+# items) and style's was +/-8.2pt (n=12, 60 items) -- too wide to distinguish
+# a genuine fix from sampling noise. Adds 13 style queries (gold_033-045) and
+# 16 multi_attribute queries (multi_015-030), grounded in real catalogue
+# vocabulary audited before writing any query (see scripts/_gold_expand_probe.py,
+# a scratch script that ran each candidate through the SAME production
+# eval_strict._retrieve_pipeline before any query text was finalized -- two
+# candidates with zero retrieved items ("cargo pants for men") were swapped
+# before labeling, not silently kept as automatic misses).
+#
+# Two items below are tagged data-ceiling (not budget/code-fixable) --
+# verified via a direct catalogue scan (not assumed) that zero grey men's
+# blazers exist under Rs4000 in the whole catalogue (20 total blazers under
+# Rs4000 across all colours). Every OTHER budget miss in this batch was
+# cross-checked the same way and confirmed genuinely code-fixable (cheaper
+# appropriate items DO exist in the catalogue but did not rank into top-5) --
+# see the per-item notes below for each verified count.
+#
+# retrieval_snapshot: data/processed/unified (commit 277d29d), eval_strict.py
+# --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_033
+  items:
+  - {article_id: "8715089", relevant: true, note: "name explicit 'Peplum Top'"}
+  - {article_id: "10095563309353", relevant: true, note: "desc explicit 'This peplum top features...'"}
+  - {article_id: "10095566749993", relevant: true, note: "desc explicit 'layered crossover peplum flounces'"}
+  - {article_id: "7599231566046", relevant: true, note: "name explicit 'Peplum Top'"}
+  - {article_id: "4374524", relevant: true, note: "name explicit 'Peplum Top'"}
+- query_id: gold_034
+  items:
+  - {article_id: "8682145939678", relevant: true, note: "name explicit 'Crop Top'"}
+  - {article_id: "8369861787870", relevant: true, note: "name explicit 'Crop Top'"}
+  - {article_id: "6582659", relevant: true, note: "name explicit 'Layered Crop Top'"}
+  - {article_id: "14572320", relevant: true, note: "name explicit 'Regular Crop Top'"}
+  - {article_id: "8894553948457", relevant: true, note: "name explicit 'Fitted Crop Top'"}
+- query_id: gold_035
+  items:
+  - {article_id: "9034319495390", relevant: true, note: "desc explicit 'off shoulder cowl neck design'"}
+  - {article_id: "10062682620201", relevant: true, note: "name explicit 'Off Shoulder Dress'"}
+  - {article_id: "9964608717097", relevant: true, note: "name explicit 'Off-Shoulder Mini Dress'"}
+  - {article_id: "9964609732905", relevant: true, note: "name explicit 'Off-Shoulder Mini Dress'"}
+  - {article_id: "10118348243241", relevant: true, note: "name explicit 'Offshoulder Dress'"}
+- query_id: gold_036
+  items:
+  - {article_id: "d1f26e1d-188f-5f06-8a2d-51a0ef339417", relevant: false, reason: attribute-contradiction, note: "name explicit 'Single Breasted' -- contradicts 'double breasted'"}
+  - {article_id: "8820448952578", relevant: false, reason: attribute-contradiction, note: "desc explicit 'single-breasted with button closures' -- contradicts 'double breasted'"}
+  - {article_id: "9300199145730", relevant: true, note: "breasted style unstated, not contradicted (same 'unstated, not contradicted' precedent as gold_007's d1f26e1d label for fit)"}
+  - {article_id: "8907901534370", relevant: true, note: "breasted style unstated, not contradicted"}
+  - {article_id: "8453764120882", relevant: true, note: "breasted style unstated, not contradicted; 'Regular Fit' describes body fit, not breasted style -- not an opposing signal"}
+- query_id: gold_037
+  items:
+  - {article_id: "8063136891102", relevant: true, note: "desc explicit 'relaxed and comfortable fit'"}
+  - {article_id: "8979444859138", relevant: true, note: "fit unstated, not contradicted"}
+  - {article_id: "8063136923870", relevant: true, note: "desc explicit 'relaxed and comfortable fit'"}
+  - {article_id: "8979444957442", relevant: true, note: "fit unstated, not contradicted"}
+  - {article_id: "7735746723992", relevant: true, note: "fit unstated, not contradicted ('comfortable fit' does not oppose relaxed)"}
+- query_id: gold_038
+  items:
+  - {article_id: "c78fe767-b069-5684-b36c-ba9c637b88df", relevant: true, note: "desc explicit 'Tailored using satin cotton'"}
+  - {article_id: "28a39521-a4fd-59ac-a3f3-82809193bd18", relevant: true, note: "fit unstated, not contradicted"}
+  - {article_id: "b64f83b8-460e-54af-a71f-de14cec74584", relevant: true, note: "'tailored' unstated but not contradicted; slim fit is compatible with tailored construction"}
+  - {article_id: "8904872951970", relevant: true, note: "name explicit 'Tailored Trousers'"}
+  - {article_id: "0e41b040-6576-5974-b178-db76d7d23ef5", relevant: true, note: "desc explicit 'tailored fit classic flexi waist trousers'"}
+- query_id: gold_039
+  items:
+  - {article_id: "c085cb3f-f01e-51e5-b73f-74f62701aff4", relevant: true, note: "name explicit 'Bomber Jacket'"}
+  - {article_id: "8596158840984", relevant: true, note: "name explicit 'Bomber Jacket'"}
+  - {article_id: "ca3c6a88-062a-5928-a93a-e413b185d30e", relevant: true, note: "name explicit 'Bomber Jacket'"}
+  - {article_id: "8596158972056", relevant: true, note: "name explicit 'Bomber Jacket'"}
+  - {article_id: "9222065782946", relevant: true, note: "name explicit 'Bomber Jacket'"}
+- query_id: gold_040
+  items:
+  - {article_id: "17442596", relevant: true, note: "name explicit 'Halter Neck Crop Top'"}
+  - {article_id: "17511730", relevant: true, note: "desc explicit 'Halter neck'"}
+  - {article_id: "7599232680158", relevant: false, reason: attribute-contradiction, note: "name explicit 'V-Neck Top' -- contradicts 'halter neck'"}
+  - {article_id: "10095564063017", relevant: true, note: "desc explicit 'collared halter neckline'"}
+  - {article_id: "18929182", relevant: true, note: "name explicit 'Halter Neck Top'"}
+- query_id: gold_041
+  items:
+  - {article_id: "8491617026198", relevant: true, note: "name explicit 'Fit and Flare Dress'"}
+  - {article_id: "8795669299422", relevant: true, note: "name explicit 'Fit & Flare Dress'"}
+  - {article_id: "10077980623145", relevant: true, note: "name explicit 'Fit And Flare Maxi Dress'"}
+  - {article_id: "8795669364958", relevant: true, note: "name explicit 'Fit & Flare Dress'"}
+  - {article_id: "9844624785705", relevant: true, note: "desc explicit 'a charming fit-and-flare mini dress'"}
+- query_id: gold_042
+  items:
+  - {article_id: "11314124", relevant: true, note: "product_type jumpsuit, name explicit"}
+  - {article_id: "12742100", relevant: true, note: "product_type jumpsuit, name explicit"}
+  - {article_id: "15611364", relevant: true, note: "product_type jumpsuit, name explicit"}
+  - {article_id: "11891254", relevant: true, note: "product_type jumpsuit, name explicit"}
+  - {article_id: "9210034159838", relevant: true, note: "product_type jumpsuit, name explicit"}
+- query_id: gold_043
+  items:
+  - {article_id: "8551110508706", relevant: true, note: "product_type kaftan, name explicit"}
+  - {article_id: "9223528743074", relevant: true, note: "product_type kaftan, name explicit"}
+  - {article_id: "8538818478230", relevant: true, note: "product_type kaftan; marketed as a nightdress but query names no occasion -- garment type genuinely matches"}
+  - {article_id: "9223528677538", relevant: true, note: "product_type kaftan, name explicit"}
+  - {article_id: "8551110574242", relevant: true, note: "product_type kaftan, name explicit"}
+- query_id: gold_044
+  items:
+  - {article_id: "17398296", relevant: true, note: "name explicit 'Super Skinny Fit'"}
+  - {article_id: "16728358", relevant: true, note: "name explicit 'Skinny Fit Jeans'"}
+  - {article_id: "17656672", relevant: true, note: "name explicit 'Skinny Fit High-Rise Jeans'"}
+  - {article_id: "16911488", relevant: true, note: "name explicit 'Mid-Rise Skinny Fit Jeans'"}
+  - {article_id: "8214212640990", relevant: false, reason: attribute-contradiction, note: "name explicit 'Straight Fit' -- contradicts 'skinny fit'"}
+- query_id: gold_045
+  items:
+  - {article_id: "9222066962594", relevant: true, note: "name explicit 'Tapered Fit'"}
+  - {article_id: "9223561805986", relevant: true, note: "name explicit 'Tapered Fit'"}
+  - {article_id: "0a27132b-aa70-5c38-a5b6-318666cda2e2", relevant: true, note: "name explicit 'Tapered'"}
+  - {article_id: "8915272696046", relevant: true, note: "desc explicit 'A classic flat front...tapered trouser' via name 'THE SILK TAPERED TROUSER'"}
+  - {article_id: "6746242c-5383-5916-b19e-373e8b19c09c", relevant: true, note: "name explicit 'Tapered'"}
+- query_id: multi_015
+  items:
+  - {article_id: "7891085066395", relevant: false, reason: budget, note: "Rs24995 > Rs5000 cap"}
+  - {article_id: "18100060", relevant: false, reason: budget, note: "Rs8198 > Rs5000 cap"}
+  - {article_id: "8663693328539", relevant: false, reason: budget, note: "Rs13995 > Rs5000 cap; also colour is Teal Blue primary, green only in zari weaving accent"}
+  - {article_id: "17638756", relevant: true, note: "green primary, pure silk, Rs4495 <= Rs5000 cap, festive zari work"}
+  - {article_id: "18773312", relevant: false, reason: budget, note: "Rs6900 > Rs5000 cap"}
+- query_id: multi_016
+  items:
+  - {article_id: "8831462178968", relevant: false, reason: budget, note: "Rs3799 > Rs3000 cap"}
+  - {article_id: "9115749449986", relevant: true, note: "desc explicit 'perfect for weddings, Diwali parties'; Rs2089 <= Rs3000 cap"}
+  - {article_id: "9096785461506", relevant: true, note: "desc names Navratri not Diwali but same festive/vibrant register; Rs1949 <= Rs3000 cap"}
+  - {article_id: "8018627330215", relevant: false, reason: budget, note: "Rs4898 > Rs3000 cap; also a kurta+pyjama 2-piece set for a bare-kurta query"}
+  - {article_id: "9724034711858", relevant: true, note: "mustard/dark yellow is yellow-family; single garment; Rs1124 <= Rs3000 cap"}
+- query_id: multi_017
+  items:
+  - {article_id: "8664473338006", relevant: true, note: "red, chiffon, Rs1589 <= Rs4000 cap, festive register"}
+  - {article_id: "18923924", relevant: true, note: "red co-primary in ombre, chiffon, Rs2999 <= Rs4000 cap"}
+  - {article_id: "8661209448598", relevant: true, note: "colour facet Red matches query; desc says 'vibrant pink hue' (templated-copy inconsistency, same class seen elsewhere in libas listings) -- trusting name+facet; Rs2139 <= Rs4000 cap"}
+  - {article_id: "8661202534550", relevant: true, note: "red, bandhani chiffon, Rs2999 <= Rs4000 cap"}
+  - {article_id: "18865974", relevant: true, note: "red co-primary with black accent, chiffon, Rs1999 <= Rs4000 cap"}
+- query_id: multi_018
+  items:
+  - {article_id: "8711108329627", relevant: false, reason: colour-family, note: "colour Silver/Grey, not gold-family; also Rs18995 > Rs8000 cap"}
+  - {article_id: "8643937468571", relevant: false, reason: budget, note: "Rs42995 > Rs8000 cap (extreme overage)"}
+  - {article_id: "7664224469147", relevant: false, reason: budget, note: "Rs25595 > Rs8000 cap"}
+  - {article_id: "8428939837595", relevant: false, reason: budget, note: "Rs14995 > Rs8000 cap"}
+  - {article_id: "16465418", relevant: false, reason: budget, note: "Rs8569 > Rs8000 cap by Rs569; also blue is co-primary with gold as accent, not clearly gold-dominant. VERIFIED via catalogue scan: 48 gold/embellished lehengas <=Rs8000 exist -- this is a ranking/budget-gate coverage gap, not data-ceiling"}
+- query_id: multi_019
+  items:
+  - {article_id: "9484758876418", relevant: true, note: "genuine wearable kurta, white/grey co-primary, explicitly marketed for Raksha Bandhan (the exact occasion asked), Rs1384 <= Rs2500 cap; 'gift box' framing does not change that it is a real garment match"}
+  - {article_id: "9011483476120", relevant: false, reason: kids-leak, note: "desc explicit 'Kids Printed Kurta Pyjama Set' -- a children's item leaking into men's results"}
+  - {article_id: "8453685575986", relevant: false, reason: budget, note: "Rs5774 > Rs2500 cap"}
+  - {article_id: "9052155871490", relevant: false, reason: colour-family, note: "hero garment colour is Aqua, white is only the legging/bottom accent -- query asked for a white kurta"}
+  - {article_id: "23d38a72-b70f-5920-96f9-72e4d8642b51", relevant: true, note: "white kurta, single garment, Rs449 <= Rs2500 cap; query's 'kurta pyjama' phrasing legitimizes either a set or a single kurta as a garment-type match"}
+- query_id: multi_020
+  items:
+  - {article_id: "10b0c6f5-38a7-57f6-ab80-a83d3f04196f", relevant: true, note: "black, slim, Rs499 <= Rs2000 cap"}
+  - {article_id: "9002038198434", relevant: true, note: "colour facet Black, slim-fit, Rs1799 <= Rs2000 cap"}
+  - {article_id: "9e9c7aee-2f96-5dc6-a92a-4c8874e768d3", relevant: true, note: "2-pack bundle of the same garment, still black slim jeans, Rs1275 <= Rs2000 cap"}
+  - {article_id: "b404a9bc-7168-5c43-8018-4f3946285745", relevant: true, note: "name says 'Multicolor' but colour facet + desc ('BLACK/GREY Jeans') say black -- catalogue naming inconsistency, trusting facet+desc; Rs974 <= Rs2000 cap"}
+  - {article_id: "9835987370290", relevant: false, reason: budget, note: "Rs2212 > Rs2000 cap"}
+- query_id: multi_021
+  items:
+  - {article_id: "8366272839835", relevant: false, reason: budget, note: "Rs22795 > Rs6000 cap"}
+  - {article_id: "17638482", relevant: false, reason: budget, note: "Rs8650 > Rs6000 cap"}
+  - {article_id: "8025397133467", relevant: false, reason: budget, note: "Rs34995 > Rs6000 cap"}
+  - {article_id: "8445691756699", relevant: false, reason: budget, note: "Rs34995 > Rs6000 cap. VERIFIED via catalogue scan: 41 peach/pink lehengas <=Rs6000 exist -- ranking/budget-gate coverage gap, not data-ceiling"}
+- query_id: multi_022
+  items:
+  - {article_id: "8781256655010", relevant: true, note: "desc explicit 'Tailored navy blue trousers...perfect for office wear'; Rs719 <= Rs3500 cap"}
+  - {article_id: "10034683216178", relevant: true, note: "desc explicit 'tailored with a super slim fit'; Rs1312 <= Rs3500 cap"}
+  - {article_id: "8724711964834", relevant: true, note: "desc explicit 'Tailored navy blue trousers...perfect for formal occasions'; Rs1252 <= Rs3500 cap"}
+  - {article_id: "a0f259fc-0950-53d2-9d64-b2d8033ba117", relevant: true, note: "navy, formal register ('semi-formal date night' is the same formality tier as office), tailored unstated not contradicted; Rs1079 <= Rs3500 cap"}
+  - {article_id: "8570952351906", relevant: true, note: "desc explicit 'Elevate your style at the office...slim fit trousers'; Rs1619 <= Rs3500 cap"}
+- query_id: multi_023
+  items:
+  - {article_id: "8654909833366", relevant: false, reason: set-not-single, note: "'Kurta Set' -- multi-piece for a bare single-kurta query"}
+  - {article_id: "8595166855318", relevant: true, note: "single garment, orange, Rs669 <= Rs2000 cap"}
+  - {article_id: "8654828109974", relevant: true, note: "name explicit single 'Straight Kurta' (desc has an internal colour/set inconsistency -- 'Peach cotton...set' -- likely reused template copy; trusting the crafted product name); Rs1999 <= Rs2000 cap"}
+  - {article_id: "8649893478550", relevant: false, reason: budget, note: "Rs2499 > Rs2000 cap; also explicitly a 3-piece set"}
+- query_id: multi_024
+  items:
+  - {article_id: "9761007763762", relevant: false, reason: data-ceiling, note: "Rs6321 > Rs4000 cap. VERIFIED via catalogue scan: 0 grey men's blazers <=Rs4000 exist (20 total blazers <=Rs4000 across all colours) -- no better item to rank here"}
+  - {article_id: "10076177596722", relevant: false, reason: data-ceiling, note: "same data-ceiling as above -- 0 grey blazers <=Rs4000 in catalogue"}
+  - {article_id: "10034686722354", relevant: false, reason: data-ceiling, note: "same data-ceiling as above"}
+  - {article_id: "10034683707698", relevant: false, reason: data-ceiling, note: "same data-ceiling as above"}
+  - {article_id: "10034685444402", relevant: false, reason: data-ceiling, note: "same data-ceiling as above"}
+- query_id: multi_025
+  items:
+  - {article_id: "8661209350294", relevant: true, note: "pink, georgette, Rs959 <= Rs5000 cap"}
+  - {article_id: "8661203091606", relevant: true, note: "pink, georgette, Rs2319 <= Rs5000 cap"}
+  - {article_id: "18086970", relevant: true, note: "pink, georgette, Rs4160 <= Rs5000 cap"}
+  - {article_id: "8661202960534", relevant: true, note: "Rani pink is pink-family, georgette, Rs4299 <= Rs5000 cap"}
+  - {article_id: "8477131079835", relevant: false, reason: budget, note: "Rs16995 > Rs5000 cap; also product_type just 'saree', georgette not confirmed"}
+- query_id: multi_026
+  items:
+  - {article_id: "8868399808667", relevant: false, reason: budget, note: "Rs26000 > Rs10000 cap"}
+  - {article_id: "8709241995502", relevant: false, reason: budget, note: "Rs383999 > Rs10000 cap (extreme overage)"}
+  - {article_id: "8561041014939", relevant: false, reason: budget, note: "Rs28995 > Rs10000 cap"}
+  - {article_id: "6629490753712", relevant: false, reason: budget, note: "Rs126999 > Rs10000 cap"}
+  - {article_id: "9103549071598", relevant: false, reason: budget, note: "Rs100999 > Rs10000 cap. VERIFIED via catalogue scan: 20 bandhgalas <=Rs10000 exist including 2 navy-blue options (Navy Blue Sequinned Textured Bandhgala Jodhpuri Rs8999, Navy Jacquard Silk Blend Bandhgala Rs6999) that did not rank into top-5 -- ranking/budget-gate coverage gap, not data-ceiling"}
+- query_id: multi_027
+  items:
+  - {article_id: "8447075057819", relevant: false, reason: budget, note: "Rs30995 > Rs12000 cap"}
+  - {article_id: "8448452755611", relevant: false, reason: budget, note: "Rs19195 > Rs12000 cap"}
+  - {article_id: "8607018614934", relevant: true, note: "purple, lehenga, Rs3259 <= Rs12000 cap; fabric is chiffon not velvet but fabric is not a rubric-checked dimension"}
+  - {article_id: "8441704677531", relevant: false, reason: budget, note: "Rs29995 > Rs12000 cap"}
+- query_id: multi_028
+  items:
+  - {article_id: "12641154", relevant: true, note: "beige co-primary with golden, crop top, Rs1399 <= Rs1500 cap"}
+  - {article_id: "8369861525726", relevant: true, note: "beige, crop top, Rs799 <= Rs1500 cap"}
+  - {article_id: "11364470", relevant: true, note: "beige co-primary with pink, crop top, Rs1499 <= Rs1500 cap"}
+  - {article_id: "18731786", relevant: false, reason: budget, note: "Rs1899 > Rs1500 cap"}
+  - {article_id: "8428303974622", relevant: false, reason: budget, note: "Rs1749 > Rs1500 cap; also not confirmed cropped ('Regular Fit Top', no crop mention)"}
+- query_id: multi_029
+  items:
+  - {article_id: "8225722007774", relevant: true, note: "black, bodycon explicit, Rs2449 <= Rs5000 cap"}
+  - {article_id: "7810754937054", relevant: true, note: "black, bodycon explicit, Rs1749 <= Rs5000 cap"}
+  - {article_id: "8932310909225", relevant: true, note: "black, bodycon explicit ('Strapless Mini Bodycon Dress'), Rs899 <= Rs5000 cap"}
+  - {article_id: "9608637350185", relevant: true, note: "black, bodycon explicit in desc, Rs899 <= Rs5000 cap"}
+  - {article_id: "8458986750102", relevant: false, reason: attribute-contradiction, note: "explicit 'Fit And Flare' -- contradicts 'bodycon' (flared skirt vs fitted throughout)"}
+- query_id: multi_030
+  items:
+  - {article_id: "8989409247384", relevant: true, note: "green, desc explicit 'Ideal for Eid festival', Rs1799 <= Rs2500 cap"}
+  - {article_id: "8989413146776", relevant: true, note: "light green (green-family), desc explicit 'Ideal for Eid festival', Rs2499 <= Rs2500 cap"}
+  - {article_id: "8989405905048", relevant: true, note: "light green, desc explicit 'Ideal for Eid festival', Rs2499 <= Rs2500 cap"}
+  - {article_id: "8395009687858", relevant: false, reason: budget, note: "Rs5790 > Rs2500 cap; also explicitly a kurta 'Set' for a bare-kurta query"}
+  - {article_id: "8976982442242", relevant: true, note: "mehendi green (green-family), desc explicit 'Perfect for eid,weddings,receptions', Rs1069 <= Rs2500 cap"}
+
+# --- Batch 15 (2026-07-25): budget-filter mirror fix re-audit ---
+# scripts/eval_strict.py's _retrieve_pipeline never passed budget_max_inr
+# into the retrieval filter dict at all, even though search_node always does
+# and HybridRetriever applies it as a HARD exclude (not a soft rerank
+# signal) -- a large eval-mirror gap discovered while investigating why
+# "budget" was the #1 miss reason (54 misses) in Batch 14. Fixing it changed
+# retrieval for every budget-bearing query, surfacing 29 new items across 17
+# queries that need auditing before the number can be trusted (per the
+# harness's own "never let the checker grade itself" rule -- these are NOT
+# assumed relevant just because they now rank higher).
+# retrieval_snapshot: data/processed/unified (commit 277d29d + the
+# budget_max_inr mirror fix), eval_strict.py --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_016
+  items:
+  - {article_id: "17156538", relevant: true, note: "kurti, Rs1349 <= Rs1500 cap, no colour/style/occasion named"}
+- query_id: gold_030
+  items:
+  - {article_id: "8957122085026", relevant: true, note: "name explicit 'Polo T-Shirt', Rs1199 <= Rs1500 cap"}
+- query_id: multi_001
+  items:
+  - {article_id: "8144876372190", relevant: true, note: "black, desc explicit 'Black ruched bodycon dress', Rs1749 <= Rs3000 cap"}
+- query_id: multi_003
+  items:
+  - {article_id: "8428939837595", relevant: true, note: "colour facet Red (name says 'Golden' but facet is authoritative for the query's stated colour); desc 'shimmering sequence and intricate thread embroidery' = embellished; Rs14995 <= Rs15000 cap"}
+  - {article_id: "8603406401758", relevant: false, reason: attribute-contradiction, note: "red, under budget, but desc frames it as 'Ajrakh block print' -- a print technique, not the 'embellished' (embroidery/sequin/beadwork) style asked for"}
+- query_id: multi_005
+  items:
+  - {article_id: "9300199145730", relevant: true, note: "navy, fit unstated not contradicted, Rs4949 <= Rs5000 cap; occasion context ('weddings and festive') doesn't contradict office register"}
+  - {article_id: "7958433071362", relevant: false, reason: occasion-register, note: "desc explicit 'Zig Zag Glitter...fancy smart looking' -- a party/festive-register glitter blazer, not office-appropriate"}
+  - {article_id: "9300203012354", relevant: false, reason: occasion-register, note: "desc explicit 'Sequin Geometric Jodhpuri...Stand out at every celebration' -- wedding/festive Jodhpuri register, not office-appropriate"}
+- query_id: multi_006
+  items:
+  - {article_id: "9729195082034", relevant: false, reason: attribute-contradiction, note: "name explicit 'Slim Fit' -- contradicts 'straight fit'"}
+- query_id: multi_007
+  items:
+  - {article_id: "8616568553622", relevant: true, note: "name explicit 'Peach', colour facet Light Pink is an adjacent warm-pastel shade (colour-family tolerance), name explicit 'A-Line', Rs2199 <= Rs2500 cap"}
+- query_id: multi_010
+  items:
+  - {article_id: "17566464", relevant: true, note: "White & Pink floral print reads as a pastel-pink palette (pink co-primary), mehendi-appropriate light register, Rs5999 <= Rs10000 cap"}
+- query_id: multi_015
+  items:
+  - {article_id: "17876896", relevant: true, note: "green primary, pure silk banarasi, Rs2880 <= Rs5000 cap"}
+  - {article_id: "18692910", relevant: true, note: "green primary, silk cotton mysore silk with zari, Rs3599 <= Rs5000 cap"}
+  - {article_id: "15961010", relevant: true, note: "green primary, zari silk blend banarasi, Rs4799 <= Rs5000 cap"}
+  - {article_id: "7684898226421", relevant: true, note: "mehandi green, Rs2409 <= Rs5000 cap; Nauvari is a drape style, not a rubric-checked dimension"}
+- query_id: multi_016
+  items:
+  - {article_id: "7735745937560", relevant: true, note: "yellow, desc explicit festive wear, Rs2499 <= Rs3000 cap"}
+  - {article_id: "8891599487128", relevant: false, reason: kids-leak, note: "desc explicit 'Mustard yellow printed cotton blend kurta for boys' -- a children's item leaking into men's results"}
+- query_id: multi_018
+  items:
+  - {article_id: "18935640", relevant: true, note: "desc explicit 'gold-toned embellished' (base fabric colour orange, but the query's 'gold embellished' is satisfied by gold-toned embellishment work, not requiring a gold base), Rs5500 <= Rs8000 cap"}
+  - {article_id: "16187704", relevant: true, note: "desc explicit 'gold-toned embellished...sequinned', Rs7450 <= Rs8000 cap"}
+  - {article_id: "19029822", relevant: true, note: "desc explicit 'golden embroidered...zari', Rs4150 <= Rs8000 cap"}
+  - {article_id: "15293570", relevant: false, reason: colour-family, note: "no gold/gold-toned/golden signal anywhere in name or desc -- plain red 'Flower Bazaar' print, not gold-embellished"}
+  - {article_id: "18838938", relevant: false, reason: colour-family, note: "'Pink embellished...sequinned' -- embellished but no gold/gold-toned/golden signal at all"}
+- query_id: multi_019
+  items:
+  - {article_id: "9498323943682", relevant: true, note: "white, desc explicit 'festive wardrobe', single garment, Rs1399 <= Rs2500 cap"}
+- query_id: multi_020
+  items:
+  - {article_id: "277f6062-d3cf-5ff8-9419-356e9e360cf7", relevant: true, note: "colour facet Black (name lists available colourway options 'White, Black, Grey'; this row's own facet is Black), slim, Rs1709 <= Rs2000 cap"}
+- query_id: multi_023
+  items:
+  - {article_id: "8598655664278", relevant: true, note: "orange (desc says 'coral', an orange-family shade), Rs909 <= Rs2000 cap; 'work wear and casual wear' framing doesn't contradict navratri's broad, non-heavy festive register"}
+- query_id: multi_025
+  items:
+  - {article_id: "8664476909718", relevant: true, note: "hot pink, georgette, embellished (bonus), Rs2159 <= Rs5000 cap"}
+- query_id: multi_028
+  items:
+  - {article_id: "15634472", relevant: false, reason: set-not-single, note: "'Hooded Co-Ords Set' -- top+shorts 2-piece set for a bare single-crop-top query"}
+  - {article_id: "8284939911390", relevant: false, reason: attribute-contradiction, note: "no crop confirmation anywhere in name/desc ('Beige Floral Cotton Top', 'relaxed and comfortable fit' framing leans away from a fitted/cropped silhouette)"}
+- query_id: multi_030
+  items:
+  - {article_id: "9724031009074", relevant: true, note: "green, Rs1312 <= Rs2500 cap; desc names Mehndi not Eid but both are the same light-to-medium festive register, not contradicting"}
+
+# --- Batch 16 (2026-07-25): set-detection fix re-audit ---
+# is_multi_piece_set's relaxed bare-"Set"-suffix bar (>=1 noun instead of
+# >=2) and the new N-piece/co-ord/bare-TOP-BOTTOM signals (see
+# src/agents/outfit/slots.py) changed retrieval for every query where a
+# previously-invisible set listing is now correctly excluded, surfacing 17
+# new items across 12 queries that need auditing before the number can be
+# trusted.
+#
+# Three items below (multi_011) are a genuine judgment call worth
+# disclosing: "Sherwani Churidar/Dhoti/Pyjama Set" listings ARE flagged by
+# is_multi_piece_set (bare "Set" + noun, or "with" + 2 nouns), matching the
+# code's classification -- but labeled RELEVANT here anyway, same reasoning
+# already established for anarkali+dupatta in Batch 14 (multi_014): a
+# sherwani is CONVENTIONALLY sold/worn with its coordinating churidar/dhoti/
+# pyjama bottom in real Indian groom-wear retail (more so than kurta+palazzo,
+# which is commonly available as either a single piece or a combo) -- a
+# "sherwani" search legitimately wants the complete conventional ensemble,
+# not just the jacket. These items appeared in the top-5 here because
+# removing every set-flagged candidate left the pool too thin (pool-
+# underflow protection correctly kept them) -- not a bug, and not something
+# this pass changes in code without broader evidence of a real over-fire
+# beyond this one query.
+# retrieval_snapshot: data/processed/unified (commit 9530bf1 + the
+# is_multi_piece_set signal fixes), eval_strict.py --mode pipeline.
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "18456672", relevant: false, reason: attribute-contradiction, note: "name explicit 'Slim Fit' -- contradicts 'straight fit' despite desc separately saying 'Straight shape with regular style'; title's explicit fit word wins"}
+- query_id: gold_005
+  items:
+  - {article_id: "7797797454046", relevant: true, note: "name explicit 'Anarkali Kurta', single garment, off-white"}
+- query_id: gold_028
+  items:
+  - {article_id: "8682663379096", relevant: true, note: "printed, kurta, men"}
+- query_id: gold_031
+  items:
+  - {article_id: "9247055282398", relevant: false, reason: set-not-single, note: "'Set Of 2: Deep Plum Cotton Kurta & Palazzo' -- explicit 2-garment set for a bare single-palazzo query"}
+- query_id: gold_020
+  items:
+  - {article_id: "9114911834370", relevant: true, note: "desc explicit 'festive grandeur...stone work embroidery...opulent ethnic styling' -- reception-appropriate embellished register"}
+- query_id: gold_024
+  items:
+  - {article_id: "8355960586395", relevant: true, note: "name explicit 'Sherwani For Groom', no budget stated in this query"}
+- query_id: multi_002
+  items:
+  - {article_id: "7826959007830", relevant: true, note: "lime green, floral, Rs1049 <= Rs2000 cap, light cotton mehendi-appropriate"}
+- query_id: multi_007
+  items:
+  - {article_id: "18696930", relevant: false, reason: attribute-contradiction, note: "desc explicit 'Straight shape with regular style' -- contradicts 'a-line'"}
+  - {article_id: "16907614", relevant: false, reason: attribute-contradiction, note: "desc explicit 'straight-fit kurta' -- contradicts 'a-line'"}
+- query_id: multi_011
+  items:
+  - {article_id: "8891596963992", relevant: true, note: "'Sherwani Churidar Set' -- conventional groom ensemble, same reasoning as anarkali+dupatta (Batch 14, multi_014); blue, Rs5249 <= Rs12000 cap"}
+  - {article_id: "7735774544024", relevant: true, note: "sherwani with its conventional dhoti bottom; blue/navy, Rs5999 <= Rs12000 cap"}
+  - {article_id: "9488864936194", relevant: true, note: "'Sherwani Set with Pyjama' -- conventional 3-piece groom ensemble (sherwani+dupatta+pyjama), blue, Rs5469 <= Rs12000 cap"}
+- query_id: multi_018
+  items:
+  - {article_id: "18935642", relevant: false, reason: colour-family, note: "'Pink & Silver-Toned Embellished' -- no gold/gold-toned/golden signal at all"}
+  - {article_id: "18824644", relevant: false, reason: colour-family, note: "'Blue & Silver-Toned Embroidered' -- no gold/gold-toned/golden signal at all"}
+- query_id: multi_027
+  items:
+  - {article_id: "13140232", relevant: true, note: "purple, name explicit 'Velvet Lehenga', embellished (sangeet-appropriate), Rs3750 <= Rs12000 cap"}
+  - {article_id: "17915108", relevant: true, note: "purple, Rs6499 <= Rs12000 cap; fabric not confirmed velvet but fabric is not a rubric-checked dimension"}
+- query_id: multi_028
+  items:
+  - {article_id: "8483057369310", relevant: false, reason: attribute-contradiction, note: "name explicit 'Regular Fit Top', no crop confirmation, 'relaxed and comfortable fit' framing"}
+
+# --- Batch 17 (2026-07-25): attribute-contradiction gate re-audit ---
+# is_attribute_contradiction (src/agents/outfit/slots.py), wired into
+# search_node's plain-search path and eval_strict.py's mirror in the same
+# commit, strips items whose own fit/rise/breasted/silhouette/neckline word
+# opposes the query's stated word. This EXCLUDED every pre-existing
+# attribute-contradiction hand-label above (gold_004's 18456672, multi_007's
+# two items, multi_028's item -- all already correctly labeled false in
+# Batches 14/16, now genuinely gated out of retrieval rather than merely
+# hand-labeled). Re-running the pipeline surfaced 6 newly-visible items
+# across 6 queries (the gate's exclusions freed pool slots for the next-
+# ranked candidate) that need auditing before the number can be trusted.
+# retrieval_snapshot: data/processed/unified, eval_strict.py --mode pipeline
+# with is_attribute_contradiction wired in (uncommitted at label time).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_004
+  items:
+  - {article_id: "8513893105814", relevant: true, note: "desc explicit 'straight-fit kurta', no colour constraint in query (name/desc disagree pink vs red internally but that's not a rubric dimension here)"}
+- query_id: gold_009
+  items:
+  - {article_id: "17398296", relevant: true, note: "desc explicit 'High-Rise' -- synonym of 'high waisted' in real fashion usage, not an opposing word; skinny fit unstated in query, not a contradiction signal"}
+- query_id: gold_036
+  items:
+  - {article_id: "9325337837826", relevant: true, note: "breasted style unstated, not contradicted (same precedent as Batch 16's 9300199145730/8907901534370/8453764120882 for gold_036)"}
+- query_id: gold_040
+  items:
+  - {article_id: "17941484", relevant: true, note: "desc explicit 'halterneck, collar' -- confirms query's halter neck"}
+- query_id: multi_006
+  items:
+  - {article_id: "4521889562721", relevant: true, note: "desc explicit 'White straight kurta...Top Shape - Straight', white, Rs1269 <= Rs2000 cap"}
+- query_id: multi_029
+  items:
+  - {article_id: "9485863354665", relevant: true, note: "name/desc explicit 'Black...Bodycon Mini Dress', Rs999 <= Rs5000 cap, reception-appropriate party dress"}
+
+# --- Batch 18 (2026-07-25): occasion-register + type-confusion fix re-audit ---
+# Three unconditional gates added this pass to search_node/eval_strict.py's
+# mirror: unconditional loungewear strip (scoped to skip occasions already
+# covered by _apply_loungewear_gate, after a real regression was caught and
+# fixed -- see graph.py's comment), an accessory-exclusion gate for generic
+# "outfit/look/wear" asks with no garment_type resolved, and two narrow
+# additions to coherence.py gate 4 (Jodhpuri-outerwear name check,
+# ethnic-footwear-pairing desc marker scoped to outerwear product types).
+# Re-running the pipeline surfaced 6 newly-visible items across 5 queries.
+# retrieval_snapshot: data/processed/unified, eval_strict.py --mode pipeline
+# with all three gates wired in (uncommitted at label time).
+# Labeled_by: Claude (Sonnet 5), same rubric as the header.
+- query_id: gold_043
+  items:
+  - {article_id: "10041106759977", relevant: true, note: "product_type=kaftan, desc explicit 'relaxed kaftan silhouette'"}
+- query_id: gold_019
+  items:
+  - {article_id: "7776465715378", relevant: true, note: "'Light Mehendi Green Kurta Set with Dupatta' -- green, conventional kurta+dupatta ensemble (same precedent as Batch 14's multi_014)"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8016301490331", relevant: true, note: "'Yellow Net Multicolour Lehenga' -- yellow is haldi's exact traditional palette, embellished, desc explicitly markets it for haldi"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "12795840", relevant: false, reason: occasion-register, note: "'Black & Pink...Kurti' -- black is not haldi's bright/daytime palette (same standard as the earlier black-kurti miss in this query's own Batch 14 label)"}
+  - {article_id: "8174367375495", relevant: false, reason: type-confusion, note: "'Ladies Triveni Kolhapuri Chappal' -- standalone footwear, not an outfit/look; not caught by the new accessory-exclusion gate since footwear is a separate classify_item() class from 'accessory' -- residual gap, not fixed this pass"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "9351592640770", relevant: false, reason: data-mislabel, note: "catalogue gender field says 'women' but the product's own name explicitly says 'Men's Black Silk Blend Kurta...' -- catalogue field contradicts the product's own name, same Step-3 data-mislabel bucket as the Jodhpuri/kurta reclassification above, not code-fixable without risking rejecting genuine unisex-styled items"}
+# ── cocktail-occasion regression probes (2026-07-30 fix: "cocktail" remapped
+# reception -> party_evening in intent_parser._OCCASION_MAP). Retrieval
+# snapshot: commit 851097b + this fix, --mode pipeline. Labeled_by: Claude
+# (Fable 5), same rubric as the header.
+- query_id: occ_cocktail_001
+  items:
+  - {article_id: "7785146155230", relevant: true, note: "'Black Hosiery Sheath Party Dress' -- sheath silhouette, no explicit mini/short marker, black, party-appropriate for cocktail register"}
+  - {article_id: "9719882121513", relevant: true, note: "'Fae|Satin Stylised Back Maxi Gown' -- explicitly a maxi gown, black, exact type+colour match"}
+  - {article_id: "9034319495390", relevant: false, reason: attribute-contradiction, note: "'Black Off-Shoulder Party Dress' -- desc explicitly 'party mini dress'; mini contradicts the query's 'gown' (gown implies a long/floor silhouette)"}
+  - {article_id: "8702900535518", relevant: true, note: "'Black Glitter Sheath Party Dress' -- sheath, no length marker contradicting gown, black, party-appropriate"}
+  - {article_id: "8225722007774", relevant: true, note: "'Black Embellished Viscose Winter Dress' -- ruched bodycon, no explicit mini/short marker, black, embellished/party-appropriate"}
+- query_id: occ_cocktail_002
+  items:
+  - {article_id: "6883946594461", relevant: false, reason: occasion-register, note: "'Women Floral Print Maxi-Fit CASUAL Dress' -- desc/name explicitly casual register, mismatched formality for a cocktail-party (party_evening, formality 4) ask"}
+  - {article_id: "7553271726302", relevant: true, note: "'Women Yellow Pearl Embellished Flared Dress' -- pearl embellishment, party-appropriate formality, under 5000"}
+  - {article_id: "7999307841758", relevant: true, note: "'Women Teal Round Neck Sleeveless Dress' -- no explicit casual/loungewear marker, plausible cocktail dress, under 5000"}
+  - {article_id: "7599233171678", relevant: false, reason: occasion-register, note: "'Women Sky Blue Denim Flared Mini Dress' -- denim is an explicit western-casual marker, mismatched formality for a cocktail-party ask"}
+  - {article_id: "9971976143145", relevant: true, note: "'Lusy|100% Viscose A-Line Mini Dress' -- desc explicitly '...perfect for cocktail', direct match"}
+- query_id: occ_cocktail_003
+  items:
+  - {article_id: "9492010270978", relevant: false, reason: data-mislabel, note: "'Men Bottle Green...Indo-Western...Palazzo Set' -- catalogue gender field says 'women' but the product's own name explicitly says 'Men'; contradicts the query's women gender filter, same data-mislabel bucket as occ_adv_005 above"}
+  - {article_id: "8644788879515", relevant: true, note: "'Party Wear Floral Embroidered blue Lehenga' -- festive/embellished ethnic-glam, plausible for an indo-western-leaning cocktail-party ask; reverse-direction proof that party_evening's EITHER register still admits ethnic items"}
+  - {article_id: "8644941349019", relevant: true, note: "'Blue & Black Tie-Dye Festive Lehenga' -- festive/embellished, same reverse-direction register as above"}
+  - {article_id: "8644357030043", relevant: true, note: "'White Green Embroidered Party Wear Lehenga' -- festive/embellished, same reverse-direction register as above"}
+# ── Kolhapuri footwear type-confusion fix (2026-07-30): NON_OUTFIT_ITEM_CLASSES
+# (slots.py) extends the accessory-exclusion gate to also reject standalone
+# footwear for a generic "look/wear" ask. Retrieval snapshot: this fix, --mode
+# pipeline. Two new items rose into occ_adv_002's top-5 once the Kolhapuri
+# chappal (article_id 8174367375495, labeled above at the earlier residual-gap
+# note) was correctly excluded. Labeled_by: Claude (Fable 5).
+- query_id: occ_adv_002
+  items:
+  - {article_id: "13001114", relevant: true, note: "'YASH GALLERY Women Plus Size Mustard Yellow Ethnic Printed Detail Keyhole Neck Kurta' -- mustard yellow is haldi's exact traditional palette, ethnic kurta"}
+  - {article_id: "8441023070363", relevant: true, note: "'Yellow Paisley Lehenga' -- yellow matches haldi's bright/festive palette, ethnic"}
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8663667048603", relevant: true, note: "'Rust Orange Saree with Embellished Border and Designer Blouse' -- rust/orange is within haldi's traditional yellow-orange palette, ethnic full-ensemble saree, newly risen into top-5 for this generic 'outfit' ask once the same footwear-exclusion fix (NON_OUTFIT_ITEM_CLASSES) demoted a non-apparel candidate that previously occupied this slot"}
+# ── reception/wedding_guest thin-allow-list fix (2026-07-30):
+# is_formal_capable_western_item + extended is_casual_marker_item replacing
+# the old name-substring "gown"/"blazer"/formal allow-list scan. Retrieval
+# snapshot: this fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_reception_001
+  items:
+  - {article_id: "8225722007774", relevant: true, note: "'Black Embellished Viscose Winter Dress' -- black, embellished, glam-appropriate for reception's evening register"}
+  - {article_id: "7712093765718", relevant: true, note: "'Ethnic Printed & Embroidered A-Line Plated Maxi Dress - Black' -- embroidered indo-western maxi, black, glam-appropriate"}
+  - {article_id: "8225722040542", relevant: true, note: "'Black Viscose Winter Wrap Dress' -- black, no casual marker, plausible reception dress"}
+  - {article_id: "7785146155230", relevant: true, note: "'Black Hosiery Sheath Party Dress' -- black party dress, evening-appropriate"}
+  - {article_id: "8629266972822", relevant: false, reason: occasion-register, note: "'Black Floral Printed Cotton A-Line One-Piece Dress' -- cotton + floral print reads as a casual daytime dress despite the black colour; no embellishment/glam signal, mismatched formality for reception's evening-glam register (same standard as the cocktail eval's 'CASUAL Dress' miss)"}
+- query_id: occ_reception_002
+  items:
+  - {article_id: "9300203012354", relevant: true, note: "'Men's Navy Blue Sequin Geometric Jodhpuri Blazer with Satin Lining' -- navy, sequin-embellished, glam-appropriate for a wedding reception's indo-western register"}
+  - {article_id: "10197549252914", relevant: true, note: "'Navy Blue Solid Regular Fit Blazer' -- navy, formal blazer, no casual marker"}
+  - {article_id: "9121572749570", relevant: true, note: "'Men's Navy Blue Bafta Embossed Blazer' -- navy, embossed/formal detail"}
+  - {article_id: "10034685542706", relevant: true, note: "'Navy Blue Solid Regular Fit Blazer' -- navy, formal blazer, no casual marker"}
+  - {article_id: "9635301523762", relevant: true, note: "'Navy Blue Solid Slim Fit Blazer' -- navy, formal blazer, no casual marker"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "9114158792960", relevant: false, reason: occasion-register, note: "'AM:PM Dress' -- desc explicit 'breezy relaxed fit... 9-9 dress... deep side pockets... effortlessly chic', an everyday comfort dress with zero embellishment/glam signal, mismatched formality for reception; newly surfaced by the reception structural-type fix (admits 'dress' by default) -- a disclosed precision tradeoff of that fix, not caught by is_casual_marker_item since it never says 'casual' literally"}
+  - {article_id: "14382336", relevant: false, reason: data-mislabel, note: "'DressBerry Women Pink Melange Effect Longline Front-Open' -- desc is explicitly a SWEATER ('front-open sweater, 2 pockets, long sleeves, straight hem, Acrylic'), not a dress at all; catalogue's own product_type_name=='dress' facet contradicts the item's own description"}
+# ── bridal occasion-mapping + merchandise-gate fix (2026-07-30): "bridal"
+# mapped to wedding_guest in intent_parser._OCCASION_MAP; bare "hamper"/
+# "hampers" added to _OCCASION_MERCHANDISE_TYPES. Retrieval snapshot: this
+# fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_bridal_001
+  items:
+  - {article_id: "8353474838683", relevant: true, note: "'Red Designer Bridal lehenga' -- red is the traditional Indian bridal colour, full ethnic ensemble"}
+  - {article_id: "8353470480539", relevant: true, note: "'Red Silk Bridal lehenga with paisely Butis' -- red, embellished, bridal-appropriate"}
+  - {article_id: "8353461469339", relevant: true, note: "'Dark Red Bridal Lehenga' -- traditional bridal colour, ethnic full ensemble"}
+  - {article_id: "8361603596443", relevant: true, note: "'Red Bridal lehenga with Heavy Hand work' -- red, heavily embellished, bridal-glam appropriate"}
+- query_id: occ_bridal_002
+  items:
+  - {article_id: "9275422900447", relevant: true, note: "'Mortantra X Zivame Bridal Hamper Box C' -- exactly a bridal-themed hamper, explicit merchandise request correctly NOT suppressed"}
+  - {article_id: "8387941204134", relevant: false, reason: occasion-register, note: "'The Blooming Affection Valentine Hamper' -- a hamper (type matches) but Valentine-themed, not bridal; theme mismatch for a 'bridal hamper' ask"}
+  - {article_id: "9275422343391", relevant: true, note: "'Mortantra X Zivame Bridal Hamper Box B' -- exactly a bridal-themed hamper"}
+  - {article_id: "7332701143083", relevant: false, reason: type-confusion, note: "'Customize Playing Cards' -- not a hamper at all"}
+  - {article_id: "8620936069286", relevant: false, reason: occasion-register, note: "'Glow of Love Karwa Chauth Gift Hamper' -- a hamper but Karwa Chauth-themed, not bridal; theme mismatch"}
+# ── classification-gap + brand-collision fix (2026-07-30). Retrieval
+# snapshot: this fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_office_001
+  items:
+  - {article_id: "7553271234782", relevant: true, note: "'Women Collared Viscose Printed Shirt' -- formal shirt, office-appropriate"}
+  - {article_id: "7553271169246", relevant: true, note: "'Women Zebra Printed Shirt' -- shirt, no casual marker"}
+  - {article_id: "7631150678238", relevant: false, reason: occasion-register, note: "'Women Black Animation Elephant Tee T-Shirt' -- novelty animal-print t-shirt, not office-appropriate"}
+  - {article_id: "7553272545502", relevant: false, reason: occasion-register, note: "'Women Navy Blue Round Neck Hosiery T-Shirt' -- plain t-shirt, casual register, not office-formal"}
+  - {article_id: "18205646", relevant: true, note: "'OFFICE & YOU Women Black Shrug' -- newly correctly classified 'outerwear' via the shrug-keyword fix (previously unknown/unclassified); light layering piece, explicitly office-branded, office-appropriate"}
+- query_id: occ_festive_001
+  items:
+  - {article_id: "6669758005405", relevant: false, reason: occasion-register, note: "'Women White Front Open Solid Shrug' -- plain solid, no embellishment/festive signal"}
+  - {article_id: "8404036616414", relevant: false, reason: occasion-register, note: "'Women Black V-Neck Cotton Kurta' -- plain cotton, no embellishment, everyday-register not festive"}
+  - {article_id: "8574022549654", relevant: true, note: "'Black Woven Design Wool Women's Shawl' -- woven-pattern shawl, festive-plausible"}
+  - {article_id: "16896084", relevant: true, note: "'GRACIT Women Set Of 2 Navy Blue & Turquoise Blue Embroidered Flared Ethnic Palazzos' -- embroidered ethnic palazzo, festive-appropriate"}
+  - {article_id: "70c42bb5-f9dc-526b-9409-736896965f6e", relevant: true, note: "'K J TRADERS Wool Woven Women, Men Shawl (Multicolor)' -- multicolor woven shawl, festive-plausible"}
+- query_id: occ_brand_001
+  items:
+  - {article_id: "2039873", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women Blue Solid Trousers' -- genuinely Western trousers (correctly classified western_bottom via the brand-collision fix -- the brand name 'Kurti' no longer wrongly forces ethnic_top), no ethnic register at all, mismatched for sangeet (ethnic_only); pool-underflow protected since no genuine sangeet-appropriate ethnic 'trousers' exist in this catalogue -- an honest data-ceiling case, not a code gap"}
+  - {article_id: "11053810", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women Black Trousers' -- same brand-collision fix, genuinely Western, same data-ceiling case"}
+  - {article_id: "14099266", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women White Regular Fit Solid Regular Trousers' -- same"}
+  - {article_id: "11054006", relevant: false, reason: occasion-register, note: "'Jaipur Kurti Women White Regular Cropped Trousers' -- same"}
+  - {article_id: "8702899159262", relevant: false, reason: occasion-register, note: "'Ultimate Stretchable Loose Fit Trousers' -- unrelated brand, still genuinely Western, same data-ceiling case"}
+# ── missing high-traffic occasion-term fix (2026-07-30): groom/dulhan/
+# baraat/nikah -> wedding_guest. Retrieval snapshot: this fix, --mode
+# pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_groom_001
+  items:
+  - {article_id: "8611823812786", relevant: true, note: "'PAISELY IVORY SHERWANI SET' -- genuine groom sherwani"}
+  - {article_id: "8559557050523", relevant: true, note: "'Navy Blue Groom Indo-Western Sherwani' -- explicitly groom-marketed"}
+  - {article_id: "9121022542048", relevant: true, note: "'Men's Ivory Cream Geometric Sequin Embroidered Indo Western Set' -- formal embellished indo-western, groom-appropriate"}
+  - {article_id: "8611863822514", relevant: true, note: "'KATHAKALI BEIGE SHERWANI SET' -- genuine groom sherwani"}
+  - {article_id: "8572553396379", relevant: true, note: "'Blue Formal Suit with Printed Waistcoat for Men' -- formal wedding-appropriate western suit"}
+- query_id: occ_dulhan_001
+  items:
+  - {article_id: "7265663385643", relevant: true, note: "'Traditional Heavy Dulhan Bridal Rajasthani Rajwadi Chooda' -- genuine bridal chura bangles"}
+  - {article_id: "7316905426987", relevant: true, note: "'Dulhan Embedded Fabric Envelope Clutches' -- bridal clutch accessory"}
+  - {article_id: "15051718", relevant: true, note: "'SHOPGARB Women Yellow' -- weak product title but desc confirms a full 'Yellow & Golden embellished semi-stitched lehenga...with dupatta', genuine bridal ensemble"}
+  - {article_id: "7248712695851", relevant: true, note: "'Rajwadi Dulhan Chooda' -- genuine bridal chura bangles"}
+  - {article_id: "8428299976926", relevant: false, reason: occasion-register, note: "'Beige Cotton Tailored Fit Waist Coat' -- a waistcoat is menswear-formal-adjacent, mismatched for a 'dulhan' (bride) look"}
+# 2026-07-31 loungewear-leak fix: "Men Solid Multicolor Top & Pyjama Set"
+# (article_id bcfabac3-3371-5bfc-8fff-4d4d66d10209, product_type=nightwear)
+# no longer surfaces in top-5 -- is_loungewear_text() now catches the
+# top+pyjama loungewear-combo naming pattern (catalogue-audited, see
+# cleaning.py's _TOP_PYJAMA_COMBO_RE docstring); replaced by a genuine
+# formal sherwani. Retrieval snapshot: this fix, --mode pipeline.
+- query_id: occ_baraat_001
+  items:
+  - {article_id: "8909856964763", relevant: true, note: "'Gold Sherwani with Doli Baraat Zardozi Work' -- explicitly baraat-marketed sherwani"}
+  - {article_id: "8852950220952", relevant: true, note: "'Green Embroidered Cotton Kurta Set' -- formal ethnic menswear"}
+  - {article_id: "8355974807707", relevant: true, note: "'Cream Colour Sherwani for Men' -- genuine wedding sherwani"}
+  - {article_id: "9724035137842", relevant: true, note: "'Designer Mustard Yellow Printed Kurta' -- festive formal kurta"}
+  - {article_id: "8814734508187", relevant: true, note: "'Rose gold silk Sherwani with zardozi embroidery' -- explicitly groom-marketed heirloom sherwani, ₹30995"}
+- query_id: occ_nikah_001
+  items:
+  - {article_id: "6669758005405", relevant: true, note: "'Women White Front Open Solid Shrug' -- plausible formal layering piece, no casual marker"}
+  - {article_id: "18957838", relevant: true, note: "'KALINI Women Fluorescent Green Embroidered Pure Cotton Salwar suit' -- embroidered ethnic salwar suit, formal-appropriate"}
+  - {article_id: "8644010999963", relevant: true, note: "'White Embroidered Party Wear Lehenga' -- embellished ethnic lehenga"}
+  - {article_id: "18829920", relevant: true, note: "'Virah Fashion Women Lime Green Embroidered Layered Thread Work Top with Sharara & With Dupatta' -- embroidered ethnic sharara set"}
+  - {article_id: "8318352162971", relevant: true, note: "'Cream Net Lehenga with Sequins & Cutdana Embellishments' -- embellished ethnic lehenga"}
+# ── anniversary occasion-mapping + gift-card merchandise fix (2026-07-30):
+# "anniversary" -> party_evening; bare "gift card" added to the occasion-
+# merchandise exclusion (was ranking "Anniversary Day E-Gift Card" #1 before
+# this fix -- see graph.py/cleaning.py's gift-card merchandise commit).
+# Retrieval snapshot: this fix, --mode pipeline. Labeled_by: Claude (Fable 5).
+- query_id: occ_anniversary_001
+  items:
+  - {article_id: "9001983607006", relevant: true, note: "'Twilight Glamour Party Co-ord Set' -- party-appropriate co-ord"}
+  - {article_id: "13088792", relevant: true, note: "'Amydus Women Plus Size Brown & Black Scarf Print Flared Trousers' -- no casual marker, party-plausible"}
+  - {article_id: "8644901896347", relevant: true, note: "'Sky Blue Zari Woven Party Wear Lehenga' -- explicit party wear, embellished"}
+  - {article_id: "8644788879515", relevant: true, note: "'Party Wear Floral Embroidered blue Lehenga' -- explicit party wear, embroidered"}
+  - {article_id: "13352476", relevant: true, note: "'Global Desi Woman's Pink and Beige Floral Printed Skirt' -- no casual marker, party-plausible; the gift-card item that previously ranked #1 here is now correctly excluded"}
+# ── cross-gender leak fix (2026-08-06): has_gender_text_conflict() now
+# rejects a candidate whose own NAME explicitly states the opposite gender
+# of the look, regardless of what the catalogue's (sometimes wrong)
+# structured gender column says. This makes obsolete the "not code-fixable
+# without risking false positives" caveat on article_id 9351592640770's
+# EARLIER data-mislabel labels above (gold_019/occ_adv_005, both dated
+# 2026-07-25-ish batches) -- that exact item ("Men's Black Silk Blend
+# Kurta with Pant Pyjama & Mehendi Green Dupatta Set", gender column=
+# "women") is the SAME live-proven leak class this fix closes, and it no
+# longer appears in either query's top-5. Its removal opens a slot each
+# of these two items now newly fill -- both genuinely relevant on
+# straightforward reading, not code adjusted to fit a number. Retrieval
+# snapshot: this fix, --mode pipeline. Labeled_by: Claude (Sonnet 5).
+- query_id: gold_019
+  items:
+  - {article_id: "7684898226421", relevant: true, note: "'Readymade Mehandi Green Nauwari Saree -- Earth-Toned Festive Ease' -- title states both the occasion (mehendi) and the queried colour (green) explicitly"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "9116478177538", relevant: true, note: "'Women's Mehendi Green Rayon Mirror Work Kurta Set with Palazzo' -- title states the occasion (mehendi), the queried colour (green), and women's gender explicitly; mirror-work kurta set is a genuine mehendi-register ethnic outfit"}

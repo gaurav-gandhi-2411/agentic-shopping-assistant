@@ -38,6 +38,24 @@ class IntentV1:
     # ("what suits my body type") — routes to a deterministic clarify message
     # rather than product search (see graph.py's router_node short-circuit).
     wants_body_type_guidance: bool = False
+    # Vague price adjective ("cheap lehenga", "expensive saree") that carries no
+    # literal INR number — see _extract_budget's docstring for why this is a
+    # separate field rather than a guessed threshold. A downstream consumer
+    # (graph.py) resolves this against the retrieved candidate pool's own price
+    # distribution rather than a hardcoded cutoff.
+    price_qualifier: str | None = None  # "cheap" | "expensive" | None
+    # Formality/embellishment softener ("not too flashy", "minimalist saree") —
+    # signal for a downstream ranking consumer (graph.py, next wave) to penalize
+    # heavily embellished items. Extraction only; no ranking wiring here.
+    formality_softener: str | None = None  # "flashy" | "minimalist" | "comfortable" | None
+    # Second garment type for a genuine two-garment "X and Y" / "X & Y" query
+    # (e.g. "sports bra and leggings", "kurta and palazzo") — see
+    # _extract_garment_types' docstring for the split/merge mechanism and the
+    # distinct-type judgment call. None for every single-garment query
+    # (the overwhelming majority) and for every existing caller that only
+    # ever reads `garment_type` — this field is purely additive, never
+    # changes garment_type's own type or meaning.
+    garment_type_secondary: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +75,37 @@ _COMPOUND_TERMS: dict[str, str] = {
     # "palazzo pants" prevents "pants" (trousers rule) from overriding "palazzo" via
     # rightmost-match logic when both appear in the same two-word phrase.
     "palazzo pants": "palazzo",
+    # 2026-07-13 fix: "kurta pajama"/"pyjama" queries were resolving to
+    # garment_type="nightwear" — "pajama" is rightmost and wins the position
+    # scan over "kurta" (see _GARMENT_RULES's nightwear rule). These are ethnic
+    # kurta-pajama SETS, not nightwear. Deliberately narrow to the kurta-
+    # combination phrases only — bare "pyjama set"/"pajama set" (no "kurta")
+    # must still resolve to nightwear (genuine men's pyjama-only sets).
+    # Mirrored in src/catalogue/normalizer.py's _COMPOUND_TERMS (same algorithm,
+    # see this file's module docstring).
+    "kurta and pyjama": "kurta",
+    "kurta pyjama": "kurta",
+    "kurta pajama": "kurta",
+    "kurta and pajama": "kurta",
+    # Wave 9 activewear vocabulary (2026-07-24, multi-garment "X and Y" fix
+    # follow-up): mirrors src/catalogue/normalizer.py's identical compound
+    # entries (same module-docstring "keep in sync" convention as the
+    # kurta-pajama entries above). Must be compound-table entries, not
+    # position-scan rules, because the bare noun they end in ("bra"/"pants")
+    # is already claimed by an existing generic rule (innerwear's "\bbra\b",
+    # trousers' "\bpants\b") that would otherwise win the rightmost-noun
+    # scan. Ground-truth verified: the unified catalogue's product_type_name
+    # column has 21 "sports_bra", 13 "cargo_pants", 4 "track_pants" rows
+    # written by adapter.py's normalize_garment_type() at ingest time using
+    # these exact canonical strings — this file must resolve queries to the
+    # SAME strings for the product_type_name filter to actually match them.
+    # Live-proven gap this closes: before this fix, "sports bra" resolved to
+    # the generic "innerwear" garment_type here (not "sports_bra"), so a
+    # "sports bra and leggings" query's single-valued garment_type extraction
+    # never even had a chance to name the right facet, let alone a second one.
+    "sports bra": "sports_bra",
+    "track pants": "track_pants",
+    "cargo pants": "cargo_pants",
 }
 
 _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
@@ -70,10 +119,29 @@ _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
 
 _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bshorts?\b", "shorts"),
+    # Skort ("skirt" + "shorts" hybrid) is a distinct real catalogue noun —
+    # does not share a substring with "shorts" above, no compound entry
+    # needed. Mirrors src/catalogue/normalizer.py's identical rule.
+    (r"\bskorts?\b", "skort"),
     (r"\bminiskirt\b|\bmini skirt\b", "skirt"),
     (r"\bskirt\b", "skirt"),
     (r"\btrouser\b|\btrousers\b|\bpants\b|\bchino\b|\bchinos\b", "trousers"),
     (r"\bjean\b|\bjeans\b|\bdenim\b", "jeans"),
+    # Wave 9 activewear vocabulary (2026-07-24, multi-garment "X and Y" fix
+    # follow-up): "leggings"/"joggers" were entirely unrecognised — a query
+    # naming either resolved garment_type=None, so it never had a chance to
+    # hard-filter product_type_name at all. Ground-truth verified: catalogue
+    # product_type_name has 76 "leggings" + 10 "joggers" rows (plus more
+    # under Title-case store-label variants matched case-insensitively by
+    # hybrid_search's product_type_name filter). "leggings" never collides
+    # with the generic "\bpants\b" rule (distinct word), so it's a plain
+    # position-scan rule, not a compound entry. "joggers"/"sweatpants" are
+    # merged into one canonical value — mirrors normalizer.py's identical
+    # merge (this catalogue's own silvertraq "TraqEase Sweatpants" listing is
+    # grouped under product_type "Joggers" by the store itself, so this is
+    # not inventing a distinction the data doesn't make).
+    (r"\bleggings?\b", "leggings"),
+    (r"\bjoggers?\b|\bsweatpants?\b", "joggers"),
     (r"\bsarees?\b|\bsari\b", "saree"),
     (r"\blehenga\b", "lehenga"),
     (r"\banarkali\b", "anarkali"),
@@ -83,6 +151,20 @@ _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bkurta\b", "kurta"),
     (r"\bdupatta\b", "dupatta"),
     (r"\bsalwar\b", "salwar"),
+    # 2026-07-24 fix (multi-garment "X and Y" test coverage): "churidar" had
+    # NO garment_type resolution at all — neither here nor in
+    # src/catalogue/normalizer.py (verified: zero catalogue rows have
+    # product_type_name=="churidar"; the 476 prod_name rows mentioning
+    # "churidar" are almost all kurta-with-churidar SETS normalized to
+    # garment_type="kurta", the dominant noun). Mapping it to the catalogue's
+    # existing "salwar" facet (14 real rows) rather than inventing an unbacked
+    # distinct value — churidar is a close, commonly-interchanged salwar
+    # variant, and this file cannot normalize the catalogue's own
+    # product_type_name column (that is normalizer.py's job, out of scope
+    # here — see this fix's commit message). Thin inventory is a known,
+    # separately-scoped catalogue-side gap, not something this query-side
+    # rule can grow on its own.
+    (r"\bchuridar\b", "salwar"),
     (r"\bmonokini\b|\bswimsuit\b|\bbikini\b|\bswimwear\b", "swimwear"),
     (r"\bjumpsuit\b|\bplaysuit\b", "jumpsuit"),
     (r"\bblazers?\b", "blazer"),
@@ -101,10 +183,38 @@ _GARMENT_RULES: list[tuple[str, str]] = [
     (r"\bvest\b|\btank\b", "vest"),
     (
         r"\bfootwear\b|\bshoe\b|\bshoes\b|\bsandal\b|\bsandals\b|\bsneaker\b|\bsneakers\b"
-        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b",
+        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b"
+        # 2026-07-19 fix: "juttis for a lehenga" was resolving garment_type=
+        # "lehenga" instead of the actually-requested footwear item — jutti/
+        # mojari/kolhapuri/chappal (ethnic footwear nouns, real inventory per
+        # src/catalogue/normalizer.py's identical 2026-07-19 fix) were entirely
+        # absent from this rule, so a query naming both a footwear noun and an
+        # ethnic-wear noun ("lehenga") had only the ethnic noun as a candidate
+        # match and it won by default. Mirrored from normalizer.py's
+        # _GARMENT_RULES footwear rule (same terms, same reasoning) — these two
+        # files' rule sets are meant to stay in sync (see module docstring).
+        r"|\bjutti\b|\bjuttis\b|\bmojari\b|\bmojaris\b|\bkolhapuri\b|\bkolhapuris\b"
+        r"|\bchappal\b|\bchappals\b",
         "footwear",
     ),
     (r"\bhandbag\b|\btote\b|\bcrossbody\b|\bpurse\b|\bclutch\b|\bbag\b", "bag"),
+    # 2026-07-23 fix: "gold jewellery for a wedding" was resolving garment_type=
+    # None (no jewellery noun recognised at all) so merge_with_context() silently
+    # inherited the PRIOR turn's garment_type from session context instead —
+    # live-proven: after "juttis for a lehenga" (garment_type="footwear"), the
+    # very next turn "gold jewellery for a wedding" hard-filtered to
+    # product_type_name="footwear" and returned juttis again. "necklace"/
+    # "earrings"/"jhumka" use the exact garment_type strings that are also real,
+    # distinct catalogue product_type_name facet values (see
+    # src/catalogue/normalizer.py's identical jewellery-noun rule, which this
+    # mirrors per this file's module docstring); "jewellery"/"jewelry" maps to
+    # the catalogue's own generic "jewellery" bucket, matching the auto-facet
+    # extractor's (graph.py search_node) independent literal-value match that
+    # already resolves a FRESH "gold jewellery for a wedding" turn correctly.
+    (r"\bnecklaces?\b", "necklace"),
+    (r"\bearrings?\b", "earrings"),
+    (r"\bjhumkas?\b", "jhumka"),
+    (r"\bjewellery\b|\bjewelry\b", "jewellery"),
     (r"\bco-?ord\b", "coord"),
     (r"\bkaftan\b", "kaftan"),
     (r"\bbodysuit\b|\blingerie\b|\bbra\b", "innerwear"),
@@ -229,6 +339,15 @@ _COLOUR_MAP: dict[str, str] = {
     "olive": "Olive",
     "teal": "Teal",
     "rust": "Rust",
+    # 2026-07-13 fix: "pastel" is a family adjective, not a specific hue, so it
+    # maps to its own synthetic canonical "Pastel" (deliberately NOT reusing an
+    # existing catalogue value like "Light Pink" here — that would also widen
+    # genuine "light pink" queries via the _COLOUR_FAMILY entry below). See
+    # _COLOUR_FAMILY for the widened retrieval-filter tuple; all six member
+    # colours verified present in the catalogue's colour_group_name column
+    # (data/processed/unified/catalogue.parquet): Light Pink=418, Light Blue=425,
+    # Lavender=128, Cream=243, Light Beige=16, White=2838 items.
+    "pastel": "Pastel",
 }
 
 _COLOUR_SORTED: list[tuple[str, str]] = sorted(
@@ -253,6 +372,7 @@ _COLOUR_FAMILY: dict[str, tuple[str, ...]] = {
     "Teal": ("Teal", "Turquoise", "Turquoise Blue"),
     "Cream": ("Cream", "Light Beige"),
     "Lavender": ("Lavender", "Purple"),
+    "Pastel": ("Light Pink", "Light Blue", "Lavender", "Cream", "Light Beige", "White"),
 }
 
 
@@ -275,17 +395,45 @@ _OCCASION_MAP: dict[str, str] = {
     "ring ceremony": "engagement",
     "wedding": "wedding_guest",
     "shaadi": "wedding_guest",
+    # Mapped to party_evening (EITHER register, same as "party"/"evening"/
+    # "date night") rather than an ethnic-heavy slug: an anniversary
+    # celebration is generically festive, not specifically ethnic. 515 rows,
+    # mixed jewellery-gift framing plus genuine festive/party wear; the
+    # jewellery-gift framing is not a merchandise-leak risk here since
+    # jewellery is explicitly protected from the occasion-merchandise gate
+    # (see cleaning.py's _OCCASION_MERCHANDISE_TYPES docstring).
+    "anniversary": "party_evening",
+    # Audited and deliberately NOT mapped -- too thin/ambiguous in the
+    # catalogue to justify an occasion mapping (re-check catalogue support
+    # before re-litigating): "mundan" (2 rows, neither clearly mundan-
+    # specific), "griha pravesh" (4 rows, all sarees but very thin),
+    # "housewarming" (5 rows, 3 of 5 are non-apparel religious idols).
     "sangeet": "sangeet",
     "haldi": "haldi",
     "mehendi": "mehendi",
     "mehndi": "mehendi",
     "reception": "reception",
-    "cocktail": "reception",
+    "cocktail": "party_evening",
     "engagement": "engagement",
     "roka": "engagement",
     "sagai": "engagement",
     "puja": "festive_puja",
     "festive": "festive_puja",
+    # Wave 8 festival-occasion expansion — siblings of festive_puja/sangeet,
+    # not replacements. "chaniya choli"/"rakhi" also appear as garment/product
+    # nouns elsewhere in the catalogue, but this dict is occasion-only and
+    # independent of _GARMENT_RULES/_COMPOUND_TERMS, so no collision.
+    "deepavali": "diwali",
+    "diwali": "diwali",
+    "navratri": "navratri",
+    "garba": "navratri",
+    "dandiya": "navratri",
+    "chaniya choli": "navratri",
+    "karwa chauth": "karva_chauth",
+    "karva chauth": "karva_chauth",
+    "raksha bandhan": "raksha_bandhan",
+    "rakhi": "raksha_bandhan",
+    "eid": "eid",
     "ethnic": "traditional_ethnic",
     "traditional": "traditional_ethnic",
     "party": "party_evening",
@@ -296,6 +444,71 @@ _OCCASION_MAP: dict[str, str] = {
     "formal": "office",
     "beach": "casual",
     "brunch": "casual",
+    # Wave 9 (2026-07-23): activewear/gym expansion — checked against
+    # _GARMENT_RULES/_COMPOUND_TERMS/_BODY_TYPE_MAP: none of these six
+    # phrases collide (body_type's "athletic frame"/"athletic build" are
+    # distinct longer phrases that never match on "athletic wear" alone;
+    # occasion/body_type are independent IntentV1 fields regardless). "yoga"
+    # deliberately resolves to the same "gym" slug rather than a dedicated
+    # one — see occasions.py's "gym" entry docstring.
+    "gym": "gym",
+    "workout": "gym",
+    "work out": "gym",
+    "athleisure": "gym",
+    "athletic wear": "gym",
+    "yoga": "gym",
+    # 2026-08-06: this whole cluster (bridal/groom/dulhan/baraat/nikah/bride)
+    # is DELIBERATELY placed LAST in the dict, not alongside "wedding"/
+    # "shaadi" above where it used to live. _extract_occasion() resolves
+    # same-LENGTH ties by dict insertion order (Python's sort is stable, so
+    # equal-length keys keep their relative input order) -- these are
+    # generic wedding-PARTY-ROLE words, not ceremony names, so when a query
+    # names both (a real, live-proven case: "haldi ceremony outfit for the
+    # bride's friend" -- expected occasion "haldi", not "wedding_guest"),
+    # the actual ceremony name must win. Moving this cluster to the end
+    # means it can never win a same-length tie against any other occasion
+    # term in this dict, only against each other or truly unmatched text.
+    # Live-proven regression this fix closes (found via eval_gate's own
+    # "intent all-exact" metric dropping 94.4% -> 93.9% when "bride" was
+    # first added alongside "wedding"/"shaadi"/"groom" above): "bride" (5
+    # chars) tied with "haldi" (5 chars) and, being inserted earlier, won
+    # every time -- "haldi ceremony outfit for the bride's friend" resolved
+    # occasion="wedding_guest" instead of the correct "haldi". Any future
+    # gendered wedding-role term (another relation/role noun, not a new
+    # ceremony) belongs in THIS block, not up with "wedding"/"shaadi".
+    #
+    # "bridal" was previously unmapped (flagged as a known gap in
+    # eval/fixtures/strict_gold_labels.yaml's kids_leak_001 note), which left
+    # EVERY occasion-gated protection -- the merchandise gate, loungewear
+    # gate, ethnic/western coherence gates, footwear-required gate -- inert
+    # for any "bridal ..." query (they all no-op when occasion_slug is None),
+    # not just the merchandise-hamper leak that surfaced it (2026-07-30).
+    # Mapped to the existing wedding_guest slug rather than a new occasion:
+    # a bridal look is register-consistent with wedding_guest (ETHNIC_HEAVY,
+    # formality 4), and the catalogue has no dedicated "bridal" Occasion entry.
+    "bridal": "wedding_guest",
+    # 2026-07-30 audit of remaining wedding-adjacent gaps (word-boundary regex
+    # over prod_name + detail_desc in catalogue.parquet). Mapped to
+    # wedding_guest, register-consistent with "wedding"/"shaadi"/"bridal":
+    # "groom" (494 rows: groom jewellery, tuxedos, pagdi) is strong wedding-
+    # formal-menswear signal; "baraat" (84 rows: sherwanis, bandhgalas,
+    # Jodhpuri sets) is the groom's ceremonial procession; "nikah" (24 rows:
+    # groom sherwanis, sadri sets) is the Muslim wedding ceremony, same
+    # register; "dulhan" (only 8 rows but 100% genuinely bridal-specific --
+    # Hindi for "bride") is low-volume but zero-noise, unlike the terms
+    # rejected below.
+    "groom": "wedding_guest",
+    "dulhan": "wedding_guest",
+    "baraat": "wedding_guest",
+    "nikah": "wedding_guest",
+    # 2026-08-06 (gender-inference-gap audit follow-up): "bride" -- the
+    # English counterpart to the already-mapped "dulhan" -- was never
+    # audited/added at the same time. 1,358 rows word-boundary matching
+    # "bride" in prod_name/detail_desc (31 in prod_name alone: Necklace,
+    # Earrings, Oddiyanam, Jewelry, Nath, Bangles -- 100% genuine bridal
+    # jewellery/apparel), zero collision risk (word-boundary correctly
+    # excludes "bridesmaid"/"bridge").
+    "bride": "wedding_guest",
 }
 
 _OCCASION_SORTED: list[tuple[str, str]] = sorted(
@@ -345,23 +558,44 @@ _BODY_TYPE_MAP: dict[str, str] = {
     "straight frame": "rectangle",
     "athletic frame": "rectangle",
     "athletic build": "rectangle",
-    # inverted triangle
+    # inverted triangle (shared with men's broad-shoulder build — see
+    # body_type.py's BASE_SHAPES["inverted_triangle"] men's garment rules)
     "inverted triangle": "inverted_triangle",
     "inverted-triangle": "inverted_triangle",
     "broad-shouldered": "inverted_triangle",
     "broad shouldered": "inverted_triangle",
+    # men's broad-build phrasing (2026-07-25) — kept in sync with
+    # body_type.py's SYNONYMS dict; see that dict's comment for why these are
+    # deliberately multi-word (never a bare word that could misfire on an
+    # ordinary garment-fit query).
+    "muscular build": "inverted_triangle",
+    "broad build": "inverted_triangle",
+    "broad frame": "inverted_triangle",
+    "heavy build": "inverted_triangle",
+    "heavier build": "inverted_triangle",
+    "stocky build": "inverted_triangle",
+    # lean_build (men's-only, new slug — see body_type.py's module docstring)
+    "slim build": "lean_build",
+    "lean build": "lean_build",
+    "slender build": "lean_build",
+    "narrow frame": "lean_build",
     # modifiers
     "plus size": "plus_size",
     "plus-size": "plus_size",
     "curvy": "plus_size",
     "petite": "petite",
     "tall": "tall",
+    # short_build (men's-only, new slug)
+    "short height": "short_build",
+    "shorter build": "short_build",
+    "short build": "short_build",
+    "short stature": "short_build",
 }
 
 _BASE_SHAPE_SLUGS: frozenset[str] = frozenset(
-    {"pear", "apple", "hourglass", "rectangle", "inverted_triangle"}
+    {"pear", "apple", "hourglass", "rectangle", "inverted_triangle", "lean_build"}
 )
-_MODIFIER_SLUGS: frozenset[str] = frozenset({"petite", "tall", "plus_size"})
+_MODIFIER_SLUGS: frozenset[str] = frozenset({"petite", "tall", "plus_size", "short_build"})
 
 _BODY_TYPE_SORTED: list[tuple[str, str]] = sorted(
     _BODY_TYPE_MAP.items(), key=lambda kv: len(kv[0]), reverse=True
@@ -401,6 +635,39 @@ _BUDGET_APPROX_RE = re.compile(
     r"(?:around|about|approximately)\s*[₹rs\.]*\s*(\d[\d,]*)",
     re.IGNORECASE,
 )
+
+# ---------------------------------------------------------------------------
+# Price qualifier — vague adjectives with no literal INR number attached
+# (see IntentV1.price_qualifier docstring). Checked independently of
+# _BUDGET_EXACT_RE/_BUDGET_APPROX_RE — a query can carry both ("cheap lehenga
+# under 3000" keeps its exact budget_max_inr AND price_qualifier="cheap").
+# ---------------------------------------------------------------------------
+
+_PRICE_QUALIFIER_CHEAP_RE = re.compile(
+    r"\bcheap\b|\bbudget[\s-]friendly\b|\binexpensive\b|\baffordable\b",
+    re.IGNORECASE,
+)
+_PRICE_QUALIFIER_EXPENSIVE_RE = re.compile(
+    r"\bexpensive\b|\bpremium\b|\bhigh[\s-]end\b|\bluxury\b",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Formality softener — "not too flashy"/"minimalist" style phrases signalling
+# the wearer wants low embellishment/heaviness (see IntentV1.formality_softener
+# docstring). "not too X" phrases are checked before bare "flashy" so
+# "not too flashy" resolves to "minimalist", not "flashy".
+# ---------------------------------------------------------------------------
+
+_FORMALITY_MINIMALIST_RE = re.compile(
+    r"\bnot\s+too\s+flashy\b|\bminimalist\b|\bsimple\b|\bunderstated\b|\bsubtle\b",
+    re.IGNORECASE,
+)
+_FORMALITY_COMFORTABLE_RE = re.compile(
+    r"\bnot\s+too\s+heavy\b|\bcomfortable\b",
+    re.IGNORECASE,
+)
+_FORMALITY_FLASHY_RE = re.compile(r"\bflashy\b", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # Product-query signals
@@ -469,6 +736,107 @@ def _extract_garment_type(text_lower: str) -> str | None:
     # Step 4: rightmost match
     _, winning_gtype = max(matches, key=lambda t: t[0])
     return winning_gtype
+
+
+# ---------------------------------------------------------------------------
+# Multi-garment "X and Y" / "X & Y" split (2026-07-24)
+#
+# _extract_garment_type above is architecturally single-valued: it always
+# returns AT MOST one garment_type no matter how many garment nouns the query
+# names — a compound-table hit (step 1) returns immediately, and even the
+# step-2 full scan only ever keeps the rightmost match. Live-proven bug:
+# "sports bra and leggings" only ever surfaced sports bra items — "leggings"
+# never had a chance to be searched at all, despite 76+ real catalogue rows.
+#
+# Fix shape mirrors slots.split_accessory_query_by_family /
+# composer._find_best_candidate's per-family retrieval-then-merge pattern
+# (commit 1717265, same "one combined query starves out one of the item
+# types" failure mode) — but at the QUERY-PARSING layer instead of the
+# retrieval layer: detect a genuine two-garment conjunction, extract each
+# side independently, and let the caller (graph.py's search_node) issue two
+# retrieval calls and merge the pools.
+# ---------------------------------------------------------------------------
+
+_CONJUNCTION_RE = re.compile(r"\s+(?:and|&)\s+", re.IGNORECASE)
+
+# Garment-type pairs that are near-synonyms in this catalogue/vocabulary
+# rather than two functionally distinct pieces a shopper wants BOTH of —
+# "kurta and kurti" almost certainly means "kurta-or-kurti style", the same
+# way a shopper browsing says "top or blouse", not "I want one of each to
+# build one outfit" (contrast with "sports bra and leggings" or "kurta and
+# palazzo", which name two complementary pieces of ONE outfit). Kept
+# deliberately small and explicit rather than an automatic similarity
+# heuristic — add pairs here only when a real query surfaces the same
+# false-split problem.
+_SYNONYM_FAMILY_PAIRS: frozenset[frozenset[str]] = frozenset({
+    frozenset({"kurta", "kurti"}),
+})
+
+
+def _find_conjunction_split(text_lower: str) -> tuple[int, int] | None:
+    """Return the (start, end) span of a genuine garment-conjoining "and"/"&"
+    in text_lower, or None if no valid split point exists.
+
+    Skips any "and"/"&" that falls INSIDE a matched _COMPOUND_TERMS phrase
+    span — e.g. "kurta and pyjama" is itself a compound-table entry (a fixed
+    ethnic-wear SET idiom, see _COMPOUND_TERMS), so the "and" there must not
+    be treated as joining two independently-searchable garments. Only the
+    FIRST valid conjunction outside any compound-phrase span is returned —
+    queries naming more than two garments are out of scope for this fix.
+    """
+    compound_spans: list[tuple[int, int]] = []
+    for phrase, _ in _COMPOUND_SORTED:
+        pattern = r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])"
+        for m in re.finditer(pattern, text_lower, re.IGNORECASE):
+            compound_spans.append((m.start(), m.end()))
+
+    for m in _CONJUNCTION_RE.finditer(text_lower):
+        conj_start, conj_end = m.start(), m.end()
+        if any(s <= conj_start and conj_end <= e for s, e in compound_spans):
+            continue
+        return conj_start, conj_end
+    return None
+
+
+def _extract_garment_types(text_lower: str) -> tuple[str | None, str | None]:
+    """Extract (primary, secondary) garment types, splitting on a genuine
+    "X and Y" / "X & Y" conjunction when one exists.
+
+    Runs _extract_garment_type independently on the text before and after
+    the conjunction (each side keeps whatever text it has — colour/occasion/
+    budget/gender extraction is unaffected, they always run on the FULL raw
+    query in parse_intent, only garment-type detection is split here).
+
+    secondary is populated ONLY when:
+      - a valid conjunction split point exists (see _find_conjunction_split),
+      - BOTH sides independently resolve to a real, non-None garment_type,
+      - the two resolved types are DISTINCT and not a known synonym pair
+        (see _SYNONYM_FAMILY_PAIRS — "kurta and kurti" stays single-type).
+
+    Falls back to the unsplit whole-query extraction (today's existing
+    single-garment behaviour, byte-for-byte unchanged) in every other case,
+    including when a split point exists but one/both sides don't resolve to
+    a real garment noun at all (no garment_type rule matches that side's
+    text).
+    """
+    split = _find_conjunction_split(text_lower)
+    if split is None:
+        return _extract_garment_type(text_lower), None
+
+    conj_start, conj_end = split
+    left_type = _extract_garment_type(text_lower[:conj_start])
+    right_type = _extract_garment_type(text_lower[conj_end:])
+
+    if left_type is None or right_type is None:
+        return _extract_garment_type(text_lower), None
+
+    if left_type == right_type:
+        return left_type, None
+
+    if frozenset({left_type, right_type}) in _SYNONYM_FAMILY_PAIRS:
+        return left_type, None
+
+    return left_type, right_type
 
 
 def _extract_gender(text_lower: str) -> str | None:
@@ -545,6 +913,33 @@ def _extract_budget(raw_query: str) -> int | None:
     return None
 
 
+def _extract_price_qualifier(text_lower: str) -> str | None:
+    """Return "cheap"/"expensive" for vague price adjectives, else None.
+
+    Unlike _extract_budget, this carries no INR number — see IntentV1.
+    price_qualifier docstring for why a fixed threshold is not invented here.
+    """
+    if _PRICE_QUALIFIER_CHEAP_RE.search(text_lower):
+        return "cheap"
+    if _PRICE_QUALIFIER_EXPENSIVE_RE.search(text_lower):
+        return "expensive"
+    return None
+
+
+def _extract_formality_softener(text_lower: str) -> str | None:
+    """Return "minimalist"/"comfortable"/"flashy" for embellishment-related
+    phrases, else None. "not too X" negations are checked first so "not too
+    flashy" resolves to "minimalist" rather than "flashy".
+    """
+    if _FORMALITY_MINIMALIST_RE.search(text_lower):
+        return "minimalist"
+    if _FORMALITY_COMFORTABLE_RE.search(text_lower):
+        return "comfortable"
+    if _FORMALITY_FLASHY_RE.search(text_lower):
+        return "flashy"
+    return None
+
+
 def _extract_stores(text_lower: str) -> list[str]:
     """Return list of store names mentioned in the query (whole-word match)."""
     found: list[str] = []
@@ -600,7 +995,7 @@ def parse_intent(raw_query: str) -> IntentV1:
     """
     text_lower = raw_query.lower()
 
-    garment_type = _extract_garment_type(text_lower)
+    garment_type, garment_type_secondary = _extract_garment_types(text_lower)
     gender = _extract_gender(text_lower)
     colour = _extract_colour(text_lower)
     occasion = _extract_occasion(text_lower)
@@ -609,6 +1004,8 @@ def parse_intent(raw_query: str) -> IntentV1:
     is_product = _is_product_query(text_lower, garment_type, occasion, store_filter)
     body_type, body_modifiers = _extract_body_type(text_lower)
     wants_body_type_guidance = bool(_BODY_TYPE_QUESTION_RE.search(text_lower))
+    price_qualifier = _extract_price_qualifier(text_lower)
+    formality_softener = _extract_formality_softener(text_lower)
 
     return IntentV1(
         garment_type=garment_type,
@@ -622,6 +1019,9 @@ def parse_intent(raw_query: str) -> IntentV1:
         body_type=body_type,
         body_modifiers=body_modifiers,
         wants_body_type_guidance=wants_body_type_guidance,
+        price_qualifier=price_qualifier,
+        formality_softener=formality_softener,
+        garment_type_secondary=garment_type_secondary,
     )
 
 
@@ -629,7 +1029,8 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     """Merge a new turn's intent with accumulated session context.
 
     Fields carried forward from session_context when the new intent does not
-    specify them: garment_type, gender, colour, occasion, budget_max_inr.
+    specify them: garment_type, gender, colour, occasion, budget_max_inr,
+    price_qualifier, formality_softener.
 
     Never overwrites a field already populated by the new intent.
     Always preserves raw_query from the new intent.
@@ -641,8 +1042,9 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
     session_context:
         Dict with keys "garment_type", "gender", "colour", "occasion",
         "budget_max_inr" (all str | None, budget_max_inr is int | None),
-        "body_type" (str | None), "body_modifiers" (list[str] | None) from
-        the prior resolved intent.
+        "body_type" (str | None), "body_modifiers" (list[str] | None),
+        "price_qualifier" (str | None), "formality_softener" (str | None)
+        from the prior resolved intent.
 
     Returns
     -------
@@ -676,4 +1078,15 @@ def merge_with_context(intent: IntentV1, session_context: dict) -> IntentV1:
         if intent.body_modifiers
         else (session_context.get("body_modifiers") or []),
         wants_body_type_guidance=intent.wants_body_type_guidance,
+        price_qualifier=intent.price_qualifier
+        if intent.price_qualifier is not None
+        else session_context.get("price_qualifier"),
+        formality_softener=intent.formality_softener
+        if intent.formality_softener is not None
+        else session_context.get("formality_softener"),
+        # Not inherited from session_context — like store_filter/
+        # is_product_query/wants_body_type_guidance above, this is a
+        # property of THIS turn's raw query shape ("X and Y"), not something
+        # that should silently resurrect on a later, unrelated turn.
+        garment_type_secondary=intent.garment_type_secondary,
     )

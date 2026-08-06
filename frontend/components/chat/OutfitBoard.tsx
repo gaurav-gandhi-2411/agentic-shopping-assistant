@@ -6,6 +6,7 @@ import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } fro
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 import { cn } from "@/lib/utils"
+import { formatSlotLabel } from "@/lib/displayFormat"
 import type {
   ItemLink,
   ItemSummary,
@@ -88,17 +89,28 @@ interface OutfitBoardProps {
   onSend?: (text: string) => void
 }
 
+/**
+ * A saved look as persisted in localStorage under "asa_saved_looks" — read
+ * back by the /saved-looks list page. Schema coordinated across executors
+ * this wave; keep in sync with that page's expectations.
+ */
+interface SavedLookEntry {
+  id: string
+  url: string
+  /** ISO 8601 timestamp — new Date().toISOString(). */
+  savedAt: string
+  occasion?: string | null
+  itemCount?: number
+  /** First item's image_url, if available. */
+  thumbnailUrl?: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Format occasion slug for display — "sangeet_look" → "Sangeet Look". */
 function formatOccasion(slug: string): string {
-  return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-/** Format a suppressed slot name for display — "footwear" → "Footwear". */
-function formatSlotLabel(slug: string): string {
   return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
@@ -129,15 +141,24 @@ function getDemoSession(): { token: string | null; backendUrl: string } {
   }
 }
 
-/** Persist a saved look id to localStorage so the user can revisit. */
-function persistSavedLookId(id: string): void {
+/**
+ * Persist a saved look entry to localStorage so the user can revisit it from
+ * the /saved-looks list page. Dedupes by id (most recent write wins, moved to
+ * the front) and caps at 50 entries. Old bare-string-array data (nothing ever
+ * read it back) is discarded rather than migrated — a basic runtime shape
+ * check falls back to an empty array if the stored value doesn't match.
+ */
+function persistSavedLook(entry: SavedLookEntry): void {
   try {
     const raw = localStorage.getItem("asa_saved_looks")
-    const ids: string[] = raw ? (JSON.parse(raw) as string[]) : []
-    if (!ids.includes(id)) {
-      ids.unshift(id)
-      localStorage.setItem("asa_saved_looks", JSON.stringify(ids.slice(0, 50)))
-    }
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    const existing: SavedLookEntry[] =
+      Array.isArray(parsed) && (parsed.length === 0 || typeof parsed[0] === "object")
+        ? (parsed as SavedLookEntry[])
+        : []
+    const deduped = existing.filter((e) => e.id !== entry.id)
+    deduped.unshift(entry)
+    localStorage.setItem("asa_saved_looks", JSON.stringify(deduped.slice(0, 50)))
   } catch {
     // localStorage unavailable or full; best-effort.
   }
@@ -233,6 +254,19 @@ export function OutfitBoard({
     ? displayItems.filter((it) => it.slot_role === "complement")
     : displayItems.slice(1)
   const allOutfitItems = seed ? [seed, ...complements] : complements
+
+  // Column count tracks actual item count, not just viewport breakpoints: a fixed
+  // 3-column desktop track reserves a full empty column beside a 2-item look (design
+  // review, wave 7), and a fixed 2-column track leaves a dead empty cell beside a
+  // single-item look. 1 item never expands past 1 column, 2 items never expand past
+  // 2 columns, at any breakpoint; 3+ items keep the existing 2-col mobile / 3-col
+  // desktop behaviour and wrap normally.
+  const gridColsClass =
+    allOutfitItems.length === 1
+      ? "grid-cols-1"
+      : allOutfitItems.length === 2
+        ? "grid-cols-2"
+        : "grid-cols-2 sm:grid-cols-3"
 
   // Per-item link map — resolves each rendered card's buy URL. Built once so
   // "Open all items" and the individual slot cards always agree.
@@ -387,6 +421,8 @@ export function OutfitBoard({
         price_inr: item.price_inr ?? null,
         pdp_handle: item.pdp_handle ?? null,
         buy_url: buyUrl ?? null,
+        store: item.store ?? null,
+        store_display: item.store_display ?? null,
       }
     })
 
@@ -429,9 +465,16 @@ export function OutfitBoard({
       })
       if (!res.ok) throw new Error(`POST /looks returned ${res.status}`)
       const data = (await res.json()) as SaveLookResponse
-      persistSavedLookId(data.id)
-      setSavedLookId(data.id)
       const url = `${window.location.origin}${data.share_path}`
+      persistSavedLook({
+        id: data.id,
+        url,
+        savedAt: new Date().toISOString(),
+        occasion: occasion ?? null,
+        itemCount: allOutfitItems.length,
+        thumbnailUrl: allOutfitItems[0]?.image_url ?? null,
+      })
+      setSavedLookId(data.id)
       setShareUrl(url)
       setSaveState("saved")
 
@@ -474,10 +517,10 @@ export function OutfitBoard({
     .filter(Boolean) as string[]
 
   return (
-    <div className="w-full rounded-xl border bg-card p-4 space-y-3">
+    <div className="w-full max-w-3xl mx-auto rounded-xl border bg-card p-4 space-y-3">
       {/* Partner-look heading — board-level badge + title + coordination note.
           Rendered only when the backend marks this board look_role === "partner";
-          primary boards fall straight through to the occasion/gender header below. */}
+          primary boards render their own <h3> below instead. */}
       {isPartnerLook && (
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
@@ -492,6 +535,19 @@ export function OutfitBoard({
             <p className="text-xs text-muted-foreground">{coordinatedWith}</p>
           )}
         </div>
+      )}
+
+      {/* Primary-board heading — screen-reader parity with the partner board's
+          <h3> above (#14b). Primary boards previously had no heading element
+          at all; "Her look"/"Your look" only ever existed as bold markdown
+          text in the separate chat bubble, never in this component's own DOM.
+          Mirrors the partner board's `lookTitle || "..."` fallback pattern so
+          this always renders regardless of whether the backend starts sending
+          a primary-board title. */}
+      {!isPartnerLook && (
+        <h3 className="text-sm font-semibold text-foreground">
+          {lookTitle || "Your look"}
+        </h3>
       )}
 
       {/* Header — occasion + gender badges */}
@@ -517,8 +573,8 @@ export function OutfitBoard({
               onClick={() => handleVariantSwitch(v)}
               className={
                 v.variant_id === activeVariantId
-                  ? "rounded-full text-xs font-semibold px-3 py-1 bg-primary text-primary-foreground transition-colors"
-                  : "rounded-full text-xs px-3 py-1 border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                  ? "inline-flex items-center justify-center min-h-11 rounded-full text-xs font-semibold px-3 py-1 bg-primary text-primary-foreground transition-colors"
+                  : "inline-flex items-center justify-center min-h-11 rounded-full text-xs px-3 py-1 border text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
               }
             >
               {humanLabel(v.label)}
@@ -528,7 +584,7 @@ export function OutfitBoard({
       )}
 
       {/* Slot grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className={cn("grid gap-2", gridColsClass)}>
         {allOutfitItems.map((item) => (
           <SlotCard
             key={item.article_id}
@@ -574,7 +630,7 @@ export function OutfitBoard({
           {isShopify && activeCartUrl ? (
             <button
               onClick={handleShopifyCart}
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
+              className="w-full flex items-center justify-center gap-2 min-h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
             >
               <ShoppingBag className="h-4 w-4" />
               Add the look to cart — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
@@ -585,7 +641,7 @@ export function OutfitBoard({
                 onClick={handleOpenAllItems}
                 data-testid="open-all-items-button"
                 aria-expanded={showOpenAllPanel}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
+                className="w-full flex items-center justify-center gap-2 min-h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors"
               >
                 <ExternalLink className="h-4 w-4" />
                 Open all items — ₹{Math.round(displayTotal).toLocaleString("en-IN")}
@@ -614,7 +670,7 @@ export function OutfitBoard({
                           target="_blank"
                           rel="noopener noreferrer"
                           data-testid="open-all-panel-item"
-                          className="inline-flex items-center gap-1 rounded-full border bg-background text-xs px-3 py-1 text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                          className="inline-flex items-center justify-center gap-1 min-h-11 rounded-full border bg-background text-xs px-3 py-1 text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
                         >
                           {label}
                           {item.price_inr != null &&
@@ -637,7 +693,7 @@ export function OutfitBoard({
             <button
               onClick={() => void handleSaveLook()}
               disabled={saveState === "saving"}
-              className="w-full flex items-center justify-center gap-2 rounded-lg border text-sm font-medium py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-60 disabled:cursor-wait"
+              className="w-full flex items-center justify-center gap-2 min-h-11 rounded-lg border text-sm font-medium py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-60 disabled:cursor-wait"
             >
               <Bookmark className="h-4 w-4" />
               {saveState === "saving"
@@ -660,7 +716,7 @@ export function OutfitBoard({
                 </code>
                 <button
                   onClick={() => void handleCopyShareUrl()}
-                  className="shrink-0 rounded px-2 py-1 text-xs border hover:bg-accent transition-colors flex items-center gap-1"
+                  className="shrink-0 rounded px-2 py-1 min-h-11 text-xs border hover:bg-accent transition-colors flex items-center justify-center gap-1"
                   aria-label="Copy share link"
                 >
                   {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
@@ -690,7 +746,7 @@ export function OutfitBoard({
           {filledSlotNames.slice(0, 2).map((slot) => (
             <RefinementChip
               key={slot}
-              label={`Swap ${slot}`}
+              label={`Swap ${formatSlotLabel(slot)}`}
               onClick={() => onSend(`Swap the ${slot} in this look`)}
             />
           ))}
@@ -739,7 +795,7 @@ function SlotCard({
     : isSeed
       ? "Hero"
       : item.outfit_slot
-        ? item.outfit_slot.charAt(0).toUpperCase() + item.outfit_slot.slice(1)
+        ? formatSlotLabel(item.outfit_slot)
         : "Item"
 
   // Testability attributes consumed by the Playwright proof suite — always present
@@ -802,7 +858,7 @@ function SlotCard({
             <button
               type="button"
               onClick={() => onSend("Where can I buy one like this?")}
-              className="w-full rounded-full border border-[#E8A33D] text-[#E8A33D] text-[10px] font-medium px-2 py-1 hover:bg-[#E8A33D]/10 transition-colors"
+              className="w-full flex items-center justify-center min-h-11 rounded-full border border-[#E8A33D] text-[#E8A33D] text-[10px] font-medium px-2 py-1 hover:bg-[#E8A33D]/10 transition-colors"
             >
               Where can I buy one like this?
             </button>
@@ -834,7 +890,7 @@ function RefinementChip({ label, onClick }: { label: string; onClick: () => void
   return (
     <button
       onClick={onClick}
-      className="rounded-full border text-xs px-3 py-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+      className="inline-flex items-center justify-center min-h-11 rounded-full border text-xs px-3 py-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
     >
       {label}
     </button>

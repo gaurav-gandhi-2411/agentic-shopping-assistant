@@ -140,6 +140,77 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
         "pdp_url_template": "https://libas.in/products/{handle}",
         "active": True,
     },
+    # Fashion/imitation-jewellery gap ingestion (2026-07-19). pdp_url_template mirrors
+    # each brand's brands/<slug>.yaml file. Registered here so build_pdp_url resolves
+    # deep-links once these brands are folded into the unified index build (see
+    # scripts/build_unified_index.py UNIFIED_STORES — per-brand indices not built yet).
+    "sukkhi": {
+        "display_name": "Sukkhi",
+        "pdp_url_template": "https://sukkhi.com/products/{handle}",
+        "active": True,
+    },
+    "priyaasi": {
+        "display_name": "Priyaasi",
+        "pdp_url_template": "https://priyaasi.com/products/{handle}",
+        "active": True,
+    },
+    "voylla": {
+        "display_name": "Voylla",
+        "pdp_url_template": "https://www.voylla.com/products/{handle}",
+        "active": True,
+    },
+    "ishhaara": {
+        "display_name": "Ishhaara",
+        "pdp_url_template": "https://ishhaara.com/products/{handle}",
+        "active": True,
+    },
+    # Fashion/imitation-jewellery gap ingestion round 2 (2026-07-19). pdp_url_template
+    # mirrors each brand's brands/<slug>.yaml file. Registered here so build_pdp_url
+    # resolves deep-links once these brands are folded into the unified index build
+    # (see scripts/build_unified_index.py UNIFIED_STORES — per-brand indices not built yet).
+    "theamethyststore": {
+        "display_name": "The Amethyst Store",
+        "pdp_url_template": "https://theamethyststore.com/products/{handle}",
+        "active": True,
+    },
+    "southtemplejewellery": {
+        "display_name": "South Temple Jewellery",
+        "pdp_url_template": "https://southtemplejewellery.com/products/{handle}",
+        "active": True,
+    },
+    "daivik": {
+        "display_name": "Daivik",
+        "pdp_url_template": "https://daivik.in/products/{handle}",
+        "active": True,
+    },
+    "mortantra": {
+        "display_name": "Mortantra",
+        "pdp_url_template": "https://mortantra.com/products/{handle}",
+        "active": True,
+    },
+    "thejewelbox": {
+        "display_name": "The Jewelbox",
+        "pdp_url_template": "https://thejewelbox.in/products/{handle}",
+        "active": True,
+    },
+    # Activewear/gym-query inventory gap (2026-07-23). pdp_url_template mirrors
+    # each brand's brands/<slug>.yaml file.
+    "blissclub": {
+        "display_name": "BlissClub",
+        "pdp_url_template": "https://blissclub.com/products/{handle}",
+        "active": True,
+    },
+    "silvertraq": {
+        "display_name": "Silvertraq",
+        "pdp_url_template": "https://silvertraq.com/products/{handle}",
+        "active": True,
+    },
+    # Activewear-footwear gap (2026-07-24) — women's genuine athletic shoes.
+    "campusshoes": {
+        "display_name": "Campus Shoes",
+        "pdp_url_template": "https://campusshoes.com/products/{handle}",
+        "active": True,
+    },
 }
 
 # ---------------------------------------------------------------------------

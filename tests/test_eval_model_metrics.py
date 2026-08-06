@@ -12,7 +12,7 @@ Groups:
   2. precision_at_k
   3. dcg_at_k / ndcg_at_k (includes the hand-computed NDCG case)
   4. recall_at_k / catalogue_universe_ids
-  5. Gate checks: gender_pure / budget_respected / no_novelty
+  5. Gate checks: gender_pure / budget_respected / no_novelty / no_kids_leak
   6. evaluate_suppression_honest + the data-ceiling PASS-conversion logic
   7. Judge JSON defensive parsing
   8. stratified_sample determinism
@@ -31,6 +31,7 @@ from scripts.eval_model import (
     catalogue_universe_ids,
     check_budget_respected,
     check_gender_pure,
+    check_no_kids_leak,
     check_no_novelty,
     dcg_at_k,
     evaluate_gate_checks,
@@ -252,11 +253,14 @@ def _look(
     budget_total_inr: float | None = None,
     item_genders: list[str] | None = None,
     novelty_name: str | None = None,
+    kids_item_name: str | None = None,
 ) -> dict[str, Any]:
     item_genders = item_genders if item_genders is not None else [gender, gender]
     complements = [{"prod_name": f"Item {i}", "gender": g} for i, g in enumerate(item_genders)]
     if novelty_name:
         complements.append({"prod_name": novelty_name, "gender": gender})
+    if kids_item_name:
+        complements.append({"prod_name": kids_item_name, "gender": gender})
     return {
         "seed_item": {"prod_name": "Seed", "gender": gender},
         "complements": complements,
@@ -320,6 +324,23 @@ class TestGateChecks:
     def test_no_novelty_case_insensitive(self) -> None:
         look = _look(novelty_name="QUIRKY Guitar Print Tee")
         assert check_no_novelty(look, couple=False) is False
+
+    def test_no_kids_leak_true_when_clean(self) -> None:
+        look = _look()
+        assert check_no_kids_leak(look, couple=False) is True
+
+    def test_no_kids_leak_false_on_girls_item(self) -> None:
+        look = _look(kids_item_name="Bitiya by Bhama Girls Green Net Embellished Lehenga Choli")
+        assert check_no_kids_leak(look, couple=False) is False
+
+    def test_no_kids_leak_false_on_boys_item(self) -> None:
+        look = _look(kids_item_name="Boys Cream Sherwani Set")
+        assert check_no_kids_leak(look, couple=False) is False
+
+    def test_no_kids_leak_couple_checks_each_board(self) -> None:
+        primary = _look()
+        partner = _look(kids_item_name="Cutiekins Girls Pink Party Lehenga")
+        assert check_no_kids_leak((primary, partner), couple=True) is False
 
 
 # ---------------------------------------------------------------------------

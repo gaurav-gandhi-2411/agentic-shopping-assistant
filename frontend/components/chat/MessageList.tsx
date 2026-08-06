@@ -36,22 +36,25 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-8 select-none">
         <span aria-hidden>
-          <LogoMark className="h-14 w-14 text-champagne" />
+          <LogoMark className="h-14 w-14 lg:h-16 lg:w-16 text-champagne" />
         </span>
-        <p className="font-serif font-semibold text-xl tracking-tight text-foreground">
+        <p className="font-serif font-semibold text-xl lg:text-2xl tracking-tight text-foreground">
           What can I help you find?
         </p>
-        <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+        {/* Subtle wedding-invite-style divider so the desktop-width state doesn't
+            read as sparse (P3-1) — small, matches the champagne hairline palette. */}
+        <span aria-hidden className="h-px w-12 bg-champagne/30" />
+        <p className="text-sm text-muted-foreground max-w-xs sm:max-w-md lg:max-w-lg leading-relaxed">
           Try &ldquo;show me red summer dresses&rdquo; or &ldquo;casual blue
           jeans under ₹2,000&rdquo;
         </p>
         {onSendSuggestion && chips.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-2 max-w-sm mt-3">
+          <div className="flex flex-wrap justify-center gap-2 max-w-sm sm:max-w-md lg:max-w-lg mt-3">
             {chips.map((chip) => (
               <button
                 key={chip}
                 onClick={() => onSendSuggestion(chip)}
-                className="text-xs px-3 py-1.5 rounded-full border border-champagne/40 bg-background text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+                className="inline-flex items-center justify-center min-h-11 min-w-11 text-xs px-3 py-1.5 rounded-full border border-champagne/40 bg-background text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
               >
                 {chip}
               </button>
@@ -84,8 +87,11 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
           isLatestAssistant={index === lastAssistantIndex}
         />
       ))}
-      {/* Typing indicator while the agent is running but no token yet */}
-      {isSending && !messages.some((m) => m.isStreaming) && (
+      {/* Typing indicator while the agent is running but no token yet. Keep showing
+          the dots as long as the streaming placeholder (inserted on the WS "session"
+          frame) has no real content — otherwise the dots vanish the instant the
+          placeholder is added, well before any text exists (#18). */}
+      {isSending && !messages.some((m) => m.isStreaming && m.content.length > 0) && (
         <div className="flex items-start">
           <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-3">
             <div className="flex gap-1 items-center h-4">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { getWsUrl } from "@/lib/api/client"
 import type {
   ChatMessage,
@@ -89,6 +89,24 @@ export function useChatStream({
   // and sets a new ID that subsequent sendMessage calls should use.
   const conversationIdRef = useRef<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // Warn on reload/close while there's an active, unsaved conversation, so a
+  // stray refresh doesn't silently lose it (#16). Scoped conservatively: this is
+  // only the native "leave site?" confirmation — restoring the conversation after
+  // reload is a separate, backend-dependent feature and out of scope here. Skipped
+  // entirely on a fresh/empty session so the dialog never nags on page load.
+  useEffect(() => {
+    if (messages.length === 0) return
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      // Legacy but still required by some browsers to trigger the native prompt.
+      event.returnValue = ""
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+  }, [messages.length])
 
   const sendMessage = useCallback(
     async (text: string, cidOverride?: string | null) => {

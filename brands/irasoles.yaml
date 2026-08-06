@@ -1,0 +1,27 @@
+display_name: "Ira Soles"
+logo_url: null
+primary_colour: "#6E2C5C"
+accent_colour: "#F7E9F2"
+tagline: "Kolhapuri block heels, wedges and Peshawari sandals"
+currency: "INR"
+locale: "en-IN"
+sizing_system: "IN"
+# Checked (not assumed): only 19/254 rows carry an explicit "men"/"male" token
+# ("Mens Kolhapuri", "Peshawari Men's Sandal") and zero rows carry an explicit
+# women token, despite the brief's framing suggesting a "strong men's" line.
+# The dominant product_type categories are actually block heels (56), faux/
+# leather Kolhapuri flats (91), wedges (11) and mules -- classic women's
+# silhouettes -- alongside the explicit men's Peshawari/Kolhapuri lines, so
+# the true catalogue is genuinely dual-gender rather than men's-dominant.
+# "mixed" lets per-item scan (src.catalogue.adapter.derive_item_gender)
+# resolve the explicit rows and leaves the rest "unknown" instead of forcing
+# either gender.
+gender_default: "mixed"
+catalogue_path: "data/raw/shopify/irasoles/products.csv"
+pdp_url_template: "https://irasoles.com/products/{handle}"
+suggestion_chips:
+  - "Kolhapuri block heels for wedding"
+  - "Men's Peshawari sandals"
+  - "Leather Kolhapuri wedges under 3000"
+  - "Faux leather Kolhapuri flats"
+  - "Suede mules for festive wear"

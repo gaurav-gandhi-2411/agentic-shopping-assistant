@@ -12,10 +12,14 @@ import pytest
 from src.catalogue.cleaning import (
     backfill_colours,
     clean_mojibake_columns,
+    drop_religious_decor_items,
     drop_true_fabric_material,
     extract_colour,
     fix_mojibake,
+    has_gender_text_conflict,
     is_fabric_bolt_text,
+    is_loungewear_text,
+    is_religious_decor_item,
     reclassify_finished_sarees,
     recompute_derived_columns,
 )
@@ -112,6 +116,78 @@ class TestDropTrueFabricMaterial:
 
 
 # ---------------------------------------------------------------------------
+# Religious decor exclusion (BUG 2, jewellery-inventory-gap wave 2026-07-19)
+# ---------------------------------------------------------------------------
+
+
+class TestIsReligiousDecorItem:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            # Real theamethyststore rows (type="Silver Idols").
+            ("Balaji Temple Statue", True),
+            ("Venkateswara 3D Idol", True),
+            ("Perumal 3D Idol", True),
+            ("Shivling With Snake 3D Solid Idol", True),
+            # Real theamethyststore rows (type="Kum Kum Box").
+            ("Beautiful Kum Kum Box", True),
+            ("Vishaka 3D Spl Kum Kum Box", True),
+            # Real theamethyststore rows (type="Fashion", mixed with genuine
+            # jewellery in the same bucket) — religious photo frames.
+            ("Lakshmi Frame", True),
+            ("Lord Murugan Frame With Peacock 3D SPL", True),
+            # Genuine jewellery sharing the "Fashion" type bucket must NOT match.
+            ("Stunnig Brooch Pin", False),
+            ("Unique Kundan Saree Pin", False),
+            ("Style Charm Kundan Waist Charm", False),
+            # Genuine jewellery elsewhere must NOT match.
+            ("Simrath Short Necklace Set", False),
+            ("Precious Silver Rakhi", False),
+            # Real daivik rows — "Non Idol"/"Non-Idol" is a genuine jewellery
+            # style descriptor (no deity-idol motif), not a religious statue.
+            ("Antique Non Idol Purple Long Necklace with Earrings", False),
+            ("Non idol kemp Peacock Earcuff with Jhumkas", False),
+            ("Non-Idol Gold Polish Earrings", False),
+            ("AD Non Idol Jada/Hair accessory", False),
+            # A genuine idol/bell decor item must still be excluded even when
+            # it also mentions jewellery-adjacent deity names.
+            (
+                "Premium Temple Style Antique Brass Bell with Lakshmi, Hanuman & Ganesha Idols (Price for Each)",
+                True,
+            ),
+            ("", False),
+            (None, False),
+        ],
+    )
+    def test_cases(self, text: str | None, expected: bool) -> None:
+        assert is_religious_decor_item(text) is expected
+
+
+class TestDropReligiousDecorItems:
+    def test_drops_idol_statue_kumkum_frame_rows(self) -> None:
+        df = pd.DataFrame(
+            {
+                "prod_name": [
+                    "Balaji Temple Statue",
+                    "Venkateswara 3D Idol",
+                    "Beautiful Kum Kum Box",
+                    "Lakshmi Frame",
+                    "Simrath Short Necklace Set",
+                ],
+            }
+        )
+        out, n = drop_religious_decor_items(df)
+        assert n == 4
+        assert out["prod_name"].tolist() == ["Simrath Short Necklace Set"]
+
+    def test_no_decor_rows_is_noop(self) -> None:
+        df = pd.DataFrame({"prod_name": ["Simrath Short Necklace Set", "James Shirt Button Clip"]})
+        out, n = drop_religious_decor_items(df)
+        assert n == 0
+        assert len(out) == 2
+
+
+# ---------------------------------------------------------------------------
 # Shared fabric-bolt runtime exclusion predicate
 # ---------------------------------------------------------------------------
 
@@ -132,6 +208,103 @@ class TestIsFabricBoltText:
     )
     def test_cases(self, text: str | None, expected: bool) -> None:
         assert is_fabric_bolt_text(text) is expected
+
+
+# ---------------------------------------------------------------------------
+# Loungewear-in-dress-bucket exclusion predicate
+# ---------------------------------------------------------------------------
+
+
+class TestIsLoungewearText:
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            # Real catalogue rows (data/processed/unified/catalogue.parquet,
+            # product_type_name="dress", brand=libas) that caused the live
+            # "minimalist wedding guest dress" -> sleepwear-kaftan bug.
+            ("Green Geometric Printed Cotton Kaftan Night Dress", True),
+            ("Maroon Geometric Printed Cotton Kaftan Night Dress", True),
+            ("Blue Printed Cotton Night Dress", True),
+            ("Black Printed Cotton Night Dress", True),
+            ("Yellow Printed Cotton Kaftan Night Dress", True),
+            # Real catalogue rows outside the "dress" bucket that use the same
+            # phrase (product_type_name="kaftan" / "All Products") — the
+            # predicate is text-only and correctly flags these too.
+            ("Pink Cotton Printed Kaftan Nightdress", True),
+            ("Lavender Printed Cotton Nightdress", True),
+            # A genuine formal/wedding dress must not be excluded.
+            ("Black Floral Maxi Dress", False),
+            ("Embellished Wedding Guest Gown", False),
+            # Bare "kaftan" without a sleep/night signal is a legitimate
+            # standalone garment style, verified against the real catalogue:
+            # fashor's "Kaftan Style Midi/Maxi Dress" rows and virgio's
+            # "Kaftan Maxi Dress With Lace" are described in their own
+            # detail_desc as day/eveningwear ("perfect for brunches, getaways,
+            # or breezy evenings"; "intimate gatherings to festive evenings"),
+            # not sleepwear — must NOT match.
+            ("Solid Pleated Floral Cutwork Embroidered Kaftan Style Midi Dress - Blue", False),
+            ("Colorful Ombre Printed Kaftan Style Maxi Dress - Multi", False),
+            ("Vilasini|Viscose Kaftan Maxi Dress With Lace", False),
+            # Other legitimate "kaftan"-garment-noun rows (kurta/top/co-ord)
+            # from the real catalogue, unrelated to loungewear.
+            ("Libas Women Blue & White Geometric Printed Pleated Cotton Kaftan Kurti", False),
+            ("Sangria Mustard Yellow Floral Print Kaftan Top", False),
+            # "night shorts" is still deliberately unmatched — a "Basic
+            # Shorts, Night Shorts, Gym Shorts" multi-use item has no
+            # dedicated sleep-only signal the way "night suit" now does
+            # (below) — must not false-positive on bare "night" without an
+            # adjacent "dress"/"gown"/"suit"/"set".
+            ("Solid Men Black Basic Shorts, Night Shorts, Gym Shorts", False),
+            ("", False),
+            (None, False),
+            # 2026-07-31 CLASS-BROADENING: "baraat outfit for men" live bug
+            # (see _LOUNGEWEAR_MARKER_RE/_TOP_PYJAMA_COMBO_RE docstrings for
+            # the full catalogue audit). "Men Solid Brown Night Suit Set" was
+            # PREVIOUSLY asserted False here (the "already correctly tagged
+            # nightwear category" assumption) — that assumption was the
+            # latent bug: nothing downstream actually excluded it once
+            # classify_anchor's ETHNIC_BOTTOM_KEYWORDS pulled a
+            # "pyjama"-bearing nightwear row into an ethnic look's candidate
+            # pool. Now correctly True.
+            ("Men Solid Brown Night Suit Set", True),
+            ("Blue Printed Cotton Night Suit", True),
+            ("Black Cotton Solid Nightsuit", True),
+            ("Maroon Solid Round Neck Night Sets", True),
+            ("Brown Floral Embroidered Loungewear Set", True),
+            ("Black Floral Embroidered Loungwear Set", True),
+            # The exact live-repro item: no "night"/"lounge" word at all, only
+            # a "top" + "pyjama" name-level combo.
+            ("Men Solid Multicolor Top & Pyjama Set", True),
+            ("iki chic Women Multicoloured Printed T-shirt with Pyjamas", True),
+            ("Sheomy Men Top - Pyjama Set Thermal", True),
+            # Bare "pyjama"/"pajama" WITHOUT a "top"/"t-shirt"/night/lounge
+            # signal is a legitimate standalone ethnic bottom in this
+            # catalogue (churidar/Patiala pyjama, worn under a kurta) —
+            # verified via detail_desc explicitly marketing these for
+            # weddings/festivals despite product_type_name="nightwear" — and
+            # must NOT match, mirroring the bare-"kaftan" carve-out above.
+            ("Men's Black Cotton Blend Patiala Pyjama", False),
+            ("Navy Blue Solid Cotton Silk Blend Aligarhi Pajama", False),
+            ("VASTRAMAY Men's Grey Solid Churidar", False),
+            ("Men's White Cotton Pyjama", False),
+            # "kurta"/"sherwani"/"indo western"/"jodhpuri" + pyjama combos are
+            # genuine groom/festive formalwear (the churidar-pyjama worn
+            # under a sherwani/kurta) — must never match, even though they
+            # also carry a "pyjama" word.
+            ("Men Kurta and Pyjama Set Jacquard", False),
+            ("Men Grey Kenzo Jacquard Silk Blend Sherwani with Cream Pyjama Set", False),
+            ("Men Cream Mirror Work Silk Blend Indo-Western with Pant Style Pyjama Set", False),
+            ("Men's Purple Silk Blend Jodhpuri Pyjama Set", False),
+            # A "top"+"pyjama" combo that ALSO names a jacket is a genuine
+            # ethnic 3-piece ensemble in this catalogue (own desc: "top,
+            # salwar and ethnic jacket... sequinned top... longline ethnic
+            # jacket"), not loungewear — the freeform name just mislabels the
+            # salwar as "pyjamas". Must not match.
+            ("Libas Women Navy Blue Sequinned Top with Pyjamas & Longline Jacket", False),
+        ],
+    )
+    def test_cases(self, text: str | None, expected: bool) -> None:
+        assert is_loungewear_text(text) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -272,3 +445,57 @@ class TestRecomputeDerivedColumns:
         assert out["facets"].iloc[0]["colour_group_name"] == "Peach"
         assert out["facets"].iloc[0]["product_type_name"] == "saree"
         assert "Peach" in out["display_name"].iloc[0]
+
+
+# ---------------------------------------------------------------------------
+# Cross-gender leak exclusion (name text vs. structured gender column)
+# ---------------------------------------------------------------------------
+
+
+class TestHasGenderTextConflict:
+    """2026-08-06: live-proven leak -- "Men's Yellow - Dupatta" (catalogue
+    gender column = "women") composed into a women's haldi look's accessory
+    slot. Not a gender-filter gap (gender_allowed() applied correctly against
+    the wrong column value) -- the catalogue's own gender column is unreliable
+    for a real, audited slice of rows (385, see has_gender_text_conflict's
+    own docstring for the full per-store/per-type breakdown).
+    """
+
+    def test_mens_dupatta_conflicts_with_women_look(self) -> None:
+        # The exact live-proven reproduction.
+        assert has_gender_text_conflict("Men's Yellow - Dupatta", "women") is True
+
+    def test_mens_item_does_not_conflict_with_men_look(self) -> None:
+        assert has_gender_text_conflict("Men's Yellow - Dupatta", "men") is False
+
+    def test_womens_item_conflicts_with_men_look(self) -> None:
+        # No real catalogue rows found in this direction (0/112,425 audited),
+        # but the check is written symmetric so a future reverse case isn't
+        # silently missed.
+        assert has_gender_text_conflict("Women's Cotton Kurta", "men") is True
+
+    def test_womens_item_does_not_conflict_with_women_look(self) -> None:
+        assert has_gender_text_conflict("Women's Cotton Kurta", "women") is False
+
+    def test_dual_marketed_cap_never_conflicts_either_direction(self) -> None:
+        # Genuinely dual-marketed items ("Cap for Men Women") must never be
+        # wrongly rejected -- confirmed against the one real catalogue row
+        # this exact phrasing didn't cover (4-way "Boys/Girls/Mens/Women").
+        name = "Self Design ROY Caps Combo Pack Black & Army Cotton Baseball Cap for Men Women Free Size"
+        assert has_gender_text_conflict(name, "women") is False
+        assert has_gender_text_conflict(name, "men") is False
+
+    def test_four_way_dual_marketed_cap_never_conflicts(self) -> None:
+        name = "Half Net Fabric Cap For Boys/Girls/Mens/Women (Free Size, Black) Cap"
+        assert has_gender_text_conflict(name, "women") is False
+        assert has_gender_text_conflict(name, "men") is False
+
+    def test_unisex_look_never_conflicts(self) -> None:
+        assert has_gender_text_conflict("Men's Yellow - Dupatta", "unisex") is False
+
+    def test_none_prod_name_never_conflicts(self) -> None:
+        assert has_gender_text_conflict(None, "women") is False
+
+    def test_plain_gender_consistent_item_no_conflict(self) -> None:
+        assert has_gender_text_conflict("Women Printed Kurta", "women") is False
+        assert has_gender_text_conflict("Men Printed Kurta", "men") is False

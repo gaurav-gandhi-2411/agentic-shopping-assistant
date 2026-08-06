@@ -29,6 +29,17 @@ class TestSetIntentRegex:
         # search_node checks both regexes with OR — either legitimizes a set.
         assert _OUTFIT_INTENT_RE.search("style me a kurti under 1500")
 
+    def test_pajama_pyjama_detected_as_inherent_set_signal(self) -> None:
+        # 2026-07-16 fix: "kurta pajama"/"kurta pyjama" queries name an
+        # inherent two-piece combo even with no literal "set"/"combo" word —
+        # garment_type resolves to "kurta" via intent_parser's _COMPOUND_TERMS
+        # (kurta pajama -> kurta), so the set-exclusion gate above was wrongly
+        # stripping the only genuine "Men Kurta and Pyjama Set..." matches.
+        assert _SET_INTENT_RE.search("kurta pajama for father in law")
+        assert _SET_INTENT_RE.search("kurta pyjama for men")
+        assert _SET_INTENT_RE.search("men's pajamas")
+        assert _SET_INTENT_RE.search("women's pyjamas set")
+
 
 class TestIsMultiPieceSetCatchesTheLiveEscape:
     """The catalogue's dominant multi-piece naming convention is "<garment>
@@ -65,3 +76,86 @@ class TestIsMultiPieceSetCatchesTheLiveEscape:
     def test_single_garment_with_adjective_not_flagged(self) -> None:
         # "with" alone isn't enough — needs >=2 distinct garment nouns.
         assert not is_multi_piece_set("kurta", "Wine Embroidered Winter Kurta")
+
+
+class TestIsMultiPieceSetBareSetSuffix:
+    """2026-07-25 fix: requiring >=2 distinct garment nouns whenever the
+    literal word "set(s)" appeared (the same bar as "with") was over-
+    conservative — this catalogue's single most common multi-piece
+    convention is a bare "<Garment> Set" suffix that never names the second
+    piece in the product NAME at all. Caused 16 real strict-gold misses (all
+    hand-labeled examples below, from eval/fixtures/strict_gold_labels.yaml)."""
+
+    def test_bare_kurta_set_with_only_one_named_noun(self) -> None:
+        assert is_multi_piece_set(
+            "kurta", "Orange Floral Printed Cotton Straight Kurta Set"
+        )
+        assert is_multi_piece_set(
+            "kurta", "Plus Size Pink Printed Cotton Straight Kurta Set"
+        )
+        assert is_multi_piece_set("kurta", "Akriti Pink (Kurta Set)")
+        assert is_multi_piece_set("kurta", "Multi Printed Patchwork Kurta Set")
+
+    def test_set_of_n_pack_still_correctly_excluded(self) -> None:
+        # Regression pin: the relaxed >=1-noun bar for bare "Set" must NOT
+        # start flagging same-item packs like "Set Of 2 Biker Shorts".
+        assert not is_multi_piece_set(
+            "shorts", "GRACIT Women Black & Navy Blue Set Of 2 Biker Shorts"
+        )
+        assert not is_multi_piece_set(
+            "palazzo", "TAG 7 Women Set of 2 Solid Palazzos"
+        )
+
+    def test_bare_set_still_requires_at_least_one_garment_noun(self) -> None:
+        # A "Set" with ZERO garment nouns at all (e.g. a jewellery set) must
+        # not be flagged — is_multi_piece_set is only ever checked against
+        # items already filtered to the query's own garment_type, so a
+        # jewellery "Necklace Set" is out of scope here regardless.
+        assert not is_multi_piece_set("necklace", "Traditional Mango Design Necklace Set")
+
+
+class TestIsMultiPieceSetNPieceAndCoord:
+    """2026-07-25 fix: explicit 'N-Piece' count and the literal word
+    'co-ord(s)' are each sufficient multi-piece signals on their own — some
+    real listings name neither a second garment noun nor use the word
+    "set"/"with" in a way the noun-counting checks can see."""
+
+    def test_n_piece_count_sufficient_even_with_no_garment_noun(self) -> None:
+        assert is_multi_piece_set("kurta", "Sea Green Winter Ethnic 3-Piece Set")
+
+    def test_two_piece_hyphenated_also_detected(self) -> None:
+        assert is_multi_piece_set("top", "Coral 2-Piece Ensemble")
+
+    def test_coord_word_sufficient_even_when_facet_is_generic(self) -> None:
+        # product_type facet is "top" here (the hero piece only), not
+        # "coord"/"co-ord" — the NAME word alone must still catch it.
+        assert is_multi_piece_set(
+            "top", "URBANIC Women Beige Solid Cotton Hooded Co-Ords Set"
+        )
+
+
+class TestIsMultiPieceSetBareTopBottomJuxtaposition:
+    """2026-07-25 fix: a recognised TOP noun immediately followed by a
+    recognised BOTTOM/companion noun with NO connector word at all (no
+    "set", no "with") — this catalogue's third naming convention.
+    "kurta pajama"/"kurta pyjama" alone account for 2,459 catalogue rows."""
+
+    def test_kurta_pajama_bare_juxtaposition(self) -> None:
+        assert is_multi_piece_set("kurta", "Green Kurta Pajama")
+
+    def test_kurta_pyjama_bare_juxtaposition(self) -> None:
+        assert is_multi_piece_set("kurta", "Men's White Kurta Pyjama")
+
+    def test_top_palazzo_bare_juxtaposition(self) -> None:
+        assert is_multi_piece_set("top", "Printed Top Palazzo")
+
+    def test_anarkali_kurta_alone_not_flagged(self) -> None:
+        # Precision guard: "Anarkali" + "Kurta" together name ONE garment
+        # (an anarkali-style kurta), not two — the narrow TOP-then-BOTTOM
+        # regex must never fire on a ONE_PIECE+TOP synonym pair. Verified
+        # against the real catalogue: 0 false positives found in a scan of
+        # all "anarkali kurta with <non-garment>" rows (122 checked, all 122
+        # genuinely name a second piece after "with").
+        assert not is_multi_piece_set("kurta", "Anarkali Kurta for Women")
+        assert not is_multi_piece_set("kurta", "Straight Fit Kurta for Men")
+        assert not is_multi_piece_set("kurta", "Relaxed Fit Kurta for Men")
