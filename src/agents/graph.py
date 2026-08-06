@@ -7,9 +7,8 @@ import statistics
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
-from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
-
 from src.agents.grounding import validate_response
+from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
 from src.agents.outfit.body_type import (
     body_type_ack_message,
     body_type_clarify_message,
