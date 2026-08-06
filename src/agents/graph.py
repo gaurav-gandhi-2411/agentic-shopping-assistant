@@ -1149,12 +1149,7 @@ STRICT RULES — follow in order:
    FACET VOCABULARY (use exact capitalisation):
    index_group_name: Ladieswear, Menswear, Divided, Baby/Children, Sport
    department_name: (varies — do NOT filter by department, use index_group_name instead)
-   colour_group_name: Black, White, Off White, Dark Blue, Grey, Red, Blue,
-     Light Blue, Dark Red, Light Pink, Beige, Light Beige, Dark Grey, Light Grey,
-     Pink, Green, Dark Green, Yellow, Orange, Purple, Khaki, Brown, Turquoise
-   product_type_name (examples): Dress, Blouse, Blazer, Trousers, Jeans, Shorts,
-     Skirt, Coat, Jacket, Sweater, Cardigan, T-shirt, Top, Vest top, Leggings/Tights,
-     Swimwear bottom, Bikini top, Swimsuit, Pyjama set, Night gown, Hoodie, Robe
+   {facet_vocabulary}
    Use index_group_name "Divided" for teen/young-fashion brand queries.
    Use index_group_name "Ladieswear" for women's clothing (NOT department_name).
    When the user explicitly names BOTH a product type AND a colour (e.g. "red dresses",
@@ -1407,6 +1402,87 @@ def _parse_router_response(text: str, fallback_query: str) -> dict:
                     break
 
     return {"action": "search", "query": fallback_query}
+
+
+# Generic/non-actionable catch-all product_type_name labels — never real
+# garment types a query would target, so excluded from the router's derived
+# vocabulary regardless of how frequent they are in the catalogue.
+_PRODUCT_TYPE_DENYLIST = frozenset({"fashion", "clothing accessories"})
+_MAX_PRODUCT_TYPES_IN_PROMPT = 40
+
+
+def _build_facet_vocabulary_text(catalogue_df: pd.DataFrame) -> str:
+    """Render ROUTER_PROMPT's FACET VOCABULARY colour/type lines from the
+    catalogue's OWN distinct values, replacing a hand-maintained list.
+
+    2026-08-06 fix: the old hand-typed product_type_name list ("Dress",
+    "Blouse", ..., "Coat", "Jacket", "Sweater", "Cardigan", "T-shirt", "Vest
+    top", ..., "Hoodie", "Robe") was a leftover from the pre-migration
+    single-brand catalogue — measured 64% stale (8/22 exact matches) against
+    the unified catalogue's real product_type_name vocabulary; "Jacket" etc.
+    were folded into "outerwear"/"knitwear" at migration and the prompt was
+    never updated. This is not a cosmetic bug: HybridRetriever.search()
+    applies product_type_name as an UNCONDITIONAL exact-match POST-FETCH
+    filter (see remaining_filters/facet_filters in hybrid_search.py) as well
+    as the BM25 pre-filter, so a stale value returns ZERO items outright and
+    cascades through search_node's progressive filter-relaxation ladder,
+    silently dropping gender/colour too — not a degraded result, a wrong one.
+    Same root-cause class as _OUTFIT_OCCASION_RE above (built FROM
+    _OCCASION_MAP instead of duplicating its keyword list) and worth noting:
+    this hand-maintained-list-drift shape has now recurred three times
+    (occasion regexes, BRAND defaults, this) — derive from source of truth,
+    don't hand-copy a snapshot of it.
+
+    colour_group_name: every distinct catalogue value is included (only 59,
+    no case/near-duplicate fragmentation) — this ALSO fixes a second latent
+    gap in the old list: it was internally consistent (23/23 of its own
+    words matched the catalogue exactly) but covered only 23 of the 59 real
+    colours, missing extremely common ethnic-wear colours like "Maroon",
+    "Navy Blue", "Gold", "Mustard", "Peach" entirely.
+
+    product_type_name: capped to the _MAX_PRODUCT_TYPES_IN_PROMPT most
+    frequent DISTINCT values after case-insensitive dedup (the catalogue has
+    378 raw values with heavy case/plural fragmentation — e.g. "Earrings"/
+    "earrings"/"Earring", "Bangles"/"BANGLES" — collapsed here by keeping the
+    highest-individual-count casing per lowercase key, ranked by combined
+    count) and after excluding _PRODUCT_TYPE_DENYLIST. A curated top-N
+    "(examples)" list, same framing as the original — but every entry is now
+    guaranteed to exist in the live catalogue by construction, not by hand
+    maintenance. Deeper fragmentation cleanup (merging "Necklace"/"Necklace
+    Sets"/"Necklaces" etc. into one canonical value) is a separate, larger
+    catalogue-normalization task, not attempted here.
+    """
+    colours = sorted(catalogue_df["colour_group_name"].dropna().unique())
+
+    type_counts: dict[str, tuple[int, str]] = {}  # lower -> (combined_count, best_casing)
+    for value, count in catalogue_df["product_type_name"].dropna().value_counts().items():
+        key = value.lower()
+        if key in _PRODUCT_TYPE_DENYLIST:
+            continue
+        prev = type_counts.get(key)
+        if prev is None:
+            type_counts[key] = (int(count), value)
+        else:
+            prev_count, prev_value = prev
+            # Prefer a non-ALL-CAPS casing when merging variants (e.g. keep
+            # "Bangles" over "BANGLES" even if the all-caps row has more
+            # rows) — cosmetic, but this list ships straight into an LLM
+            # prompt. Falls back to higher count when neither/both are caps.
+            if value.isupper() and not prev_value.isupper():
+                best_value = prev_value
+            elif prev_value.isupper() and not value.isupper():
+                best_value = value
+            else:
+                best_value = value if count > prev_count else prev_value
+            type_counts[key] = (prev_count + int(count), best_value)
+
+    top_types = sorted(type_counts.values(), key=lambda x: x[0], reverse=True)[:_MAX_PRODUCT_TYPES_IN_PROMPT]
+    type_names = sorted((v for _, v in top_types), key=str.lower)
+
+    return (
+        "colour_group_name: " + ", ".join(colours) + "\n"
+        "   product_type_name (examples): " + ", ".join(type_names)
+    )
 
 
 def build_graph(
@@ -2193,11 +2269,22 @@ def build_graph(
     # Router backend — created here if not injected so the graph is self-contained.
     if router_backend is None:
         from src.agents.router import get_router_backend
+        # Fill ROUTER_PROMPT's {facet_vocabulary} placeholder ONCE at graph-
+        # construction time (catalogue_df is only in scope here, not inside
+        # LLMRouterBackend.decide()'s per-turn .format() call) via a plain
+        # string replace rather than .format() — the resulting string still
+        # carries the 6 per-turn placeholders (last_action, items_retrieved,
+        # etc.) unfilled, which router.py's own .format() call fills as before.
+        # See _build_facet_vocabulary_text's docstring for why this replaces a
+        # hand-maintained (and measurably 64% stale) vocabulary list.
+        _router_prompt = ROUTER_PROMPT.replace(
+            "{facet_vocabulary}", _build_facet_vocabulary_text(catalogue_df)
+        )
         router_backend = get_router_backend(
             config=config,
             llm=llm,
             catalogue_df=catalogue_df,
-            prompt_template=ROUTER_PROMPT,
+            prompt_template=_router_prompt,
             format_items_brief=_format_items_brief,
             format_messages=_format_messages,
             parse_response=_parse_router_response,
