@@ -2513,6 +2513,34 @@ def build_graph(
             remapped[new_fk] = new_fv
         merged = remapped
 
+        # Validate-before-trust: drop any exact-match facet filter whose value
+        # isn't a real catalogue value, rather than let it silently zero out
+        # retrieval and cascade through the progressive-fallback ladder below
+        # (see reports/router_vocabulary_fix_20260806.md's residual-gap
+        # finding — the LLM can still hallucinate a pretrained-bias word for a
+        # facet _FILTER_REMAP above doesn't happen to alias, e.g. "Robe"/
+        # "Night gown"/"Bikini top"/"Vest top", none of which have a mapped
+        # entry). Mirrors filter_node's own existing reject-if-invalid check
+        # (see filter_node below) — search_node's merged-filter path never had
+        # the equivalent guard; only _FILTER_REMAP's known-alias table did.
+        # Dropping (not guessing a nearest replacement) is deliberate: an
+        # unmatched exact-match filter guarantees zero results, while no
+        # filter at all still lets dense/BM25 rank on the query text — a
+        # worse-than-nothing filter is strictly worse than no filter.
+        _dropped_filters: dict[str, str] = {}
+        for _fk in list(merged.keys()):
+            _valid_vals = _valid_facet_values.get(_fk)
+            if _valid_vals is None:
+                continue  # not a facet-vocabulary-constrained key (gender, price_min/max, store)
+            _fv = merged[_fk]
+            if isinstance(_fv, str) and _fv.lower() not in _valid_vals:
+                _dropped_filters[_fk] = _fv
+                del merged[_fk]
+        if _dropped_filters:
+            logger.info(
+                json.dumps({"event": "filter_dropped_invalid_value", "dropped": _dropped_filters})
+            )
+
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
