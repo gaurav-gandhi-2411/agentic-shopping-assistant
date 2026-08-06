@@ -1,0 +1,400 @@
+# Coherence-judge calibration set — hand-scored ground truth, written BEFORE any
+# judge (Ollama/Gemini/decomposed-prompt) ever sees these looks. This closes the
+# gap the wave-measurement task flagged: scripts/eval_model.py's judge stage only
+# had 4 synthetic anchors (JUDGE_CALIBRATION_ANCHORS, 2 good/2 bad) and no
+# borderline cases, so a judge could pass calibration by learning "extreme
+# scores only" without ever being tested on a middling look.
+#
+# PROVENANCE: hand-scored by Claude (Sonnet 5) reading each look's item list
+# against the rubric below — same provenance model already accepted in this
+# repo for eval/fixtures/strict_gold_labels.yaml ("Labeled by Claude... GG can
+# overturn any label"). This is NOT real-stylist ground truth; it is a
+# documented, auditable, reproducible substitute because no paid human-labeling
+# budget exists for this wave. Any label here can be overturned on review —
+# each entry states its rationale so a disagreement is easy to spot.
+#
+# ITEM SOURCING: items are real catalogue rows (data/processed/unified/
+# catalogue.parquet — prod_name/colour_group_name/product_type_name/gender
+# copied verbatim) wherever a suitable row existed at calibration-build time
+# (2026-08-06). A few filler pieces (plain trousers, a generic dupatta/clutch,
+# the men's necktie in bad_mixed_gender, the costume dress in bad_novelty) have
+# no clean single-item catalogue match and are synthetic, matching the naming
+# convention scripts/eval_model.py's original 4 anchors already used for 100%
+# of their items. `source: real` / `source: synthetic` is tagged per item.
+#
+# RUBRIC (verbatim, matches JUDGE_SYSTEM_PROMPT / build_judge_prompt in
+# scripts/eval_model.py so calibration is scoring the SAME question the judge
+# is actually asked):
+#   occasion_score (1-5): would a stylist say this outfit suits the stated
+#     occasion's register/palette? 1 = completely wrong, 5 = excellent fit.
+#     NOTE: per the prompt's own wording this axis folds in palette register,
+#     not just "ethnic vs western" — a palette clash or a formality mismatch
+#     drags this score down even when garment types are individually
+#     occasion-plausible. This mirrors the convention the ORIGINAL bad_haldi_
+#     velvet anchor already used (an internally matching all-black velvet look
+#     still scores low on BOTH axes because it is wrong for the occasion).
+#   coherence_score (1-5): do these items work together as one cohesive look
+#     (colour, formality, style)? 1 = incoherent, 5 = well-styled.
+#   gender_consistent / occasion_register_ok / formality_ok / palette_ok:
+#     binary defect flags, one per failure class this fixture deliberately
+#     probes. All true for a clean look; exactly one false for each BAD entry
+#     (single, unambiguous defect per look, on purpose — makes failures
+#     diagnosable instead of testing multiple confounded defects at once).
+#
+# BUCKETS:
+#   good       — 6 looks, no defect, expect occasion_score>=4 AND
+#                coherence_score>=4 (same bar as anchor_passes_calibration's
+#                "good" bucket in scripts/eval_model.py).
+#   bad        — 8 looks, exactly one clear defect each, expect
+#                occasion_score<=2 AND coherence_score<=2 (same bar as
+#                anchor_passes_calibration's "bad" bucket).
+#   borderline — 6 looks, one SUBTLE issue each (arguable, not extreme).
+#                Ground truth intentionally sits at occasion/coherence == 3
+#                (a couple at 3/4) to test whether a candidate judge can avoid
+#                collapsing to "everything not obviously broken = 5" — a judge
+#                that scores every borderline case 5 has not actually learned
+#                to evaluate coherence, it has learned to be lenient.
+#
+# eval/judge_calibration.py applies THE decision rule mechanically:
+#   - every `good`/`bad` entry must fall in its expected bucket exactly
+#     (same predicate as anchor_passes_calibration) for a candidate to ship.
+#   - every `borderline` entry's score must land in {2,3,4} on both axes
+#     (not at either pole 1 or 5) — plausibility, not exact-match.
+version: 1
+looks:
+
+# ---------------------------------------------------------------------------
+# GOOD (6)
+# ---------------------------------------------------------------------------
+- id: good_001_office
+  bucket: good
+  occasion_slug: office
+  items:
+    - {prod_name: "Tokyo Talkies Women Maroon Solid Single-Breasted Formal Blazer", colour: Maroon, product_type: blazer, gender: women, source: real}
+    - {prod_name: "Allen Solly Woman Maroon Mandarin Collar Shirt Style Top", colour: Maroon, product_type: top, gender: women, source: real}
+    - {prod_name: "Charcoal Tailored Trousers", colour: Dark Grey, product_type: trousers, gender: women, source: synthetic}
+    - {prod_name: "Elara Black Pumps", colour: Black, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 5
+    coherence_score: 5
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Tonal maroon-and-charcoal formal suiting with black pumps — textbook office register, single-gender, coherent palette."
+
+- id: good_002_haldi
+  bucket: good
+  occasion_slug: haldi
+  items:
+    - {prod_name: "Biba Women Yellow Ethnic Motifs Printed Anarkali Kurta", colour: Yellow, product_type: kurta, gender: women, source: real}
+    - {prod_name: "Mustard Cotton Dupatta", colour: Yellow, product_type: dupatta, gender: women, source: synthetic}
+    - {prod_name: "Sukkhi Traditional Fashion Antique Gold Plated Kundan & Pearls Studded Jhumka/Jhumki Earring Ring Combo Set", colour: Gold, product_type: jewellery, gender: women, source: real}
+    - {prod_name: "Haldi - Kolhapuri Sandals", colour: Yellow, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 5
+    coherence_score: 5
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "All-yellow cotton ethnic look with gold jewellery — exactly haldi's light daytime register; footwear is literally named for the occasion."
+
+- id: good_003_wedding_reception
+  bucket: good
+  occasion_slug: wedding_reception
+  items:
+    - {prod_name: "Studio Shringaar Women Maroon Solid Full Flare Double Ghera Lehenga Skirt", colour: Maroon, product_type: skirt, gender: women, source: real}
+    - {prod_name: "Maroon Embroidered Silk Blouse", colour: Maroon, product_type: top, gender: women, source: synthetic}
+    - {prod_name: "Gold Kundan Choker Necklace Set", colour: Gold, product_type: jewellery, gender: women, source: synthetic}
+    - {prod_name: "Rosalie Black Heels", colour: Black, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 5
+    coherence_score: 4
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Embellished maroon-and-gold lehenga is squarely reception-weight; black heels are a legitimate (if not the most obvious gold/nude) styling choice, docking coherence one point, not occasion fit."
+
+- id: good_004_casual_weekend
+  bucket: good
+  occasion_slug: casual_weekend
+  items:
+    - {prod_name: "Mast & Harbour Women Blue Mid-Rise Clean Look Cargo Jogger Jeans", colour: Blue, product_type: jeans, gender: women, source: real}
+    - {prod_name: "AAHWAN Women Black Solid Tank Crop Top", colour: Black, product_type: top, gender: women, source: real}
+    - {prod_name: "Celeste Sneakers", colour: White, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 5
+    coherence_score: 4
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Blue/black/white casual athleisure — relaxed, comfortable, occasion-appropriate; simple three-piece caps coherence just under a 5."
+
+- id: good_005_festive_diwali
+  bucket: good
+  occasion_slug: diwali
+  items:
+    - {prod_name: "Anouk Women Yellow & White Printed Kurta with Palazzos", colour: Yellow, product_type: kurta, gender: women, source: real}
+    - {prod_name: "Yellow Zari-Bordered Dupatta", colour: Yellow, product_type: dupatta, gender: women, source: synthetic}
+    - {prod_name: "Sukkhi Traditional Fashion Antique Gold Plated Kundan & Pearls Studded Jhumka/Jhumki Earring Ring Combo Set", colour: Gold, product_type: jewellery, gender: women, source: real}
+    - {prod_name: "Kumkum - Kolhapuri Sandals", colour: Red, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 5
+    coherence_score: 4
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Yellow-and-gold festive ethnic wear; red sandals are a classic Diwali accent pairing, not a clash — coherent, one point short of a monochrome-tight palette."
+
+- id: good_006_gym
+  bucket: good
+  occasion_slug: gym
+  items:
+    - {prod_name: "Nike Black Dri-FIT Training RACEBACK Tank Top", colour: Black, product_type: top, gender: women, source: real}
+    - {prod_name: "UNDER ARMOUR Women Pink Loose Fit Training Play Up Shorts", colour: Pink, product_type: shorts, gender: women, source: real}
+    - {prod_name: "Majestique Sneakers", colour: White, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 5
+    coherence_score: 4
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Black/pink/white athletic kit, all performance wear — clean gym register and coherent athleisure palette."
+
+# ---------------------------------------------------------------------------
+# BAD (8) — exactly one defect each
+# ---------------------------------------------------------------------------
+- id: bad_001_mixed_gender
+  bucket: bad
+  defect: gender_mix
+  occasion_slug: party_evening
+  items:
+    - {prod_name: "Black Embroidered Silk A-Line Gown With Dupatta", colour: Black, product_type: dress, gender: women, source: real}
+    - {prod_name: "Men's Formal Necktie", colour: Black, product_type: tie, gender: men, source: synthetic}
+    - {prod_name: "Black Oxford Shoes", colour: Black, product_type: footwear, gender: men, source: real}
+  hand_score:
+    occasion_score: 1
+    coherence_score: 1
+    gender_consistent: false
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "A women's evening gown boarded with a men's necktie and men's oxfords — a single wearer cannot wear this; unambiguous gender-mix defect."
+
+- id: bad_002_occasion_register_eveningwear_at_haldi
+  bucket: bad
+  defect: occasion_register
+  occasion_slug: haldi
+  items:
+    - {prod_name: "Black Embroidered Silk Blend A-Line Gown With Dupatta", colour: Black, product_type: dress, gender: women, source: real}
+    - {prod_name: "Elara Black Pumps", colour: Black, product_type: footwear, gender: women, source: real}
+    - {prod_name: "Black Sequin Clutch", colour: Black, product_type: bag, gender: women, source: synthetic}
+  hand_score:
+    occasion_score: 1
+    coherence_score: 2
+    gender_consistent: true
+    occasion_register_ok: false
+    formality_ok: true
+    palette_ok: true
+    rationale: "All-black embellished evening gown at a daytime, colour-forward haldi — internally matched as a set, but wrong register/palette entirely for the occasion."
+
+- id: bad_003_formality_clash_gym_at_reception
+  bucket: bad
+  defect: formality
+  occasion_slug: wedding_reception
+  items:
+    - {prod_name: "Saree Mall Floral Saree", colour: Pink, product_type: saree, gender: women, source: real}
+    - {prod_name: "Nike Black Dri-FIT Training RACEBACK Tank Top", colour: Black, product_type: top, gender: women, source: real}
+    - {prod_name: "Majestique Sneakers", colour: White, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 1
+    coherence_score: 2
+    gender_consistent: true
+    occasion_register_ok: false
+    formality_ok: false
+    palette_ok: true
+    rationale: "A formal saree paired with a gym tank top and running sneakers — athletic-formality items boarded onto a reception-weight garment."
+
+- id: bad_004_palette_clash
+  bucket: bad
+  defect: palette
+  occasion_slug: casual_weekend
+  items:
+    - {prod_name: "Sassafras Brown & Red Geometric Printed Georgette Wrap Crop Top", colour: Brown, product_type: top, gender: women, source: real}
+    - {prod_name: "Mast & Harbour Women Blue Mid-Rise Clean Look Cargo Jogger Jeans", colour: Blue, product_type: jeans, gender: women, source: real}
+    - {prod_name: "Neon Green Statement Necklace", colour: Neon Green, product_type: jewellery, gender: women, source: synthetic}
+  hand_score:
+    occasion_score: 2
+    coherence_score: 1
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: false
+    rationale: "Brown/red printed top plus blue denim plus a neon-green statement necklace — each item is casual-appropriate on its own, but the palette actively fights across all three."
+
+- id: bad_005_bridal_weight_at_mehendi
+  bucket: bad
+  defect: occasion_register
+  occasion_slug: mehendi
+  items:
+    - {prod_name: "Men's Black Sequin Chikankari Sherwani with Silk Kurta & Satin Pyjama", colour: Black, product_type: sherwani, gender: men, source: real}
+  hand_score:
+    occasion_score: 1
+    coherence_score: 2
+    gender_consistent: true
+    occasion_register_ok: false
+    formality_ok: false
+    palette_ok: true
+    rationale: "A black sequinned bridal-weight sherwani set is wedding-day formalwear; mehendi is a light, colourful, daytime pre-wedding event — badly overdressed and tonally wrong (black) for the occasion."
+
+- id: bad_006_loungewear_at_sangeet
+  bucket: bad
+  defect: formality
+  occasion_slug: sangeet
+  items:
+    - {prod_name: "Jockey Women Grey Solid Thermal Camisole", colour: Grey, product_type: top, gender: women, source: real}
+    - {prod_name: "Kanvin Nude-Coloured Thermal Top", colour: Nude, product_type: top, gender: women, source: real}
+  hand_score:
+    occasion_score: 1
+    coherence_score: 2
+    gender_consistent: true
+    occasion_register_ok: false
+    formality_ok: false
+    palette_ok: true
+    rationale: "Plain thermal loungewear at sangeet — a festive, embellished-dress-code event — is a clear formality-floor miss, not merely a style preference."
+
+- id: bad_007_formal_gown_with_sneakers
+  bucket: bad
+  defect: formality
+  occasion_slug: wedding_reception
+  items:
+    - {prod_name: "Black Embroidered Silk A-Line Gown With Dupatta", colour: Black, product_type: dress, gender: women, source: real}
+    - {prod_name: "Majestique Sneakers", colour: White, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 2
+    coherence_score: 1
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: false
+    palette_ok: true
+    rationale: "A floor-length embellished silk gown is reception-formal; chunky white sneakers are a hard formality mismatch against it, even though the gown itself fits the occasion."
+
+- id: bad_008_novelty_at_wedding
+  bucket: bad
+  defect: formality
+  occasion_slug: wedding_reception
+  items:
+    - {prod_name: "Halloween Pumpkin Costume Dress", colour: Orange, product_type: costume, gender: women, source: synthetic}
+    - {prod_name: "Rosalie Black Heels", colour: Black, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 1
+    coherence_score: 1
+    gender_consistent: true
+    occasion_register_ok: false
+    formality_ok: false
+    palette_ok: true
+    rationale: "A novelty costume piece boarded for a wedding reception — the exact NOVELTY_RE denylist class (scripts/eval_model.py) this fixture also probes on the judge side."
+
+# ---------------------------------------------------------------------------
+# BORDERLINE (6) — one subtle issue each; ground truth ~3, not extreme
+# ---------------------------------------------------------------------------
+- id: borderline_001_office_casual_bag
+  bucket: borderline
+  occasion_slug: office
+  items:
+    - {prod_name: "Tokyo Talkies Women Maroon Solid Single-Breasted Formal Blazer", colour: Maroon, product_type: blazer, gender: women, source: real}
+    - {prod_name: "Allen Solly Woman Maroon Mandarin Collar Shirt Style Top", colour: Maroon, product_type: top, gender: women, source: real}
+    - {prod_name: "Charcoal Tailored Trousers", colour: Dark Grey, product_type: trousers, gender: women, source: synthetic}
+    - {prod_name: "Sunshine Bloom Crochet Tote Bag", colour: Yellow, product_type: bag, gender: women, source: real}
+  hand_score:
+    occasion_score: 4
+    coherence_score: 3
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Otherwise sharp formal suiting undercut by one noticeably casual woven crochet tote — a mild formality dip from one accessory, not a broken look."
+
+- id: borderline_002_haldi_velvet_dupatta
+  bucket: borderline
+  occasion_slug: haldi
+  items:
+    - {prod_name: "Biba Women Yellow Ethnic Motifs Printed Anarkali Kurta", colour: Yellow, product_type: kurta, gender: women, source: real}
+    - {prod_name: "Moda Chales Maroon & Gold-Toned Embroidered Velvet Dupatta", colour: Maroon, product_type: dupatta, gender: women, source: real}
+    - {prod_name: "Haldi - Kolhapuri Sandals", colour: Yellow, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 3
+    coherence_score: 3
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Heavy embroidered velvet is a fabric-weight step up from haldi's usual light cotton, and the maroon dupatta is a step outside the yellow palette — noticeable but not wrong."
+
+- id: borderline_003_diwali_soft_palette
+  bucket: borderline
+  occasion_slug: diwali
+  items:
+    - {prod_name: "Anouk Women Yellow & White Printed Kurta with Palazzos", colour: Yellow, product_type: kurta, gender: women, source: real}
+    - {prod_name: "Anouk Women Pink & Blue Ethnic Motifs Embroidered Kurta with Trousers & With Dupatta", colour: Pink, product_type: dupatta, gender: women, source: real}
+  hand_score:
+    occasion_score: 4
+    coherence_score: 3
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "Yellow-and-pink is a soft, arguable pairing — festive and occasion-correct, but not a deliberately styled palette either."
+
+- id: borderline_004_reception_plain_flats
+  bucket: borderline
+  occasion_slug: wedding_reception
+  items:
+    - {prod_name: "Studio Shringaar Women Maroon Solid Full Flare Double Ghera Lehenga Skirt", colour: Maroon, product_type: skirt, gender: women, source: real}
+    - {prod_name: "Maroon Embroidered Silk Blouse", colour: Maroon, product_type: top, gender: women, source: synthetic}
+    - {prod_name: "Sunkissed Tan Flats", colour: Brown, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 3
+    coherence_score: 3
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "An embellished lehenga is reception-weight but plain tan flats are a formality step down from the expected heel — wearable, not styled to the occasion's ceiling."
+
+- id: borderline_005_casual_mustard_bag
+  bucket: borderline
+  occasion_slug: casual_weekend
+  items:
+    - {prod_name: "Mast & Harbour Women Blue Mid-Rise Clean Look Cargo Jogger Jeans", colour: Blue, product_type: jeans, gender: women, source: real}
+    - {prod_name: "AAHWAN Women Black Solid Tank Crop Top", colour: Black, product_type: top, gender: women, source: real}
+    - {prod_name: "Bloom Radiance Beaded Clutch Bag", colour: Mustard, product_type: bag, gender: women, source: real}
+  hand_score:
+    occasion_score: 4
+    coherence_score: 3
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "A mustard beaded clutch against a blue/black casual base reads as an unplanned accent rather than a styled pop of colour — minor, not jarring."
+
+- id: borderline_006_gym_overdressed_hoodie
+  bucket: borderline
+  occasion_slug: gym
+  items:
+    - {prod_name: "H&M Women Black Solid Cropped Zip-Through Hoodie", colour: Black, product_type: knitwear, gender: women, source: real}
+    - {prod_name: "UNDER ARMOUR Women Pink Loose Fit Training Play Up Shorts", colour: Pink, product_type: shorts, gender: women, source: real}
+    - {prod_name: "Majestique Sneakers", colour: White, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 3
+    coherence_score: 3
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: true
+    rationale: "A street-style cropped hoodie over training shorts reads slightly more athleisure-lounge than gym-functional, but is still plausible workout wear — a mild register wobble."
