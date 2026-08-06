@@ -39,6 +39,7 @@ from src.agents.outfit.coherence import couple_harmony_palette
 from src.agents.outfit.composer import _anchor_matches_occasion, compose_outfit
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import gender_allowed
+from src.catalogue.cleaning import has_gender_text_conflict
 from src.retrieval.hybrid_search import HybridRetriever
 
 # ── Intent detection ────────────────────────────────────────────────────────
@@ -93,6 +94,24 @@ _STYLING_VERB_RE = re.compile(
     r"\b(style|wear|match|matching|coordinate|coordinated|outfit|dress|look)\b",
     re.IGNORECASE,
 )
+
+# 2026-08-06 live-proven fix: "groom outfit for men" / "groom accessories look
+# for men" / "bride outfit for women" false-triggered partner-styling intent
+# via _GROOM_RE/_BRIDE_RE below (styling verb + groom/bride, no relational-
+# noun exclusion applies) even though these queries explicitly restate the
+# role's OWN natural gender in the same breath -- a genuine partner-styling
+# query never does this ("the groom needs a matching look" states no gender
+# at all; a real "style my partner" request wants the groom/bride's own look,
+# not a redundant re-statement of it). This is a plain first-person occasion+
+# gender request, structurally identical to "wedding outfit for men", and
+# must resolve via the deterministic occasion-outfit path (graph.py's
+# _OUTFIT_OCCASION_RE branch), not the cross-gender partner-look path.
+# "groom ... for women" / "bride ... for men" (gender-INCONSISTENT with the
+# role) are deliberately NOT excluded here -- that contradiction is itself a
+# signal something unusual is being asked (possibly genuinely about a
+# partner), left to the existing behaviour.
+_FOR_MEN_RE = re.compile(r"\bfor\s+men\b", re.IGNORECASE)
+_FOR_WOMEN_RE = re.compile(r"\bfor\s+women\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -156,9 +175,17 @@ def detect_partner_intent(raw_query: str) -> PartnerIntent:
         return PartnerIntent(True, "men", "for him")
     if has_styling_verb and _FOR_HER_RE.search(raw_query):
         return PartnerIntent(True, "women", "for her")
-    if has_styling_verb and _GROOM_RE.search(raw_query):
+    if (
+        has_styling_verb
+        and _GROOM_RE.search(raw_query)
+        and not _FOR_MEN_RE.search(raw_query)
+    ):
         return PartnerIntent(True, "men", "groom")
-    if has_styling_verb and _BRIDE_RE.search(raw_query):
+    if (
+        has_styling_verb
+        and _BRIDE_RE.search(raw_query)
+        and not _FOR_WOMEN_RE.search(raw_query)
+    ):
         return PartnerIntent(True, "women", "bride")
 
     return PartnerIntent(False, None, None)
@@ -266,6 +293,14 @@ def compose_partner_look(
         for c in candidates
         if _anchor_matches_occasion(c, occasion_slug)
         and gender_allowed((c.get("gender") or "unknown").lower(), partner_gender)
+        # 2026-08-06 cross-gender leak fix: same catalogue gender-column
+        # unreliability composer.compose_outfit's own anchor selection now
+        # guards against (see has_gender_text_conflict's docstring) —
+        # applies here too since a partner-look ANCHOR is exactly the same
+        # kind of candidate.
+        and not has_gender_text_conflict(
+            c.get("prod_name") or c.get("display_name") or "", partner_gender
+        )
     ]
     # Budget gate (mirrors compose_outfit's occasion-driven anchor path, commit
     # 85078b1): reject over-budget seed candidates before any complement is

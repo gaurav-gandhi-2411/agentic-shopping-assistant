@@ -104,6 +104,63 @@ def is_kids_item(prod_name: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Cross-gender leak exclusion (name text vs. structured gender column)
+# ---------------------------------------------------------------------------
+# 2026-08-06: live-proven leak -- "haldi ceremony outfit for the bride's
+# friend" (a women's look) composed "Men's Yellow - Dupatta" into its
+# accessory slot. NOT a gender-filter gap: gender_allowed() applied correctly
+# and the retrieval-time gender filter was set -- the catalogue's own
+# structured `gender` column is just WRONG for this row (article_id
+# 9001735520514, store=vastramay, gender="women" despite the name literally
+# starting "Men's"). Full-catalogue audit (word-boundary regex over
+# prod_name, both directions): 385 rows say "Men's"/"Mens"/"For Men" but
+# gender column = "women" (concentrated in vastramay=269, voylla=83,
+# jompers=23, sukkhi=5, kisah=4, flipkart=1; product types: dupatta=147,
+# kurta=119, Pendant=51, sherwani=18, Cufflinks=15, Rakhi=9, Earring=5,
+# Ring=4, Bracelet=4); the REVERSE direction ("Women's"/"For Women" in name,
+# gender column = "men") returned ZERO rows -- the mislabeling is one-
+# directional in the current catalogue, but this check is written symmetric
+# regardless, so it doesn't silently miss a future reverse case.
+#
+# Same root-cause SHAPE as is_kids_item() above (S5 fix) -- the catalogue's
+# gender column is unreliable for a specific data slice, and the item's own
+# freeform name is the more trustworthy signal -- so this lives here
+# alongside it rather than duplicating the pattern in the agents layer.
+#
+# Deliberately excludes genuinely dual-marketed items ("Cap for Men Women",
+# "Cap For Boys/Girls/Mens/Women") -- these aren't a mislabeling, they're
+# marketed as fitting both, and _DUAL_GENDER_MARKETING_RE recognises that
+# phrasing so such items are never wrongly rejected by this check.
+_MEN_NAME_RE = re.compile(r"\b(men's|mens|for men)\b", re.IGNORECASE)
+_WOMEN_NAME_RE = re.compile(r"\b(women's|womens|for women)\b", re.IGNORECASE)
+_DUAL_GENDER_MARKETING_RE = re.compile(
+    r"\bfor\s+men\s+women\b|\bmen\s*/\s*women\b|\bmens?\s*,\s*women|"
+    r"\bboys?\s*/\s*girls\b|\bmens?\b.*\bwomen\b.*\bcap\b",
+    re.IGNORECASE,
+)
+
+
+def has_gender_text_conflict(prod_name: str | None, look_gender: str) -> bool:
+    """Return True if `prod_name` explicitly states the OPPOSITE gender of
+    `look_gender` — a hard, name-text-grounded reject independent of
+    whatever the catalogue's own (possibly wrong) `gender` column says.
+
+    `look_gender` must be "men"/"women"/"unisex" (unisex never conflicts —
+    matches gender_allowed()'s own "unisex accepts everything" contract).
+    Never flags a genuinely dual-marketed item (see
+    _DUAL_GENDER_MARKETING_RE) as a conflict in either direction.
+    """
+    if look_gender not in ("men", "women"):
+        return False
+    name = prod_name or ""
+    if _DUAL_GENDER_MARKETING_RE.search(name):
+        return False
+    if look_gender == "women":
+        return bool(_MEN_NAME_RE.search(name))
+    return bool(_WOMEN_NAME_RE.search(name))
+
+
+# ---------------------------------------------------------------------------
 # Occasion-merchandise leak exclusion
 # ---------------------------------------------------------------------------
 # Live-proven bug (2026-07-23): "what should I wear for raksha bandhan" (an

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import api.deps as deps
 from api.auth import get_current_user_id_or_demo
-from api.schemas import ItemSummary, PriceMatch
+from api.schemas import ItemSummary, PriceMatch, _ns
 from src.catalogue.entity_resolution import (
     find_cross_store_matches,
     get_cached_brand_index,
@@ -89,13 +89,28 @@ def _row_to_item(
         row.to_dict() if hasattr(row, "to_dict") else dict(row)
     )
     price_matches = _build_price_matches(row_dict, catalogue_df) if catalogue_df is not None else None
+    # 2026-08-06 fix: `.get(key, "")` only applies the "" default when the KEY
+    # is absent -- a key present with value None (a real, common shape:
+    # 30,971 of 112,425 catalogue rows, 27.5%, have colour_group_name=None)
+    # still returns None, which ItemSummary's `str` (non-Optional) fields
+    # below reject at construction, surfacing as an unhandled 500. `_ns()`
+    # (api/schemas.py) is the existing null-safe string coercion helper --
+    # already used by ItemSummary.from_agent_item() for the exact same
+    # fields on the /chat path, just never adopted here, the same
+    # not-quite-consolidated shape as this session's BRAND-resolution and
+    # accessory-facet-equality fixes. Also handles pandas NaN floats and the
+    # literal string "nan", which a bare `.get(key) or ""` would NOT catch
+    # (NaN is truthy in Python) -- product_type_name/department_name/
+    # prod_name/display_name have zero nulls in the current catalogue, but
+    # this endpoint has no other guard against a future data refresh
+    # reintroducing one in any of them.
     return ItemSummary(
         article_id=article_id,
-        prod_name=row.get("prod_name", ""),
-        display_name=row.get("display_name", ""),
-        colour=facets.get("colour_group_name", ""),
-        product_type=facets.get("product_type_name", ""),
-        department=facets.get("department_name", ""),
+        prod_name=_ns(row.get("prod_name")),
+        display_name=_ns(row.get("display_name")),
+        colour=_ns(facets.get("colour_group_name")),
+        product_type=_ns(facets.get("product_type_name")),
+        department=_ns(facets.get("department_name")),
         image_url=row.get("image_url") or None,
         detail_desc=row.get("detail_desc") or None,
         score=score,

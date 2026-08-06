@@ -38,24 +38,10 @@ from api.session import SessionStore
 from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
 from src.llm.context import llm_user_id_var
-from src.retrieval.index_store import UNIFIED_BRAND
+from src.retrieval.index_store import resolve_brand as _resolve_brand
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
-
-
-def _resolve_brand() -> str:
-    """Resolve the active brand slug using the same logic as api/main.py.
-
-    In unified (cross-store) mode — BRAND unset, BRAND=unified, or UNIFIED=1 —
-    returns UNIFIED_BRAND so cart-link helpers receive the correct brand context.
-    In legacy per-brand mode returns the BRAND env var value.
-    """
-    _unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
-    _brand_env = os.environ.get("BRAND", "")
-    if _unified_flag or _brand_env == UNIFIED_BRAND or not _brand_env:
-        return UNIFIED_BRAND
-    return _brand_env
 
 # In-memory session store for anonymous demo users.
 # Keyed on conversation_id; accumulates until container restart (fine for ephemeral demos).

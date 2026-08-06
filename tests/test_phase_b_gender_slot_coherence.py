@@ -659,8 +659,10 @@ class TestWesternRegisterGateOffice:
     def test_indowestern_rejected_for_office(self) -> None:
         # 2026-07-25 out-of-sample validation finding: "Beige Jacquard Indo
         # Western for Men" (product_type_name="indowestern", 586 catalogue
-        # rows) surfaced for "office outfit for men" -- not caught by
-        # is_ethnic_item (indowestern isn't in any of its keyword sets).
+        # rows) surfaced for "office outfit for men". 2026-08-05: now caught
+        # by is_ethnic_item itself (classify_anchor's own first-class
+        # indowestern short-circuit — see slots.py), no longer a gate-4
+        # special case.
         item = {
             "product_type": "indowestern",
             "prod_name": "Beige Jacquard Indo Western for Men",

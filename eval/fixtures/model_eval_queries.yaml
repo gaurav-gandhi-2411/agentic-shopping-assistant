@@ -3623,11 +3623,18 @@ queries:
   category: couple
   turns:
   - the groom needs a matching look
+  # 2026-08-06: occasion updated null -> wedding_guest. "groom" has mapped to
+  # wedding_guest in intent_parser._OCCASION_MAP since 2026-07-30 -- this
+  # label predates that mapping and was already stale before this session's
+  # work, found as a side effect of investigating the sibling couple_006
+  # ("the bride needs a matching look") fix. Same reasoning applies:
+  # gates.occasion_slug below is an independent, manually-chosen
+  # compose_outfit() probe input, intentionally left as-is.
   expected_intent:
     garment_type: null
     gender: null
     colour: null
-    occasion: null
+    occasion: wedding_guest
     budget_max_inr: null
     body_type: null
     body_modifiers: []
@@ -3647,11 +3654,18 @@ queries:
   category: couple
   turns:
   - the bride needs a matching look
+  # 2026-08-06: occasion updated null -> wedding_guest. "bride" was
+  # deliberately added to intent_parser._OCCASION_MAP the same day (1,358
+  # catalogue rows, 100% genuine bridal jewellery/apparel on sampling) --
+  # this label predates that addition and is stale relative to it, not a
+  # sign the new behavior is wrong. gates.occasion_slug below is an
+  # independent, manually-chosen compose_outfit() probe input (not compared
+  # against parse_intent's own resolution) and is intentionally left as-is.
   expected_intent:
     garment_type: null
     gender: null
     colour: null
-    occasion: null
+    occasion: wedding_guest
     budget_max_inr: null
     body_type: null
     body_modifiers: []

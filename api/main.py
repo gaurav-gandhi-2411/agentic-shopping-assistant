@@ -151,20 +151,14 @@ async def lifespan(app: FastAPI):
         config["llm"]["provider"] = os.environ["LLM_PROVIDER"]
 
     from src.retrieval.index_store import (
-        UNIFIED_BRAND,
         download_supplementary_assets,
         ensure_index_dir,
+        resolve_brand,
     )
 
-    # Determine active brand / mode.
-    # Unified mode: UNIFIED=1 OR BRAND=unified OR BRAND unset (new default for cross-store B2C).
-    # Per-brand mode: BRAND=<slug> with UNIFIED unset/0.
-    _unified_flag = os.environ.get("UNIFIED", "").lower() in ("1", "true", "yes")
-    _brand_env = os.environ.get("BRAND", "")
-    if _unified_flag or _brand_env == UNIFIED_BRAND or not _brand_env:
-        _brand = UNIFIED_BRAND
-    else:
-        _brand = _brand_env
+    # Determine active brand / mode (single source of truth — see
+    # resolve_brand()'s own docstring for the unified-mode resolution rules).
+    _brand = resolve_brand()
 
     _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
     index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)

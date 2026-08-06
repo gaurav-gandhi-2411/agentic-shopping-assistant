@@ -19,7 +19,9 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from src.retrieval.index_store import download_supplementary_assets
+import pytest
+
+from src.retrieval.index_store import download_supplementary_assets, resolve_brand
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -438,3 +440,50 @@ class TestDownloadSupplementaryAssetsUnifiedBrand:
         bucket.list_blobs.assert_not_called()
         called_blob_names = [call.args[0] for call in bucket.blob.call_args_list]
         assert any("shopify_variants/snitch.json" in n for n in called_blob_names)
+
+
+# ---------------------------------------------------------------------------
+# resolve_brand() -- single source of truth for BRAND/UNIFIED env resolution
+# ---------------------------------------------------------------------------
+#
+# 2026-08-06: extracted from three near-identical inline copies (api/main.py,
+# api/routes/chat.py's own _resolve_brand(), api/routes/image_style.py) plus
+# one DIVERGENT copy (api/routes/demo.py's create_demo_session() defaulted
+# bare "hm" instead of "unified") into this one function. These tests cover
+# the resolution rules directly so a future call site can't silently drift
+# again without a local test of its own.
+
+
+class TestResolveBrand:
+    def test_brand_and_unified_both_unset_resolves_unified(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("BRAND", raising=False)
+        monkeypatch.delenv("UNIFIED", raising=False)
+        assert resolve_brand() == "unified"
+
+    def test_brand_explicitly_unified_resolves_unified(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("BRAND", "unified")
+        monkeypatch.delenv("UNIFIED", raising=False)
+        assert resolve_brand() == "unified"
+
+    def test_unified_flag_overrides_a_stale_brand_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("BRAND", "snitch")
+        monkeypatch.setenv("UNIFIED", "1")
+        assert resolve_brand() == "unified"
+
+    def test_explicit_legacy_brand_resolves_as_is(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BRAND", "snitch")
+        monkeypatch.delenv("UNIFIED", raising=False)
+        assert resolve_brand() == "snitch"
+
+    def test_never_defaults_to_hm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """2026-08-06 regression: no code path here may resolve the legacy
+        "hm" default when BRAND/UNIFIED are unset -- that was the bug."""
+        monkeypatch.delenv("BRAND", raising=False)
+        monkeypatch.delenv("UNIFIED", raising=False)
+        assert resolve_brand() != "hm"

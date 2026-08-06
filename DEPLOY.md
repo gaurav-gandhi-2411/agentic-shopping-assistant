@@ -226,7 +226,7 @@ touching anything further; Cloud Run does not cut traffic to a revision that fai
 startup health check, so the live service stays safe, but the *next* incremental update's
 base can still be silently wrong.
 
-### Free-tier quota ceiling — 3-tier chain (measured, 2026-07-30/31)
+### Free-tier quota ceiling — 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
 
 Real production traffic on `asa-stylist-api` averages **~2,922 tokens/conversation** and
 **~2.07 LLM calls/conversation** (source: 31 real `llm_call` log events across 15 real
@@ -248,31 +248,59 @@ Groq's tier exhausts, regardless of how token-heavy each conversation is.
 
 **Tier 3 — Gemini** (`gemini-2.5-flash`): Google no longer publishes a static RPD/TPM table
 (`ai.google.dev/gemini-api/docs/rate-limits` redirects to the account's own dashboard at
-`aistudio.google.com/rate-limit`, which requires login this session didn't have). Confirmed
-live that the quota bucket is genuinely non-zero (a real call succeeded, unlike
-`gemini-2.0-flash-lite`'s confirmed `limit: 0`) but the exact daily number is **unverified —
-check the AI Studio dashboard for the real figure** before relying on it for capacity
-planning. Treat this tier as "some additional headroom beyond tiers 1+2," not a quantified
-number, until someone checks that dashboard.
+`aistudio.google.com/rate-limit`, which requires login no session here has). **2026-08-06:
+measured by controlled empirical probing instead of reading the dashboard** — real,
+non-mocked `google-genai` calls against the live API, request shape matched to this app's
+own measured production average (system+user prompt sized to land the model's reported
+`prompt_token_count` near the ~925-1,739 token range, `max_output_tokens=400` matching
+`config.yaml`), sent rapid-fire with no artificial delay until the API's own 429 fired, one
+phase at a time, stopping immediately on first failure rather than exhausting the account
+(9 total calls: 8 succeeded, 1 hit the limit; ~9,150 tokens spent probing).
 
-**Combined measured floor: ~170 (Groq) + 50 (OpenRouter) = ~220 conversations/day**, before
-Gemini's unquantified headroom. All three tiers verified live end-to-end 2026-07-31 (real,
-non-mocked calls forcing Groq+OpenRouter failures and confirming Gemini serves a real
-response, for both `chat()` and `chat_stream()`).
+- **RPM = 5, authoritative** — read directly off the 429's own structured error body, not
+  inferred: `quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', quotaValue: '5'`.
+  6 requests landed before the 7th tripped it (window-boundary effect); the quota system's own
+  reported value (5) is the number to plan against. In conversations/minute terms (÷ the
+  measured ~2.07 calls/conversation): **~2.4 conversations/minute of burst capacity**, the
+  same shape as Groq's own TPM-derived "~2 conversations/minute" figure above.
+- **TPM: no separate binding ceiling found at realistic sizes** — a second phase sent 2
+  requests at ~1,739 input tokens each (1.9x the phase-1 size, still comfortably above this
+  app's real per-call average) inside one RPM window; both succeeded with no token-based
+  violation. The quotaId itself confirms this is a request-COUNT quota ("...Requests",
+  "...PerMinute"), not token-gated, so TPM (if any exists) sits above what this app's real
+  conversations would ever approach.
+- **RPD / TPD: not measured, deliberately** — discovering these would mean sustaining calls
+  past RPM=5 for a full day, i.e. actually exhausting the tier's real daily quota to find its
+  edge. That's the opposite of "probe enough to bound the number, not exhaust it," and would
+  burn the same quota real fallback traffic might need that day. Do not treat the absence of a
+  measured RPD as "unlimited" — it is genuinely unknown, not zero-risk.
+
+**Combined measured floor: ~170 (Groq) + 50 (OpenRouter) = ~220 conversations/day, PLUS
+Gemini's own measured ~2.4 conversations/minute of burst capacity once tiers 1+2 exhaust, for
+as long as Gemini's (unmeasured) daily quota lasts.** Do not collapse this into a single
+combined "conversations/day" number — Groq/OpenRouter's 220 is a real full-day figure, while
+Gemini's contribution is a *rate* (minute-level), not yet a *volume* (day-level); multiplying
+5 RPM × 1,440 minutes to get a theoretical 7,200/day would be exactly the kind of unverified
+extrapolation this section exists to avoid (free-tier RPD caps are routinely far tighter than
+RPM×1440 would suggest). All three tiers verified live end-to-end 2026-07-31 (real, non-mocked
+calls forcing Groq+OpenRouter failures and confirming Gemini serves a real response, for both
+`chat()` and `chat_stream()`); Gemini's RPM specifically re-verified live 2026-08-06.
 
 `DEMO_DAILY_REQUEST_CAP` was lowered from 700 to 150 on 2026-07-31, before the OpenRouter/
 Gemini tiers were fixed — it sits below the Groq-only ~170 ceiling so real users hit the
 app's own honest "Demo limit reached for today — try again tomorrow" message (see
 `api/routes/chat.py` / `api/routes/demo.py`) instead of a raw provider 429 or a multi-minute
 hang. Now that tiers 2+3 add real headroom above 170, this cap is conservative rather than
-tight — revisit raising it once Gemini's real RPD is known, but there's no urgency: tighter
-than necessary fails safe (an honest cap message), tighter is not a production risk.
+tight — tighter than necessary fails safe (an honest cap message), tighter is not a
+production risk. Gemini's RPD remains genuinely unknown (see above), so there still isn't a
+safe combined-conversations/day number to raise the cap against.
 
 What it would take to raise the ceiling further, each option labeled with what's actually
 verified vs. not:
 
-1. **Check Gemini's real RPD** in the account's AI Studio dashboard — free, no code change,
-   just an unknown quantity to fill in above.
+1. **Check Gemini's real RPD** in the account's AI Studio dashboard (still login-walled) —
+   free, no code change; this is the one number empirical probing deliberately declined to
+   chase (see above) since finding it would mean exhausting it.
 2. **Groq's paid "Developer" tier** raises limits above the free tier, but the exact TPD/TPM
    numbers and pricing are NOT published on console.groq.com/docs/rate-limits without logging
    into the account's own billing page (console.groq.com/settings/billing/plans) — do not

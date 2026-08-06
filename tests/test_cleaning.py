@@ -16,6 +16,7 @@ from src.catalogue.cleaning import (
     drop_true_fabric_material,
     extract_colour,
     fix_mojibake,
+    has_gender_text_conflict,
     is_fabric_bolt_text,
     is_loungewear_text,
     is_religious_decor_item,
@@ -444,3 +445,57 @@ class TestRecomputeDerivedColumns:
         assert out["facets"].iloc[0]["colour_group_name"] == "Peach"
         assert out["facets"].iloc[0]["product_type_name"] == "saree"
         assert "Peach" in out["display_name"].iloc[0]
+
+
+# ---------------------------------------------------------------------------
+# Cross-gender leak exclusion (name text vs. structured gender column)
+# ---------------------------------------------------------------------------
+
+
+class TestHasGenderTextConflict:
+    """2026-08-06: live-proven leak -- "Men's Yellow - Dupatta" (catalogue
+    gender column = "women") composed into a women's haldi look's accessory
+    slot. Not a gender-filter gap (gender_allowed() applied correctly against
+    the wrong column value) -- the catalogue's own gender column is unreliable
+    for a real, audited slice of rows (385, see has_gender_text_conflict's
+    own docstring for the full per-store/per-type breakdown).
+    """
+
+    def test_mens_dupatta_conflicts_with_women_look(self) -> None:
+        # The exact live-proven reproduction.
+        assert has_gender_text_conflict("Men's Yellow - Dupatta", "women") is True
+
+    def test_mens_item_does_not_conflict_with_men_look(self) -> None:
+        assert has_gender_text_conflict("Men's Yellow - Dupatta", "men") is False
+
+    def test_womens_item_conflicts_with_men_look(self) -> None:
+        # No real catalogue rows found in this direction (0/112,425 audited),
+        # but the check is written symmetric so a future reverse case isn't
+        # silently missed.
+        assert has_gender_text_conflict("Women's Cotton Kurta", "men") is True
+
+    def test_womens_item_does_not_conflict_with_women_look(self) -> None:
+        assert has_gender_text_conflict("Women's Cotton Kurta", "women") is False
+
+    def test_dual_marketed_cap_never_conflicts_either_direction(self) -> None:
+        # Genuinely dual-marketed items ("Cap for Men Women") must never be
+        # wrongly rejected -- confirmed against the one real catalogue row
+        # this exact phrasing didn't cover (4-way "Boys/Girls/Mens/Women").
+        name = "Self Design ROY Caps Combo Pack Black & Army Cotton Baseball Cap for Men Women Free Size"
+        assert has_gender_text_conflict(name, "women") is False
+        assert has_gender_text_conflict(name, "men") is False
+
+    def test_four_way_dual_marketed_cap_never_conflicts(self) -> None:
+        name = "Half Net Fabric Cap For Boys/Girls/Mens/Women (Free Size, Black) Cap"
+        assert has_gender_text_conflict(name, "women") is False
+        assert has_gender_text_conflict(name, "men") is False
+
+    def test_unisex_look_never_conflicts(self) -> None:
+        assert has_gender_text_conflict("Men's Yellow - Dupatta", "unisex") is False
+
+    def test_none_prod_name_never_conflicts(self) -> None:
+        assert has_gender_text_conflict(None, "women") is False
+
+    def test_plain_gender_consistent_item_no_conflict(self) -> None:
+        assert has_gender_text_conflict("Women Printed Kurta", "women") is False
+        assert has_gender_text_conflict("Men Printed Kurta", "men") is False
