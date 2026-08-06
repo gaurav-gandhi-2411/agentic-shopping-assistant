@@ -79,11 +79,22 @@ class DenseRetriever:
                     results.append((aid, float(score)))
         return results[:top_k]
 
-    def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
+    def search(
+        self, query: str, top_k: int = 20, params: "faiss.SearchParameters | None" = None
+    ) -> list[tuple[str, float]]:
+        """`params` restricts the search to a subset of the index (e.g.
+        `faiss.SearchParameters(sel=faiss.IDSelectorArray(allowed_positions))`) —
+        used by HybridRetriever to push gender/colour/price filters into fetch
+        instead of applying them after. IndexFlatIP already scores every vector
+        in the index per call regardless of restriction (exact brute-force, no
+        approximation structure to prune), so a restricted call costs the same
+        as an unrestricted one — confirmed via eval/diagnose_pushdown_mechanism.py
+        (30ms restricted vs 32ms unfiltered, full 112k-item index).
+        """
         query_vec = self.model.encode(
             [query], normalize_embeddings=True, show_progress_bar=False
         ).astype(np.float32)
-        scores, indices = self.index.search(query_vec, top_k)
+        scores, indices = self.index.search(query_vec, top_k, params=params)
         results = []
         for score, idx in zip(scores[0], indices[0]):
             if idx >= 0:
