@@ -1901,3 +1901,22 @@ labels:
   - {article_id: "8644901896347", relevant: true, note: "'Sky Blue Zari Woven Party Wear Lehenga' -- explicit party wear, embellished"}
   - {article_id: "8644788879515", relevant: true, note: "'Party Wear Floral Embroidered blue Lehenga' -- explicit party wear, embroidered"}
   - {article_id: "13352476", relevant: true, note: "'Global Desi Woman's Pink and Beige Floral Printed Skirt' -- no casual marker, party-plausible; the gift-card item that previously ranked #1 here is now correctly excluded"}
+# ── cross-gender leak fix (2026-08-06): has_gender_text_conflict() now
+# rejects a candidate whose own NAME explicitly states the opposite gender
+# of the look, regardless of what the catalogue's (sometimes wrong)
+# structured gender column says. This makes obsolete the "not code-fixable
+# without risking false positives" caveat on article_id 9351592640770's
+# EARLIER data-mislabel labels above (gold_019/occ_adv_005, both dated
+# 2026-07-25-ish batches) -- that exact item ("Men's Black Silk Blend
+# Kurta with Pant Pyjama & Mehendi Green Dupatta Set", gender column=
+# "women") is the SAME live-proven leak class this fix closes, and it no
+# longer appears in either query's top-5. Its removal opens a slot each
+# of these two items now newly fill -- both genuinely relevant on
+# straightforward reading, not code adjusted to fit a number. Retrieval
+# snapshot: this fix, --mode pipeline. Labeled_by: Claude (Sonnet 5).
+- query_id: gold_019
+  items:
+  - {article_id: "7684898226421", relevant: true, note: "'Readymade Mehandi Green Nauwari Saree -- Earth-Toned Festive Ease' -- title states both the occasion (mehendi) and the queried colour (green) explicitly"}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "9116478177538", relevant: true, note: "'Women's Mehendi Green Rayon Mirror Work Kurta Set with Palazzo' -- title states the occasion (mehendi), the queried colour (green), and women's gender explicitly; mirror-work kurta set is a genuine mehendi-register ethnic outfit"}

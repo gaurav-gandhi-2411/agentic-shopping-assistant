@@ -39,6 +39,7 @@ from src.agents.outfit.coherence import couple_harmony_palette
 from src.agents.outfit.composer import _anchor_matches_occasion, compose_outfit
 from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
 from src.agents.outfit.slots import gender_allowed
+from src.catalogue.cleaning import has_gender_text_conflict
 from src.retrieval.hybrid_search import HybridRetriever
 
 # ── Intent detection ────────────────────────────────────────────────────────
@@ -292,6 +293,14 @@ def compose_partner_look(
         for c in candidates
         if _anchor_matches_occasion(c, occasion_slug)
         and gender_allowed((c.get("gender") or "unknown").lower(), partner_gender)
+        # 2026-08-06 cross-gender leak fix: same catalogue gender-column
+        # unreliability composer.compose_outfit's own anchor selection now
+        # guards against (see has_gender_text_conflict's docstring) —
+        # applies here too since a partner-look ANCHOR is exactly the same
+        # kind of candidate.
+        and not has_gender_text_conflict(
+            c.get("prod_name") or c.get("display_name") or "", partner_gender
+        )
     ]
     # Budget gate (mirrors compose_outfit's occasion-driven anchor path, commit
     # 85078b1): reject over-budget seed candidates before any complement is

@@ -13,6 +13,7 @@ from src.agents.outfit.slots import (
     is_western_item,
     is_western_marker_item,
 )
+from src.catalogue.cleaning import has_gender_text_conflict
 
 # Phase B (product gap 1): symmetric to the ETHNIC_ONLY gate below (gate 2) —
 # a WESTERN-REGISTER occasion's slot candidates must never be ethnic-festive
@@ -263,6 +264,17 @@ def is_coherent_candidate(
     if not skip_gender_gate:
         candidate_gender = (candidate.get("gender") or "unknown").lower()
         if not gender_allowed(candidate_gender, gender):
+            return False
+        # 2026-08-06 cross-gender leak fix: the catalogue's own gender
+        # column is unreliable for a real, audited slice of rows (385,
+        # e.g. "Men's Yellow - Dupatta" carries gender="women") -- name
+        # text is the more trustworthy signal here. Deliberately still
+        # gated by skip_gender_gate (the narrow gender-neutral-accessory
+        # fallback callers use) for the same reason gate 0b itself is —
+        # composer._find_best_candidate applies this same check
+        # unconditionally on its own copy of the fallback candidates; see
+        # has_gender_text_conflict's own docstring.
+        if has_gender_text_conflict(name, gender):
             return False
 
     # Gate 1: dupatta is women-only

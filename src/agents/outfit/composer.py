@@ -32,7 +32,7 @@ from src.agents.outfit.slots import (
     is_western_item,
     split_accessory_query_by_family,
 )
-from src.catalogue.cleaning import is_kids_item, is_loungewear_text
+from src.catalogue.cleaning import has_gender_text_conflict, is_kids_item, is_loungewear_text
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
@@ -202,15 +202,22 @@ def compose_outfit(
         # reject juniors/girls/boys/kids items as a look ANCHOR — the same
         # catalogue mislabeling that lets them fill complement slots (see
         # is_kids_item) would otherwise let one become the seed itself.
+        _anchor_look_gender = gender if gender != "unisex" else "unisex"
         valid = [
             c
             for c in candidates
             if _anchor_matches_occasion(c, occasion_slug)
-            and gender_allowed(
-                (c.get("gender") or "unknown").lower(),
-                gender if gender != "unisex" else "unisex",
-            )
+            and gender_allowed((c.get("gender") or "unknown").lower(), _anchor_look_gender)
             and not is_kids_item(c.get("prod_name") or c.get("display_name") or "")
+            # 2026-08-06 cross-gender leak fix: the catalogue's own gender
+            # column is unreliable for a real, audited slice of rows (385,
+            # concentrated in vastramay/voylla/jompers) -- e.g. "Men's
+            # Yellow - Dupatta" carries gender="women". Name text is the
+            # more trustworthy signal here, same shape as is_kids_item()
+            # above. See has_gender_text_conflict's own docstring.
+            and not has_gender_text_conflict(
+                c.get("prod_name") or c.get("display_name") or "", _anchor_look_gender
+            )
         ]
         # Budget gate (live-proven bug: "I'm pear-shaped, sangeet look under
         # ₹8000" boarded a ₹9,900 lehenga ANCHOR — this filter previously
@@ -962,6 +969,19 @@ def _score_candidates(
         is_neutral_fallback_item = item["article_id"] in neutral_fallback_ids
         if not is_neutral_fallback_item and not gender_allowed(
             (item.get("gender") or "unknown").lower(), gender
+        ):
+            continue
+        # 2026-08-06 cross-gender leak fix: applies to EVERY slot (top/
+        # bottom/footwear/outerwear/accessory), not just accessory -- the
+        # live-proven leak was "Men's Yellow - Dupatta" in a women's haldi
+        # look's accessory slot, but the catalogue's gender-column
+        # unreliability (385 audited rows) is not accessory-specific.
+        # Unconditional, including neutral-fallback items -- an item chosen
+        # via the unisex-accessory fallback for its UNKNOWN gender column
+        # must still be rejected if its own name explicitly states the
+        # wrong gender. See has_gender_text_conflict's own docstring.
+        if has_gender_text_conflict(
+            item.get("prod_name") or item.get("display_name") or "", gender
         ):
             continue
         # Slot-type hard gate: reject candidates whose classified item-type
