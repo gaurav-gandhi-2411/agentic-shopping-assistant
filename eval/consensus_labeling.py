@@ -38,14 +38,14 @@ from __future__ import annotations
 import itertools
 import sys
 import time
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import yaml
 from dotenv import load_dotenv
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
@@ -56,6 +56,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 load_dotenv(_ROOT / ".env")
 
 from eval_model import anchor_passes_calibration, build_judge_prompt, parse_judge_json  # noqa: E402
+
 from src.catalogue.loader import load_config  # noqa: E402
 from src.llm.client import get_llm_client  # noqa: E402
 
@@ -198,7 +199,7 @@ def main() -> None:
     print(f"  Krippendorff's alpha (nominal): {alpha:.3f}" if alpha is not None else "  Krippendorff's alpha: n/a")
 
     # Borderline-specific agreement (the bias this whole exercise is checking for).
-    borderline_ids = {l["id"] for l in looks if l["bucket"] == "borderline"}
+    borderline_ids = {lk["id"] for lk in looks if lk["bucket"] == "borderline"}
     bl_agree = bl_total = 0
     for look_id in borderline_ids:
         votes = per_item_votes[look_id]
@@ -242,7 +243,7 @@ def main() -> None:
             final_labels[look_id] = top_bucket
             continue
         # No majority among primary judges — call the tiebreaker.
-        look = next(l for l in looks if l["id"] == look_id)
+        look = next(lk for lk in looks if lk["id"] == look_id)
         print(f"\n  [tiebreak] {look_id}: no majority among {dict(counts)}, calling {_TIEBREAKER['name']}...")
         tb_scored = _score_look(tiebreak_client, _TIEBREAKER, look)
         tb_bucket = _bucket(tb_scored)
@@ -258,7 +259,7 @@ def main() -> None:
     print("\n" + "=" * 70)
     print("FINAL LABELS — the 5 originally-flagged items (the deliverable)")
     for look_id in sorted(_TARGET_5):
-        look = next(l for l in looks if l["id"] == look_id)
+        look = next(lk for lk in looks if lk["id"] == look_id)
         print(f"  {look_id:<45} hand-label={look['bucket']:<10} consensus={final_labels.get(look_id)}")
 
     import json

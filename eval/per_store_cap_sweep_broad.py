@@ -30,6 +30,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from eval_model import catalogue_universe_ids, precision_at_k  # noqa: E402
+
 from src.catalogue.loader import load_config  # noqa: E402
 from src.retrieval.dense_search import DenseRetriever  # noqa: E402
 from src.retrieval.hybrid_search import HybridRetriever  # noqa: E402

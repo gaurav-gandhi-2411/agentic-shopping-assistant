@@ -56,6 +56,7 @@ from eval_model import (  # noqa: E402 — path setup above must run first
     build_judge_prompt,
     parse_judge_json,
 )
+
 from src.catalogue.loader import load_config  # noqa: E402
 from src.llm.client import get_llm_client  # noqa: E402
 
@@ -294,9 +295,9 @@ def render_report(candidates: list[CandidateResult], looks: list[dict[str, Any]]
         "judge; that remains an open gap.",
         "",
         f"Fixture: `eval/fixtures/coherence_calibration.yaml` — "
-        f"{sum(1 for l in looks if l['bucket']=='good')} good / "
-        f"{sum(1 for l in looks if l['bucket']=='bad')} bad / "
-        f"{sum(1 for l in looks if l['bucket']=='borderline')} borderline "
+        f"{sum(1 for lk in looks if lk['bucket']=='good')} good / "
+        f"{sum(1 for lk in looks if lk['bucket']=='bad')} bad / "
+        f"{sum(1 for lk in looks if lk['bucket']=='borderline')} borderline "
         f"({len(looks)} total).",
         "",
         "## Decision rule",

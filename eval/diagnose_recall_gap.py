@@ -30,16 +30,17 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from eval_model import catalogue_universe_ids  # noqa: E402
+
 from src.catalogue.loader import load_config  # noqa: E402
 from src.retrieval.dense_search import DenseRetriever  # noqa: E402
 from src.retrieval.hybrid_search import (  # noqa: E402
+    HybridRetriever,  # noqa: E402
     _facet_value_matches,
     apply_per_store_cap,
     dedup_candidates_keep_cheapest,
     get_inactive_stores,
     store_diversity_rerank,
 )
-from src.retrieval.hybrid_search import HybridRetriever  # noqa: E402
 from src.retrieval.sparse_search import SparseRetriever  # noqa: E402
 
 _DATA_DIR = _ROOT / "data" / "processed" / "unified"
