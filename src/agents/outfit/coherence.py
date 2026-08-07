@@ -351,10 +351,21 @@ def is_coherent_candidate(
     # itself (see slots.py) — is_ethnic_item(pt, name) now covers every
     # indowestern row unconditionally, so the explicit check here would be
     # pure duplication of that single source of truth.
+    #
+    # 2026-08-07 (compose-wave office-register audit): gate 4 rejected
+    # ethnic-vs-western register violations but had no WITHIN-western
+    # casual-vs-formal check at all — a novelty graphic tee and a plain
+    # hosiery t-shirt both surfaced for "office wear for women" (both
+    # western, neither ethnic/festive/jodhpuri, so nothing above caught
+    # them). Reuses is_casual_marker_item (already trusted for reception/
+    # wedding_guest's formal-capable-type check above) rather than a new
+    # mechanism — _CASUAL_MARKER_RE was extended with t-shirt/tee for this
+    # fix (see that regex's own comment for the catalogue audit behind it).
     if occasion_slug in _WESTERN_REGISTER_OCCASIONS and (
         is_ethnic_item(pt, name)
         or _FESTIVE_MARKER_RE.search(name)
         or _JODHPURI_OUTERWEAR_RE.search(name)
+        or is_casual_marker_item(name)
         or (
             pt.lower().strip() in _OUTERWEAR_PRODUCT_TYPES
             and _ETHNIC_FOOTWEAR_PAIRING_RE.search(candidate.get("detail_desc") or "")

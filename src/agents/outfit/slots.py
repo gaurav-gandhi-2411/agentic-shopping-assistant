@@ -844,8 +844,19 @@ def is_novelty_item(prod_name: str) -> bool:
 # casual" + 6 "smart casual" rows (e.g. "Black Solid Smart Fit Semi Casual
 # Shirt") are a real, distinct business-casual register in this catalogue,
 # not fully casual, and must stay admissible for formal-register looks.
+#
+# 2026-08-07 extension (compose-wave office-register audit): "t-shirt"/
+# "tshirt"/bare "tee" added — real misses: "Women Black Animation Elephant
+# Tee T-Shirt" and "Women Navy Blue Round Neck Hosiery T-Shirt" both surfaced
+# for "office wear for women" (neither matched any existing marker). Catalogue-
+# audited before adding: sampled 15 of the catalogue's 192 women's t-shirt/
+# tee-named items — every one is casual-register (loungewear sets, sportswear,
+# oversized/cropped graphic tees), zero plausible business-formal candidates
+# found. "tee" is checked with the same word-boundary as everything else here
+# (won't match inside "coffee"/"teenager"/etc.).
 _CASUAL_MARKER_RE = re.compile(
-    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped)\b"
+    r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped"
+    r"|t-shirts?|tshirts?|tees?)\b"
     r"|(?<!smart )(?<!smart-)(?<!semi )(?<!semi-)\bcasual\b",
     re.IGNORECASE,
 )

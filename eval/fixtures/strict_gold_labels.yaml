@@ -2178,3 +2178,18 @@ labels:
 - query_id: gold_036
   items:
   - {article_id: "7699681050882", relevant: true, note: "'Men's Black And Red Woven Blazer' -- desc says 'slim-fit smart looking blazer' with no breasted-style word at all; unstated-and-not-contradicted is a match per the rubric's own point 2 (same standard applied to the anarkali/crop-top corrections above in this same audit)"}
+
+# ── Cluster C (office-register gate fix, 2026-08-07): is_casual_marker_item
+# extended to cover t-shirt/tshirt/tee, and wired into is_coherent_candidate's
+# office (_WESTERN_REGISTER_OCCASIONS) gate as a new hard-reject condition.
+# Removed 4 casual novelty/graphic-tee items from "office wear for women"'s
+# pool, letting these 2 items (surfacing across 3 query-item slots) fill the
+# vacated rank-4/5 positions. Retrieval snapshot: this fix, --mode pipeline.
+# Labeled_by: Claude (Sonnet 5).
+- query_id: occ_adv_003
+  items:
+  - {article_id: "18729360", relevant: true, note: "'plusS Mauve Solid Feminine Frills Skirt' -- solid mauve, knee length, asymmetric hemline; 'Feminine Frills' names a styling trend in the desc's marketing blurb, not a ruffled/decorative garment feature -- the garment itself is solid-pattern with no casual marker, knee length is a standard office-appropriate length"}
+- query_id: occ_office_001
+  items:
+  - {article_id: "18205644", relevant: true, note: "'OFFICE & YOU Women Olive Green Shrug' -- brand name literally 'OFFICE & YOU'; solid olive green, regular fit, dry-clean-only (formal fabric care); a shrug is a standard business-casual layering piece, legitimate standalone search result for an office-wear query"}
+  - {article_id: "18729360", relevant: true, note: "'plusS Mauve Solid Feminine Frills Skirt' -- same item/reasoning as occ_adv_003 above"}
