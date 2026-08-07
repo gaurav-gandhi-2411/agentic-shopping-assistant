@@ -2213,3 +2213,13 @@ labels:
   items:
   - {article_id: "7843106816086", relevant: true, note: "'Mughal Ethnic Printed Panelled A-Line Kurta with Pant & Dupatta' -- panelled, graceful-flare 3-piece festive ethnic suit; same reverse-direction standard as this query's own established precedent above (line ~1777: 'festive/embellished ethnic-glam, plausible for an indo-western-leaning cocktail-party ask')"}
   - {article_id: "8498440929430", relevant: true, note: "'Lavender Yoke Design Silk Blend Anarkali Suit Set' -- desc explicitly 'Adorned with Embroidered, this style is perfect for Festive occasions'; embellished silk-blend anarkali, same reverse-direction standard as line ~1777"}
+
+# ── Cluster D (set-not-single fix, 2026-08-07): excluding "Men's Complete
+# Black Chikankari Embroidered Kurta & Patiala" (a genuine 2-piece set) from
+# gold_020's pool surfaced these 2 pre-existing single-garment items into its
+# vacated rank-4/5 slots. Retrieval snapshot: this fix, --mode pipeline.
+# Labeled_by: Claude (Sonnet 5).
+- query_id: gold_020
+  items:
+  - {article_id: "8137070346478", relevant: true, note: "'THE DECORATIVE CHHATRI KURTA' -- desc 'can be easily combined with a tonal waistcoat or stole' is an explicit STYLING SUGGESTION ('can be combined with'), not a literal bundled inclusion; a genuine single richly-embellished (thread work, sequin) kurta, 'ideal for auspicious occasions' fits reception's formality; high price (₹109,999) reflects embellishment/craftsmanship, not a hidden multi-piece bundle"}
+  - {article_id: "7954298601710", relevant: true, note: "'NOCTURNAL FIESTA PANELLED KURTA' -- desc has zero bundling language at all ('classic kurta textured with stitch lines and...panelling that emulates minimal festive style'), genuine single premium kurta, festive-appropriate for reception"}

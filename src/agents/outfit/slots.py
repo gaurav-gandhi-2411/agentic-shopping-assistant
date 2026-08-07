@@ -33,6 +33,12 @@ ETHNIC_BOTTOM_KEYWORDS: frozenset[str] = frozenset({
     # is a real catalogue typo/variant of "palazzo" that doesn't match via
     # substring ("palazzo" is already covered above).
     "plazzo", "plazzos",
+    # 2026-08-07 (compose-wave Cluster D, set-not-single follow-up):
+    # "patiala" (a distinct Indian trouser style, e.g. "Kurta Patiala Set")
+    # was entirely untracked -- catalogue-audited: 131 prod_name hits, all
+    # but one (a "Patiala Choker Necklace Set" outlier, itself already a
+    # "Set"-worded listing regardless) genuinely name the trouser garment.
+    "patiala",
 })
 WESTERN_TOP_KEYWORDS: frozenset[str] = frozenset({
     "shirt", "t-shirt", "tshirt", "top", "blouse", "sweater", "sweatshirt",
@@ -1008,13 +1014,73 @@ _SET_GARMENT_NOUN_KEYWORDS: frozenset[str] = (
     | frozenset({"dupatta"})
 )
 
+# 2026-08-07 (compose-wave Cluster D): a CATEGORISED split of the same
+# vocabulary above, used only by the two new signals below (7/8). The flat
+# _SET_GARMENT_NOUN_KEYWORDS union double-counts a SINGLE garment whenever two
+# of its own members overlap the same item (e.g. "nehru jacket" and "jacket"
+# both match "Kisah Men Olive Nehru Jacket (Set of 1)" -- a genuine single
+# item, live-audited false positive caught before shipping). Categorising
+# into top-ish/bottom-ish/dupatta and requiring >=2 DISTINCT CATEGORIES (not
+# >=2 distinct members) avoids that: two top-ish synonyms for the same piece
+# only ever count as one category.
+_TOP_ISH_NOUNS: frozenset[str] = (
+    ETHNIC_TOP_KEYWORDS | ETHNIC_ONE_PIECE_KEYWORDS | WESTERN_TOP_KEYWORDS
+    | WESTERN_ONE_PIECE_KEYWORDS | OUTERWEAR_KEYWORDS
+)
+_BOTTOM_ISH_NOUNS: frozenset[str] = ETHNIC_BOTTOM_KEYWORDS | WESTERN_BOTTOM_KEYWORDS
+
+
+def _bundle_category_count(name: str) -> int:
+    """Count distinct garment-role categories (top-ish/bottom-ish/dupatta)
+    named in `name`. See _TOP_ISH_NOUNS/_BOTTOM_ISH_NOUNS docstring above.
+    """
+    cats = 0
+    if any(_contains_word(name, kw) for kw in _TOP_ISH_NOUNS):
+        cats += 1
+    if any(_contains_word(name, kw) for kw in _BOTTOM_ISH_NOUNS):
+        cats += 1
+    if _contains_word(name, "dupatta"):
+        cats += 1
+    return cats
+
+
 _WITH_RE = re.compile(r"\bwith\b", re.IGNORECASE)
+
+# 2026-08-07 (compose-wave Cluster D): "&" as a with-equivalent connector,
+# scoped ONLY to kurta/kurti product types -- catalogue-audited: unscoped,
+# "&" produces real false positives from brand/store name text coincidentally
+# containing a tracked garment word ("Beverly Hills POLO Club" trousers,
+# "SALWAR STUDIO" saree blouse, 3/25 sampled = 12% FP), but scoped to
+# kurta/kurti specifically, 30/30 sampled were genuine multi-piece bundles
+# (Kurta Pajama listings, "Men's Complete Black Chikankari Embroidered Kurta
+# & Patiala") — same type-conditional scoping discipline as
+# _ETHNIC_FOOTWEAR_PAIRING_RE above (coherence.py).
+_AMPERSAND_SET_PRODUCT_TYPES: frozenset[str] = frozenset({"kurta", "kurti"})
+_AMPERSAND_RE = re.compile(r"&")
+
+# 2026-08-07 (compose-wave Cluster D): bare-Set-word listings that name ZERO
+# garment nouns in the freeform name (signal 3's distinct_nouns==0 case,
+# previously always False) — catalogue-audited against real kurta/kurti/
+# dress/anarkali rows: 20/20 sampled genuinely multi-piece ("Jodhpuri Set",
+# "Pathani Set" -- both inherently jacket+trouser ensembles; "Ethnic Set"/
+# "Ethnic Combo Set"), zero single-garment false positives found.
+_BARE_SET_ZERO_NOUN_PRODUCT_TYPES: frozenset[str] = frozenset({"kurta", "kurti", "dress", "anarkali"})
 
 
 def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     """Return True if this item is a multi-piece SET listing (a whole outfit)
     rather than a single garment. See the module comment above
-    _SET_PRODUCT_TYPES for the six signals checked, any one sufficient.
+    _SET_PRODUCT_TYPES for the original six signals, any one sufficient, plus
+    two narrower additions (7/8) added 2026-08-07 -- see each constant's own
+    docstring above for the catalogue audit behind it:
+      7. "Set of N: ... X & Y" where X and Y are DIFFERENT garment-role
+         categories (e.g. "Set Of 2: ... Anarkali Kurta & Pant") -- signal 3
+         deliberately excludes "Set of N" as a same-item PACK pattern, but
+         when the name also names two distinct garment roles, "Set of N" is
+         unambiguously a bundle, not a pack of N identical pieces.
+      8. "&"-connector, scoped to kurta/kurti product types only (see
+         _AMPERSAND_SET_PRODUCT_TYPES) — the same convention as signal 2's
+         "with", using a different connector word.
     """
     pt = (product_type or "").lower().strip()
     if pt in _SET_PRODUCT_TYPES:
@@ -1022,13 +1088,25 @@ def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     name = (prod_name or "").lower()
     if _N_PIECE_RE.search(name) or _COORD_WORD_RE.search(name) or _TOP_THEN_BOTTOM_RE.search(name):
         return True
+    if _SET_OF_N_RE.search(name) and _bundle_category_count(name) >= 2:
+        return True
+    if (
+        pt in _AMPERSAND_SET_PRODUCT_TYPES
+        and _AMPERSAND_RE.search(name)
+        and not _WITH_RE.search(name)
+        and not _SET_WORD_RE.search(name)
+        and _bundle_category_count(name) >= 2
+    ):
+        return True
     has_set = _SET_WORD_RE.search(name) and not _SET_OF_N_RE.search(name)
     has_with = _WITH_RE.search(name)
     if not (has_set or has_with):
         return False
     distinct_nouns = {kw for kw in _SET_GARMENT_NOUN_KEYWORDS if _contains_word(name, kw)}
     if has_set:
-        return len(distinct_nouns) >= 1
+        if distinct_nouns:
+            return True
+        return pt in _BARE_SET_ZERO_NOUN_PRODUCT_TYPES
     return len(distinct_nouns) >= 2
 
 
