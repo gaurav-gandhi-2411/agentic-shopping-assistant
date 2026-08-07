@@ -58,3 +58,41 @@ the emitted filter against the catalogue). Before citing "the regression
 suite is green" as evidence for a change, name which stages the change
 actually touches and confirm at least one of them exercises the changed
 code path — a green gate on an untouched path proves nothing.
+
+## A precision gain from fewer/zero results is not a gain — check result COUNT, not just score
+
+`precision@k = n_relevant / n_scored`. Any change that shrinks `n_scored` —
+by making a query return fewer than `k` items, or zero — can move the ratio
+up even though nothing got better, because a bad query that returns nothing
+exits the denominator entirely instead of counting as a miss. A rising
+score and a shrinking denominator look identical in the headline number; only
+checking the count catches the difference.
+
+**Caught concretely in the compose-logic wave's Cluster F (2026-08-07,
+`reports/compose_wave_final_20260807.md`).** Two strict-eval misses were
+"wrong colour entirely": `parse_intent` had no `"gold"` entry in its colour
+vocabulary at all, so "gold embellished lehenga for eid" resolved
+`colour=None` (no filter, an unrelated red item ranked top-5) and "gold
+jewellery to go with red lehenga" resolved `colour="Red"` (the only
+recognised colour word, wrongly applied to the item being searched for).
+Adding `"gold"→"Gold"` root-caused correctly and looked like it worked — the
+strict-eval precision figure rose. But the catalogue has exactly 1
+"Gold"-tagged lehenga (a kids item, filtered out separately) and **zero**
+"Gold"-tagged jewellery rows (jewellery's colour facet tracks stone colour,
+not metal finish) — so the fix made both target queries retrieve **zero
+items**, not a wrong one. Both queries silently dropped out of the strict
+eval's `n_scored` denominator instead of counting as continued misses,
+which is why the headline number rose. Caught only by testing the two
+target queries directly against the retrieval pipeline before trusting the
+eval delta (`_retrieve_pipeline(...) -> []` for both) — the eval run alone
+would not have shown this; it doesn't distinguish "5 items, 4 relevant"
+from "0 items, 0 scored" in the top-line score. Reverted before shipping.
+
+**Practical rule**: whenever a change is expected to move precision/recall,
+also report `n_scored` (or raw item count) before and after, per query if
+the change is narrowly targeted. A metric that improved alongside a stable
+or growing `n_scored` is real. A metric that improved alongside a shrinking
+`n_scored` needs the raw retrieved items checked directly, not just the
+score — the same discipline as rule 98a's "fail closed, never open" for
+guards: an empty/degraded result must never look identical to a good one in
+the number that gates the decision.
