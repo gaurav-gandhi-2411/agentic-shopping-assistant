@@ -259,6 +259,12 @@ def catalogue_universe_ids(catalogue_df: Any, must: dict[str, Any]) -> set[str]:
     HybridRetriever.search() copies into each retrieved item's `product_type`/
     `prod_name`/`gender` keys). `catalogue_df` is expected to be indexed by
     article_id (HybridRetriever.__init__ does this via .set_index("article_id")).
+
+    Supported `must` keys: `product_type_contains`, `gender_in` (original two),
+    plus `colour_in` and `price_max` (added for the recall-measurability wave —
+    type+gender alone rarely narrows the 112k-item catalogue below the <=100
+    universe-size ceiling recall_at_50 requires; colour/price let a query
+    fixture bound a real universe without inventing a third filter dimension).
     """
     import pandas as pd  # local import — this is the only function needing pandas
 
@@ -291,6 +297,22 @@ def catalogue_universe_ids(catalogue_df: Any, must: dict[str, Any]) -> set[str]:
             mask &= False  # no gender column at all -> a gender-scoped universe is empty
         else:
             mask &= gender_col.fillna("unknown").astype(str).str.lower().isin(gender_in)
+
+    colour_in = [str(c).lower() for c in (must.get("colour_in") or [])]
+    if colour_in:
+        colour_col = catalogue_df.get("colour_group_name")
+        if colour_col is None:
+            mask &= False
+        else:
+            mask &= colour_col.fillna("").astype(str).str.lower().isin(colour_in)
+
+    price_max = must.get("price_max")
+    if price_max is not None:
+        price_col = catalogue_df.get("price_inr")
+        if price_col is None:
+            mask &= False
+        else:
+            mask &= price_col.fillna(float("inf")) <= float(price_max)
 
     return set(catalogue_df.index[mask].astype(str))
 

@@ -39,6 +39,12 @@ _WESTERN_REGISTER_OCCASIONS: frozenset[str] = frozenset({"office"})
 # behaviour and tests are untouched.
 _ATHLETIC_REGISTER_OCCASIONS: frozenset[str] = frozenset({"gym"})
 
+# Compose-wave Cluster A (2026-08-07): see gate 6's docstring below for full
+# rationale. Scoped to exactly the occasion with real-catalogue evidence of
+# the gap (party_evening/cocktail) — engagement is also EITHER-lean at the
+# same formality tier but has no observed miss to justify including it here.
+_CASUAL_EXCLUDED_OCCASIONS: frozenset[str] = frozenset({"party_evening"})
+
 # Live-proven: an "office look for women" board's bottom slot filled with a
 # "Quirky Floral Printed Cotton Anarkali Sharara Set" — ethnic AND carrying an
 # explicit festive/quirky marker.  Checked as a simple word-boundary denylist,
@@ -225,6 +231,8 @@ def is_coherent_candidate(
     4. western_register occasion (office): reject ethnic items and festive/quirky markers.
     5. athletic_register occasion (gym): reject ethnic items and festive/quirky markers
        (same shape as gate 4), PLUS reject non-athletic footwear from the footwear slot.
+    6. party_evening (cocktail occasions): reject explicit casual-register markers
+       regardless of ethnic/western classification (unlike gate 4, ethnic items stay allowed).
 
     NOTE: a loungewear/nightwear hard-reject for formal_ethnic occasions
     (the "baraat outfit for men" fix, 2026-07-31) is deliberately NOT a gate
@@ -351,10 +359,21 @@ def is_coherent_candidate(
     # itself (see slots.py) — is_ethnic_item(pt, name) now covers every
     # indowestern row unconditionally, so the explicit check here would be
     # pure duplication of that single source of truth.
+    #
+    # 2026-08-07 (compose-wave office-register audit): gate 4 rejected
+    # ethnic-vs-western register violations but had no WITHIN-western
+    # casual-vs-formal check at all — a novelty graphic tee and a plain
+    # hosiery t-shirt both surfaced for "office wear for women" (both
+    # western, neither ethnic/festive/jodhpuri, so nothing above caught
+    # them). Reuses is_casual_marker_item (already trusted for reception/
+    # wedding_guest's formal-capable-type check above) rather than a new
+    # mechanism — _CASUAL_MARKER_RE was extended with t-shirt/tee for this
+    # fix (see that regex's own comment for the catalogue audit behind it).
     if occasion_slug in _WESTERN_REGISTER_OCCASIONS and (
         is_ethnic_item(pt, name)
         or _FESTIVE_MARKER_RE.search(name)
         or _JODHPURI_OUTERWEAR_RE.search(name)
+        or is_casual_marker_item(name)
         or (
             pt.lower().strip() in _OUTERWEAR_PRODUCT_TYPES
             and _ETHNIC_FOOTWEAR_PAIRING_RE.search(candidate.get("detail_desc") or "")
@@ -387,6 +406,26 @@ def is_coherent_candidate(
             return False
         if slot_name == "outerwear" and _FORMAL_OUTERWEAR_MARKER_RE.search(name):
             return False
+
+    # Gate 6 (compose-wave Cluster A, 2026-08-07): party_evening (cocktail-
+    # party queries map here — see intent_parser._OCCASION_MAP) is EITHER-lean
+    # with NO register gate above ever touching it — not ethnic_only/
+    # ethnic_heavy (gates 2/3), and deliberately excluded from
+    # _WESTERN_REGISTER_OCCASIONS (gate 4 also rejects ethnic items outright,
+    # which would be wrong here: indo-western/ethnic-glam looks are
+    # legitimate party_evening results). Real misses: "Women Floral Print
+    # Maxi-Fit Casual Dress" and "Women Sky Blue Denim Flared Mini Dress" for
+    # "cocktail dress...under 5000"; "Indo Era Folksy Floral Screen Print
+    # Cotton Kurta Set" and "Blue Chambray Embroidered Dress with Shrug" for
+    # "indo western outfit for a cocktail party". Reuses is_casual_marker_item
+    # unconditionally (a casual marker is casual regardless of ethnic/western
+    # classification, unlike gate 4) rather than a new mechanism —
+    # _CASUAL_MARKER_RE extended with chambray/folksy for this fix (see that
+    # regex's own comment for the catalogue audit behind each: chambray 16/16
+    # prod_name hits genuinely western-casual register; folksy occurs exactly
+    # once catalogue-wide, the miss item itself, zero broader risk).
+    if occasion_slug in _CASUAL_EXCLUDED_OCCASIONS and is_casual_marker_item(name):
+        return False
 
     return True
 

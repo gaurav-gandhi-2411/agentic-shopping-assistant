@@ -996,6 +996,32 @@ def _apply_athletic_footwear_gate(
     ]
 
 
+# Compose-wave Cluster E (2026-08-07, "haldi colour-symbolism" strict-eval
+# miss bucket): "Rustorange Women Black Printed Kurti..." and "Bhama Couture
+# Women Black & Pink Yoke Design...Kurti" both surfaced for haldi queries —
+# black reads as evening/mourning-adjacent, the opposite of haldi's bright
+# daytime marigold register. coherence.colour_score already encodes this
+# exact palette knowledge (black scores 0.2 for haldi, vs 1.0 for yellow/
+# orange/gold) but only as a RELATIVE anchor-vs-complement score used by
+# outfit composition — plain search has no anchor colour to compare against,
+# so that scoring never applies to standalone search results. Scoped to the
+# single colour actually observed causing misses (not colour_score's whole
+# "dark" list — dark grey/blue/red/purple have no real-catalogue evidence
+# either way here, so are deliberately left alone rather than guessed at).
+def _apply_haldi_colour_gate(items: list[dict], occasion_slug: str | None) -> list[dict]:
+    """Strip black-coloured items from a haldi-occasion plain-search result set.
+
+    Pool-underflow protected, same discipline as the occasion-register
+    coherence gate above: an all-black candidate pool is exceedingly unlikely
+    given haldi's retrieval already skews bright/yellow, and if it ever
+    happens, showing black results is a safer failure mode than showing zero.
+    """
+    if occasion_slug != "haldi":
+        return items
+    _filtered = [it for it in items if (it.get("colour") or "").strip().lower() != "black"]
+    return _filtered if _filtered else items
+
+
 def _apply_price_qualifier(items: list[dict], price_qualifier: str | None) -> list[dict]:
     """Part D (2026-07-13): rank/filter `items` per IntentV1.price_qualifier
     ("cheap"/"expensive"), resolved against THIS pool's OWN price distribution
@@ -1149,12 +1175,7 @@ STRICT RULES — follow in order:
    FACET VOCABULARY (use exact capitalisation):
    index_group_name: Ladieswear, Menswear, Divided, Baby/Children, Sport
    department_name: (varies — do NOT filter by department, use index_group_name instead)
-   colour_group_name: Black, White, Off White, Dark Blue, Grey, Red, Blue,
-     Light Blue, Dark Red, Light Pink, Beige, Light Beige, Dark Grey, Light Grey,
-     Pink, Green, Dark Green, Yellow, Orange, Purple, Khaki, Brown, Turquoise
-   product_type_name (examples): Dress, Blouse, Blazer, Trousers, Jeans, Shorts,
-     Skirt, Coat, Jacket, Sweater, Cardigan, T-shirt, Top, Vest top, Leggings/Tights,
-     Swimwear bottom, Bikini top, Swimsuit, Pyjama set, Night gown, Hoodie, Robe
+   {facet_vocabulary}
    Use index_group_name "Divided" for teen/young-fashion brand queries.
    Use index_group_name "Ladieswear" for women's clothing (NOT department_name).
    When the user explicitly names BOTH a product type AND a colour (e.g. "red dresses",
@@ -1407,6 +1428,87 @@ def _parse_router_response(text: str, fallback_query: str) -> dict:
                     break
 
     return {"action": "search", "query": fallback_query}
+
+
+# Generic/non-actionable catch-all product_type_name labels — never real
+# garment types a query would target, so excluded from the router's derived
+# vocabulary regardless of how frequent they are in the catalogue.
+_PRODUCT_TYPE_DENYLIST = frozenset({"fashion", "clothing accessories"})
+_MAX_PRODUCT_TYPES_IN_PROMPT = 40
+
+
+def _build_facet_vocabulary_text(catalogue_df: pd.DataFrame) -> str:
+    """Render ROUTER_PROMPT's FACET VOCABULARY colour/type lines from the
+    catalogue's OWN distinct values, replacing a hand-maintained list.
+
+    2026-08-06 fix: the old hand-typed product_type_name list ("Dress",
+    "Blouse", ..., "Coat", "Jacket", "Sweater", "Cardigan", "T-shirt", "Vest
+    top", ..., "Hoodie", "Robe") was a leftover from the pre-migration
+    single-brand catalogue — measured 64% stale (8/22 exact matches) against
+    the unified catalogue's real product_type_name vocabulary; "Jacket" etc.
+    were folded into "outerwear"/"knitwear" at migration and the prompt was
+    never updated. This is not a cosmetic bug: HybridRetriever.search()
+    applies product_type_name as an UNCONDITIONAL exact-match POST-FETCH
+    filter (see remaining_filters/facet_filters in hybrid_search.py) as well
+    as the BM25 pre-filter, so a stale value returns ZERO items outright and
+    cascades through search_node's progressive filter-relaxation ladder,
+    silently dropping gender/colour too — not a degraded result, a wrong one.
+    Same root-cause class as _OUTFIT_OCCASION_RE above (built FROM
+    _OCCASION_MAP instead of duplicating its keyword list) and worth noting:
+    this hand-maintained-list-drift shape has now recurred three times
+    (occasion regexes, BRAND defaults, this) — derive from source of truth,
+    don't hand-copy a snapshot of it.
+
+    colour_group_name: every distinct catalogue value is included (only 59,
+    no case/near-duplicate fragmentation) — this ALSO fixes a second latent
+    gap in the old list: it was internally consistent (23/23 of its own
+    words matched the catalogue exactly) but covered only 23 of the 59 real
+    colours, missing extremely common ethnic-wear colours like "Maroon",
+    "Navy Blue", "Gold", "Mustard", "Peach" entirely.
+
+    product_type_name: capped to the _MAX_PRODUCT_TYPES_IN_PROMPT most
+    frequent DISTINCT values after case-insensitive dedup (the catalogue has
+    378 raw values with heavy case/plural fragmentation — e.g. "Earrings"/
+    "earrings"/"Earring", "Bangles"/"BANGLES" — collapsed here by keeping the
+    highest-individual-count casing per lowercase key, ranked by combined
+    count) and after excluding _PRODUCT_TYPE_DENYLIST. A curated top-N
+    "(examples)" list, same framing as the original — but every entry is now
+    guaranteed to exist in the live catalogue by construction, not by hand
+    maintenance. Deeper fragmentation cleanup (merging "Necklace"/"Necklace
+    Sets"/"Necklaces" etc. into one canonical value) is a separate, larger
+    catalogue-normalization task, not attempted here.
+    """
+    colours = sorted(catalogue_df["colour_group_name"].dropna().unique())
+
+    type_counts: dict[str, tuple[int, str]] = {}  # lower -> (combined_count, best_casing)
+    for value, count in catalogue_df["product_type_name"].dropna().value_counts().items():
+        key = value.lower()
+        if key in _PRODUCT_TYPE_DENYLIST:
+            continue
+        prev = type_counts.get(key)
+        if prev is None:
+            type_counts[key] = (int(count), value)
+        else:
+            prev_count, prev_value = prev
+            # Prefer a non-ALL-CAPS casing when merging variants (e.g. keep
+            # "Bangles" over "BANGLES" even if the all-caps row has more
+            # rows) — cosmetic, but this list ships straight into an LLM
+            # prompt. Falls back to higher count when neither/both are caps.
+            if value.isupper() and not prev_value.isupper():
+                best_value = prev_value
+            elif prev_value.isupper() and not value.isupper():
+                best_value = value
+            else:
+                best_value = value if count > prev_count else prev_value
+            type_counts[key] = (prev_count + int(count), best_value)
+
+    top_types = sorted(type_counts.values(), key=lambda x: x[0], reverse=True)[:_MAX_PRODUCT_TYPES_IN_PROMPT]
+    type_names = sorted((v for _, v in top_types), key=str.lower)
+
+    return (
+        "colour_group_name: " + ", ".join(colours) + "\n"
+        "   product_type_name (examples): " + ", ".join(type_names)
+    )
 
 
 def build_graph(
@@ -2193,11 +2295,22 @@ def build_graph(
     # Router backend — created here if not injected so the graph is self-contained.
     if router_backend is None:
         from src.agents.router import get_router_backend
+        # Fill ROUTER_PROMPT's {facet_vocabulary} placeholder ONCE at graph-
+        # construction time (catalogue_df is only in scope here, not inside
+        # LLMRouterBackend.decide()'s per-turn .format() call) via a plain
+        # string replace rather than .format() — the resulting string still
+        # carries the 6 per-turn placeholders (last_action, items_retrieved,
+        # etc.) unfilled, which router.py's own .format() call fills as before.
+        # See _build_facet_vocabulary_text's docstring for why this replaces a
+        # hand-maintained (and measurably 64% stale) vocabulary list.
+        _router_prompt = ROUTER_PROMPT.replace(
+            "{facet_vocabulary}", _build_facet_vocabulary_text(catalogue_df)
+        )
         router_backend = get_router_backend(
             config=config,
             llm=llm,
             catalogue_df=catalogue_df,
-            prompt_template=ROUTER_PROMPT,
+            prompt_template=_router_prompt,
             format_items_brief=_format_items_brief,
             format_messages=_format_messages,
             parse_response=_parse_router_response,
@@ -2425,6 +2538,34 @@ def build_graph(
             new_fk, new_fv = _FILTER_REMAP.get(lookup_key, (fk, fv)) if lookup_key else (fk, fv)
             remapped[new_fk] = new_fv
         merged = remapped
+
+        # Validate-before-trust: drop any exact-match facet filter whose value
+        # isn't a real catalogue value, rather than let it silently zero out
+        # retrieval and cascade through the progressive-fallback ladder below
+        # (see reports/router_vocabulary_fix_20260806.md's residual-gap
+        # finding — the LLM can still hallucinate a pretrained-bias word for a
+        # facet _FILTER_REMAP above doesn't happen to alias, e.g. "Robe"/
+        # "Night gown"/"Bikini top"/"Vest top", none of which have a mapped
+        # entry). Mirrors filter_node's own existing reject-if-invalid check
+        # (see filter_node below) — search_node's merged-filter path never had
+        # the equivalent guard; only _FILTER_REMAP's known-alias table did.
+        # Dropping (not guessing a nearest replacement) is deliberate: an
+        # unmatched exact-match filter guarantees zero results, while no
+        # filter at all still lets dense/BM25 rank on the query text — a
+        # worse-than-nothing filter is strictly worse than no filter.
+        _dropped_filters: dict[str, str] = {}
+        for _fk in list(merged.keys()):
+            _valid_vals = _valid_facet_values.get(_fk)
+            if _valid_vals is None:
+                continue  # not a facet-vocabulary-constrained key (gender, price_min/max, store)
+            _fv = merged[_fk]
+            if isinstance(_fv, str) and _fv.lower() not in _valid_vals:
+                _dropped_filters[_fk] = _fv
+                del merged[_fk]
+        if _dropped_filters:
+            logger.info(
+                json.dumps({"event": "filter_dropped_invalid_value", "dropped": _dropped_filters})
+            )
 
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
@@ -2934,6 +3075,10 @@ def build_graph(
             items_out = _apply_athletic_footwear_gate(
                 items_out, _occ_slug, _occ_intent.garment_type
             )
+
+            # Compose-wave Cluster E (2026-08-07): see _apply_haldi_colour_gate
+            # docstring — fixes black items surfacing for haldi queries.
+            items_out = _apply_haldi_colour_gate(items_out, _occ_slug)
 
         # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
         # removed 2026-07-19): previously nested inside "if _occ_slug and

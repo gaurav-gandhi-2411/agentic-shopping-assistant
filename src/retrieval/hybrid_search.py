@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+import faiss
 import numpy as np
 import pandas as pd
 
@@ -346,6 +347,14 @@ class HybridRetriever:
                 ~self.catalogue_df["prod_name"].fillna("").apply(is_kids_item)
             ).values
 
+        # article_id -> position-in-FAISS-index lookup, precomputed once (mirrors
+        # SparseRetriever's own _id_to_pos pattern) so the gender/colour/price
+        # pushdown mask (see search()) can be translated into a faiss.IDSelectorArray
+        # without an O(n) scan per call.
+        self._dense_id_to_pos: dict[str, int] = {
+            str(aid): i for i, aid in enumerate(self.dense.article_ids)
+        }
+
     def search(
         self,
         query: str,
@@ -415,40 +424,8 @@ class HybridRetriever:
             _not_fabric_mask, _not_inactive_store_mask, _not_kids_mask
         )
 
-        sparse_allowed_ids: np.ndarray | None = None
-        type_filter_val = (filters or {}).get("product_type_name")
-        if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
-            pt_col = self.catalogue_df["product_type_name"].str.lower()
-            type_mask = pt_col == type_filter_val.lower()
-            if "prod_name" in self.catalogue_df.columns:
-                not_material = ~self.catalogue_df["prod_name"].fillna("").apply(
-                    is_fabric_bolt_text
-                )
-                type_mask = type_mask & not_material
-            if _exclusion_mask is not None:
-                type_mask = type_mask & _exclusion_mask
-            sparse_allowed_ids = (
-                self.catalogue_df.index[type_mask].values.astype(str)
-            )
-        elif _exclusion_mask is not None:
-            # No explicit type filter — still exclude fabric_material/inactive-store rows
-            # from the BM25 window.
-            sparse_allowed_ids = (
-                self.catalogue_df.index[_exclusion_mask].values.astype(str)
-            )
-
-        dense_hits = self.dense.search(query, top_k=fetch_k * 2)
-        sparse_hits = self.sparse.search(query, top_k=fetch_k * 2, allowed_ids=sparse_allowed_ids)
-
-        rrf_scores: dict[str, float] = {}
-        for rank, (article_id, _) in enumerate(dense_hits, start=1):
-            rrf_scores[article_id] = rrf_scores.get(article_id, 0.0) + 1.0 / (rrf_k + rank)
-        for rank, (article_id, _) in enumerate(sparse_hits, start=1):
-            rrf_scores[article_id] = rrf_scores.get(article_id, 0.0) + 1.0 / (rrf_k + rank)
-
-        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-
-        # Extract optional store + gender filters before iterating.
+        # Extract optional store + gender filters BEFORE fetching (hoisted up from
+        # after RRF fusion — see the pushdown-mask comment below for why).
         # Both live in direct catalogue columns, not in the `facets` dict, so they're
         # handled separately from the generic facet-filter loop below.
         # gender filter replaces index_group_name: Shopify stores (virgio, fashor, etc.)
@@ -475,6 +452,103 @@ class HybridRetriever:
                 for k, v in filters.items()
                 if k not in ("store", "gender", "index_group_name")
             } or None
+
+        sparse_allowed_ids: np.ndarray | None = None
+        type_filter_val = (filters or {}).get("product_type_name")
+        type_mask: pd.Series | None = None
+        if type_filter_val is not None and "product_type_name" in self.catalogue_df.columns:
+            pt_col = self.catalogue_df["product_type_name"].str.lower()
+            type_mask = pt_col == type_filter_val.lower()
+            if "prod_name" in self.catalogue_df.columns:
+                not_material = ~self.catalogue_df["prod_name"].fillna("").apply(
+                    is_fabric_bolt_text
+                )
+                type_mask = type_mask & not_material
+            if _exclusion_mask is not None:
+                type_mask = type_mask & _exclusion_mask
+
+        # --- Pushdown mask: gender + colour_group_name + price_min/max applied
+        # BEFORE fetch, not after. Root-caused (eval/diagnose_pushdown_mechanism.py,
+        # 2026-08-06): dense/BM25 ranking carries no colour/price signal, so items
+        # satisfying an exact colour+price constraint were getting crowded out of
+        # the fetch window by same-gender/same-type items of the WRONG colour/price
+        # long before the post-fetch filter loop below ever saw them — confirmed by
+        # measuring recall@50 jump from 8-42% (post-fetch filtering, status quo) to
+        # 100% (pushed into fetch) on 3 traced queries, at zero extra latency
+        # (IndexFlatIP already scores the full index per call regardless of
+        # restriction; BM25's allowed_ids mask already existed for product_type_name
+        # alone). Gender is included here too even though it turned out NOT to be
+        # the dominant loss (the unfiltered pool is already ~81-99% correct-gender
+        # from the query text alone) — pushing it is free and modestly helps.
+        # A None mask (no gender/colour/price filter set) preserves the exact prior
+        # behaviour (unrestricted dense.search, type-only-or-unfiltered sparse).
+        _pushdown_mask: pd.Series | None = None
+        if gender_filter is not None or remaining_filters:
+            _pushdown_mask = pd.Series(True, index=self.catalogue_df.index)
+            if gender_filter is not None:
+                gender_col = self.catalogue_df.get("gender")
+                if gender_col is None:
+                    _pushdown_mask &= False
+                else:
+                    _pushdown_mask &= (
+                        gender_col.fillna("unknown").astype(str).str.lower() == gender_filter.lower()
+                    )
+            if remaining_filters:
+                colour_val = remaining_filters.get("colour_group_name")
+                if colour_val is not None:
+                    colour_col = self.catalogue_df.get("colour_group_name")
+                    if colour_col is None:
+                        _pushdown_mask &= False
+                    else:
+                        colour_lower = colour_col.fillna("").astype(str).str.lower()
+                        if isinstance(colour_val, (list, tuple, set)):
+                            _pushdown_mask &= colour_lower.isin({str(v).lower() for v in colour_val})
+                        else:
+                            _pushdown_mask &= colour_lower == str(colour_val).lower()
+                price_min = remaining_filters.get("price_min")
+                price_max = remaining_filters.get("price_max")
+                if price_min is not None or price_max is not None:
+                    price_col = self.catalogue_df.get("price_inr")
+                    if price_col is None:
+                        _pushdown_mask &= False
+                    else:
+                        if price_min is not None:
+                            _pushdown_mask &= price_col.fillna(float("-inf")) >= float(price_min)
+                        if price_max is not None:
+                            _pushdown_mask &= price_col.fillna(float("inf")) <= float(price_max)
+            if _exclusion_mask is not None:
+                _pushdown_mask &= _exclusion_mask
+            if type_mask is not None:
+                _pushdown_mask &= type_mask
+
+        _fetch_restriction_mask = _pushdown_mask if _pushdown_mask is not None else type_mask
+        if _fetch_restriction_mask is None and _exclusion_mask is not None:
+            _fetch_restriction_mask = pd.Series(_exclusion_mask, index=self.catalogue_df.index)
+
+        if _fetch_restriction_mask is not None:
+            sparse_allowed_ids = self.catalogue_df.index[_fetch_restriction_mask].values.astype(str)
+            _allowed_positions = np.fromiter(
+                (
+                    self._dense_id_to_pos[aid]
+                    for aid in sparse_allowed_ids
+                    if aid in self._dense_id_to_pos
+                ),
+                dtype=np.int64,
+            )
+            _dense_params = faiss.SearchParameters(sel=faiss.IDSelectorArray(_allowed_positions))
+        else:
+            _dense_params = None
+
+        dense_hits = self.dense.search(query, top_k=fetch_k * 2, params=_dense_params)
+        sparse_hits = self.sparse.search(query, top_k=fetch_k * 2, allowed_ids=sparse_allowed_ids)
+
+        rrf_scores: dict[str, float] = {}
+        for rank, (article_id, _) in enumerate(dense_hits, start=1):
+            rrf_scores[article_id] = rrf_scores.get(article_id, 0.0) + 1.0 / (rrf_k + rank)
+        for rank, (article_id, _) in enumerate(sparse_hits, start=1):
+            rrf_scores[article_id] = rrf_scores.get(article_id, 0.0) + 1.0 / (rrf_k + rank)
+
+        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
         # Collect ALL filter-passing candidates from the full RRF window.
         # We do NOT truncate here — diversity re-rank needs the full candidate pool.

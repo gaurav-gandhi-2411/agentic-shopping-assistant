@@ -1,0 +1,208 @@
+# Recall-measurable query subset — bounded-universe queries only.
+#
+# WHY THIS EXISTS: scripts/eval_model.py's Stage 2 (R1) can only report
+# recall_at_50 when a query's must-filter narrows the 112,425-item catalogue
+# to <=100 candidate items (recall_at_k's own docstring: "recall against a
+# several-thousand-item universe... is not meaningful"). Against the main
+# 227-query fixture (eval/fixtures/model_eval_queries.yaml), only 3/227
+# queries clear that bar (reports/model_eval_20260806T061125Z.md) because its
+# `must` blocks only use product_type_contains + gender_in, which rarely
+# narrows enough on their own. This fixture is a SEPARATE, purpose-built set
+# of 28 queries whose `must` additionally constrains colour_in and price_max
+# (new filter keys added to catalogue_universe_ids for this wave) — verified
+# against the live data/processed/unified/catalogue.parquet to bound each
+# query's universe to <=100 items before being added here.
+#
+# *** WHAT THIS DOES AND DOES NOT MEASURE — READ BEFORE CITING A NUMBER ***
+# Every query here is LITERAL (plain garment type + gender + colour + budget,
+# no occasion/style/silhouette nuance — see strict_gold_queries.yaml's
+# category taxonomy). For a literal query, "relevant" and "satisfies the
+# tight must-filter" are the SAME thing by construction: there is no hidden
+# nuance a filter-satisfying item could still fail on. That is what makes
+# recall computable here WITHOUT a second hand-labeling pass — but it also
+# means recall@k on this fixture measures ONE narrow thing:
+#
+#       does retrieval find items matching a hard type+gender+colour+price
+#       filter, not does it find items a shopper would actually want.
+#
+# It says NOTHING about recall on style-nuanced queries (bodycon vs maxi),
+# occasion-register queries (haldi-appropriate vs merely "ethnic"), or any
+# query a real user would phrase without stating an exact colour AND a price
+# cap in the same breath — those remain UNMEASURED for recall, exactly as
+# before this wave. Do not report this fixture's recall@k as "our recall" or
+# "system recall" in any future summary — report it as "recall on the
+# literal/tight-filter subset" every time, with this scope note attached.
+#
+# LABELING: none needed beyond the must-filter itself (see above) — this is
+# the deliberate design choice over redoing strict-label-style manual
+# relevance judgments on a harder query class.
+version: 1
+queries:
+- id: recall_001
+  category: literal
+  query: black bodycon dress for women under ₹2000
+  turns: ["black bodycon dress for women under 2000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [dress], gender_in: [women], colour_in: [black], price_max: 2000}}
+- id: recall_002
+  category: literal
+  query: maroon blazer for women under ₹3000
+  turns: ["maroon blazer for women under 3000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [blazer], gender_in: [women], colour_in: [maroon], price_max: 3000}}
+- id: recall_003
+  category: literal
+  query: black sherwani for men under ₹10000
+  turns: ["black sherwani for men under 10000 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [sherwani], gender_in: [men], colour_in: [black], price_max: 10000}}
+- id: recall_004
+  category: literal
+  query: maroon lehenga skirt for women under ₹5000
+  turns: ["maroon lehenga skirt for women under 5000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [skirt, lehenga], gender_in: [women], colour_in: [maroon], price_max: 5000}}
+- id: recall_005
+  category: literal
+  query: yellow anarkali for women under ₹4000
+  turns: ["yellow anarkali for women under 4000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [anarkali], gender_in: [women], colour_in: [yellow], price_max: 4000}}
+- id: recall_006
+  category: literal
+  query: black gown for women under ₹3000
+  turns: ["black gown for women under 3000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [gown], gender_in: [women], colour_in: [black], price_max: 3000}}
+- id: recall_007
+  category: literal
+  query: pink shorts for women under ₹2000
+  turns: ["pink shorts for women under 2000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [shorts], gender_in: [women], colour_in: [pink], price_max: 2000}}
+- id: recall_008
+  category: literal
+  query: grey trousers for women under ₹3000
+  turns: ["grey trousers for women under 3000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [trousers], gender_in: [women], colour_in: [grey], price_max: 3000}}
+- id: recall_009
+  category: literal
+  query: maroon dupatta for women under ₹6000
+  turns: ["maroon dupatta for women under 6000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [dupatta], gender_in: [women], colour_in: [maroon], price_max: 6000}}
+- id: recall_010
+  category: literal
+  query: mustard bag for women under ₹3000
+  turns: ["mustard bag for women under 3000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [bag], gender_in: [women], colour_in: [mustard], price_max: 3000}}
+- id: recall_011
+  category: literal
+  query: white sneakers for women under ₹7000
+  turns: ["white sneakers for women under 7000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [sneaker], gender_in: [women], colour_in: [white], price_max: 7000}}
+- id: recall_012
+  category: literal
+  query: black tie for men under ₹500
+  turns: ["black tie for men under 500 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [tie], gender_in: [men], colour_in: [black], price_max: 500}}
+- id: recall_013
+  category: literal
+  query: yellow sandals for women under ₹1500
+  turns: ["yellow sandals for women under 1500 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [sandal], gender_in: [women], colour_in: [yellow], price_max: 1500}}
+- id: recall_014
+  category: literal
+  query: black clutch bag for women under ₹1000
+  turns: ["black clutch bag for women under 1000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [clutch, bag], gender_in: [women], colour_in: [black], price_max: 1000}}
+- id: recall_015
+  category: literal
+  query: blue joggers for women under ₹2500
+  turns: ["blue joggers for women under 2500 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [jogger], gender_in: [women], colour_in: [blue], price_max: 2500}}
+- id: recall_016
+  category: literal
+  query: beige sherwani for men under ₹3000
+  turns: ["beige sherwani for men under 3000 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [sherwani], gender_in: [men], colour_in: [beige], price_max: 3000}}
+- id: recall_017
+  category: literal
+  query: black hoodie for women under ₹2000
+  turns: ["black hoodie for women under 2000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [hoodie], gender_in: [women], colour_in: [black], price_max: 2000}}
+- id: recall_018
+  category: literal
+  query: yellow kurta for women under ₹1200
+  turns: ["yellow kurta for women under 1200 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [kurta], gender_in: [women], colour_in: [yellow], price_max: 1200}}
+- id: recall_019
+  category: literal
+  query: blue jeans for men under ₹1000
+  turns: ["blue jeans for men under 1000 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [jeans], gender_in: [men], colour_in: [blue], price_max: 1000}}
+- id: recall_020
+  category: literal
+  query: green kurta for men under ₹800
+  turns: ["green kurta for men under 800 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [kurta], gender_in: [men], colour_in: [green], price_max: 800}}
+- id: recall_021
+  category: literal
+  query: black skirt for women under ₹1200
+  turns: ["black skirt for women under 1200 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [skirt], gender_in: [women], colour_in: [black], price_max: 1200}}
+- id: recall_022
+  category: literal
+  query: black top for women under ₹700
+  turns: ["black top for women under 700 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [top], gender_in: [women], colour_in: [black], price_max: 700}}
+- id: recall_023
+  category: literal
+  query: black jacket for men under ₹2000
+  turns: ["black jacket for men under 2000 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [jacket], gender_in: [men], colour_in: [black], price_max: 2000}}
+- id: recall_024
+  category: literal
+  query: pink saree for women under ₹900
+  turns: ["pink saree for women under 900 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [saree], gender_in: [women], colour_in: [pink], price_max: 900}}
+- id: recall_025
+  category: literal
+  query: black footwear for women under ₹850
+  turns: ["black footwear for women under 850 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [footwear], gender_in: [women], colour_in: [black], price_max: 850}}
+- id: recall_026
+  category: literal
+  query: yellow earrings for women under ₹400
+  turns: ["yellow earrings for women under 400 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [earring], gender_in: [women], colour_in: [yellow], price_max: 400}}
+- id: recall_027
+  category: literal
+  query: red gown for women under ₹3000
+  turns: ["red gown for women under 3000 rupees"]
+  expected_intent: {gender: women}
+  relevance: {must: {product_type_contains: [gown], gender_in: [women], colour_in: [red], price_max: 3000}}
+- id: recall_028
+  category: literal
+  query: white shirt for men under ₹250
+  turns: ["white shirt for men under 250 rupees"]
+  expected_intent: {gender: men}
+  relevance: {must: {product_type_contains: [shirt], gender_in: [men], colour_in: [white], price_max: 250}}

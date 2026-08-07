@@ -23,6 +23,26 @@ retrieval:
   # after store_diversity_rerank; backfills from the wider RRF pool when the cap
   # would otherwise shrink the pool below top_k). 0/None disables the cap.
   # See src/retrieval/hybrid_search.py::apply_per_store_cap. Phase A (2026-07-06).
+  # TESTED raising 4->8 (2026-08-06) after the colour/price pushdown fix
+  # (src/retrieval/hybrid_search.py) exposed per_store_cap=4 as the new binding
+  # constraint on recall for single-store-dominated categories. Swept 4/8/16/off
+  # on a niche (single-store-heavy, tight-filter) and a broad (generic) query
+  # population — eval/per_store_cap_sweep.py, eval/per_store_cap_sweep_broad.py,
+  # reports/per_store_cap_sweep_20260806.md:
+  #   niche  recall@50: 4=0.438 8=0.522 16=0.615 off=0.713
+  #   niche  maxshare@50 (top store's share of top-50): 4=0.19 8=0.27 16=0.40 off=0.53
+  #   broad  P@5/P@10: flat ~0.930/0.900 at every cap value
+  # The property-floor "literal P@5" proxy in that sweep read ~flat (0.721->0.714
+  # at cap=8) but was too generous a read: rerunning the REAL hand-labeled strict
+  # eval at cap=8 (scripts/eval_strict.py, all newly-surfaced items labeled, zero
+  # unlabeled) showed strict P@5 0.874->0.866 (-0.8pp overall, -2.4pp on the
+  # occasion category specifically) — a real, small, localized regression, not
+  # noise. REVERTED to 4 (2026-08-06) rather than accept it: this project's
+  # explicit gate is strict P@5 must not regress, and a bounded recall trade-off
+  # is not this config's call to make unilaterally against that gate. The 2
+  # single-store-dominated queries this exposed (white sneakers/women, black
+  # footwear/women — both ~99-100% one store, campusshoes) remain a known,
+  # understood, currently-unresolved recall gap; see reports/pushdown_fix_20260806.md.
   per_store_cap: 4
 
 llm:

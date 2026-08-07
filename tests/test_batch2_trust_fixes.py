@@ -470,18 +470,36 @@ class TestLiveRepros:
     catalogue, via build_graph + a stub LLM (no live LLM API call — see PR
     notes for what this does and does not verify)."""
 
-    def test_footwear_for_lehenga_gets_low_confidence_hedge(
+    def test_low_confidence_query_gets_weak_match_hedge(
         self, _unified_index: tuple[HybridRetriever, pd.DataFrame]
     ) -> None:
-        # 0 real footwear in this catalogue — the query resolves to lehenga
-        # results with a low-confidence RRF score (verified 2026-07-13: max
-        # score 3.76x the relevance floor vs 4.4-5.4x for successful queries).
+        # This test's original repro query ("footwear for lehenga", 0 real
+        # footwear as of 2026-07-13, max score 3.76x the relevance floor) went
+        # stale: the 2026-08-06 retrieval filter-pushdown fix (pushing gender/
+        # colour/price into fetch instead of post-filtering) genuinely
+        # improved recall for exactly this kind of thin-inventory query, and
+        # it now surfaces real festive footwear (juttis/heels marketed for
+        # lehenga pairing) at 4.19x the floor — ABOVE the hedge threshold. A
+        # good match now existing is the fix working as intended, not a bug;
+        # confirmed on 2026-08-07 that plain master (pre-pushdown-fix) still
+        # scores the old query 3.76x/hedges, and the fixed code no longer
+        # does for that specific query.
+        #
+        # Swapped to "raincoat for toddlers" (verified 2026-08-07 against the
+        # current index+pushdown fix together: max score 2.73x the floor,
+        # still hedges) so this test keeps covering the actual thing it
+        # exists for — that respond_node wires _is_low_confidence_result's
+        # signal into the LLM prompt — rather than a specific query that
+        # happened to be thin on one date. _is_low_confidence_result's own
+        # threshold logic has separate, query-independent unit coverage above
+        # (see TestLowConfidenceResultSignal), so this integration test's
+        # only job is proving the wiring, not re-deriving the threshold.
         retriever, catalogue_df = _unified_index
         llm = _CapturingLLM()
         memory = ConversationMemory(llm, _MINIMAL_CONFIG)
         agent = build_graph(retriever, catalogue_df, llm, _MINIMAL_CONFIG, streaming_mode=False)
 
-        result = agent.invoke(_blank_state("footwear for lehenga", memory))
+        result = agent.invoke(_blank_state("raincoat for toddlers", memory))
 
         assert result.get("retrieved_items"), "precondition: search returns items"
         respond_prompt = llm.prompts[-1]
