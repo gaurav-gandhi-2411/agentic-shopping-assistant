@@ -996,6 +996,32 @@ def _apply_athletic_footwear_gate(
     ]
 
 
+# Compose-wave Cluster E (2026-08-07, "haldi colour-symbolism" strict-eval
+# miss bucket): "Rustorange Women Black Printed Kurti..." and "Bhama Couture
+# Women Black & Pink Yoke Design...Kurti" both surfaced for haldi queries —
+# black reads as evening/mourning-adjacent, the opposite of haldi's bright
+# daytime marigold register. coherence.colour_score already encodes this
+# exact palette knowledge (black scores 0.2 for haldi, vs 1.0 for yellow/
+# orange/gold) but only as a RELATIVE anchor-vs-complement score used by
+# outfit composition — plain search has no anchor colour to compare against,
+# so that scoring never applies to standalone search results. Scoped to the
+# single colour actually observed causing misses (not colour_score's whole
+# "dark" list — dark grey/blue/red/purple have no real-catalogue evidence
+# either way here, so are deliberately left alone rather than guessed at).
+def _apply_haldi_colour_gate(items: list[dict], occasion_slug: str | None) -> list[dict]:
+    """Strip black-coloured items from a haldi-occasion plain-search result set.
+
+    Pool-underflow protected, same discipline as the occasion-register
+    coherence gate above: an all-black candidate pool is exceedingly unlikely
+    given haldi's retrieval already skews bright/yellow, and if it ever
+    happens, showing black results is a safer failure mode than showing zero.
+    """
+    if occasion_slug != "haldi":
+        return items
+    _filtered = [it for it in items if (it.get("colour") or "").strip().lower() != "black"]
+    return _filtered if _filtered else items
+
+
 def _apply_price_qualifier(items: list[dict], price_qualifier: str | None) -> list[dict]:
     """Part D (2026-07-13): rank/filter `items` per IntentV1.price_qualifier
     ("cheap"/"expensive"), resolved against THIS pool's OWN price distribution
@@ -3049,6 +3075,10 @@ def build_graph(
             items_out = _apply_athletic_footwear_gate(
                 items_out, _occ_slug, _occ_intent.garment_type
             )
+
+            # Compose-wave Cluster E (2026-08-07): see _apply_haldi_colour_gate
+            # docstring — fixes black items surfacing for haldi queries.
+            items_out = _apply_haldi_colour_gate(items_out, _occ_slug)
 
         # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
         # removed 2026-07-19): previously nested inside "if _occ_slug and

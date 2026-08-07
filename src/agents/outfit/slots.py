@@ -854,9 +854,19 @@ def is_novelty_item(prod_name: str) -> bool:
 # oversized/cropped graphic tees), zero plausible business-formal candidates
 # found. "tee" is checked with the same word-boundary as everything else here
 # (won't match inside "coffee"/"teenager"/etc.).
+#
+# 2026-08-07 extension (compose-wave Cluster A, party_evening register gate):
+# "chambray"/"folksy" added — real misses: "Blue Chambray Embroidered Dress
+# with Shrug" and "Indo Era Folksy Floral Screen Print Cotton Kurta Set" both
+# surfaced for "indo western outfit for a cocktail party". Catalogue-audited
+# in prod_name specifically (this predicate's only scope): "chambray" hits 16
+# rows, every one a genuinely western-casual fabric item (tops/shorts/
+# trousers/skirt/jumpsuit — chambray is a denim-adjacent casual cotton
+# weave); "folksy" hits exactly 1 row catalogue-wide, the miss item itself,
+# zero broader risk.
 _CASUAL_MARKER_RE = re.compile(
     r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped"
-    r"|t-shirts?|tshirts?|tees?)\b"
+    r"|t-shirts?|tshirts?|tees?|chambray|folksy)\b"
     r"|(?<!smart )(?<!smart-)(?<!semi )(?<!semi-)\bcasual\b",
     re.IGNORECASE,
 )

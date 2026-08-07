@@ -133,6 +133,7 @@ def _retrieve_pipeline(
         _OUTFIT_INTENT_RE,
         _SET_INTENT_RE,
         _apply_athletic_footwear_gate,
+        _apply_haldi_colour_gate,
         _apply_loungewear_gate,
         _apply_occasion_merchandise_gate,
         _apply_price_qualifier,
@@ -289,6 +290,7 @@ def _retrieve_pipeline(
         items = _apply_loungewear_gate(items, occasion_slug)
         items = _apply_occasion_merchandise_gate(items, occasion_slug, intent.garment_type, query)
         items = _apply_athletic_footwear_gate(items, occasion_slug, intent.garment_type)
+        items = _apply_haldi_colour_gate(items, occasion_slug)
 
     # Formality-softener secondary re-sort — unconditional on occasion in
     # production (see _apply_formality_softener's docstring: the occasion

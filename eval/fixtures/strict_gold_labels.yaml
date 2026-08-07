@@ -2118,7 +2118,7 @@ labels:
   - {article_id: "7596215042203", relevant: true, note: "'The Ba-awli Lehenga' -- no signal against sangeet-appropriate wear, no budget stated"}
 - query_id: occ_adv_001
   items:
-  - {article_id: "12795840", relevant: true, note: "'Bhama Couture Women Black & Pink Yoke Design Pure Cotton High-Low Kurti' -- pure cotton is the correct light haldi-register fabric; rubric's occasion-register criterion is formality/embellishment, not colour symbolism, and no colour was named in the query"}
+  - {article_id: "12795840", relevant: false, reason: occasion-register, note: "CORRECTED 2026-08-07 (compose-wave Cluster E audit): was 'true', reasoning 'occasion-register is formality/embellishment, not colour symbolism' -- that claim is contradicted by this project's own coherence.colour_score, which explicitly documents a haldi palette override (black scores 0.2, the lowest tier) as colour symbolism, and by this same label file's sibling entry for the IDENTICAL article under occ_adv_002 (line ~1751), which correctly scores it false on exactly this basis. 'Bhama Couture Women Black & Pink Yoke Design Pure Cotton High-Low Kurti' -- black is not haldi's bright/daytime palette regardless of whether the query text itself says 'bright'"}
 - query_id: occ_adv_002
   items:
   - {article_id: "19049798", relevant: false, reason: "attribute-contradiction", note: "'Rustorange Women Black Printed Kurti with Dhoti Pants & With Dupatta' -- query explicitly says 'bright', item is black -- direct contradiction"}
@@ -2193,3 +2193,23 @@ labels:
   items:
   - {article_id: "18205644", relevant: true, note: "'OFFICE & YOU Women Olive Green Shrug' -- brand name literally 'OFFICE & YOU'; solid olive green, regular fit, dry-clean-only (formal fabric care); a shrug is a standard business-casual layering piece, legitimate standalone search result for an office-wear query"}
   - {article_id: "18729360", relevant: true, note: "'plusS Mauve Solid Feminine Frills Skirt' -- same item/reasoning as occ_adv_003 above"}
+
+# ── Cluster A+E (party_evening casual-marker gate + haldi colour-symbolism
+# gate, 2026-08-07): removing 2 black items from haldi's pool and 2 casual-
+# marker items from party_evening's pool shifted rank-5 slots -- these 5
+# newly-surfaced items are pre-existing catalogue items whose rank moved, not
+# new inventory. Retrieval snapshot: this fix, --mode pipeline.
+# Labeled_by: Claude (Sonnet 5).
+- query_id: occ_adv_001
+  items:
+  - {article_id: "8441023070363", relevant: true, note: "'Yellow Paisley Lehenga' -- yellow matches haldi's bright/festive palette, ethnic; same item already labeled true under occ_adv_002 (line ~1789), now also surfacing here after the black-exclusion fix shifted rank-5"}
+- query_id: occ_adv_002
+  items:
+  - {article_id: "8016301490331", relevant: true, note: "'Yellow Net Multicolour Lehenga' -- yellow is haldi's exact traditional palette, embellished; same item already labeled true under occ_adv_001 (line ~1748), now also surfacing here after the black-exclusion fix shifted rank-5"}
+- query_id: occ_cocktail_002
+  items:
+  - {article_id: "16404492", relevant: true, note: "'Sera Red Two Piece Party Dress' -- desc explicitly 'Party Dress', red foil print crop top + mini skirt; party register directly matches a cocktail-party ask, no budget contradiction (₹1998 under ₹5000)"}
+- query_id: occ_cocktail_003
+  items:
+  - {article_id: "7843106816086", relevant: true, note: "'Mughal Ethnic Printed Panelled A-Line Kurta with Pant & Dupatta' -- panelled, graceful-flare 3-piece festive ethnic suit; same reverse-direction standard as this query's own established precedent above (line ~1777: 'festive/embellished ethnic-glam, plausible for an indo-western-leaning cocktail-party ask')"}
+  - {article_id: "8498440929430", relevant: true, note: "'Lavender Yoke Design Silk Blend Anarkali Suit Set' -- desc explicitly 'Adorned with Embroidered, this style is perfect for Festive occasions'; embellished silk-blend anarkali, same reverse-direction standard as line ~1777"}
