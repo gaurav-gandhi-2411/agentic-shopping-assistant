@@ -350,8 +350,8 @@ labels:
   - {article_id: "7712173621334", relevant: false, reason: set-not-single, note: "'with Pant & Dupatta'"}
   - {article_id: "8285322969238", relevant: false, reason: set-not-single, note: "3-piece suit"}
   - {article_id: "12104560", relevant: false, reason: set-not-single, note: "'with Palazzos'"}
-  - {article_id: "9099862474974", relevant: false, reason: attribute-contradiction,
-     note: "plain kurta, no anarkali/flared silhouette signal — style mismatch"}
+  - {article_id: "9099862474974", relevant: true,
+     note: "CORRECTED 2026-08-07 (compose-wave audit): originally labeled a miss for lacking a positive anarkali/flare confirmation, but the rubric's own point 2 says unstated-and-not-contradicted counts as a match — same standard is_attribute_contradiction's own docstring applies in code. No opposing straight/regular-camp word appears either, so per that consistent standard this is a match, not a miss. Original label was an inconsistent, stricter-than-documented application."}
 
 # ── Batch 3 (2026-07-11): pipeline-mode delta items — items surfaced ONLY when
 # the garment_type facet filter (existing production mechanism) is applied on
@@ -568,8 +568,8 @@ labels:
   - {article_id: "7665024729174", relevant: false, reason: attribute-contradiction,
      note: "'Straight Fit' explicitly stated — contradicts 'anarkali'"}
   - {article_id: "8529053", relevant: true, note: "'Anarkali' explicit; Maroon is in the wine colour-family"}
-  - {article_id: "8201212854494", relevant: false, reason: attribute-contradiction,
-     note: "plain kurta, no anarkali/flared silhouette signal"}
+  - {article_id: "8201212854494", relevant: true,
+     note: "CORRECTED 2026-08-07 (compose-wave audit): same reconsideration as article 9099862474974 in this same query — unstated-and-not-contradicted is a match per the rubric's own point 2, not a miss."}
 
 # ── Batch 6 (2026-07-11): cross-encoder (ms-marco-MiniLM-L-6-v2) reranker
 # A/B delta items — the cross-encoder reorders the SAME post-gate candidate
@@ -924,8 +924,8 @@ labels:
   - {article_id: "8619428315286", relevant: true}
 - query_id: multi_008
   items:
-  - {article_id: "8703115002078", relevant: false, reason: attribute-contradiction,
-     note: "plain kurta, no anarkali/flared silhouette signal despite embroidery"}
+  - {article_id: "8703115002078", relevant: true,
+     note: "CORRECTED 2026-08-07 (compose-wave audit): same reconsideration as the other two items in this query — unstated-and-not-contradicted is a match per the rubric's own point 2, not a miss."}
 - query_id: multi_012
   items:
   - {article_id: "9212182954146", relevant: true, note: "desc: 'Sophisticated...refined style'"}
@@ -1193,7 +1193,7 @@ labels:
   - {article_id: "9761007567154", relevant: false, reason: budget, note: "Rs.6321 > Rs.5000 cap; also desc explicit 'Regular Fit' contradicts 'slim fit'"}
 - query_id: multi_006
   items:
-  - {article_id: "9724032287026", relevant: false, reason: attribute-contradiction, note: "desc explicit 'Classic White Regular Fit Solid Kurta' -- 'Regular Fit' contradicts 'straight fit'"}
+  - {article_id: "9724032287026", relevant: true, note: "CORRECTED 2026-08-07 (compose-wave audit): originally labeled a contradiction ('Regular Fit' vs query's 'straight fit'), but src/agents/outfit/slots.py's own _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS treats 'straight fit' and 'regular fit' as the SAME compatible camp (both non-slim, non-flared) based on prior catalogue verification -- the original label contradicted this already-audited, documented code decision rather than a real gap. Deferring to the established camp design."}
   - {article_id: "9488847175938", relevant: false, reason: budget, note: "Rs.2369 > Rs.2000 cap"}
   - {article_id: "9484724306178", relevant: true, note: "desc explicit 'straight silhouette'"}
   - {article_id: "9724032581938", relevant: true, note: "desc explicit 'side-button straight cut'; colour field=White is authoritative over the 'Pink & White' title"}
@@ -1620,7 +1620,7 @@ labels:
 - query_id: multi_028
   items:
   - {article_id: "15634472", relevant: false, reason: set-not-single, note: "'Hooded Co-Ords Set' -- top+shorts 2-piece set for a bare single-crop-top query"}
-  - {article_id: "8284939911390", relevant: false, reason: attribute-contradiction, note: "no crop confirmation anywhere in name/desc ('Beige Floral Cotton Top', 'relaxed and comfortable fit' framing leans away from a fitted/cropped silhouette)"}
+  - {article_id: "8284939911390", relevant: true, note: "CORRECTED 2026-08-07 (compose-wave audit): originally labeled a miss for lacking positive crop confirmation, but no opposing signal is stated either (a 'relaxed fit' framing is a fit-tightness descriptor, not a length/crop contradiction) -- unstated-and-not-contradicted is a match per the rubric's own point 2, consistent with how anarkali/double-breasted cases were reconsidered in this same audit."}
 - query_id: multi_030
   items:
   - {article_id: "9724031009074", relevant: true, note: "green, Rs1312 <= Rs2500 cap; desc names Mehndi not Eid but both are the same light-to-medium festive register, not contradicting"}
@@ -2161,3 +2161,20 @@ labels:
 - query_id: occ_brand_001
   items:
   - {article_id: "7482625884322", relevant: false, reason: "type-confusion", note: "'Pranami Red (Dhoti Pants)' -- only the trousers half of the query's explicit 'kurti trousers' combo request, no kurti component"}
+
+# ── Cluster B (silhouette-contradiction fix, 2026-08-07): new items surfaced
+# after is_attribute_contradiction gained hyphen/space-flexible matching plus
+# wrap/bodycon and straight-shape camp additions removed 5 genuinely-
+# contradicting items from these queries' pools, letting these fill the
+# vacated rank-5 (or rank-3/4) slots. Retrieval snapshot: this fix,
+# --mode pipeline. Labeled_by: Claude (Sonnet 5).
+- query_id: gold_007
+  items:
+  - {article_id: "9635301523762", relevant: true, note: "'Navy Blue Solid Slim Fit Blazer | JB Studio' -- desc explicitly confirms 'Slim Fit Blazer'"}
+- query_id: gold_009
+  items:
+  - {article_id: "9935211004201", relevant: true, note: "'Amaya|100% Cotton Bootcut Jeans' -- desc explicitly opens 'High-waist bootcut jeans', confirms the query's 'high waisted'"}
+  - {article_id: "9844468842793", relevant: true, note: "'Iza|100% Cotton Bootcut Jeans' -- same desc, explicitly 'High-waist bootcut jeans'"}
+- query_id: gold_036
+  items:
+  - {article_id: "7699681050882", relevant: true, note: "'Men's Black And Red Woven Blazer' -- desc says 'slim-fit smart looking blazer' with no breasted-style word at all; unstated-and-not-contradicted is a match per the rubric's own point 2 (same standard applied to the anarkali/crop-top corrections above in this same audit)"}

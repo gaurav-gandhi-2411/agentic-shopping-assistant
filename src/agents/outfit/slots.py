@@ -1067,9 +1067,18 @@ _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS: tuple[tuple[frozenset[str], frozenset[str]]
     # here too (distinct dimension from FIT-tightness above) — real hand
     # label evidence: "'Regular Fit' contradicts 'a-line'" (a kurta's
     # overall cut is either flared/a-line or straight/regular, not both).
+    # "straight shape" added 2026-08-07 (compose-wave miss audit) — a real
+    # miss ("Straight shape with regular style" desc for an "a-line kurta"
+    # query) used this exact phrasing instead of "straight cut"/"straight
+    # fit". Catalogue-audited before adding: "straight shape" co-occurs with
+    # any flare-camp word (a-line/anarkali/fit and flare) in 0/770 rows —
+    # clean, safe to treat as straight-family. ("regular style", the OTHER
+    # phrase in that same miss's desc, was NOT added: it co-occurs with a
+    # flare-camp word in 171/820 rows — not a safe opposite, would have
+    # introduced real false positives, so left out.)
     (
         frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
-        frozenset({"straight cut", "straight fit", "regular fit"}),
+        frozenset({"straight cut", "straight fit", "regular fit", "straight shape"}),
     ),
     # SILHOUETTE fitted: "bodycon" is its OWN pole (2026-07-25, out-of-sample
     # validation finding), not folded into the straight/regular camp above —
@@ -1087,16 +1096,49 @@ _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS: tuple[tuple[frozenset[str], frozenset[str]]
     # most-common silhouette description for kurtas generally), which would
     # have been a badly over-broad exclusion for a single niche query
     # pattern; the structured "Silhouette: Straight" facet line is a much
-    # narrower, catalogue-verified signal (12/14184 rows).
+    # narrower, catalogue-verified signal (12/14184 rows). "straight shape"
+    # added alongside it 2026-08-07 for the same 0/770-clean reason as above.
     (
         frozenset({"bodycon"}),
         frozenset({"a-line", "anarkali", "fit and flare", "fit & flare"}),
     ),
     (
         frozenset({"bodycon"}),
-        frozenset({"straight cut", "straight fit", "regular fit", "silhouette: straight"}),
+        frozenset({
+            "straight cut", "straight fit", "regular fit", "silhouette: straight",
+            "straight shape",
+        }),
+    ),
+    # SILHOUETTE wrap vs bodycon — 2026-08-07 (compose-wave miss audit): a
+    # "wrap dress" query surfaced an item explicitly described as "ruched
+    # bodycon dress". Catalogue-audited: "wrap" and "bodycon" co-occur in
+    # only 4/477 rows mentioning "wrap" (0.8%) — clean enough to treat as
+    # opposing silhouettes. Deliberately NOT opposed to the flare camp above
+    # (a-line/anarkali) — a wrap silhouette is not reliably distinct from a
+    # flared skirt the way it is from bodycon, and that pairing wasn't
+    # audited, so it's left alone rather than guessed.
+    (
+        frozenset({"wrap"}),
+        frozenset({"bodycon"}),
     ),
 )
+
+
+def _contains_phrase_flex(text: str, phrase: str) -> bool:
+    """Like _contains_word, but a space inside a multi-word `phrase` also
+    matches a hyphen in `text` (and vice versa) — real catalogue listings
+    routinely hyphenate exactly these compound adjectives ("single-breasted",
+    "straight-fit") while the tracked phrases below are written with spaces.
+    Scoped to is_attribute_contradiction only, not the shared _contains_word
+    (18 other call sites in this module use single-word keywords where the
+    distinction doesn't apply — no reason to widen their matching too).
+    2026-08-07 (compose-wave miss audit): found via 2 real misses ("single-
+    breasted with button closures" not matching tracked "single breasted";
+    "The straight-fit, full-sleeve design" not matching tracked "straight
+    fit") — both confirmed fixed by this, zero new call sites touched.
+    """
+    pattern = re.escape(phrase).replace(r"\ ", r"[\s-]")
+    return re.search(rf"\b{pattern}\b", text, re.IGNORECASE) is not None
 
 
 def is_attribute_contradiction(query_text: str, item_name: str, item_desc: str) -> bool:
@@ -1118,27 +1160,30 @@ def is_attribute_contradiction(query_text: str, item_name: str, item_desc: str) 
         at all is never flagged for that group.
       - Near-synonyms (e.g. "anarkali" vs "a-line") never oppose each other
         — see _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS.
+      - Matching is hyphen/space-flexible (see _contains_phrase_flex) so
+        "single-breasted" in real listing text matches tracked "single
+        breasted", etc.
     """
     query_lower = (query_text or "").lower()
     text = f"{item_name or ''} {item_desc or ''}".lower()
 
     for group in _ATTRIBUTE_CONTRADICTION_FLAT_GROUPS:
-        stated = next((w for w in group if _contains_word(query_lower, w)), None)
+        stated = next((w for w in group if _contains_phrase_flex(query_lower, w)), None)
         if stated is None:
             continue
-        if _contains_word(text, stated):
+        if _contains_phrase_flex(text, stated):
             continue  # item explicitly confirms the query's own word — never a contradiction
-        if any(w != stated and _contains_word(text, w) for w in group):
+        if any(w != stated and _contains_phrase_flex(text, w) for w in group):
             return True
 
     for camp_a, camp_b in _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS:
         for stated_camp, opposing_camp in ((camp_a, camp_b), (camp_b, camp_a)):
-            stated = next((w for w in stated_camp if _contains_word(query_lower, w)), None)
+            stated = next((w for w in stated_camp if _contains_phrase_flex(query_lower, w)), None)
             if stated is None:
                 continue
-            if any(_contains_word(text, w) for w in stated_camp):
+            if any(_contains_phrase_flex(text, w) for w in stated_camp):
                 continue  # item confirms the query's own camp — never a contradiction
-            if any(_contains_word(text, w) for w in opposing_camp):
+            if any(_contains_phrase_flex(text, w) for w in opposing_camp):
                 return True
 
     return False
