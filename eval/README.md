@@ -96,3 +96,69 @@ or growing `n_scored` is real. A metric that improved alongside a shrinking
 score — the same discipline as rule 98a's "fail closed, never open" for
 guards: an empty/degraded result must never look identical to a good one in
 the number that gates the decision.
+
+## Text-formality signals derived from marketing copy have failed repeatedly — stop retrying this class
+
+Three independent attempts to infer an item's occasion-formality from its
+own `prod_name`/`detail_desc` marketing text have now all failed at a high,
+consistent false-positive rate, against three different vocabularies and
+mechanisms:
+
+| Attempt | Mechanism | FP rate | Evidence |
+|---|---|---|---|
+| Embellishment vocabulary | New embellishment-vs-plain-pattern keyword set | **60%** (12/20) | `reports/compose_wave_final_20260807.md`, Cluster A |
+| Desc-marker broad scan | Office-register desc-text scan | **25%** (2/8) | same report, "already-rejected office-register broad-desc-scan precedent" |
+| `fabric_score_delta` promotion | Promoting the existing `HALDI_LIGHTWEIGHT_KEYWORDS` vocabulary from a soft rerank nudge into a hard office-register reject gate | **76.5%** deduped / 68.9% raw (26/34 / 31/45) | `reports/fabric_score_delta_promotion_diagnosis_20260810.md`, `eval/diagnose_fabric_score_delta_promotion.py` |
+
+The third attempt reused vocabulary that is *already* live in production
+(the same `cotton`/`floral`/`printed`/`casual`/`lightweight`/`summer`
+words `fabric_score_delta` already scores haldi/mehendi/sangeet/reception
+with) — it wasn't a new, weaker guess, it was the most-audited vocabulary
+already in the codebase, promoted to a harder gate for a new occasion, and
+it still failed worse than the other two. Genuinely formal items keep
+tripping these signals for reasons that have nothing to do with formality:
+a formal men's blazer mentions "casual" somewhere incidental in its desc;
+cotton and linen are entirely occasion-neutral fabrics for business
+trousers; a floral print alone says nothing about an office dress's
+appropriateness (this fixture's own gold labels already accept plain
+floral dresses for office as "business-casual plausible"); a genuinely
+formal linen blazer markets itself with "breathable"/"moisture-wicking"
+language identical to genuine athleisure copy (found independently in the
+same wave, sampling outerwear rows for an unrelated athletic-marker
+check — see the shrug-classification-fix PR's office-wear-miss
+assessment). Vendor marketing copy in this catalogue optimizes for SEO and
+appeal, not for a consistent, machine-readable formality vocabulary.
+
+**Two adjacent ideas were also checked and are dead ends, not just
+untried:**
+- **No structural facet exists to substitute for text.** `graphical_appearance_name`
+  and `garment_group_name` — the two catalogue columns that would
+  structurally encode this — are the literal string `"N/A"` for
+  **100% of all 112,425 rows** (verified directly against
+  `data/processed/unified/catalogue.parquet`: zero nulls, exactly one
+  distinct non-null value, `"N/A"`, in each column). There is no
+  facet-equality escape hatch the way there was for e.g. the
+  `indowestern`/`_ACCESSORY_FACET_VALUES` fixes elsewhere in this
+  codebase — this data simply isn't populated.
+- **Price is not a usable formality proxy either.** Checked directly
+  against the office-context labeled items in `strict_gold_labels.yaml`:
+  the cheapest *currently-relevant* office items are ₹699–899 trousers/
+  dresses, while several *currently-irrelevant* items are ₹5,199–8,318
+  navy blazers and a men's suit — genuinely formal garments, rejected only
+  for exceeding a query's stated budget cap, not for being insufficiently
+  formal. A naive "expensive implies formal" proxy would flag the wrong
+  end of both groups. Price in this catalogue is dominated by
+  budget-query mechanics, not formality.
+
+**Practical rule**: don't retry this class of signal — a keyword/regex
+scan of `prod_name`/`detail_desc` for formality/register — without a
+structurally different signal than "more marketing-copy vocabulary" or
+"promote an existing vocabulary to a harder gate." Neither varying the
+word list nor hardening the mechanism has moved the failure rate below
+25% across three tries, and the two adjacent non-text signals (structural
+facets, price) are both independently dead ends in this catalogue, not
+just unexplored. If a genuine formality gap surfaces again, look for an
+item-specific, evidence-grounded signal instead (the item's own explicit
+"Occasion: ..." spec field, an explicit occasion word in its own
+marketing copy, an existing narrow marker that already has a clean
+catalogue audit behind it) rather than a new generic-vocabulary scan.
