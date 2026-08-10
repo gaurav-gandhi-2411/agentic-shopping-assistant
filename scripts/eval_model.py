@@ -427,6 +427,38 @@ def check_no_kids_leak(
     return True
 
 
+def check_no_complement_gate_leak(
+    look_bundle: dict[str, Any] | tuple[dict[str, Any], dict[str, Any]],
+    couple: bool,
+) -> bool:
+    """True iff every COMPLEMENT (never the seed) in the look still passes
+    src.agents.outfit.coherence.is_coherent_candidate if re-checked post-hoc.
+
+    Deliberately does NOT check the seed item: `compose_outfit`'s anchor
+    resolution never runs the seed through `is_coherent_candidate` at all —
+    it uses the narrower `_anchor_matches_occasion` (ethnic_lean only) — a
+    real, separate, still-open gap (see eval/gate_leak_audit.py's own report,
+    reports/mechanical_coherence_checks_20260810T163242Z.md: 4/293 real
+    composed looks, all office-occasion ethnic-seed leaks). A seed-inclusive
+    version needs that promoted to the full gate set first, a scoped product
+    decision, not a metric-reporting change. The complement-only version
+    below is validated clean: 0 leaks across all 1,185 complement items in
+    293 real composed looks (same report) — ships at the same pass_rate==1.0
+    bar as every other gate here.
+    """
+    from src.agents.outfit.coherence import is_coherent_candidate
+
+    boards = list(look_bundle) if couple else [look_bundle]
+    for board in boards:
+        occasion_slug = board.get("occasion") or ""
+        gender = board.get("gender") or ""
+        for item in board.get("complements") or []:
+            slot_name = item.get("_slot") or "top"
+            if not is_coherent_candidate(item, occasion_slug, gender, slot_name):
+                return False
+    return True
+
+
 def evaluate_suppression_honest(
     suppressed_slots: list[dict[str, Any]], empty_slots: list[str]
 ) -> bool:
@@ -477,6 +509,8 @@ def evaluate_gate_checks(
         checks["no_novelty"] = check_no_novelty(look_bundle, couple)
     if "no_kids_leak" in checks_wanted:
         checks["no_kids_leak"] = check_no_kids_leak(look_bundle, couple)
+    if "no_complement_gate_leak" in checks_wanted:
+        checks["no_complement_gate_leak"] = check_no_complement_gate_leak(look_bundle, couple)
     if "suppression_honest" in checks_wanted:
         checks["suppression_honest"] = evaluate_suppression_honest(suppressed_slots, empty_slots)
 

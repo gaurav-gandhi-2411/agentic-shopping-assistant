@@ -2744,7 +2744,9 @@ def build_graph(
         # — applied to every plain-search result regardless of query shape.
         result["items"] = [
             it for it in result["items"]
-            if not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+            if not is_kids_item(
+                it.get("prod_name") or it.get("display_name") or "", it.get("detail_desc")
+            )
         ]
 
         # Gender filter is applied when it was extracted from this query (not inherited).
@@ -2925,6 +2927,7 @@ def build_graph(
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
         from src.agents.outfit.slots import is_attribute_contradiction as _occ_is_attr_contradiction
         from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
+        from src.agents.outfit.slots import is_theme_contradiction as _occ_is_theme_contradiction
 
         _occ_intent = _occ_parse_intent(raw_query)
         _occ_slug = _occ_intent.occasion or _reconstruct_occasion_from_history(
@@ -2978,6 +2981,24 @@ def build_graph(
             ]
             if _attr_filtered:
                 items_out = _attr_filtered
+
+        # Theme-contradiction gate (2026-08-10, occasion-register wave Cluster
+        # B): a Hamper/Gift Hamper candidate whose own name states a DIFFERENT
+        # named festival/occasion theme than the query's stated theme (e.g.
+        # "bridal hamper" -> a Valentine-themed hamper). No-op for every other
+        # product type. Pool-underflow protected, same discipline as every
+        # other gate here.
+        if items_out:
+            _theme_filtered = [
+                it for it in items_out
+                if not _occ_is_theme_contradiction(
+                    raw_query,
+                    it.get("prod_name") or it.get("display_name") or "",
+                    it.get("product_type") or "",
+                )
+            ]
+            if _theme_filtered:
+                items_out = _theme_filtered
 
         # Accessory-exclusion gate ("type-confusion" strict-eval miss bucket):
         # a generic "outfit/look/wear" ask names no specific garment at all

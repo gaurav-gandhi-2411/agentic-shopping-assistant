@@ -397,9 +397,17 @@ class HybridRetriever:
         # retriever instance (catalogue_df is fixed at construction).
         self._not_kids_mask: np.ndarray | None = None
         if "prod_name" in self.catalogue_df.columns:
-            self._not_kids_mask = (
-                ~self.catalogue_df["prod_name"].fillna("").apply(is_kids_item)
-            ).values
+            names = self.catalogue_df["prod_name"].fillna("")
+            descs = (
+                self.catalogue_df["detail_desc"].fillna("")
+                if "detail_desc" in self.catalogue_df.columns
+                else pd.Series("", index=self.catalogue_df.index)
+            )
+            kids_mask = pd.Series(
+                [is_kids_item(n, d) for n, d in zip(names, descs, strict=True)],
+                index=self.catalogue_df.index,
+            )
+            self._not_kids_mask = (~kids_mask).values
 
         # article_id -> position-in-FAISS-index lookup, precomputed once (mirrors
         # SparseRetriever's own _id_to_pos pattern) so the gender/colour/price

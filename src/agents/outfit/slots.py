@@ -1289,6 +1289,20 @@ _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS: tuple[tuple[frozenset[str], frozenset[str]]
         frozenset({"wrap"}),
         frozenset({"bodycon"}),
     ),
+    # SILHOUETTE length: "gown" (2026-08-10, occasion-register wave Cluster A)
+    # implies a long/floor-length Western silhouette — a query naming "gown"
+    # had no mechanism opposing an item that explicitly states a short/fitted
+    # silhouette word. Catalogue-audited across all 249 catalogue rows
+    # containing "gown": gown x mini 0/249, gown x bodycon 0/249, gown x slim
+    # fit 0/249, gown x midi 3/249 (0.4%, sampled — genuine mixed listings,
+    # same order of magnitude as the wrap-vs-bodycon pair's accepted 0.8%
+    # threshold above). Deliberately NOT opposed to the a-line/anarkali/
+    # fit-and-flare camp (unaudited — a gown can legitimately be
+    # A-line-silhouetted).
+    (
+        frozenset({"gown"}),
+        frozenset({"mini", "midi", "bodycon", "slim fit"}),
+    ),
 )
 
 
@@ -1355,6 +1369,66 @@ def is_attribute_contradiction(query_text: str, item_name: str, item_desc: str) 
                 return True
 
     return False
+
+
+# 2026-08-10 (occasion-register wave, Cluster B): "bridal hamper" retrieved
+# both product_type_name=="Hampers" (3 rows, all genuinely bridal) and
+# product_type_name=="Gift Hamper" (33 rows, themed Valentine/Karwa Chauth/
+# Diwali/Rakhi/Mother's Day -- ZERO bridal-themed) with no mechanism checking
+# a hamper's own named theme against the query's stated theme. Scoped to
+# exactly these 2 product types (36 rows catalogue-wide, all hand-audited —
+# data/processed/unified/catalogue.parquet) — a closed, fully-enumerated
+# vocabulary on a narrow product category, not an open-ended marketing-copy
+# scan (deliberately NOT the dead-end text-formality signal shape — see
+# eval/README.md's standing rule).
+_HAMPER_PRODUCT_TYPES: frozenset[str] = frozenset({"hampers", "gift hamper"})
+
+# Synonym groups: any word within a group is compatible with the group's
+# other words; only CROSS-group words oppose (same shape as
+# _ATTRIBUTE_CONTRADICTION_CAMP_PAIRS' near-synonym camps).
+_HAMPER_THEME_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"bridal", "wedding"}),
+    frozenset({"valentine"}),
+    frozenset({"karwa chauth", "karva chauth"}),
+    frozenset({"diwali"}),
+    frozenset({"rakhi", "raksha bandhan"}),
+    frozenset({"mother's day", "mothers day"}),
+)
+
+
+def is_theme_contradiction(query_text: str, item_name: str, product_type: str) -> bool:
+    """Return True if a Hamper/Gift Hamper candidate's own name explicitly
+    states a DIFFERENT festival/occasion theme than the one the query itself
+    explicitly stated — e.g. query "bridal hamper" + item "...Valentine
+    Hamper".
+
+    Only ever fires for product_type in {"Hampers", "Gift Hamper"} — a no-op
+    for every other item. Same "explicit confirmation wins" discipline as
+    is_attribute_contradiction: if the item's own name ALSO contains the
+    query's exact theme word (or a synonym in the same group), that's a
+    match, never a contradiction, even if a different theme word also
+    appears.
+    """
+    if product_type.strip().lower() not in _HAMPER_PRODUCT_TYPES:
+        return False
+
+    query_lower = (query_text or "").lower()
+    name_lower = (item_name or "").lower()
+
+    stated_group = next(
+        (g for g in _HAMPER_THEME_GROUPS if any(_contains_phrase_flex(query_lower, w) for w in g)),
+        None,
+    )
+    if stated_group is None:
+        return False
+    if any(_contains_phrase_flex(name_lower, w) for w in stated_group):
+        return False  # item confirms the query's own theme (or a synonym of it)
+    return any(
+        _contains_phrase_flex(name_lower, w)
+        for g in _HAMPER_THEME_GROUPS
+        if g != stated_group
+        for w in g
+    )
 
 
 def is_western_marker_item(product_type: str, prod_name: str = "") -> bool:

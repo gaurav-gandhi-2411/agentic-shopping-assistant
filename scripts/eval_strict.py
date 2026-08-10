@@ -148,6 +148,7 @@ def _retrieve_pipeline(
         fabric_score_delta,
         is_attribute_contradiction,
         is_multi_piece_set,
+        is_theme_contradiction,
     )
     from src.agents.tools import search_catalogue
     from src.catalogue.cleaning import is_kids_item, is_loungewear_text
@@ -185,7 +186,9 @@ def _retrieve_pipeline(
     # non-occasion-keyword queries too (e.g. "red lehenga bridal").
     items = [
         it for it in items
-        if not is_kids_item(it.get("prod_name") or it.get("display_name") or "")
+        if not is_kids_item(
+            it.get("prod_name") or it.get("display_name") or "", it.get("detail_desc")
+        )
     ]
 
     # Single-garment set exclusion — unconditional (not tied to occasion_gate),
@@ -224,6 +227,22 @@ def _retrieve_pipeline(
         ]
         if attr_filtered:
             items = attr_filtered
+
+    # Theme-contradiction gate — unconditional (not tied to occasion_gate),
+    # matching search_node exactly (2026-08-10, occasion-register wave
+    # Cluster B): strips Hamper/Gift Hamper candidates whose own name states
+    # a different named festival theme than the query's stated theme.
+    if items:
+        theme_filtered = [
+            it for it in items
+            if not is_theme_contradiction(
+                query,
+                it.get("prod_name") or it.get("display_name") or "",
+                it.get("product_type") or "",
+            )
+        ]
+        if theme_filtered:
+            items = theme_filtered
 
     # Accessory-exclusion gate — unconditional (not tied to occasion_gate),
     # matching search_node exactly (2026-07-25 fix, "type-confusion" strict-
