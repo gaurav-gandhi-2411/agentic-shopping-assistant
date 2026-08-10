@@ -137,6 +137,54 @@ class TestBodyconOwnPole:
             "bodycon dress for women", "Black Bodycon Dress", "ruched bodycon dress"
         )
 
+
+class TestGownLengthCamp:
+    """2026-08-10 (occasion-register wave, Cluster A): "gown" implies a
+    long/floor-length Western silhouette, previously untracked entirely — a
+    query naming "gown" had no mechanism opposing an item that explicitly
+    states a short/fitted silhouette word. Catalogue-audited across all 249
+    catalogue rows containing "gown": mini/bodycon/slim-fit co-occur 0/249
+    each, midi 3/249 (0.4%, sampled clean)."""
+
+    def test_gown_vs_mini_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "gown for reception", "Women Waist tied Dress", "Black ruched mini dress"
+        )
+
+    def test_gown_vs_bodycon_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "black gown for a cocktail party", "Black Off-Shoulder Party Dress",
+            "Slim fit bodycon silhouette",
+        )
+
+    def test_gown_vs_slim_fit_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "wine coloured gown for reception", "Solid Wrap Fit & Flare Midi Dress",
+            "Slim fit design",
+        )
+
+    def test_gown_vs_midi_is_contradiction(self) -> None:
+        assert is_attribute_contradiction(
+            "gown for reception", "Wrap Dress", "A flattering midi-length wrap dress"
+        )
+
+    def test_gown_explicit_confirmation_never_a_contradiction(self) -> None:
+        assert not is_attribute_contradiction(
+            "gown for reception", "Floor Length Gown", "an elegant flowing gown"
+        )
+
+    def test_no_gown_in_query_never_fires(self) -> None:
+        assert not is_attribute_contradiction(
+            "mini dress for a party", "Bodycon Mini Dress", "desc"
+        )
+
+    def test_gown_vs_a_line_not_a_contradiction(self) -> None:
+        # Deliberately NOT opposed to the flare camp -- a gown can
+        # legitimately be A-line-silhouetted; unaudited pairing, left alone.
+        assert not is_attribute_contradiction(
+            "gown for reception", "A-Line Evening Gown", "desc"
+        )
+
     def test_a_line_vs_straight_still_contradicts_unaffected(self) -> None:
         # Regression pin: the a-line-vs-straight/regular pair (unrelated to
         # bodycon's new pole) must be unchanged by this fix.

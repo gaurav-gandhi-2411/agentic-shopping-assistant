@@ -2396,3 +2396,43 @@ labels:
   items:
   - {article_id: "8595168919702", relevant: false, reason: attribute-contradiction,
      note: "'Orange Woven Design Rayon Straight Kurta' -- query explicitly names fabric 'cotton'; item's own name explicitly states a different, contradicting fabric 'Rayon' -- same standard as this fixture's other named-attribute-contradiction misses (multi_007's 'Regular Fit contradicts a-line' precedent); orange colour/kurta type/Rs749 budget/navratri palette are otherwise all fine"}
+
+# ── occasion-register wave, Clusters A/B/C (2026-08-10): 10 new
+# (query_id, article_id) pairs surfaced into top-5 after shipping the
+# gown-length silhouette camp pair (Cluster A), the hamper theme-
+# contradiction gate (Cluster B), and the kids-leak detail_desc phrase
+# extension (Cluster C) -- see reports/occasion_register_diagnosis_
+# 20260810T161217Z.md for the full diagnosis and src/agents/outfit/slots.py
+# for the shipped mechanisms. Retrieval snapshot: this commit, --mode
+# pipeline. Found via scripts/_dump_unlabeled.py.
+# labeled_by: Claude, occasion-register wave (Clusters A/B/C), 2026-08-10
+- query_id: occ_adv_006
+  items:
+  - {article_id: "9719882088745", relevant: true,
+     note: "'Blu|Rescued Polyester Strapless Gown With Slit' -- explicitly a 'Gown', maxi/flared silhouette, strapless; reception is an indo-western glam evening register, this is a genuine formal western gown; no colour/budget stated in query"}
+- query_id: occ_cocktail_001
+  items:
+  - {article_id: "8876809978078", relevant: true,
+     note: "'Black Cut Work Tiered Dress' -- black matches, no explicit short/fitted silhouette word to contradict 'gown' (unstated, not contradicted, same standard as this fixture's own rubric point 2); marketed for 'parties...special occasions', cocktail-plausible"}
+  - {article_id: "9719882055977", relevant: true,
+     note: "'Elinae|Rescued Polyester Halter Neck Slim Dress' -- desc explicitly 'Black flowy maxi length slim GOWN'; self-describes as a gown, maxi length, black matches"}
+  - {article_id: "8483058286814", relevant: false, reason: occasion-register,
+     note: "'Black Rayon Loose Fit Dress' -- desc explicitly markets this as an 'Ethnic Dress' with embroidered net sleeves, 'attending a wedding or a formal dinner' register -- an ethnic-embroidered piece, not a Western cocktail gown; register mismatch, not a type match despite the black colour matching"}
+  - {article_id: "8795669266654", relevant: true,
+     note: "'Black Satin Fit & Flare Dress' -- satin fabric (formal-register-plausible), fit-and-flare silhouette (deliberately not opposed to 'gown' by the Cluster A fix), black matches, no explicit short/fitted contradiction"}
+- query_id: multi_013
+  items:
+  - {article_id: "7507607781462", relevant: true,
+     note: "'Abstract Floral Foil Printed A-Line Pleated Maxi Dress - Burgundy' -- burgundy is in the wine colour family, MAXI length matches the 'gown' implication, Rs1409 <= Rs7000 cap, a-line silhouette deliberately not opposed to gown"}
+  - {article_id: "9680200892713", relevant: true,
+     note: "'Crissy|100% Viscose Maxi Dress Strappy Lace Style' -- desc explicit 'Maroon Maxi Dress', maroon is wine family, MAXI length matches, Rs2199 <= Rs7000 cap, fit-and-flare not opposed to gown"}
+- query_id: multi_019
+  items:
+  - {article_id: "9359894511874", relevant: false, reason: attribute-contradiction,
+     note: "'Men's Multicolour Cotton Floral Printed Kurta with White Pyjama Set' -- item's own name explicitly states 'Multicolour' (floral printed) for the kurta itself, contradicting the query's stated colour 'white' (only the paired pyjama is white); gender men matches query, cotton/budget otherwise fine"}
+- query_id: occ_bridal_002
+  items:
+  - {article_id: "9273714507999", relevant: true,
+     note: "'Mortantra X Zivame Bridal Hamper Box A' -- explicitly bridal-themed (bridal robe, bridal keepsake box, versatile necklace set for 'her most personal moments'), product_type Hampers -- exactly the promotable inventory the Cluster B fix was built to surface"}
+  - {article_id: "15340648464550", relevant: false, reason: occasion-register,
+     note: "'Bloom & Glow Gift Hamper' -- generic themeless hamper (scented candle, crochet flower pot, earrings marketed to 'women who appreciate beauty' generally) -- passes the theme-contradiction gate by design (no OPPOSING theme stated, so not rejected), but doesn't affirmatively satisfy the query's explicit 'bridal' ask either; the code gate is deliberately conservative (only rejects contradicted themes), the hand-label rubric is stricter (must actually be relevant, not just not-wrong)"}
