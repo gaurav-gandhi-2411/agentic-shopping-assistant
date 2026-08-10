@@ -146,8 +146,20 @@ class TestClassifyItemUnknownClassKeywordCoverageAudit2026_07_30:
     def test_outerwear_facet_alone_is_outerwear(self) -> None:
         assert classify_item("outerwear", "Winter Layer") == "outerwear"
 
-    def test_shrug_is_outerwear(self) -> None:
-        assert classify_item("Fashion", "Winter Shrug") == "outerwear"
+    def test_shrug_is_accessory(self) -> None:
+        # 2026-08-10 (compose-wave shrug-classification fix): a shrug is a
+        # light layering piece, not a jacket/coat/blazer that can complete
+        # a look on its own -- reclassified from "outerwear" (which this
+        # gate never excludes) to "accessory" so a standalone shrug is
+        # correctly caught by the generic "outfit/look/wear" ask gate. See
+        # slots.py's _ACCESSORY_LAYERING_FAMILY for the catalogue audit.
+        assert classify_item("Fashion", "Winter Shrug") == "accessory"
+
+    def test_standalone_shrug_excluded_from_generic_wear_ask(self) -> None:
+        # Direct regression test for the strict-eval miss this fix targets
+        # (occ_festive_001 / occ_adv_005 mehendi "a shrug alone is a
+        # layering accessory, not a complete outfit").
+        assert classify_item("Fashion", "Winter Shrug") in NON_OUTFIT_ITEM_CLASSES
 
     def test_knitwear_is_western_top(self) -> None:
         assert classify_item("knitwear", "High Neck Textured Zipper Sweater") == "western_top"

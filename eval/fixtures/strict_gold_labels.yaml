@@ -2223,3 +2223,61 @@ labels:
   items:
   - {article_id: "8137070346478", relevant: true, note: "'THE DECORATIVE CHHATRI KURTA' -- desc 'can be easily combined with a tonal waistcoat or stole' is an explicit STYLING SUGGESTION ('can be combined with'), not a literal bundled inclusion; a genuine single richly-embellished (thread work, sequin) kurta, 'ideal for auspicious occasions' fits reception's formality; high price (₹109,999) reflects embellishment/craftsmanship, not a hidden multi-piece bundle"}
   - {article_id: "7954298601710", relevant: true, note: "'NOCTURNAL FIESTA PANELLED KURTA' -- desc has zero bundling language at all ('classic kurta textured with stitch lines and...panelling that emulates minimal festive style'), genuine single premium kurta, festive-appropriate for reception"}
+
+# ── Shrug classification fix (2026-08-10): "shrug"/"shrugs" moved from
+# OUTERWEAR_KEYWORDS to a new accessory family (slots.py's
+# _ACCESSORY_LAYERING_FAMILY) -- a shrug is always a layering piece worn OVER
+# another garment, never itself a complete, independently-wearable outfit,
+# so classify_item() now returns "accessory" for every standalone shrug and
+# the generic "outfit/look/wear" ask gate (NON_OUTFIT_ITEM_CLASSES) excludes
+# it unconditionally, closing the occ_adv_005/occ_festive_001 mehendi/festive
+# miss ("a shrug alone is a layering accessory, not a complete outfit" --
+# already the established standard at article_id 11928776 above). Removing 2
+# now-excluded shrugs from "office wear for women"'s and "nikah outfit for
+# women"'s pools shifted rank-4/5 in 3 query-item slots. Retrieval snapshot:
+# this fix, --mode pipeline. Labeled_by: Claude (Sonnet 5).
+#
+# CROSS-QUERY INCONSISTENCY FOUND AND RESOLVED IN FAVOUR OF THE UNIFORM RULE:
+# this fixture previously labeled a standalone shrug relevant:true for
+# office/nikah (article_id 18205646 line ~246/~1840, 18205644 line ~661/2194,
+# 6669758005405 line ~1887) on "legitimate business-casual layering piece"
+# reasoning, while ALSO labeling a standalone shrug relevant:false/"not a
+# complete outfit" for mehendi (article_id 11928776 line 2133) and
+# occasion-register for festive (6669758005405 line 1843) -- the same
+# garment-type judged both ways depending on occasion. On review this was an
+# inconsistency, not a deliberate occasion-dependent nuance: a shrug has no
+# bottom garment of its own under ANY occasion, so it cannot be a complete
+# outfit for office/nikah any more than for mehendi/festive. Resolved toward
+# the stricter, uniform standard (matches this fix's own structural,
+# facet-based mechanism -- an occasion-scoped carve-out would be exactly the
+# kind of query-specific patch this codebase's compose-wave has repeatedly
+# rejected in favour of audited, general mechanisms). The 4 labels above are
+# now SUPERSEDED by this note -- their items no longer appear in either
+# query's retrieval pool at all (confirmed via a direct top-10 pipeline
+# check), so this correction has no live effect on any current metric; left
+# in place rather than deleted, per this fixture's append-only history
+# convention, so a future contributor who sees them isn't misled.
+- query_id: occ_adv_003
+  items:
+  - {article_id: "9421114999015", relevant: false, reason: occasion-register,
+     note: "'Women's Mauve Solid Stand Collar Jacket' -- prod_name reads formal, but detail_desc reveals it's actually athleisure: 'A fresh take on athleisure minimalism. The Campus Full-Zip Dry Fit Track Jacket... lightweight polyester... quick-dry... Anti-microbial and anti-odor' -- a gym track jacket, not office-appropriate despite the office-plausible-sounding name."}
+  - {article_id: "14955068", relevant: false, reason: occasion-register,
+     note: "'Roadster Women Elegant Mauve Solid Leisure Set Co-Ords' -- desc explicitly markets it as loungewear: 'Leisure sets are comfy and loose-fitting matching sets that are perfect to lounge around in at home on weekends or for casual outings.' Same class of miss as the already-established novelty-tee/casual-marker exclusions above."}
+- query_id: occ_office_001
+  items:
+  - {article_id: "9421114999015", relevant: false, reason: occasion-register,
+     note: "same item/reasoning as occ_adv_003 above -- a gym track jacket despite the formal-sounding prod_name."}
+  - {article_id: "14955068", relevant: false, reason: occasion-register,
+     note: "same item/reasoning as occ_adv_003 above -- desc explicitly markets it as loungewear."}
+- query_id: occ_adv_005
+  items:
+  - {article_id: "8663533093014", relevant: true,
+     note: "'Blue Dabu Print Cotton Saree' -- cotton (mehendi's light-daytime register, not heavy/embellished), traditional dabu print, blue is a fine mehendi colour (not black); a saree is a complete ethnic one-piece outfit on its own."}
+- query_id: occ_festive_001
+  items:
+  - {article_id: "8574022811798", relevant: false, reason: type-confusion,
+     note: "'Cream Woven Design Wool Women's Shawl' -- desc explicitly frames it as an accessory to pair with a separate outfit, not a standalone one: 'pairs effortlessly with your winter ethnic look or drape it with a saree for festive celebrations.' A draping accessory, not itself a complete outfit -- same class as the shrug fix above."}
+- query_id: occ_nikah_001
+  items:
+  - {article_id: "17172164", relevant: true,
+     note: "'Soch Women Pink Printed Pure Cotton Embroidered Suit Set' -- desc confirms a complete 3-piece ethnic ensemble ('Pink printed Kurta with Trousers with dupatta'), embroidered, anarkali-shaped; pink is a legitimate nikah colour, cotton is acceptable for a suit-set register (not a bare casual tee/tank)."}
