@@ -169,6 +169,49 @@ class TestIsKidsItemPromoted:
 
 
 # ---------------------------------------------------------------------------
+# F. is_kids_item detail_desc phrase extension (2026-08-10, occasion-register
+#    wave Cluster C) — narrow "kids + garment noun" phrase check, separate
+#    from the bare prod_name word scan above.
+# ---------------------------------------------------------------------------
+
+
+class TestIsKidsItemDescPhrase:
+    def test_kids_phrase_in_desc_detected(self) -> None:
+        """Real miss: name carries no kids marker at all; desc opens with an
+        explicit kids+garment-noun phrase."""
+        assert is_kids_item(
+            "White Multicolor Cotton Blend Printed Kurta Pyjama Set",
+            "Kids Printed Kurta Pyjama Set crafted from soft cotton blend.",
+        ) is True
+
+    def test_kids_boys_set_phrase_detected(self) -> None:
+        assert is_kids_item(
+            "Set of 2: Off-White check Printed Shirt with Off-white check Printed Capri",
+            "This Off-White Check Printed Shirt & Capri Kids Boys Set of 2 is a fun pick.",
+        ) is True
+
+    def test_bare_kids_word_far_from_garment_noun_not_flagged(self) -> None:
+        """The narrow phrase pattern requires kids within ~20 chars of a
+        tracked garment noun — a distant/unrelated "kids" mention (e.g. an
+        age-range disclaimer) must not trigger it."""
+        assert is_kids_item(
+            "Classic Cotton T-Shirt",
+            "Wear for every range of age groups from Boys, Girls, and Gents alike.",
+        ) is False
+
+    def test_no_detail_desc_falls_back_to_name_only(self) -> None:
+        """Omitting detail_desc preserves the original prod_name-only
+        behaviour exactly — backward compatible with every pre-existing
+        call site that doesn't pass it."""
+        assert is_kids_item("Women Black Solid A-Line Dress") is False
+        assert is_kids_item("Boys Blue Cotton Shirt") is True
+
+    def test_empty_detail_desc_safe(self) -> None:
+        assert is_kids_item("Women Black Solid A-Line Dress", "") is False
+        assert is_kids_item("Women Black Solid A-Line Dress", None) is False
+
+
+# ---------------------------------------------------------------------------
 # D. HybridRetriever excludes kids items unconditionally (non-occasion query)
 # ---------------------------------------------------------------------------
 
