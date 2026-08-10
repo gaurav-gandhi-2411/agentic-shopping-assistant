@@ -1023,7 +1023,6 @@ labels:
 - query_id: kids_leak_002
   items:
   - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
-  - {article_id: "17589250", relevant: false, reason: data-ceiling, note: "same data-ceiling — lehenga returned for a jewellery query"}
 # --- Wave-7 catalogue-merge follow-up (2026-07-19) ---
 # labeled_by: Claude (executor agent, wave-7 inventory-gap follow-up)
 # labeled_on: 2026-07-19
@@ -1576,7 +1575,7 @@ labels:
   - {article_id: "8603406401758", relevant: false, reason: attribute-contradiction, note: "red, under budget, but desc frames it as 'Ajrakh block print' -- a print technique, not the 'embellished' (embroidery/sequin/beadwork) style asked for"}
 - query_id: multi_005
   items:
-  - {article_id: "9300199145730", relevant: true, note: "navy, fit unstated not contradicted, Rs4949 <= Rs5000 cap; occasion context ('weddings and festive') doesn't contradict office register"}
+  - {article_id: "9300199145730", relevant: false, reason: occasion-register, note: "CORRECTED 2026-08-10 (cross-query consistency audit): was labeled true here ('occasion context doesn't contradict office register'), directly contradicting this same article_id's own gold_015 label ('Vastramay blazer marketed exclusively for weddings and festive occasions... Navratri, Diwali, Festive Glitz events -- zero office/business-register language') and the very next line below's own established standard for THIS query (a festive-register blazer is not office-appropriate). Verified against the live catalogue row: detail_desc confirms 'crafted from premium Lachka Imported Suiting fabric for weddings and festive occasions' -- navy/fit/budget all genuinely match, but the occasion-register mismatch gold_015 found is real and controls. Resolved toward gold_015's evidence-grounded finding, the same standard applied everywhere else in this fixture (marketing copy is authoritative for occasion-register, see line below and the reception/wedding precedents)."}
   - {article_id: "7958433071362", relevant: false, reason: occasion-register, note: "desc explicit 'Zig Zag Glitter...fancy smart looking' -- a party/festive-register glitter blazer, not office-appropriate"}
   - {article_id: "9300203012354", relevant: false, reason: occasion-register, note: "desc explicit 'Sequin Geometric Jodhpuri...Stand out at every celebration' -- wedding/festive Jodhpuri register, not office-appropriate"}
 - query_id: multi_006
