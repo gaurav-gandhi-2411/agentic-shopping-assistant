@@ -2368,3 +2368,31 @@ labels:
   items:
   - {article_id: "8965715263710", relevant: false, reason: occasion-register,
      note: "'Light Green Cotton Palazzo Pants' -- cotton base, no embellishment, desc explicitly styles it as 'a casual fusion outfit'; too casual for sangeet, same standard as this query's other cotton-palazzo misses"}
+
+# ── adaptive_per_store_cap candidate, Linux/CI-platform items (2026-08-10):
+# the 2026-08-10 adaptive-cap labeling pass above was run and dumped on
+# Windows; PR #20's CI (ubuntu-latest, gcloud-downloaded index confirmed
+# byte-identical via md5) surfaced 4 DIFFERENT unlabeled (query_id,
+# article_id) pairs at rank 4-5 -- a Linux vs Windows floating-point/BLAS
+# difference in dense-embedding or FAISS scoring flipping a handful of
+# near-tied rank-5 boundaries, not a retrieval-logic difference (same code,
+# same config, same index file). Reproduced directly by running
+# scripts/_dump_unlabeled.py inside WSL Ubuntu with a venv pinned to
+# requirements.txt exactly (Python 3.11.15, matching CI's python-version).
+# labeled_by: Claude, adaptive_per_store_cap candidate (Linux items), 2026-08-10
+- query_id: gold_016
+  items:
+  - {article_id: "8611662495894", relevant: true,
+     note: "'Maroon Printed Cotton Straight Short Kurti' -- kurti type match, Rs999 <= Rs1500 cap, no colour/occasion/silhouette constraint stated in query to violate"}
+- query_id: gold_017
+  items:
+  - {article_id: "8644941349019", relevant: true,
+     note: "'Blue & Black Tie-Dye Festive Lehenga' -- lehenga type match, explicitly 'Festive' (embellishment/register implied), black is a valid sangeet glam colour, no budget stated in query"}
+- query_id: multi_015
+  items:
+  - {article_id: "8657941659798", relevant: true,
+     note: "'Green Paithani Silk Blend Saree' -- saree type match, green matches query's stated colour exactly (also independently in navratri's own accepted palette per colour_score's _navratri_palette), silk-blend matches query's 'silk', Rs1299 <= Rs5000 cap"}
+- query_id: multi_023
+  items:
+  - {article_id: "8595168919702", relevant: false, reason: attribute-contradiction,
+     note: "'Orange Woven Design Rayon Straight Kurta' -- query explicitly names fabric 'cotton'; item's own name explicitly states a different, contradicting fabric 'Rayon' -- same standard as this fixture's other named-attribute-contradiction misses (multi_007's 'Regular Fit contradicts a-line' precedent); orange colour/kurta type/Rs749 budget/navratri palette are otherwise all fine"}
