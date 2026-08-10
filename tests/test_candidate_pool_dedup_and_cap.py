@@ -7,7 +7,11 @@ tests/test_store_diversity_rerank.py.
 
 from __future__ import annotations
 
-from src.retrieval.hybrid_search import apply_per_store_cap, dedup_candidates_keep_cheapest
+from src.retrieval.hybrid_search import (
+    apply_per_store_cap,
+    compute_adaptive_per_store_cap,
+    dedup_candidates_keep_cheapest,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,3 +144,37 @@ class TestApplyPerStoreCap:
         full_pool = selected
         result = apply_per_store_cap(selected, full_pool, cap=4, top_k=5)
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# compute_adaptive_per_store_cap
+# ---------------------------------------------------------------------------
+
+
+class TestComputeAdaptivePerStoreCap:
+    def test_disabled_base_cap_passes_through(self) -> None:
+        pool = [_item("a1", "Item 1", store="storeA")]
+        assert compute_adaptive_per_store_cap(pool, 0, 50) == 0
+        assert compute_adaptive_per_store_cap(pool, None, 50) is None  # type: ignore[arg-type]
+
+    def test_empty_pool_returns_base_cap(self) -> None:
+        assert compute_adaptive_per_store_cap([], 4, 50) == 4
+
+    def test_single_store_relaxes_to_top_k(self) -> None:
+        pool = [_item(f"a{i}", f"Item {i}", store="storeA") for i in range(10)]
+        assert compute_adaptive_per_store_cap(pool, base_cap=4, top_k=50) == 50
+
+    def test_few_stores_relaxes_proportionally(self) -> None:
+        # 8 distinct stores, top_k=50 -> ceil(50/8)=7, beats base_cap=4
+        pool = [_item(f"a{i}", f"Item {i}", store=f"store{i % 8}") for i in range(40)]
+        assert compute_adaptive_per_store_cap(pool, base_cap=4, top_k=50) == 7
+
+    def test_many_stores_is_identical_to_fixed_cap(self) -> None:
+        # 13 distinct stores, top_k=50 -> ceil(50/13)=4 == base_cap, no change
+        pool = [_item(f"a{i}", f"Item {i}", store=f"store{i % 13}") for i in range(26)]
+        assert compute_adaptive_per_store_cap(pool, base_cap=4, top_k=50) == 4
+
+    def test_never_relaxes_below_base_cap(self) -> None:
+        # 100 distinct stores -> ceil(50/100)=1, but base_cap=4 floors it
+        pool = [_item(f"a{i}", f"Item {i}", store=f"store{i}") for i in range(100)]
+        assert compute_adaptive_per_store_cap(pool, base_cap=4, top_k=50) == 4

@@ -43,6 +43,16 @@ retrieval:
   # single-store-dominated queries this exposed (white sneakers/women, black
   # footwear/women — both ~99-100% one store, campusshoes) remain a known,
   # understood, currently-unresolved recall gap; see reports/pushdown_fix_20260806.md.
+  #
+  # This value is now a FLOOR, not a fixed cap: HybridRetriever.search() runs it
+  # through compute_adaptive_per_store_cap (src/retrieval/hybrid_search.py),
+  # which loosens the effective cap per-query when the query's own qualifying
+  # pool is itself store-concentrated (nothing genuine to diversify against —
+  # the maroon-dupatta case above), and is a byte-identical no-op for the
+  # multi-store queries this cap was designed for. Validated 2026-08-10: niche
+  # recall@50 +3.1pp, broad-query P@5/P@10 unchanged, real strict P@5 +0.5pp
+  # overall / +2.2pp on `occasion` (the category the earlier flat 4->8 raise
+  # regressed) — reports/adaptive_per_store_cap_strict_eval_20260810T122542Z.md.
   per_store_cap: 4
 
 llm:
