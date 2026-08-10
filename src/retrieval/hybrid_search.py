@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 
 import faiss
@@ -302,6 +303,59 @@ def apply_per_store_cap(
                 store_counts[store] = n + 1
 
     return kept
+
+
+def compute_adaptive_per_store_cap(full_pool: list[dict], base_cap: int, top_k: int) -> int:
+    """Loosen `base_cap` when a query's qualifying pool is itself store-concentrated.
+
+    A single fixed cap mechanically truncates recall on any query whose TRUE
+    qualifying universe happens to sit almost entirely in one or two stores
+    (e.g. "maroon dupatta, women" is 95% one store in this catalogue) — there
+    is nothing genuine to diversify against, so the cap only costs recall
+    there. Relaxes proportionally to how many distinct stores actually hold
+    qualifying inventory (``full_pool``, the same wide pre-diversity-rerank
+    pool ``apply_per_store_cap`` already receives), and is a no-op wherever a
+    query's pool is already multi-store the way ``per_store_cap`` was
+    designed for.
+
+    Formula: ``max(base_cap, ceil(top_k / n_stores))``, where ``n_stores`` is
+    the number of distinct stores in ``full_pool``. Degenerates correctly at
+    both ends via that single ``max()`` — no extra branching needed:
+      - ``n_stores == 1``: ``ceil(top_k/1) == top_k``, so the cap can no
+        longer truncate a single-store universe below `top_k` (in practice
+        ``apply_per_store_cap``'s own <2-distinct-stores guard already no-ops
+        here too — this is a redundant-but-harmless second safety net).
+      - ``n_stores >= top_k / base_cap``: ``ceil(top_k/n_stores) <= base_cap``,
+        so ``max(...)`` picks `base_cap` — byte-identical to the fixed-cap
+        behaviour this replaces.
+
+    Validated (eval/adaptive_per_store_cap_test.py, 2026-08-10): niche-subset
+    recall@50 +3.1pp (0.438->0.469), broad-query P@5/P@10 byte-identical (no
+    regression), real hand-labeled strict P@5 +0.5pp overall and +2.2pp on the
+    `occasion` category specifically — see
+    reports/adaptive_per_store_cap_strict_eval_20260810T122542Z.md. Unlike the
+    earlier GLOBAL cap 4->8 raise (reverted: -0.8pp strict P@5, -2.4pp on
+    `occasion` — reports/pushdown_fix_20260806.md), this is query-scoped, so
+    genuinely multi-store queries (where the cap's diversity purpose still
+    applies) are mathematically unaffected.
+
+    Parameters
+    ----------
+    full_pool:
+        The full filter-passing candidate pool (pre-diversity-rerank) —
+        `apply_per_store_cap`'s own `full_pool` argument.
+    base_cap:
+        The configured `retrieval.per_store_cap` value. Returned unchanged
+        when <= 0 (cap disabled) or when `full_pool` holds 0-1 stores.
+    top_k:
+        Target pool size — `apply_per_store_cap`'s own `top_k` argument.
+    """
+    if not base_cap or base_cap <= 0:
+        return base_cap
+    n_stores = len({item.get("store") for item in full_pool})
+    if n_stores <= 0:
+        return base_cap
+    return max(base_cap, math.ceil(top_k / n_stores))
 
 
 def _facet_value_matches(facets: dict, key: str, value: object) -> bool:
@@ -679,7 +733,8 @@ class HybridRetriever:
             results = store_diversity_rerank(candidates, top_k, store_diversity)
             per_store_cap: int = self.config["retrieval"].get("per_store_cap", 0)
             if per_store_cap:
-                results = apply_per_store_cap(results, candidates, per_store_cap, top_k)
+                effective_cap = compute_adaptive_per_store_cap(candidates, per_store_cap, top_k)
+                results = apply_per_store_cap(results, candidates, effective_cap, top_k)
 
         # Deprioritize items with known-dead PDP links — move them to end of list
         live = [it for it in results if it.get("pdp_live") is not False]

@@ -2297,3 +2297,102 @@ labels:
   items:
   - {article_id: "8404035829982", relevant: false, reason: occasion-register,
      note: "same item/reasoning as occ_adv_003 above."}
+
+# ── adaptive_per_store_cap candidate (2026-08-10): query-adaptive per_store_cap
+# monkeypatch (eval/adaptive_per_store_cap_test.py's _adaptive_apply_per_store_cap,
+# effective_cap = max(base_cap, ceil(top_k/n_stores)) computed from the full
+# filter-passing candidate pool's distinct-store count) surfaced 17 new
+# (query_id, article_id) pairs into strict_gold_queries.yaml's top-5 that had
+# no existing hand label -- found via eval/adaptive_cap_strict_eval_run.py
+# --step dump (same pattern as scripts/_dump_unlabeled.py, run under the
+# adaptive-cap patch instead of the shipped fixed cap). Labeled per the rubric
+# in strict_gold_queries.yaml's header, cross-checked against this file's own
+# established precedent for repeat query_ids (cotton-fabric occasion-register
+# rejections for reception/cocktail/sangeet earlier in this file; solid-top
+# office-wear acceptances at occ_adv_003/occ_office_001 above; lehenga-as-
+# single-listing convention at occ_bridal_001 above).
+# labeled_by: Claude, adaptive_per_store_cap candidate, 2026-08-10
+- query_id: gold_005
+  items:
+  - {article_id: "16325360", relevant: true,
+     note: "'Stylum Women Blue Ethnic Motifs Printed Anarkali Kurta' -- explicit 'Anarkali Kurta' in title, blue colour, no silhouette contradiction"}
+- query_id: gold_009
+  items:
+  - {article_id: "8253523230942", relevant: true,
+     note: "'Blue Checkered Bootcut Jeans' -- desc explicit 'high waist Bootcut flare jeans...The high-waisted design gives one an idealized fitting'"}
+  - {article_id: "8669036085470", relevant: true,
+     note: "'Blue Cotton Blend Loose Fit Jeans' -- desc: 'With the trend of high-waisted jeans on the rise, our loose fit jeans offer a contemporary twist' -- ties this product to the high-waisted trend (loose LEG and high RISE are not mutually exclusive -- a common relaxed/mom-jean cut); no rise contradiction stated anywhere (no 'mid-rise'/'low-rise' wording), weak match per this query's own established 'rise unstated, not contradicted' standard"}
+- query_id: gold_020
+  items:
+  - {article_id: "8044979683566", relevant: true,
+     note: "'MIRAGE KURTA' -- desc 'Tonal texturizing and embroidery around the neck...tonal sequin shimmer' -- embroidered/sequinned festive register, reception-plausible; query states no budget cap"}
+- query_id: occ_adv_003
+  items:
+  - {article_id: "7553272709342", relevant: true,
+     note: "'Women White Half Sleeve Crew Neck Solid Top' -- product_type 'top' (not t-shirt, unlike this query's established t-shirt rejections), solid colour, no casual/novelty/graphic marker; business-casual plausible, same standard as this query's accepted solid-item precedent"}
+  - {article_id: "7599232680158", relevant: true,
+     note: "'Women Solid V-Neck Top with Scarf' -- solid top with scarf accessory, no casual marker; same standard as above"}
+- query_id: occ_adv_006
+  items:
+  - {article_id: "6624414531741", relevant: false, reason: type-confusion,
+     note: "'Women Waist tied Dress' -- desc explicitly 'Black ruched bodycon dress...Slim fit design' -- a fitted bodycon dress, not a floor-length gown silhouette; same standard as this query's other 'plain dress, not a gown' misses"}
+- query_id: occ_cocktail_002
+  items:
+  - {article_id: "6883946856605", relevant: false, reason: occasion-register,
+     note: "'Women White Cotton Schiffli Dress' -- cotton base fabric explicitly named in the title, too casual for cocktail-party formality despite Schiffli embroidery detail; same standard as this fixture's established cotton-dress-vs-formal-occasion misses (reception-gown cotton-dress rejections elsewhere in this file)"}
+  - {article_id: "6883946496157", relevant: true,
+     note: "'Women Floral Print White Dress' -- no cotton/casual fabric marker stated in the title (unlike the Schiffli item above); floral print alone is not a disqualifying casual marker per this fixture's own established standard (see eval/README.md's text-formality-signal note); same article already accepted for office-wear's business-casual register elsewhere in this file"}
+- query_id: multi_007
+  items:
+  - {article_id: "17777396", relevant: false, reason: attribute-contradiction,
+     note: "'Sangria Peach-Coloured Floral Yoke Design Pure Cotton Kurta' -- desc explicit 'Peach-coloured straight kurti' -- straight silhouette contradicts the query's a-line ask, same standard as this query's own established 'Regular Fit contradicts a-line' precedent"}
+- query_id: multi_016
+  items:
+  - {article_id: "9724033433906", relevant: true,
+     note: "'Traditional Canary Yellow Printed Kurta' -- desc explicit 'perfect for festive occasions', silk blend, canary yellow matches, Rs1312 <= Rs3000 cap"}
+  - {article_id: "8828660154520", relevant: true,
+     note: "'Yellow Floral Sequinned Mid Kurta' -- desc explicit 'festive floral kurta with sequins for haldi, weddings, and celebrations', yellow matches, Rs1999 <= Rs3000 cap"}
+- query_id: occ_bridal_001
+  items:
+  - {article_id: "8872000225435", relevant: true,
+     note: "'Red Bridal Silk Lehenga with Peacock motifs' -- red is the traditional bridal colour, heavily embellished, desc explicit 'Complete Bridal Set: Includes lehenga skirt, blouse, and dupatta' -- lehenga-as-single-listing convention, same as this query's other accepted lehengas"}
+- query_id: occ_office_001
+  items:
+  - {article_id: "6883946496157", relevant: true,
+     note: "same item/reasoning as occ_adv_003's floral-dress precedent elsewhere in this file -- western floral dress, business-casual plausible"}
+  - {article_id: "7553272709342", relevant: true,
+     note: "same item/reasoning as occ_adv_003 above -- solid crew-neck top, no casual marker"}
+  - {article_id: "7599232680158", relevant: true,
+     note: "same item/reasoning as occ_adv_003 above -- solid V-neck top with scarf, no casual marker"}
+- query_id: occ_brand_001
+  items:
+  - {article_id: "8965715263710", relevant: false, reason: occasion-register,
+     note: "'Light Green Cotton Palazzo Pants' -- cotton base, no embellishment, desc explicitly styles it as 'a casual fusion outfit'; too casual for sangeet, same standard as this query's other cotton-palazzo misses"}
+
+# ── adaptive_per_store_cap candidate, Linux/CI-platform items (2026-08-10):
+# the 2026-08-10 adaptive-cap labeling pass above was run and dumped on
+# Windows; PR #20's CI (ubuntu-latest, gcloud-downloaded index confirmed
+# byte-identical via md5) surfaced 4 DIFFERENT unlabeled (query_id,
+# article_id) pairs at rank 4-5 -- a Linux vs Windows floating-point/BLAS
+# difference in dense-embedding or FAISS scoring flipping a handful of
+# near-tied rank-5 boundaries, not a retrieval-logic difference (same code,
+# same config, same index file). Reproduced directly by running
+# scripts/_dump_unlabeled.py inside WSL Ubuntu with a venv pinned to
+# requirements.txt exactly (Python 3.11.15, matching CI's python-version).
+# labeled_by: Claude, adaptive_per_store_cap candidate (Linux items), 2026-08-10
+- query_id: gold_016
+  items:
+  - {article_id: "8611662495894", relevant: true,
+     note: "'Maroon Printed Cotton Straight Short Kurti' -- kurti type match, Rs999 <= Rs1500 cap, no colour/occasion/silhouette constraint stated in query to violate"}
+- query_id: gold_017
+  items:
+  - {article_id: "8644941349019", relevant: true,
+     note: "'Blue & Black Tie-Dye Festive Lehenga' -- lehenga type match, explicitly 'Festive' (embellishment/register implied), black is a valid sangeet glam colour, no budget stated in query"}
+- query_id: multi_015
+  items:
+  - {article_id: "8657941659798", relevant: true,
+     note: "'Green Paithani Silk Blend Saree' -- saree type match, green matches query's stated colour exactly (also independently in navratri's own accepted palette per colour_score's _navratri_palette), silk-blend matches query's 'silk', Rs1299 <= Rs5000 cap"}
+- query_id: multi_023
+  items:
+  - {article_id: "8595168919702", relevant: false, reason: attribute-contradiction,
+     note: "'Orange Woven Design Rayon Straight Kurta' -- query explicitly names fabric 'cotton'; item's own name explicitly states a different, contradicting fabric 'Rayon' -- same standard as this fixture's other named-attribute-contradiction misses (multi_007's 'Regular Fit contradicts a-line' precedent); orange colour/kurta type/Rs749 budget/navratri palette are otherwise all fine"}
