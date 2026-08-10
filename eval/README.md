@@ -162,3 +162,35 @@ item-specific, evidence-grounded signal instead (the item's own explicit
 "Occasion: ..." spec field, an explicit occasion word in its own
 marketing copy, an existing narrow marker that already has a clean
 catalogue audit behind it) rather than a new generic-vocabulary scan.
+
+## Every wave touching composer/coherence/partner hand-scores 5 looks by default
+
+No automated judge has ever cleared calibration for outfit-coherence quality
+(`reports/wave_measurement_20260806.md` Part A: best candidate 90% pass, still
+misses the failure classes that matter; `reports/part2_consensus_labeling_20260807.md`:
+multi-family consensus also unusable, α=0.645, 3/14 anchor failures, all
+lenient-direction). Of the 9 coherence dimension-groups this project cares
+about, 6 are mechanically gated (see
+`reports/coherence_measurement_and_lever_map_20260810T115940Z.md` Part B for
+the full inventory); the remaining 3 — cross-slot formality consistency,
+fabric-weight-vs-occasion, and holistic stylist gestalt — have no safe
+automated substitute, and 2 of those 3 are provably the same text-vocabulary
+signal class that has failed 3 independent implementation attempts (see
+above). Periodic hand-scoring is the only trustworthy signal for that
+residual, so it is not optional due-diligence — it is the check for that
+gap, sized deliberately cheap:
+
+**Rule**: any wave/PR that touches `src/agents/outfit/composer.py`,
+`src/agents/outfit/coherence.py`, or `src/agents/outfit/partner.py`
+hand-scores **5 composed looks** before closing — reuse
+`eval/fixtures/coherence_calibration.yaml`'s rubric and its good/bad/
+borderline stratification (aim for a spread across the 3 buckets and, where
+practical, across occasion categories, not 5 random happy-path looks).
+Report the 5 scores plainly in the wave's report (pass/fail per look, one
+line of reasoning each) — this is a spot-check, not a metric, so it doesn't
+gate CI or block a merge on its own, but a wave closing without it is
+incomplete. Pair with the existing fixed **monthly** drift check (catalogue
+changes can shift composition outcomes independent of any code change).
+Reduced from `wave_measurement_20260806.md`'s original 15-look
+recommendation to 5, deliberately, to keep the cost trivial enough that it
+actually happens every time (2026-08-10).
