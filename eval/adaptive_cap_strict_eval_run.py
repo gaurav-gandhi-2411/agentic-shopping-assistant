@@ -52,11 +52,11 @@ for p in (str(_ROOT), str(_SCRIPTS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import src.retrieval.hybrid_search as hybrid_search_module  # noqa: E402
 from eval.adaptive_per_store_cap_test import (  # noqa: E402
     _adaptive_apply_per_store_cap,
     compute_effective_cap,  # noqa: F401  (re-exported for callers/report scripts)
 )
-import src.retrieval.hybrid_search as hybrid_search_module  # noqa: E402
 
 _QUERIES_PATH = _ROOT / "eval" / "fixtures" / "strict_gold_queries.yaml"
 _LABELS_PATH = _ROOT / "eval" / "fixtures" / "strict_gold_labels.yaml"
