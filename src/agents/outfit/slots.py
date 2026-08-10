@@ -921,9 +921,27 @@ def is_novelty_item(prod_name: str) -> bool:
 # trousers/skirt/jumpsuit — chambray is a denim-adjacent casual cotton
 # weave); "folksy" hits exactly 1 row catalogue-wide, the miss item itself,
 # zero broader risk.
+#
+# 2026-08-10 extension (compose-wave office-register follow-up): "leisure"
+# added -- real miss: "Roadster Women Elegant Mauve Solid Leisure Set
+# Co-Ords" surfaced for "office wear for women" after the shrug-
+# classification fix vacated its rank. Catalogue-audited exhaustively (all
+# 5 catalogue-wide hits reviewed, not a sample): 2 are "Late Checkout
+# Leisure Club ... Oversized T-Shirt" rows, already caught by the existing
+# "tees?" marker regardless; the other 3 are "Roadster ... Leisure Set
+# Co-Ords" rows, all three carrying the identical templated desc "Leisure
+# sets are comfy and loose-fitting matching sets that are perfect to lounge
+# around in at home" -- 3/3 unambiguously casual/loungewear register, zero
+# false-positive risk found. This is a prod_name-only word-boundary match
+# (never scans detail_desc) -- the same discipline as every other entry in
+# this regex; a detail_desc-based athletic/formality marker was
+# investigated separately for a different miss in the same wave and
+# rejected (confirmed false positive: a linen blazer's desc marketed
+# explicitly for "Corporate Events & Business Formals" also uses
+# "moisture-wicking" fabric-tech language).
 _CASUAL_MARKER_RE = re.compile(
     r"\b(denim|jeans|mini\s+skirts?|shorts?|joggers?|cargo|distressed|ripped"
-    r"|t-shirts?|tshirts?|tees?|chambray|folksy)\b"
+    r"|t-shirts?|tshirts?|tees?|chambray|folksy|leisure)\b"
     r"|(?<!smart )(?<!smart-)(?<!semi )(?<!semi-)\bcasual\b",
     re.IGNORECASE,
 )
