@@ -345,6 +345,15 @@ class TestIsCasualMarkerItem:
     def test_ripped_rejected(self) -> None:
         assert is_casual_marker_item("Ripped Skinny Jeans") is True
 
+    def test_leisure_set_rejected(self) -> None:
+        """2026-08-10 extension: real miss -- "Roadster Women Elegant Mauve
+        Solid Leisure Set Co-Ords" surfaced for "office wear for women" after
+        the shrug-classification fix vacated its rank. All 5 catalogue-wide
+        "leisure" hits audited: 2 already caught by the "tees?" marker
+        (Late Checkout Leisure Club oversized tees), the other 3 (this one's
+        family) all carry an identical desc naming it loungewear."""
+        assert is_casual_marker_item("Roadster Women Elegant Mauve Solid Leisure Set Co-Ords") is True
+
     def test_bare_casual_rejected(self) -> None:
         """2026-07-30 extension: the bare word "casual" is now itself a
         casual-register marker — catalogue-audited root cause of the reception/
