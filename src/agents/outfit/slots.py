@@ -117,8 +117,7 @@ OUTERWEAR_KEYWORDS: frozenset[str] = frozenset({
     "jacket", "coat", "blazer", "cardigan", "nehru jacket", "waistcoat",
     "parka", "anorak", "sherwani", "bandhgala",
     # 2026-07-30 (unknown-class keyword-coverage audit): "outerwear" (3,326
-    # rows pt-alone), "shrug"/"shrugs" (~93 rows, e.g. "Winter Shrug",
-    # cardigan-like outer layer), "capes" (60 rows combined with "poncho"
+    # rows pt-alone), "capes" (60 rows combined with "poncho"
     # below, e.g. "Ponchu & Capes"/"Capes & Overlays" — the facet VALUE
     # itself is always plural "Capes", so "capes" alone catches both real
     # facet values with zero substring risk), "poncho" (catches the
@@ -131,6 +130,20 @@ OUTERWEAR_KEYWORDS: frozenset[str] = frozenset({
     # "suit set" in ETHNIC_ONE_PIECE_KEYWORDS; deliberately NOT bare
     # "suit"/"suits").
     #
+    # "shrug"/"shrugs" REMOVED 2026-08-10 (compose-wave diagnosis,
+    # occ_festive_001 + strict-eval occ_adv_005 mehendi miss): a shrug is a
+    # light layering piece worn OVER another top, not a jacket/coat/blazer
+    # that can visually complete a look on its own — the strict gold labels
+    # explicitly call this out twice ("a shrug alone is a layering
+    # accessory, not a complete outfit", "'...Longline Shrug' -- a
+    # shrug/layering accessory, not a complete outfit as 'mehendi outfit'
+    # asks"). Classifying it "outerwear" let a standalone shrug survive
+    # graph.py's generic "outfit/look/wear" accessory-exclusion gate
+    # (NON_OUTFIT_ITEM_CLASSES only excludes "accessory"/"footwear", never
+    # "outerwear"). Moved to _ACCESSORY_LAYERING_FAMILY below instead — see
+    # that family's own comment for the catalogue audit (465 rows
+    # reclassified from outerwear to accessory).
+    #
     # Deliberately EXCLUDES bare singular "cape" (spec'd but dropped as a
     # verified regression — see slots.py module-level deviation note near
     # WESTERN_BOTTOM_KEYWORDS's dropped "lower"/"lowers" for the mechanism;
@@ -142,7 +155,7 @@ OUTERWEAR_KEYWORDS: frozenset[str] = frozenset({
     # same task's own footwear-exclusion-gate goal). "capes" (plural) has
     # zero such collisions and is sufficient: both real facet values
     # ("Ponchu & Capes", "Capes & Overlays") are already plural.
-    "outerwear", "shrug", "shrugs", "capes", "poncho", "shacket",
+    "outerwear", "capes", "poncho", "shacket",
     "tuxedo", "tuxedos", "business suit",
     # 2026-08-05 (unknown-row apparel audit): "sadri" (14 rows,
     # product_type_name=="sadri", e.g. "Charcoal Grey Multi-Button Sadri",
@@ -466,6 +479,43 @@ _ACCESSORY_MENSWEAR_FORMAL_FAMILY: frozenset[str] = frozenset(
         "handkerchief", "handkerchiefs", "pagri", "pheta",
     }
 )
+# 2026-08-10 (compose-wave shrug-classification fix, occ_festive_001 +
+# strict-eval occ_adv_005 mehendi miss). Kept as its own family rather than
+# folded into an existing one (e.g. dupatta/stole) — a shrug is a distinct
+# garment, and _ACCESSORY_FAMILIES' own docstring requires families stay
+# disjoint by real-world kind so a dupatta-seeking slot query never accepts
+# a shrug and vice versa.
+#
+# Catalogue audit (data/processed/unified/catalogue.parquet, live
+# classify_item() before this fix): 511 rows mention "shrug"/"shrugs"
+# anywhere in prod_name; 465 of them resolved "outerwear" via the keyword
+# now removed above (product_type_name buckets: "Fashion" 361, "Winter
+# Shrug" 55, "Shrugs" 36, "Winter Wear" 3, "outerwear" 3, "Winter M Shrug"
+# 2, "knitwear" 2, "coord" 1 — all sampled and confirmed genuine standalone
+# shrugs, e.g. "Vero Moda Women Maroon Shrug", "Off White Knitted Shrug").
+# The remaining 46 rows have a MORE SPECIFIC product_type facet (top/kurta/
+# dress/jeans/shirt/etc.) that already wins via classify_item's own
+# pt-alone shortcut — e.g. "SASSAFRAS ... Longline Shirt Style Shrug"
+# (pt=="shirt") stays western_top, correctly untouched by this change.
+#
+# One known false-positive risk, accepted: the single "coord" row ("Femme
+# Luxe Women Beige Solid Co-Ord Set With Longline Shrug") is a genuine
+# co-ord SET bundled with a shrug add-on, not a standalone shrug — it will
+# now resolve "accessory" instead of the (also wrong) "outerwear" it
+# resolved to before. This is the same "Crop Top WITH Palazzo" bundle-
+# listing risk classify_item's own pt-alone shortcut exists to protect
+# against, inherent to every _GENERIC_FACET_VALUES bucket's combined-text
+# fallback (not unique to this fix); at 1/112,425 rows, below this
+# codebase's own accepted-risk bar elsewhere (e.g. the "sadri" addition's
+# accepted 1-row edge note).
+#
+# Sibling garment types in the OUTERWEAR_KEYWORDS list above (poncho,
+# capes, shacket, tuxedo, sadri, waistcoat, bandhgala) were checked against
+# every "type-confusion" strict-eval miss note — none carry the same
+# "layering piece, not a complete outfit" complaint a shrug does; ponchos/
+# capes are genuinely worn as the visible outer layer of a look, so they
+# stay classified "outerwear".
+_ACCESSORY_LAYERING_FAMILY: frozenset[str] = frozenset({"shrug", "shrugs"})
 
 _ACCESSORY_FAMILIES: tuple[frozenset[str], ...] = (
     _ACCESSORY_DUPATTA_FAMILY,
@@ -474,6 +524,7 @@ _ACCESSORY_FAMILIES: tuple[frozenset[str], ...] = (
     _ACCESSORY_BELT_WATCH_FAMILY,
     _ACCESSORY_EYEWEAR_CAP_FAMILY,
     _ACCESSORY_MENSWEAR_FORMAL_FAMILY,
+    _ACCESSORY_LAYERING_FAMILY,
 )
 
 # Union of every family — used by classify_item() to detect "this candidate IS
@@ -1440,11 +1491,17 @@ FORMALITY_SOFTENER_VALUES: frozenset[str] = frozenset({"minimalist", "comfortabl
 #     (WESTERN_BOTTOM_KEYWORDS), e.g. a Sweatshirt/Top/Dupatta wrongly
 #     resolving western_bottom. Two sibling Pantaloons house-brands,
 #     "Annabelle by Pantaloons" and "SF Jeans by Pantaloons", were audited
-#     too and are NOT collisions -- their own rows always hit an
-#     earlier-priority keyword (shrug/poncho -> OUTERWEAR, jeans ->
-#     WESTERN_BOTTOM via the genuine facet) before the "pant" substring is
-#     ever reached, so classify_anchor's priority order already resolves
-#     them correctly with no brand-prefix strip needed.
+#     too and were NOT collisions AT THE TIME -- their own rows always hit
+#     an earlier-priority keyword (shrug -> OUTERWEAR, jeans -> WESTERN_
+#     BOTTOM via the genuine facet) before the "pant" substring was ever
+#     reached. UPDATE 2026-08-10: "Annabelle by Pantaloons" stopped being a
+#     non-collision once "shrug" was removed from OUTERWEAR_KEYWORDS (see
+#     _ACCESSORY_LAYERING_FAMILY) -- its one generic-pt ("Fashion") row is a
+#     standalone shrug, and with the earlier-priority keyword gone the
+#     "pant" substring is reached and wins. Added to the collision list
+#     below. "SF Jeans by Pantaloons" is untouched by that change (every
+#     row has pt=="jeans", the genuine facet, so it never depended on the
+#     shrug keyword) and remains correctly a non-collision.
 #   "Kraus Jeans" (20 rows, 1 changes) -- "Jeans" collides with
 #     WESTERN_BOTTOM_KEYWORDS' "jeans" itself, e.g. a Pullover Sweater
 #     wrongly resolving western_bottom.
@@ -1477,6 +1534,17 @@ _BRAND_PREFIX_COLLISIONS: tuple[str, ...] = (
     "dressberry", "20dresses", "akkriti by pantaloons",
     "rangmanch by pantaloons", "ajile by pantaloons", "honey by pantaloons",
     "dreamz by pantaloons", "kraus jeans",
+    # 2026-08-10 (compose-wave shrug-classification fix): "annabelle by
+    # pantaloons" was the one Pantaloons private-label sub-brand missing
+    # from this list (its 5 siblings above already covered) — masked until
+    # now because OUTERWEAR_KEYWORDS' "shrug" always won first for this
+    # brand's one generic-pt ("Fashion") row; removing "shrug" from that
+    # list (see _ACCESSORY_LAYERING_FAMILY) exposed the same "pant"-inside-
+    # "Pantaloons" collision classify_anchor("Fashion", "Annabelle by
+    # Pantaloons Women Grey Solid Open Front Winter Shrug") resolved
+    # "western_bottom" for. Verified 8/8 catalogue rows with this brand as
+    # a name PREFIX (same anchoring as every other entry here).
+    "annabelle by pantaloons",
 )
 _BRAND_PREFIX_RE = re.compile(
     r"^(?:" + "|".join(re.escape(b) for b in _BRAND_PREFIX_COLLISIONS) + r")[\s\-_,|]+",

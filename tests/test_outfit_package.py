@@ -183,9 +183,11 @@ class TestClassifyAnchorBrandPrefixCollisionRegression2026_08_05:
     """2026-08-05 follow-up audit: re-ran the 2026-07-30 brand-collision audit
     across the full unified catalogue and found 8 more real brand/keyword
     collisions of the same shape. See slots.py's _BRAND_PREFIX_COLLISIONS
-    docstring for the full audit rationale, including why "Annabelle by
-    Pantaloons" and "SF Jeans by Pantaloons" were audited but NOT added
-    (their rows never actually collide).
+    docstring for the full audit rationale, including why "SF Jeans by
+    Pantaloons" was audited but NOT added (its rows never actually
+    collide) and why "Annabelle by Pantaloons" flipped from a documented
+    non-collision to a real one on 2026-08-10 (see
+    test_annabelle_by_pantaloons_shrug_no_longer_western_bottom below).
     """
 
     def test_dressberry_top_is_western_top_not_one_piece(self) -> None:
@@ -233,16 +235,22 @@ class TestClassifyAnchorBrandPrefixCollisionRegression2026_08_05:
         result = classify_anchor("knitwear", "Kraus Jeans Women Red Ribbed Pullover Sweater")
         assert result == "western_top"
 
-    def test_annabelle_by_pantaloons_shrug_not_added_to_denylist_still_correct(self) -> None:
-        """Negative control: brands audited but found to have NO real
-        collision (an earlier-priority keyword always wins first) must not
-        be added to the denylist -- confirms the un-stripped brand name
-        still classifies correctly via classify_anchor's own priority
-        order."""
+    def test_annabelle_by_pantaloons_shrug_no_longer_western_bottom(self) -> None:
+        """2026-08-10 update: this brand was a documented non-collision only
+        because "shrug" (OUTERWEAR_KEYWORDS, earlier priority) always won
+        before the "pant"-inside-"Pantaloons" substring was ever reached.
+        Removing "shrug" from OUTERWEAR_KEYWORDS (compose-wave
+        shrug-classification fix -- see slots.py's _ACCESSORY_LAYERING_
+        FAMILY) exposed that collision for real, so "annabelle by
+        pantaloons" was added to _BRAND_PREFIX_COLLISIONS. Without the
+        brand-prefix strip this would wrongly resolve "western_bottom";
+        with it, the bare shrug (no other garment keyword of its own) is
+        correctly "unknown" -- classify_anchor() never returns "accessory"
+        (see its own docstring), and a shrug should never anchor a look."""
         result = classify_anchor(
             "Fashion", "Annabelle by Pantaloons Women Grey Solid Open Front Winter Shrug"
         )
-        assert result == "outerwear"
+        assert result == "unknown"
 
     def test_sf_jeans_by_pantaloons_jeans_not_added_to_denylist_still_correct(self) -> None:
         result = classify_anchor("jeans", "SF JEANS by Pantaloons Women Black High-Rise Jeans")
