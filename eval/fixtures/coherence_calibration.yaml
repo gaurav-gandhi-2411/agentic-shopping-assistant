@@ -49,11 +49,13 @@
 #                occasion_score<=2 AND coherence_score<=2 (same bar as
 #                anchor_passes_calibration's "bad" bucket).
 #   borderline — 6 looks, one SUBTLE issue each (arguable, not extreme).
-#                Ground truth intentionally sits at occasion/coherence == 3
-#                (a couple at 3/4) to test whether a candidate judge can avoid
-#                collapsing to "everything not obviously broken = 5" — a judge
-#                that scores every borderline case 5 has not actually learned
-#                to evaluate coherence, it has learned to be lenient.
+#                Ground truth intentionally sits at occasion/coherence in the
+#                3-4 range (see borderline_006's 2026-08-10 correction note
+#                below for why one entry sits at 4/4, not 3) to test whether a
+#                candidate judge can avoid collapsing to "everything not
+#                obviously broken = 5" — a judge that scores every borderline
+#                case 5 has not actually learned to evaluate coherence, it has
+#                learned to be lenient.
 #
 # eval/judge_calibration.py applies THE decision rule mechanically:
 #   - every `good`/`bad` entry must fall in its expected bucket exactly
@@ -383,6 +385,20 @@ looks:
     palette_ok: true
     rationale: "A mustard beaded clutch against a blue/black casual base reads as an unplanned accent rather than a styled pop of colour — minor, not jarring."
 
+# CORRECTED 2026-08-10: an independent review by a different model family
+# (cross-checking all 5 non-extreme borderline labels as outstanding due
+# diligence on this fixture's own ground truth, per the PROVENANCE note
+# above) judged the original occasion_score/coherence_score: 3/3 too
+# strict. A cropped zip-through hoodie over training shorts with sneakers
+# is common, functional gym wear, not a register wobble — nothing here
+# reads as athleisure-lounge rather than workout-appropriate. Raised to
+# 4/4 (still non-extreme per the borderline decision rule above, so this
+# stays a genuine borderline case, not promoted to `good`). The same
+# review corroborated the other four non-extreme borderline labels
+# (borderline_001/003/004 unchanged) and separately flagged
+# borderline_002_haldi_velvet_dupatta and borderline_005_casual_mustard_bag
+# as arguably too GENEROUS rather than too strict — left unchanged pending
+# a decision on whether to also correct those in the other direction.
 - id: borderline_006_gym_overdressed_hoodie
   bucket: borderline
   occasion_slug: gym
@@ -391,10 +407,10 @@ looks:
     - {prod_name: "UNDER ARMOUR Women Pink Loose Fit Training Play Up Shorts", colour: Pink, product_type: shorts, gender: women, source: real}
     - {prod_name: "Majestique Sneakers", colour: White, product_type: footwear, gender: women, source: real}
   hand_score:
-    occasion_score: 3
-    coherence_score: 3
+    occasion_score: 4
+    coherence_score: 4
     gender_consistent: true
     occasion_register_ok: true
     formality_ok: true
     palette_ok: true
-    rationale: "A street-style cropped hoodie over training shorts reads slightly more athleisure-lounge than gym-functional, but is still plausible workout wear — a mild register wobble."
+    rationale: "A cropped zip-through hoodie over training shorts with sneakers is common, functional gym wear — corrected 2026-08-10 from an original 3/3 that read this as an athleisure-lounge register wobble; on review nothing here is actually off-register for a gym occasion."
