@@ -75,6 +75,7 @@ ALLOWED_CHECKS = {
     "budget_respected",
     "no_novelty",
     "suppression_honest",
+    "no_complement_gate_leak",
 }
 
 EXPECTED_INTENT_FIELDS = {f.name for f in dataclasses.fields(IntentV1)}
