@@ -291,7 +291,7 @@ def compose_partner_look(
     valid = [
         c
         for c in candidates
-        if _anchor_matches_occasion(c, occasion_slug)
+        if _anchor_matches_occasion(c, occasion_slug, partner_gender)
         and gender_allowed((c.get("gender") or "unknown").lower(), partner_gender)
         # 2026-08-06 cross-gender leak fix: same catalogue gender-column
         # unreliability composer.compose_outfit's own anchor selection now

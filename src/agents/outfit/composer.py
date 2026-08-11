@@ -14,11 +14,13 @@ from src.agents.outfit.coherence import (
     is_coherent_candidate,
     is_western_register_occasion,
 )
-from src.agents.outfit.occasions import ETHNIC_HEAVY, ETHNIC_ONLY, get_occasion
+from src.agents.outfit.occasions import get_occasion
 from src.agents.outfit.slots import (
     _FORMAL_ETHNIC_OCCASIONS,
+    SLOT_ALLOWED_CLASSES,
     accessory_query_matches,
     classify_anchor,
+    classify_item,
     fabric_score_delta,
     gender_allowed,
     get_fill_slots,
@@ -206,7 +208,7 @@ def compose_outfit(
         valid = [
             c
             for c in candidates
-            if _anchor_matches_occasion(c, occasion_slug)
+            if _anchor_matches_occasion(c, occasion_slug, _anchor_look_gender)
             and gender_allowed((c.get("gender") or "unknown").lower(), _anchor_look_gender)
             and not is_kids_item(
                 c.get("prod_name") or c.get("display_name") or "", c.get("detail_desc")
@@ -1491,21 +1493,41 @@ def _anchor_query_for_occasion(occasion_slug: str, gender: str) -> str:
     return queries.get(occasion_slug, "top casual")
 
 
-def _anchor_matches_occasion(item: dict, occasion_slug: str) -> bool:
-    """Check if an item retrieved as anchor is coherent with the occasion."""
-    from src.agents.outfit.occasions import OCCASIONS
+def _anchor_matches_occasion(item: dict, occasion_slug: str, gender: str) -> bool:
+    """Check if an item retrieved as anchor is coherent with the occasion.
 
-    occ = OCCASIONS.get(occasion_slug)
-    if occ is None:
-        return True
+    2026-08-11 fix (anchor-vs-complement gate unification): previously ran a
+    narrower, hand-duplicated check here (ethnic_lean vs is_ethnic_item only)
+    instead of the same is_coherent_candidate gate every COMPLEMENT is
+    checked against. That narrower check is a structural no-op for every
+    occasion whose ethnic_lean is EITHER -- which includes exactly the 3
+    occasions that carry a register gate in is_coherent_candidate specifically
+    BECAUSE ethnic_lean alone isn't enough protection for them (office=gate 4,
+    gym=gate 5, party_evening=gate 6). An ethnic/festive/casual-marker anchor
+    could therefore anchor a look whose OWN complement gate would reject the
+    identical item. Confirmed empirically (not just structurally) via
+    eval/anchor_complement_gate_class_probe.py and the fixture-driven
+    eval/gate_leak_audit.py sweep: office leaks reproduced (4/293 real
+    composed looks), same shape confirmed reachable for gym/party_evening
+    once a body-type/modifier-varied anchor query surfaces one. Now routes
+    through the SAME gate function complements use, so a future gate 4/5/6
+    change never needs a second, hand-synced edit here again.
+
+    skip_gender_gate=True: the caller (compose_outfit's anchor resolution,
+    and partner.py's mirror of it) already applies gender_allowed() and
+    has_gender_text_conflict() explicitly alongside this call — avoids
+    running that gate twice, not a correctness change.
+    """
     pt = item.get("product_type") or ""
     name = item.get("prod_name") or ""
-    if occ.ethnic_lean == ETHNIC_ONLY and not is_ethnic_item(pt, name):
-        return False
-    # Prefer ethnic anchor for ethnic_heavy occasions too
-    if occ.ethnic_lean == ETHNIC_HEAVY and not is_ethnic_item(pt, name):
-        return False
-    return True
+    item_class = classify_item(pt, name)
+    slot_name = next(
+        (slot for slot, classes in SLOT_ALLOWED_CLASSES.items() if item_class in classes),
+        "top",
+    )
+    return is_coherent_candidate(
+        item, occasion_slug, gender, slot_name, skip_gender_gate=True
+    )
 
 
 def _safe_str(val: object) -> str:
