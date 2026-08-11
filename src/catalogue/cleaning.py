@@ -92,15 +92,42 @@ def is_fabric_bolt_text(text: str | None) -> bool:
 # mirroring is_fabric_bolt_text above, without importing from the agents layer.
 _KIDS_MARKER_RE = re.compile(r"\b(junior|juniors|girl|girls|boy|boys|kid|kids)\b", re.IGNORECASE)
 
+# 2026-08-10 (occasion-register wave, Cluster C): a bare kids-marker scan over
+# detail_desc (the same word list as _KIDS_MARKER_RE above) hits 3,492 rows
+# with no kids marker in the name -- dominated by false positives from
+# colloquial vendor copy on genuinely ADULT items ("earrings for girls",
+# "necklaces for girls" on adult fashion jewellery, "Wear for every range of
+# age groups from Boys, Girls, and Gents" on a men's t-shirt). NOT proposed;
+# same unreliable-vendor-copy shape eval/README.md's standing rule warns
+# about, just for age instead of formality. This narrower "kids(s) + up to a
+# few words + garment noun" phrase pattern is the safe alternative: verified
+# against every catalogue row it matches (56/56, data/processed/unified/
+# catalogue.parquet) -- all genuine kids items ("Kids Kurta Pajama", "Kids
+# Boys Set of 2", "kids girls dress", etc.), zero false positives found in
+# the full matched population, not a sample. Real miss motivating this:
+# "White Multicolor Cotton Blend Printed Kurta Pyjama Set" -- no kids marker
+# in prod_name, detail_desc opens "Kids Printed Kurta Pyjama Set".
+_KIDS_DESC_PHRASE_RE = re.compile(
+    r"\bkids?\b[\w\s]{0,20}\b(kurta|dress|lehenga|pyjama|pajama|kurti|suit|blazer|set)\b",
+    re.IGNORECASE,
+)
 
-def is_kids_item(prod_name: str | None) -> bool:
-    """Return True if `prod_name` carries a juniors/girls/boys/kids marker.
+
+def is_kids_item(prod_name: str | None, detail_desc: str | None = None) -> bool:
+    """Return True if `prod_name` carries a juniors/girls/boys/kids marker, or
+    `detail_desc` (when given) carries the narrower kids+garment-noun phrase.
 
     Applied as a hard exclusion at retrieval time (hybrid_search.py, graph.py)
     AND as an additional per-slot gate in the outfit composer — see module
-    docstring above _KIDS_MARKER_RE for why the gender column alone isn't enough.
+    docstring above _KIDS_MARKER_RE for why the gender column alone isn't
+    enough, and _KIDS_DESC_PHRASE_RE's own comment for why the desc check is
+    a narrow phrase match rather than a bare word scan. `detail_desc` is
+    optional and backward-compatible — omitting it preserves the original
+    prod_name-only behavior exactly.
     """
-    return bool(_KIDS_MARKER_RE.search(prod_name or ""))
+    if _KIDS_MARKER_RE.search(prod_name or ""):
+        return True
+    return bool(detail_desc and _KIDS_DESC_PHRASE_RE.search(detail_desc))
 
 
 # ---------------------------------------------------------------------------

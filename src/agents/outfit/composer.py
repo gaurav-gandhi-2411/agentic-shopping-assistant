@@ -208,7 +208,9 @@ def compose_outfit(
             for c in candidates
             if _anchor_matches_occasion(c, occasion_slug)
             and gender_allowed((c.get("gender") or "unknown").lower(), _anchor_look_gender)
-            and not is_kids_item(c.get("prod_name") or c.get("display_name") or "")
+            and not is_kids_item(
+                c.get("prod_name") or c.get("display_name") or "", c.get("detail_desc")
+            )
             # 2026-08-06 cross-gender leak fix: the catalogue's own gender
             # column is unreliable for a real, audited slice of rows (385,
             # concentrated in vastramay/voylla/jompers) -- e.g. "Men's
@@ -1013,7 +1015,7 @@ def _score_candidates(
         # "men" (see is_kids_item docstring), so gender_allowed() alone is not
         # enough (live-proven: an office look's bottom slot filled with a
         # "M&H Juniors Girls ... Denim Skirts" item).
-        if is_kids_item(item_name):
+        if is_kids_item(item_name, item.get("detail_desc")):
             continue
         # Loungewear hard gate (2026-07-31, "baraat outfit for men" fix):
         # formal_ethnic occasions must never accept a loungewear/nightwear

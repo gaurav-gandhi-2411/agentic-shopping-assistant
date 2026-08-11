@@ -1165,6 +1165,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_002
   category: occasion
@@ -1190,6 +1191,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_003
   category: occasion
@@ -1215,6 +1217,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_004
   category: occasion
@@ -1240,6 +1243,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_005
   category: occasion
@@ -1269,6 +1273,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_006
   category: occasion
@@ -1300,6 +1305,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_007
   category: occasion
@@ -1325,6 +1331,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_008
   category: occasion
@@ -1350,6 +1357,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_009
   category: occasion
@@ -1379,6 +1387,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_010
   category: occasion
@@ -1410,6 +1419,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_011
   category: occasion
@@ -1439,6 +1449,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_012
   category: occasion
@@ -1464,6 +1475,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_013
   category: occasion
@@ -1489,6 +1501,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_014
   category: occasion
@@ -1518,6 +1531,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_015
   category: occasion
@@ -1543,6 +1557,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_016
   category: occasion
@@ -1568,6 +1583,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_017
   category: occasion
@@ -1593,6 +1609,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_018
@@ -1619,6 +1636,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_019
   category: occasion
@@ -1648,6 +1666,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_020
@@ -1675,6 +1694,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_021
   category: occasion
@@ -1704,6 +1724,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_022
   category: occasion
@@ -1729,6 +1750,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_023
@@ -1756,6 +1778,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_024
   category: occasion
@@ -1785,6 +1808,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_025
@@ -1811,6 +1835,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_026
   category: occasion
@@ -1836,6 +1861,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_027
   category: occasion
@@ -1865,6 +1891,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_028
   category: occasion
@@ -1890,6 +1917,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_029
   category: occasion
@@ -1919,6 +1947,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_030
   category: occasion
@@ -1949,6 +1978,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_031
   category: occasion
@@ -1974,6 +2004,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_032
   category: occasion
@@ -2003,6 +2034,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_033
   category: occasion
@@ -2033,6 +2065,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_034
   category: occasion
@@ -2062,6 +2095,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_035
@@ -2095,6 +2129,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_036
   category: occasion
@@ -2124,6 +2159,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_037
   category: occasion
@@ -2149,6 +2185,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_038
   category: occasion
@@ -2178,6 +2215,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_039
@@ -2208,6 +2246,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_040
@@ -2235,6 +2274,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_041
   category: occasion
@@ -2264,6 +2304,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_042
@@ -2290,6 +2331,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_043
   category: occasion
@@ -2316,6 +2358,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_044
   category: occasion
@@ -2345,6 +2388,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_045
@@ -2371,6 +2415,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_046
   category: occasion
@@ -2400,6 +2445,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_047
   category: occasion
@@ -2425,6 +2471,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_048
   category: occasion
@@ -2455,6 +2502,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_049
   category: occasion
@@ -2484,6 +2532,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_050
@@ -2511,6 +2560,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_051
   category: occasion
@@ -2540,6 +2590,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_052
@@ -2567,6 +2618,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_053
   category: occasion
@@ -2596,6 +2648,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_054
@@ -2623,6 +2676,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_055
   category: occasion
@@ -2648,6 +2702,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_056
   category: occasion
@@ -2677,6 +2732,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
   - jewellery
@@ -2704,6 +2760,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_058
   category: occasion
@@ -2730,6 +2787,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_059
   category: occasion
@@ -2759,6 +2817,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_060
@@ -2786,6 +2845,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: body_type_001
   category: body_type
@@ -2947,6 +3007,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_012
   category: body_type
   turns:
@@ -2972,6 +3033,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_013
   category: body_type
   turns:
@@ -2996,6 +3058,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_014
   category: body_type
   turns:
@@ -3021,6 +3084,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_015
   category: body_type
   turns:
@@ -3045,6 +3109,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_016
   category: body_type
   turns:
@@ -3070,6 +3135,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_017
   category: body_type
   turns:
@@ -3095,6 +3161,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_018
   category: body_type
   turns:
@@ -3119,6 +3186,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_019
   category: body_type
   turns:
@@ -3144,6 +3212,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_020
   category: body_type
   turns:
@@ -3168,6 +3237,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_021
   category: body_type
   turns:
@@ -3193,6 +3263,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_022
   category: body_type
   turns:
@@ -3218,6 +3289,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_023
   category: body_type
   turns:
@@ -3242,6 +3314,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_024
   category: body_type
   turns:
@@ -3268,6 +3341,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_025
   category: body_type
   turns:
@@ -3292,6 +3366,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_026
   category: body_type
   turns:
@@ -3316,6 +3391,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_027
   category: body_type
   turns:
@@ -3340,6 +3416,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_028
   category: body_type
   turns:
@@ -3365,6 +3442,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_029
   category: body_type
   turns:
@@ -3389,6 +3467,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_030
   category: body_type
   turns:
@@ -3414,6 +3493,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 # --- Area 1 additions (2026-07-25): men's body-shape/fit ruleset ----------
 # See src/agents/outfit/body_type.py's module docstring. body_type_031 is a
 # bare statement (mirrors body_type_001-005's pattern, no compose/gates).
@@ -3472,6 +3552,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_033
   category: body_type
   turns:
@@ -3497,6 +3578,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: body_type_034
   category: body_type
   turns:
@@ -3523,6 +3605,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_001
   category: couple
   turns:
@@ -3547,6 +3630,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_002
   category: couple
   turns:
@@ -3571,6 +3655,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_003
   category: couple
   turns:
@@ -3595,6 +3680,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_004
   category: couple
   turns:
@@ -3619,6 +3705,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_005
   category: couple
   turns:
@@ -3650,6 +3737,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_006
   category: couple
   turns:
@@ -3681,6 +3769,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_007
   category: couple
   turns:
@@ -3705,6 +3794,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_008
   category: couple
   turns:
@@ -3729,6 +3819,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_009
   category: couple
   turns:
@@ -3753,6 +3844,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_010
   category: couple
   turns:
@@ -3777,6 +3869,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_011
   category: couple
   turns:
@@ -3801,6 +3894,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_012
   category: couple
   turns:
@@ -3825,6 +3919,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_013
   category: couple
   turns:
@@ -3849,6 +3944,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_014
   category: couple
   turns:
@@ -3874,6 +3970,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_015
   category: couple
   turns:
@@ -3898,6 +3995,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_016
   category: couple
   turns:
@@ -3922,6 +4020,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_017
   category: couple
   turns:
@@ -3946,6 +4045,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_018
   category: couple
   turns:
@@ -3970,6 +4070,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_019
   category: couple
   turns:
@@ -3994,6 +4095,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_020
   category: couple
   turns:
@@ -4018,6 +4120,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_021
   category: couple
   turns:
@@ -4042,6 +4145,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_022
   category: couple
   turns:
@@ -4066,6 +4170,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_023
   category: couple
   turns:
@@ -4090,6 +4195,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_024
   category: couple
   turns:
@@ -4115,6 +4221,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_025
   category: couple
   turns:
@@ -4139,6 +4246,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_026
   category: couple
   turns:
@@ -4163,6 +4271,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_027
   category: couple
   turns:
@@ -4187,6 +4296,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_028
   category: couple
   turns:
@@ -4211,6 +4321,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_029
   category: couple
   turns:
@@ -4236,6 +4347,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: couple_030
   category: couple
   turns:
@@ -4264,6 +4376,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 - id: refinement_001
   category: refinement
   turns:
@@ -5190,6 +5303,7 @@ queries:
     checks:
     - budget_respected
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_007
   category: adversarial
   turns:
@@ -5214,6 +5328,7 @@ queries:
     checks:
     - budget_respected
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_008
   category: adversarial
   turns:
@@ -5242,6 +5357,7 @@ queries:
     checks:
     - budget_respected
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_009
   category: adversarial
   turns:
@@ -5275,6 +5391,7 @@ queries:
     checks:
     - budget_respected
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_010
   category: adversarial
   turns:
@@ -5299,6 +5416,7 @@ queries:
     checks:
     - budget_respected
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_011
   category: adversarial
   turns:
@@ -5605,6 +5723,7 @@ queries:
     checks:
     - gender_pure
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_022
   category: adversarial
   turns:
@@ -5628,6 +5747,7 @@ queries:
     checks:
     - gender_pure
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_023
   category: adversarial
   turns:
@@ -5651,6 +5771,7 @@ queries:
     checks:
     - gender_pure
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_024
   category: adversarial
   turns:
@@ -5674,6 +5795,7 @@ queries:
     checks:
     - gender_pure
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_025
   category: adversarial
   turns:
@@ -5703,6 +5825,7 @@ queries:
     checks:
     - gender_pure
     - suppression_honest
+    - no_complement_gate_leak
 - id: adversarial_026
   category: adversarial
   turns:
@@ -5905,6 +6028,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_062
   category: occasion
@@ -5934,6 +6058,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_063
@@ -5964,6 +6089,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_064
   category: occasion
@@ -5993,6 +6119,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_065
   category: occasion
@@ -6023,6 +6150,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_066
   category: occasion
@@ -6058,6 +6186,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # 2026-07-23: "gold" is not a recognised colour token in _COLOUR_MAP
   # (no catalogue-exact "Gold" bucket) -- colour stays null here on purpose,
@@ -6092,6 +6221,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_068
   category: occasion
@@ -6123,6 +6253,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_069
   category: occasion
@@ -6152,6 +6283,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_070
   category: occasion
@@ -6177,6 +6309,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_071
   category: occasion
@@ -6206,6 +6339,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_072
@@ -6237,6 +6371,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_073
@@ -6272,6 +6407,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_074
   category: occasion
@@ -6302,6 +6438,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_075
   category: occasion
@@ -6333,6 +6470,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_076
   category: occasion
@@ -6364,6 +6502,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_077
   category: occasion
@@ -6393,6 +6532,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_078
@@ -6426,6 +6566,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_079
   category: occasion
@@ -6451,6 +6592,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_080
   category: occasion
@@ -6481,6 +6623,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_081
   category: occasion
@@ -6510,6 +6653,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_082
   category: occasion
@@ -6539,6 +6683,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_083
@@ -6569,6 +6714,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # "chaniya choli" is occasion-only vocabulary in _OCCASION_MAP, not a
   # recognised garment_type -- garment_type stays null (real parser gap,
@@ -6597,6 +6743,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_085
   category: occasion
@@ -6626,6 +6773,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_086
@@ -6652,6 +6800,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_087
   category: occasion
@@ -6681,6 +6830,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_088
@@ -6712,6 +6862,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_089
@@ -6738,6 +6889,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_090
   category: occasion
@@ -6767,6 +6919,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_091
   category: occasion
@@ -6798,6 +6951,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_092
   category: occasion
@@ -6828,6 +6982,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_093
   category: occasion
@@ -6853,6 +7008,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_094
   category: occasion
@@ -6887,6 +7043,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_095
   category: occasion
@@ -6917,6 +7074,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_096
@@ -6947,6 +7105,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_097
   category: occasion
@@ -6976,6 +7135,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_098
   category: occasion
@@ -7001,6 +7161,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_099
   category: occasion
@@ -7030,6 +7191,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_100
@@ -7060,6 +7222,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_101
@@ -7087,6 +7250,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_102
   category: occasion
@@ -7118,6 +7282,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_103
   category: occasion
@@ -7148,6 +7313,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_104
   category: occasion
@@ -7178,6 +7344,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_105
   category: occasion
@@ -7207,6 +7374,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_106
   category: occasion
@@ -7236,6 +7404,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_107
   category: occasion
@@ -7271,6 +7440,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_108
   category: occasion
@@ -7301,6 +7471,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # 24 women rows total for karva_chauth in the catalogue (audit count) --
   # a real thin-catalogue occasion, kept honest via jewellery ceiling tag.
@@ -7332,6 +7503,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_110
@@ -7358,6 +7530,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_111
@@ -7393,6 +7566,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Honest-suppression probe: audit shows 0 men rows match karva_chauth
   # keywords in the catalogue -- compose_outfit must degrade gracefully
@@ -7425,6 +7599,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_113
@@ -7456,6 +7631,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_114
   category: occasion
@@ -7491,6 +7667,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_115
   category: occasion
@@ -7520,6 +7697,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_116
   category: occasion
@@ -7550,6 +7728,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_117
@@ -7583,6 +7762,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_118
   category: occasion
@@ -7608,6 +7788,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_119
   category: occasion
@@ -7640,6 +7821,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_120
   category: occasion
@@ -7670,6 +7852,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_121
   category: occasion
@@ -7699,6 +7882,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_122
@@ -7735,6 +7919,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Honest-suppression probe: 24-row catalogue + a 1000 INR cap is a
   # compounding constraint -- expect suppression_honest to fire, not a
@@ -7768,6 +7953,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
   - womens_footwear
@@ -7802,6 +7988,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - mens_occasionwear
 - id: occasion_125
@@ -7829,6 +8016,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_126
   category: occasion
@@ -7858,6 +8046,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
   # Real parser gap, not fixed here (code files out of scope): "sister"
@@ -7889,6 +8078,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_128
   category: occasion
@@ -7918,6 +8108,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Same "sister" gender-gap as raksha_bandhan_001 -- see that entry's comment.
 - id: occasion_129
@@ -7944,6 +8135,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_130
   category: occasion
@@ -7973,6 +8165,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_131
   category: occasion
@@ -8002,6 +8195,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_132
   category: occasion
@@ -8033,6 +8227,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Family-context query naming both siblings: resolves gender=men only
   # ("brother" matches _GENDER_MAP's men-relation rule; "sister" matches
@@ -8066,6 +8261,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_134
   category: occasion
@@ -8096,6 +8292,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_135
   category: occasion
@@ -8126,6 +8323,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_136
   category: occasion
@@ -8157,6 +8355,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_137
   category: occasion
@@ -8182,6 +8381,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_138
   category: occasion
@@ -8211,6 +8411,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_139
   category: occasion
@@ -8240,6 +8441,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_140
   category: occasion
@@ -8269,6 +8471,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_141
   category: occasion
@@ -8299,6 +8502,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_142
   category: occasion
@@ -8328,6 +8532,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_143
   category: occasion
@@ -8358,6 +8563,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_144
   category: occasion
@@ -8392,6 +8598,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_145
   category: occasion
@@ -8421,6 +8628,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Same "sister" gender-gap as raksha_bandhan_001 -- see that entry's comment.
 - id: occasion_146
@@ -8448,6 +8656,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Same "sister" gender-gap as raksha_bandhan_001 -- see that entry's comment.
 - id: occasion_147
@@ -8474,6 +8683,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_148
   category: occasion
@@ -8503,6 +8713,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_149
   category: occasion
@@ -8532,6 +8743,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Audit shows eid women's depth (178 rows) is thinner than men's (400) --
   # the inverse of most ethnic occasions in this catalogue. Kept honest
@@ -8564,6 +8776,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_151
@@ -8596,6 +8809,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_152
   category: occasion
@@ -8626,6 +8840,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_153
   category: occasion
@@ -8658,6 +8873,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_154
   category: occasion
@@ -8688,6 +8904,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_155
   category: occasion
@@ -8717,6 +8934,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_156
   category: occasion
@@ -8746,6 +8964,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_157
   category: occasion
@@ -8777,6 +8996,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_158
   category: occasion
@@ -8802,6 +9022,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_159
   category: occasion
@@ -8834,6 +9055,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_160
   category: occasion
@@ -8864,6 +9086,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_161
   category: occasion
@@ -8893,6 +9116,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - jewellery
 - id: occasion_162
@@ -8924,6 +9148,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_163
   category: occasion
@@ -8955,6 +9180,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
   # Thinner women's depth (178 rows, see eid_002) plus a tight budget --
   # plausible honest-suppression probe.
@@ -8987,6 +9213,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_165
@@ -9022,6 +9249,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_166
   category: occasion
@@ -9052,6 +9280,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_167
   category: occasion
@@ -9081,6 +9310,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_168
   category: occasion
@@ -9115,6 +9345,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_169
   category: occasion
@@ -9145,6 +9376,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_170
   category: occasion
@@ -9170,6 +9402,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_171
   category: occasion
@@ -9199,6 +9432,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_172
   category: occasion
@@ -9232,6 +9466,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_173
   category: occasion
@@ -9263,6 +9498,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_174
   category: occasion
@@ -9294,6 +9530,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_175
   category: occasion
@@ -9326,6 +9563,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_176
   category: occasion
@@ -9355,6 +9593,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_177
   category: occasion
@@ -9386,6 +9625,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_178
   category: occasion
@@ -9416,6 +9656,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_179
   category: occasion
@@ -9448,6 +9689,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
 # ---------------------------------------------------------------------------
 # WAVE 9 -- gym/activewear occasion expansion (2026-07-23). One new first-class
 # occasion slug ("gym") added to src/agents/outfit/occasions.py's OCCASIONS
@@ -9529,6 +9771,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_181
   category: occasion
@@ -9558,6 +9801,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_182
   category: occasion
@@ -9587,6 +9831,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_183
   category: occasion
@@ -9616,6 +9861,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_184
   category: occasion
@@ -9645,6 +9891,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_185
   category: occasion
@@ -9670,6 +9917,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_186
   category: occasion
@@ -9695,6 +9943,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_187
   category: occasion
@@ -9724,6 +9973,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # "yoga pants" -- garment_type resolves via the generic "\bpants\b" rule to
 # "trousers" (verified: retriever.search top-5, no gender filter, is 4/5
@@ -9756,6 +10006,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_189
   category: occasion
@@ -9785,6 +10036,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # "sports bra and leggings for the gym" -- garment_type resolves via the
 # "\bbra\b" rule to "innerwear" (leggings itself has no rule match). Verified
@@ -9819,6 +10071,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_191
   category: occasion
@@ -9850,6 +10103,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # "joggers for the gym" -- garment_type stays null: "joggers" has no
 # _GARMENT_RULES entry at all (see WAVE 9 header comment above).
@@ -9877,6 +10131,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # "leggings for the gym" -- garment_type stays null: "leggings" has no
 # _GARMENT_RULES entry at all (see WAVE 9 header comment above).
@@ -9904,6 +10159,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_194
   category: occasion
@@ -9936,6 +10192,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_195
   category: occasion
@@ -9969,6 +10226,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_196
   category: occasion
@@ -10000,6 +10258,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_197
   category: occasion
@@ -10031,6 +10290,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_198
   category: occasion
@@ -10061,6 +10321,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_199
   category: occasion
@@ -10092,6 +10353,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # Positive men's-athletic-footwear demonstration (deeper inventory, ~87 rows)
 # -- contrast with the women's footwear entries below. Verified compose_outfit
@@ -10127,6 +10389,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # Honest-thin-footwear case, PLAIN/unbudgeted. Verified compose_outfit gates
 # result (gender defaults to women, no budget cap): the footwear slot is
@@ -10164,6 +10427,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # Same honest-thin-but-not-zero footwear story as occasion_201, explicit
 # gender. Raw retrieval (retriever.search top-5, gender=women filter) is only
@@ -10200,6 +10464,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # THE canonical honest-thin-footwear suppression case: at a real budget cap,
 # women's athletic footwear genuinely runs out. Verified compose_outfit gates
@@ -10236,6 +10501,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 # Verified compose_outfit gates result (gender=women, budget_inr=2000): only
@@ -10266,6 +10532,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_205
@@ -10297,6 +10564,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # Verified compose_outfit gates result (gender=women, budget_inr=1500): only
 # the bottom (leggings) fills; top/outerwear/footwear are suppressed.
@@ -10329,6 +10597,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 # Verified compose_outfit gates result (gender=women, budget_inr=2500): top +
@@ -10362,6 +10631,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 - id: occasion_208
@@ -10393,6 +10663,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # Contrast case: even men's DEEPER activewear inventory (~87 athletic-
 # footwear rows) honestly suppresses under a genuinely tight budget --
@@ -10429,6 +10700,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # "skort for gym" -- garment_type stays null: "skort" has no _GARMENT_RULES
 # entry at all (see WAVE 9 header comment above), despite being a real,
@@ -10457,6 +10729,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # ADVERSARIAL (loungewear-leak regression marker) -- the exact query text
 # verified (tests/test_gym_occasion.py's TestLoungewearGateCoversGymRealIndex,
@@ -10494,6 +10767,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # ADVERSARIAL (no-ethnic-bleed regression marker) -- garment_type resolves to
 # "kurta" (the "\bkurta\b" rule matches), but run_gates_stage (scripts/
@@ -10532,6 +10806,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 - id: occasion_213
   category: occasion
@@ -10557,6 +10832,7 @@ queries:
     - gender_pure
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # Verified compose_outfit gates result (gender=women, budget_inr=1200): only
 # the top (sports bra) fills; bottom/outerwear/footwear/accessory are ALL
@@ -10590,6 +10866,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags:
   - womens_footwear
 # Verified compose_outfit gates result (gender=men, budget_inr=800): only
@@ -10624,6 +10901,7 @@ queries:
     - budget_respected
     - no_novelty
     - suppression_honest
+    - no_complement_gate_leak
   data_ceiling_tags: []
 # ---------------------------------------------------------------------------
 # 2026-07-23 fix: occasion-merchandise leak (category="search", no `gates`
