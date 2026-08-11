@@ -302,6 +302,85 @@ looks:
     palette_ok: true
     rationale: "A novelty costume piece boarded for a wedding reception — the exact NOVELTY_RE denylist class (scripts/eval_model.py) this fixture also probes on the judge side."
 
+# 2026-08-11 (palette ground-truth growth): the mechanical palette-harmony
+# check (eval/palette_harmony_check.py, reports/mechanical_coherence_checks_
+# 20260810T163242Z.md) was blocked from shipping specifically because this
+# fixture had only ONE palette_ok:false case (bad_004 below) — any FN-rate
+# number computed against it was a single coin flip, not a rate. These 4
+# entries close that gap: independently-reasoned palette clashes (not
+# selected by running colour_score() and picking whatever it already scores
+# low, which would be circular ground truth), spanning both the western
+# colour_score branch (bad_009, bad_012) and two occasion-specific palette
+# overrides (bad_010 haldi, bad_011 diwali) so both code paths get real
+# coverage, per the original report's own "what would change this" note.
+- id: bad_009_palette_clash_western_office
+  bucket: bad
+  defect: palette
+  occasion_slug: office
+  items:
+    - {prod_name: "Van Heusen Woman Red Solid Single-Breasted Formal Blazer", colour: Red, product_type: blazer, gender: women, source: real}
+    - {prod_name: "Marks & Spencer Women Green Solid Trousers", colour: Green, product_type: trousers, gender: women, source: real}
+    - {prod_name: "Cobalt Blue Structured Handbag", colour: Blue, product_type: bag, gender: women, source: synthetic}
+  hand_score:
+    occasion_score: 2
+    coherence_score: 1
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: false
+    rationale: "Red blazer, green trousers, and a blue bag are three clashing primary/secondary hues with no coordinating thread — each piece is individually office-formal, but the palette actively fights."
+
+- id: bad_010_palette_clash_haldi_dark_dupatta
+  bucket: bad
+  defect: palette
+  occasion_slug: haldi
+  items:
+    - {prod_name: "Biba Women Yellow Ethnic Motifs Printed Anarkali Kurta", colour: Yellow, product_type: kurta, gender: women, source: real}
+    - {prod_name: "Dupatta Bazaar Black Solid Dupatta", colour: Black, product_type: dupatta, gender: women, source: real}
+    - {prod_name: "Haldi - Kolhapuri Sandals", colour: Yellow, product_type: footwear, gender: women, source: real}
+  hand_score:
+    occasion_score: 2
+    coherence_score: 2
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: false
+    rationale: "The kurta and sandals are correctly light cotton/yellow daytime haldi wear — this is a palette defect, not a type/formality one. A solid black dupatta is a dark, sombre note that clashes hard against haldi's bright yellow-marigold register, a real and common styling mistake."
+
+- id: bad_011_palette_clash_diwali_pastel
+  bucket: bad
+  defect: palette
+  occasion_slug: diwali
+  items:
+    - {prod_name: "Floral Block Printed A-Line Kurta with Palazzo - Peach", colour: Peach, product_type: kurta, gender: women, source: real}
+    - {prod_name: "Dupatta Bazaar Women White Solid Dupatta", colour: White, product_type: dupatta, gender: women, source: real}
+    - {prod_name: "Sukkhi Traditional Fashion Antique Gold Plated Kundan & Pearls Studded Jhumka/Jhumki Earring Ring Combo Set", colour: Gold, product_type: jewellery, gender: women, source: real}
+  hand_score:
+    occasion_score: 2
+    coherence_score: 2
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: false
+    rationale: "Diwali's festival-of-lights register expects bold gold/red/jewel tones — the gold jewellery alone would be right, but a plain white dupatta over a soft peach kurta reads washed-out and mismatched against that expected bold palette."
+
+- id: bad_012_palette_clash_party_evening
+  bucket: bad
+  defect: palette
+  occasion_slug: party_evening
+  items:
+    - {prod_name: "Berrylush Yellow Floral Printed Two-Piece Dress", colour: Yellow, product_type: dress, gender: women, source: real}
+    - {prod_name: "Purple Heart Clutch Purse", colour: Purple, product_type: bag, gender: women, source: real}
+    - {prod_name: "Turquoise Strappy Heels", colour: Turquoise, product_type: footwear, gender: women, source: synthetic}
+  hand_score:
+    occasion_score: 2
+    coherence_score: 1
+    gender_consistent: true
+    occasion_register_ok: true
+    formality_ok: true
+    palette_ok: false
+    rationale: "Yellow dress, purple clutch, turquoise heels — three clashing hues with no shared undertone or coordinating pair; each piece is individually party-appropriate, but nothing here reads as a deliberate colour story."
+
 # ---------------------------------------------------------------------------
 # BORDERLINE (6) — one subtle issue each; ground truth ~3, not extreme
 # ---------------------------------------------------------------------------
