@@ -34,13 +34,19 @@
     to identify which one).
 #>
 
+# Project/AR repo/image name corrected (Item 114) to match the stylemaitri-prod-260813
+# migration already applied to deploy_unified.sh (PR #28): StyleMaitri's pre-migration
+# project (see scripts/deploy_unified.sh's config comments) and its "shopping-assistant"
+# AR repo no longer exist, and Cloud Run's actual source-deploy repo in the new project
+# is "cloud-run-source-deploy", holding images named after SERVICE (asa-stylist-api),
+# not "asa-api".
 [CmdletBinding()]
 param(
-    [string]$Project = "iconic-reactor-496423-m4",
+    [string]$Project = "stylemaitri-prod-260813",
     [string]$Region = "asia-south1",
     [string]$Service = "asa-stylist-api",
-    [string]$GarRepo = "shopping-assistant",
-    [string]$ImageName = "asa-api",
+    [string]$GarRepo = "cloud-run-source-deploy",
+    [string]$ImageName = "asa-stylist-api",
     [switch]$SkipBuild,
     [string]$Tag
 )
