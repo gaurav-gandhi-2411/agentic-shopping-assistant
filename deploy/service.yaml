@@ -5,17 +5,24 @@
 #
 # Use this file only when gcloud CLI flags misbehave (e.g. cached secrets leak
 # into a new revision).  Update IMAGE_TAG and run:
-#   gcloud run services replace deploy/service.yaml --region asia-south1
+#   gcloud run services replace deploy/service.yaml --region asia-south1 \
+#     --project stylemaitri-prod-260813
 #
 # After replace: verify traffic with
 #   gcloud run services describe asa-stylist-api --region asia-south1 \
+#     --project stylemaitri-prod-260813 \
 #     --format "json(spec.traffic,status.traffic)"
 #
-# Secret names (Secret Manager, project iconic-reactor-496423-m4):
+# Secret names (Secret Manager, project stylemaitri-prod-260813):
 #   asa-groq-api-key     → GROQ_API_KEY
 #   asa-demo-jwt-secret  → DEMO_JWT_SECRET
 #   asa-database-url     → DATABASE_URL
 #   asa-supabase-url     → SUPABASE_URL
+#
+# Corrected 2026-08-15 (Item 54): project, image path, namespace (= project
+# number), default SA, and secret key versions all still referenced
+# iconic-reactor-496423-m4, StyleMaitri's pre-migration project — deleted
+# three rounds ago. This file would have deployed nothing as written.
 # ---------------------------------------------------------------------------
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -24,7 +31,7 @@ metadata:
     run.googleapis.com/ingress: all
     run.googleapis.com/maxScale: "1"
   name: asa-stylist-api
-  namespace: "657468372797"
+  namespace: "631709154646"
 spec:
   template:
     metadata:
@@ -36,7 +43,7 @@ spec:
     spec:
       containerConcurrency: 4
       containers:
-      - image: asia-south1-docker.pkg.dev/iconic-reactor-496423-m4/shopping-assistant/asa-api:REPLACE_WITH_TAG
+      - image: asia-south1-docker.pkg.dev/stylemaitri-prod-260813/cloud-run-source-deploy/asa-stylist-api:REPLACE_WITH_TAG
         ports:
         - containerPort: 8080
           name: http1
@@ -58,28 +65,47 @@ spec:
         - name: CORS_ORIGINS
           value: https://stylemaitri.vercel.app
         - name: INDEX_STORE_URI
-          value: gs://asa-demo-indices/unified/
+          value: gs://asa-demo-indices-stylemaitri-prod/unified/
+        # DEMO_DAILY_REQUEST_CAP: this file is a full declarative replace, unlike
+        # deploy_unified.sh's incremental --set-env-vars. Omitting a live-tuned
+        # override here means an emergency `services replace` would silently
+        # revert it to the code default (api/demo/guards.py: 700/day) instead
+        # of reproducing the actual running config (150/day, confirmed via
+        # `gcloud run services describe` on 2026-08-15) — the opposite of what
+        # this file exists for.
+        - name: DEMO_DAILY_REQUEST_CAP
+          value: "150"
         - name: GROQ_API_KEY
           valueFrom:
             secretKeyRef:
               name: asa-groq-api-key
-              key: "2"
+              key: "latest"
         - name: DEMO_JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: asa-demo-jwt-secret
-              key: "2"
+              key: "latest"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
               name: asa-database-url
-              key: "2"
+              key: "latest"
         - name: SUPABASE_URL
           valueFrom:
             secretKeyRef:
               name: asa-supabase-url
-              key: "2"
-      serviceAccountName: 657468372797-compute@developer.gserviceaccount.com
+              key: "latest"
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: asa-gemini-api-key
+              key: "latest"
+        - name: OPENROUTER_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: asa-openrouter-api-key
+              key: "latest"
+      serviceAccountName: 631709154646-compute@developer.gserviceaccount.com
       timeoutSeconds: 300
   # IMPORTANT: traffic must always pin to an explicit revisionName, never latestRevision: true.
   # Replace REPLACE_WITH_REVISION after the new revision is Ready.
