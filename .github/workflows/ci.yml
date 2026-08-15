@@ -1,5 +1,17 @@
 name: CI
 
+# WIF_PROVIDER / WIF_SERVICE_ACCOUNT corrected 2026-08-15 (Item 54): both
+# secrets were last set 2026-07-12, before iconic-reactor-496423-m4 (the old
+# GCP project) was deleted in the gandhi1129 sole-identity migration — the
+# WIF pool they referenced no longer exists, so the auth step here was
+# broken (confirmed via the identical failure on DealHunter's deploy
+# pipeline: "invalid_target ... pool or provider is disabled or deleted").
+# Repointed to a fresh github-pool/github-provider in stylemaitri-prod-260813
+# and a new dedicated stylemaitri-ci-index-reader SA, scoped to
+# roles/storage.objectViewer on gs://asa-demo-indices-stylemaitri-prod only
+# (matches this step's own "read-only, index bucket only" label) — not the
+# existing default compute SA, so this CI step can't touch anything beyond
+# what it actually needs.
 on:
   pull_request:
   push:
@@ -63,8 +75,8 @@ jobs:
       - name: Download unified index (for requires_index tests)
         run: |
           mkdir -p data/processed/unified data/processed/clip/unified
-          gcloud storage cp -r 'gs://asa-demo-indices/unified/unified/*' data/processed/unified/
-          gcloud storage cp gs://asa-demo-indices/unified/clip/unified/clip_article_ids.npy data/processed/clip/unified/
+          gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
+          gcloud storage cp gs://asa-demo-indices-stylemaitri-prod/unified/clip/unified/clip_article_ids.npy data/processed/clip/unified/
           # tests/test_retrieval.py, test_tools.py, and the conftest.py requires_index
           # sentinel (data/processed/dense.faiss) read the flat data/processed/ path,
           # not data/processed/unified/ — same index files, just also copied flat.
@@ -148,7 +160,7 @@ jobs:
       - name: Download unified index
         run: |
           mkdir -p data/processed/unified
-          gcloud storage cp -r 'gs://asa-demo-indices/unified/unified/*' data/processed/unified/
+          gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
 
       - name: Relevance regression gate
         run: python scripts/eval_gate.py --max-unlabeled 3
