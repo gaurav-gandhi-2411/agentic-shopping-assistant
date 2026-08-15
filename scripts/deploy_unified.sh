@@ -144,11 +144,16 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # are both in-memory and assume a single running instance. >1 instance would let
 # traffic silently bypass the demo rate/cost caps and would fragment in-memory
 # session state across instances.
-# DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted:
-# the code defaults in api/demo/guards.py (35/hr, 700/day) are the production
-# values. --set-env-vars replaces the full env-var set on every deploy, so do
-# not add these back here unless the intent is a standing override — use
-# `gcloud run services update --update-env-vars` for a one-off tuning change.
+# DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted
+# here. This comment previously claimed the code defaults in
+# api/demo/guards.py (35/hr, 700/day) match production — they don't anymore:
+# the live revision runs DEMO_DAILY_REQUEST_CAP=150 (confirmed 2026-08-15 via
+# `gcloud run services describe`), an explicit standing override applied via
+# `gcloud run services update --update-env-vars`, exactly the one-off-tuning
+# path this comment already describes below. Corrected the claim rather than
+# the omission: --set-env-vars replaces the full env-var set on every deploy,
+# so still do not add these back into this script unless the intent is to
+# make the override permanent — use `update --update-env-vars` for tuning.
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
   --region="${GAR_REGION}" \
