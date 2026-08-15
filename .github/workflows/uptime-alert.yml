@@ -1,0 +1,209 @@
+name: Uptime Alert
+
+# StyleMaitri had zero scheduled monitoring of any kind (found in this session's
+# estate-wide WIF/monitoring audit, Item 70) despite being a live product.
+# Modeled directly on review-iq's uptime-alert.yml (the pattern this repo's own
+# history shows getting it wrong once already there: a malformed-output crash
+# combined with steps missing always() silently swallowed 15+ consecutive
+# alerts before anyone noticed) -- always() is load-bearing here for the same
+# reason, not decorative.
+#
+# Checks /api/brand, not /health -- this service has no /health route (returns
+# FastAPI's own 404) and its documented /healthz route 404s at the
+# infrastructure level for reasons not diagnosed here. /api/brand is a real,
+# unauthenticated, cheap GET that returns actual app data (brand config), so a
+# 200 here means the app and its config path are genuinely serving, not just
+# that FastAPI's router booted.
+#
+# Cold-start budget is intentionally generous: this service runs at
+# max-instances=1 with autoscaling.knative.dev/maxScale: "1" (deploy/service.yaml),
+# meaning idle periods reliably cold-start. Measured directly today: 45s and
+# 60s+ cold starts on /health and /docs respectively. review-iq's 10s
+# timeout/15s retry budget would false-alarm constantly here; this workflow
+# uses a much wider one instead of copying that pattern uncritically.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_url_override:
+        description: "Override SERVICE_URL for this manual run only (e.g. a deliberately-bad URL, to test the alert path end to end). Leave blank for a normal check."
+        required: false
+        type: string
+
+concurrency:
+  group: stylemaitri-uptime-alert
+  cancel-in-progress: true
+
+permissions:
+  issues: write
+
+env:
+  # Raw Cloud Run URL, not a custom domain -- unlike review-iq's
+  # api.samidhareviews.xyz, StyleMaitri's backend has no stable domain to
+  # point at instead. Confirmed via the Cloud Run domainmappings API directly
+  # (`domains.cloudrun.com/v1/.../domainmappings`) on 2026-08-15: zero
+  # mappings exist for this project. If a custom domain gets added later,
+  # repoint this the same way review-iq's fix did -- a project-specific
+  # run.app hostname won't survive the next migration.
+  SERVICE_URL: "https://asa-stylist-api-ec3mwppesa-el.a.run.app"
+  CHECK_PATH: "/api/brand"
+  ALERT_TITLE: "StyleMaitri prod is DOWN"
+  # Generous vs. review-iq's 10s/15s: this service's own confirmed cold starts
+  # ran 45-60s+ today. A tighter budget would alarm on cold starts, not outages.
+  CURL_TIMEOUT: "75"
+  RETRY_SLEEP: "20"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Probe /api/brand (with cold-start retry)
+        id: probe
+        env:
+          TEST_URL_OVERRIDE: ${{ inputs.test_url_override }}
+        run: |
+          if [ -n "${TEST_URL_OVERRIDE}" ]; then
+            TARGET_URL="${TEST_URL_OVERRIDE}"
+            echo "::warning::Using test_url_override for this manual run: ${TARGET_URL}"
+          else
+            TARGET_URL="${SERVICE_URL}${CHECK_PATH}"
+          fi
+
+          probe() {
+            HTTP_STATUS=$(curl -s -o /tmp/brand_body.txt -w "%{http_code}" \
+              --max-time "${CURL_TIMEOUT}" \
+              "${TARGET_URL}" 2>/dev/null || echo "000")
+            echo "${HTTP_STATUS}"
+          }
+
+          STATUS=$(probe)
+          echo "First probe: HTTP ${STATUS}"
+
+          if [ "${STATUS}" != "200" ]; then
+            echo "Non-200 on first probe. Waiting ${RETRY_SLEEP}s for cold-start, then retrying..."
+            sleep "${RETRY_SLEEP}"
+            STATUS=$(probe)
+            echo "Retry probe: HTTP ${STATUS}"
+          fi
+
+          # Collapse before writing to $GITHUB_OUTPUT -- an embedded newline in the
+          # body corrupts a plain key=value line. This is the exact bug that
+          # silently swallowed review-iq's alerts; not repeating it here.
+          BODY=$(cat /tmp/brand_body.txt 2>/dev/null || echo "(no body)")
+          BODY_ONELINE=$(printf '%s' "${BODY:0:500}" | tr '\n\r' '  ')
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          echo "timestamp=${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+          echo "target_url=${TARGET_URL}" >> "$GITHUB_OUTPUT"
+          echo "body=${BODY_ONELINE}" >> "$GITHUB_OUTPUT"
+
+      - name: Handle DOWN
+        # always() is load-bearing -- see the file header. Without it this step
+        # silently no-ops whenever the probe step itself errors, instead of running.
+        if: always() && steps.probe.outputs.status != '200'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HTTP_STATUS: ${{ steps.probe.outputs.status }}
+          TIMESTAMP: ${{ steps.probe.outputs.timestamp }}
+          BODY: ${{ steps.probe.outputs.body }}
+          TARGET_URL: ${{ steps.probe.outputs.target_url }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          EXISTING_ISSUE=$(gh issue list \
+            --repo "${REPO}" \
+            --state open \
+            --search "\"${ALERT_TITLE}\" in:title" \
+            --json number \
+            --jq '.[0].number // empty')
+
+          RUN_URL="https://github.com/${REPO}/actions/runs/${{ github.run_id }}"
+
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Existing alert issue #${EXISTING_ISSUE} found. Adding comment."
+            gh issue comment "${EXISTING_ISSUE}" \
+              --repo "${REPO}" \
+              --body "$(cat <<EOF
+          Still DOWN at ${TIMESTAMP}
+
+          **HTTP status:** \`${HTTP_STATUS}\`
+          **Checked:** \`${TARGET_URL}\`
+
+          **Response body:**
+          \`\`\`
+          ${BODY}
+          \`\`\`
+
+          [Workflow run](${RUN_URL})
+          EOF
+          )"
+          else
+            echo "No existing alert issue found. Creating new issue."
+            gh issue create \
+              --repo "${REPO}" \
+              --title "${ALERT_TITLE}" \
+              --body "$(cat <<EOF
+          ## StyleMaitri prod is DOWN
+
+          **Detected at:** ${TIMESTAMP}
+          **HTTP status:** \`${HTTP_STATUS}\`
+          **Checked:** \`${TARGET_URL}\`
+
+          **Response body:**
+          \`\`\`
+          ${BODY}
+          \`\`\`
+
+          ---
+
+          ### Quick triage
+
+          \`\`\`bash
+          curl -sf ${SERVICE_URL}${CHECK_PATH} | jq .
+          # 000 / timeout -- Cloud Run cold-start exceeded budget, or service down
+          # non-200 with a body -- app-level error, check Cloud Run logs
+          \`\`\`
+
+          [Workflow run that detected this](${RUN_URL})
+
+          ---
+
+          *This issue is managed by the uptime-alert workflow. Do not rename it -- the title is used to deduplicate alerts.*
+          EOF
+          )" \
+              --label "bug"
+          fi
+
+          echo "::error::${CHECK_PATH} returned HTTP ${HTTP_STATUS} at ${TIMESTAMP}. See alert issue."
+          exit 1
+
+      - name: Handle recovery
+        if: always() && steps.probe.outputs.status == '200'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TIMESTAMP: ${{ steps.probe.outputs.timestamp }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          EXISTING_ISSUE=$(gh issue list \
+            --repo "${REPO}" \
+            --state open \
+            --search "\"${ALERT_TITLE}\" in:title" \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Recovery detected. Closing alert issue #${EXISTING_ISSUE}."
+            gh issue comment "${EXISTING_ISSUE}" \
+              --repo "${REPO}" \
+              --body "**Recovered** at ${TIMESTAMP} -- ${CHECK_PATH} is returning HTTP 200 again."
+            gh issue close "${EXISTING_ISSUE}" \
+              --repo "${REPO}" \
+              --reason "completed"
+          else
+            echo "${CHECK_PATH} is UP (HTTP 200). No open alert issue to close."
+          fi
