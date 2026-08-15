@@ -40,6 +40,13 @@ permissions:
   issues: write
 
 env:
+  # Raw Cloud Run URL, not a custom domain -- unlike review-iq's
+  # api.samidhareviews.xyz, StyleMaitri's backend has no stable domain to
+  # point at instead. Confirmed via the Cloud Run domainmappings API directly
+  # (`domains.cloudrun.com/v1/.../domainmappings`) on 2026-08-15: zero
+  # mappings exist for this project. If a custom domain gets added later,
+  # repoint this the same way review-iq's fix did -- a project-specific
+  # run.app hostname won't survive the next migration.
   SERVICE_URL: "https://asa-stylist-api-ec3mwppesa-el.a.run.app"
   CHECK_PATH: "/api/brand"
   ALERT_TITLE: "StyleMaitri prod is DOWN"
