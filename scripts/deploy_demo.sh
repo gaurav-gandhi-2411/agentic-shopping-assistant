@@ -6,14 +6,21 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # CONFIGURATION — fill these in before running
 # ---------------------------------------------------------------------------
-GCP_PROJECT="iconic-reactor-496423-m4"
+# Project/AR repo/bucket corrected (Item 114) to match the stylemaitri-prod-260813
+# migration already applied to deploy_unified.sh (PR #28): StyleMaitri's pre-migration
+# project (see scripts/deploy_unified.sh's config comments) and its "shopping-assistant"
+# AR repo no longer exist, and the old "asa-demo-indices" bucket 404s under the new
+# project. See ops/runbooks/clean-break-migration.md for the source of these values —
+# gs://asa-demo-indices-stylemaitri-prod is the single bucket holding unified/, clip/,
+# and the three legacy per-brand prefixes (flipkart/, myntra/, snitch/) this script uploads to.
+GCP_PROJECT="stylemaitri-prod-260813"
 GAR_REGION="asia-south1"           # Artifact Registry region (also Cloud Run region)
-GAR_REPO="shopping-assistant"       # Artifact Registry repository name
+GAR_REPO="cloud-run-source-deploy"  # Artifact Registry repository name
 IMAGE_NAME="asa-api"
 IMAGE_TAG="$(git rev-parse --short HEAD)"
 IMAGE="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT}/${GAR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-GCS_BUCKET="asa-demo-indices"
+GCS_BUCKET="asa-demo-indices-stylemaitri-prod"
 
 # Secrets — read from env so they are never baked into this file.
 # Export them before running: export GROQ_API_KEY=... DEMO_JWT_SECRET=... DATABASE_URL=...
