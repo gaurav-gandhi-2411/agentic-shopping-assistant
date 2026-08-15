@@ -25,26 +25,58 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-GCP_PROJECT="iconic-reactor-496423-m4"
+# Corrected 2026-08-15 (Item 54): GCP_PROJECT and GAR_REPO were still pointing
+# at iconic-reactor-496423-m4 / shopping-assistant, StyleMaitri's pre-migration
+# project — deleted three rounds ago in the gandhi1129 sole-identity migration.
+# Neither the old project nor that AR repo exist anymore; this script would
+# fail outright as written. Repointed to the live project, and to
+# cloud-run-source-deploy rather than recreating shopping-assistant: that repo
+# already exists, already holds the currently-serving image (same digest,
+# confirmed via `gcloud run services describe`), and is what the service has
+# actually been deployed through since the migration (via `gcloud run deploy
+# --source`, not this script) — repointing to it is zero new GCP resources
+# and matches what's already true in production, vs. standing up a second,
+# empty, product-named repo for no operational benefit.
+GCP_PROJECT="stylemaitri-prod-260813"
 GAR_REGION="asia-south1"
-GAR_REPO="shopping-assistant"
+GAR_REPO="cloud-run-source-deploy"
 SERVICE="asa-stylist-api"
-IMAGE_NAME="asa-api"
+# Matches the image name Cloud Run's source-deploy already established in
+# cloud-run-source-deploy (named after SERVICE, not "asa-api") — keeping this
+# script's pushes on the same image-name lineage as what's already there.
+IMAGE_NAME="asa-stylist-api"
 IMAGE_TAG="$(git rev-parse --short HEAD)"
 IMAGE="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT}/${GAR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 # GCS paths for the unified search index.  The container loads these at startup
-# via INDEX_STORE_URI=gs://asa-demo-indices/unified/ — the code resolves to
-# gs://asa-demo-indices/unified/unified/ for main index files and
-# gs://asa-demo-indices/unified/clip/unified/ for CLIP vectors.
-GCS_INDEX_BUCKET="gs://asa-demo-indices/unified"
+# via INDEX_STORE_URI=gs://asa-demo-indices-stylemaitri-prod/unified/ — the
+# code resolves to gs://asa-demo-indices-stylemaitri-prod/unified/unified/
+# for main index files and .../unified/clip/unified/ for CLIP vectors.
+# Bucket name corrected 2026-08-15: the old "asa-demo-indices" bucket lived in
+# the deleted iconic-reactor-496423-m4 project and no longer resolves at all
+# (404 under gandhi1129). The live Cloud Run revision's actual INDEX_STORE_URI
+# (checked via `gcloud run services describe`) already points at
+# asa-demo-indices-stylemaitri-prod — confirmed to exist with the expected
+# unified/ and clip/ layout. That's the real bucket; this script had simply
+# never been updated to match.
+GCS_INDEX_BUCKET="gs://asa-demo-indices-stylemaitri-prod/unified"
 LOCAL_INDEX_DIR="$(git rev-parse --show-toplevel)/data/processed/unified"
 LOCAL_CLIP_DIR="$(git rev-parse --show-toplevel)/data/processed/clip/unified"
 
 # Secret Manager references — these secrets exist in the project under these names.
 # Never change the secret *names* here without first verifying they exist:
 #   gcloud secrets list --project="${GCP_PROJECT}"
-SECRETS="GROQ_API_KEY=asa-groq-api-key:2,DEMO_JWT_SECRET=asa-demo-jwt-secret:2,DATABASE_URL=asa-database-url:2,SUPABASE_URL=asa-supabase-url:2"
+# Version pins corrected 2026-08-15: the old ":2" pins referenced versions
+# that only ever existed in the deleted project. The migration recreated all
+# secrets fresh in stylemaitri-prod-260813, where each currently has exactly
+# one version (verified via `gcloud secrets versions list`). Using ":latest"
+# instead of a hardcoded version number avoids this exact class of staleness
+# recurring on the next secret rotation. GEMINI_API_KEY and OPENROUTER_API_KEY
+# added: both are already wired into the live revision's env
+# (`gcloud run services describe`) but were missing from this script entirely
+# — a deploy through this script would have silently dropped them from
+# production.
+SECRETS="GROQ_API_KEY=asa-groq-api-key:latest,DEMO_JWT_SECRET=asa-demo-jwt-secret:latest,DATABASE_URL=asa-database-url:latest,SUPABASE_URL=asa-supabase-url:latest,GEMINI_API_KEY=asa-gemini-api-key:latest,OPENROUTER_API_KEY=asa-openrouter-api-key:latest"
 
 # ---------------------------------------------------------------------------
 # Step 1: Upload rebuilt index to GCS (ALWAYS overwrite — never use --no-clobber)
@@ -112,16 +144,21 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # are both in-memory and assume a single running instance. >1 instance would let
 # traffic silently bypass the demo rate/cost caps and would fragment in-memory
 # session state across instances.
-# DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted:
-# the code defaults in api/demo/guards.py (35/hr, 700/day) are the production
-# values. --set-env-vars replaces the full env-var set on every deploy, so do
-# not add these back here unless the intent is a standing override — use
-# `gcloud run services update --update-env-vars` for a one-off tuning change.
+# DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted
+# here. This comment previously claimed the code defaults in
+# api/demo/guards.py (35/hr, 700/day) match production — they don't anymore:
+# the live revision runs DEMO_DAILY_REQUEST_CAP=150 (confirmed 2026-08-15 via
+# `gcloud run services describe`), an explicit standing override applied via
+# `gcloud run services update --update-env-vars`, exactly the one-off-tuning
+# path this comment already describes below. Corrected the claim rather than
+# the omission: --set-env-vars replaces the full env-var set on every deploy,
+# so still do not add these back into this script unless the intent is to
+# make the override permanent — use `update --update-env-vars` for tuning.
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
   --region="${GAR_REGION}" \
   --no-traffic \
-  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://stylemaitri.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices/unified/" \
+  --set-env-vars="DEMO_MODE=true,LLM_PROVIDER=groq,CORS_ORIGINS=https://stylemaitri.vercel.app,INDEX_STORE_URI=gs://asa-demo-indices-stylemaitri-prod/unified/" \
   --set-secrets="${SECRETS}" \
   --memory=4Gi \
   --cpu=1 \
