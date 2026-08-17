@@ -144,6 +144,43 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # are both in-memory and assume a single running instance. >1 instance would let
 # traffic silently bypass the demo rate/cost caps and would fragment in-memory
 # session state across instances.
+#
+# min-instances=1: cold start loads a 112,425-vector CLIP index and measures
+# 261-340s across 5 real cold starts sampled from production logs (2026-08-17) --
+# CLIP-ViT-B-32 model load + index load, not image pull. With min-instances=0
+# (the prior setting) every scale-to-zero cycle reproduces this on the next real
+# visitor -- confirmed to have already happened to the one real external session
+# this service has recorded (a LinkedIn-referred visitor, 2026-08-17). Since
+# max-instances=1 already caps this at exactly one instance, min-instances=1
+# makes it permanently warm at a fixed, bounded cost -- never a scaling risk.
+#
+# Cost, computed precisely (2026-08-17, corrected -- see Item 256): this service
+# has no run.googleapis.com/cpu-throttling=false annotation (checked directly via
+# `gcloud run services describe`), so it runs Cloud Run's DEFAULT request-based
+# billing (CPU allocated only during request processing), not the "CPU always
+# allocated" mode -- min-instances=1 does not change that. Under request-based
+# billing, an idle minimum instance is billed MEMORY ONLY, zero CPU, while truly
+# idle (confirmed via Google's own min-instances/billing-settings docs plus two
+# independent secondary sources quoting the same Tier 1 idle-memory rate). asia-
+# south1 is Tier 1 pricing (same as us-central1). Tier 1 request-based memory
+# rate: $0.0000025/GiB-second (20% higher than the always-allocated rate, which
+# is the documented always-allocated discount -- the two figures are internally
+# consistent: 0.0000025 x 0.8 = 0.000002).
+#   idle memory: 4 x 2,628,000s (730h/mo) x $0.0000025  = $26.28/mo gross,
+#                                                          ~$25.38/mo net of the
+#                                                          free tier
+#   plus: normal per-request CPU+memory billing for actual traffic on top of
+#   the idle floor -- negligible at this service's real volume (~150 req/mo).
+# max-instances=1 makes the idle floor a hard ceiling; it cannot grow with
+# scale-out since there is no scale-out.
+#
+# NOTE: the primary source (cloud.google.com/run/pricing) could not be fetched
+# directly (repeatedly truncated) -- these rates are cross-confirmed from two
+# independent secondary sources plus Google's own min-instances documentation
+# describing the memory-only idle billing behavior, not quoted from the primary
+# table verbatim. Re-verify against the pricing calculator before treating this
+# as exact to the cent.
+#
 # DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted
 # here. This comment previously claimed the code defaults in
 # api/demo/guards.py (35/hr, 700/day) match production — they don't anymore:
@@ -164,6 +201,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu=1 \
   --concurrency=4 \
   --timeout=300 \
+  --min-instances=1 \
   --max-instances=1
 
 # ---------------------------------------------------------------------------

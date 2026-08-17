@@ -21,6 +21,23 @@ name: Uptime Alert
 # 60s+ cold starts on /health and /docs respectively. review-iq's 10s
 # timeout/15s retry budget would false-alarm constantly here; this workflow
 # uses a much wider one instead of copying that pattern uncritically.
+#
+# Item 257: check-db-readiness (second job, below) probes /readyz on the same
+# schedule -- /api/brand above never touches Supabase (confirmed by reading the
+# route directly), so this workflow gave false confidence while the database
+# drifted toward Supabase's 7-day-inactivity auto-pause with zero scheduled
+# activity ever hitting it. /readyz now includes a real `SELECT 1` (see
+# api/routes/health.py). Deliberately a SEPARATE job/alert-title rather than
+# repointing CHECK_PATH above: a DB outage and an app-process outage should be
+# distinguishable in the alert itself, not conflated into one signal. NOTE:
+# unlike /api/brand (confirmed reachable via real production traffic logs),
+# /readyz's reachability at the infrastructure level has NOT been verified
+# against the live Cloud Run deployment as of this change -- only code-level
+# correctness (direct DB query, confirmed against a real Postgres in this PR's
+# own testing). This file's own header above already flags /healthz 404ing at
+# the infra level for undiagnosed reasons; confirm /readyz doesn't share that
+# problem the first time this job actually runs, don't assume it from /healthz
+# working differently.
 
 on:
   schedule:
@@ -166,6 +183,153 @@ jobs:
           curl -sf ${SERVICE_URL}${CHECK_PATH} | jq .
           # 000 / timeout -- Cloud Run cold-start exceeded budget, or service down
           # non-200 with a body -- app-level error, check Cloud Run logs
+          \`\`\`
+
+          [Workflow run that detected this](${RUN_URL})
+
+          ---
+
+          *This issue is managed by the uptime-alert workflow. Do not rename it -- the title is used to deduplicate alerts.*
+          EOF
+          )" \
+              --label "bug"
+          fi
+
+          echo "::error::${CHECK_PATH} returned HTTP ${HTTP_STATUS} at ${TIMESTAMP}. See alert issue."
+          exit 1
+
+      - name: Handle recovery
+        if: always() && steps.probe.outputs.status == '200'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TIMESTAMP: ${{ steps.probe.outputs.timestamp }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          EXISTING_ISSUE=$(gh issue list \
+            --repo "${REPO}" \
+            --state open \
+            --search "\"${ALERT_TITLE}\" in:title" \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Recovery detected. Closing alert issue #${EXISTING_ISSUE}."
+            gh issue comment "${EXISTING_ISSUE}" \
+              --repo "${REPO}" \
+              --body "**Recovered** at ${TIMESTAMP} -- ${CHECK_PATH} is returning HTTP 200 again."
+            gh issue close "${EXISTING_ISSUE}" \
+              --repo "${REPO}" \
+              --reason "completed"
+          else
+            echo "${CHECK_PATH} is UP (HTTP 200). No open alert issue to close."
+          fi
+
+  check-db-readiness:
+    runs-on: ubuntu-latest
+    env:
+      CHECK_PATH: "/readyz"
+      ALERT_TITLE: "StyleMaitri DB is unreachable (or app not ready)"
+
+    steps:
+      - name: Probe /readyz (with cold-start retry)
+        id: probe
+        run: |
+          TARGET_URL="${SERVICE_URL}${CHECK_PATH}"
+
+          probe() {
+            HTTP_STATUS=$(curl -s -o /tmp/ready_body.txt -w "%{http_code}" \
+              --max-time "${CURL_TIMEOUT}" \
+              "${TARGET_URL}" 2>/dev/null || echo "000")
+            echo "${HTTP_STATUS}"
+          }
+
+          STATUS=$(probe)
+          echo "First probe: HTTP ${STATUS}"
+
+          if [ "${STATUS}" != "200" ]; then
+            echo "Non-200 on first probe. Waiting ${RETRY_SLEEP}s for cold-start, then retrying..."
+            sleep "${RETRY_SLEEP}"
+            STATUS=$(probe)
+            echo "Retry probe: HTTP ${STATUS}"
+          fi
+
+          BODY=$(cat /tmp/ready_body.txt 2>/dev/null || echo "(no body)")
+          BODY_ONELINE=$(printf '%s' "${BODY:0:500}" | tr '\n\r' '  ')
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          echo "timestamp=${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+          echo "target_url=${TARGET_URL}" >> "$GITHUB_OUTPUT"
+          echo "body=${BODY_ONELINE}" >> "$GITHUB_OUTPUT"
+
+      - name: Handle DOWN
+        if: always() && steps.probe.outputs.status != '200'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HTTP_STATUS: ${{ steps.probe.outputs.status }}
+          TIMESTAMP: ${{ steps.probe.outputs.timestamp }}
+          BODY: ${{ steps.probe.outputs.body }}
+          TARGET_URL: ${{ steps.probe.outputs.target_url }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          EXISTING_ISSUE=$(gh issue list \
+            --repo "${REPO}" \
+            --state open \
+            --search "\"${ALERT_TITLE}\" in:title" \
+            --json number \
+            --jq '.[0].number // empty')
+
+          RUN_URL="https://github.com/${REPO}/actions/runs/${{ github.run_id }}"
+
+          if [ -n "${EXISTING_ISSUE}" ]; then
+            echo "Existing alert issue #${EXISTING_ISSUE} found. Adding comment."
+            gh issue comment "${EXISTING_ISSUE}" \
+              --repo "${REPO}" \
+              --body "$(cat <<EOF
+          Still failing at ${TIMESTAMP}
+
+          **HTTP status:** \`${HTTP_STATUS}\`
+          **Checked:** \`${TARGET_URL}\`
+
+          **Response body:**
+          \`\`\`
+          ${BODY}
+          \`\`\`
+
+          [Workflow run](${RUN_URL})
+          EOF
+          )"
+          else
+            echo "No existing alert issue found. Creating new issue."
+            gh issue create \
+              --repo "${REPO}" \
+              --title "${ALERT_TITLE}" \
+              --body "$(cat <<EOF
+          ## StyleMaitri /readyz is failing (database or a heavy dependency)
+
+          **Detected at:** ${TIMESTAMP}
+          **HTTP status:** \`${HTTP_STATUS}\`
+          **Checked:** \`${TARGET_URL}\`
+
+          **Response body:**
+          \`\`\`
+          ${BODY}
+          \`\`\`
+
+          ---
+
+          ### Quick triage
+
+          A non-200 here with \`/api/brand\` still green means the app process is
+          up but a real dependency (database, retriever, catalogue, or LLM --
+          see the \`checks\` object in the response body above) is not. If
+          \`database: error\` specifically, check whether the Supabase project
+          has auto-paused (7-day inactivity) before assuming an outage.
+
+          \`\`\`bash
+          curl -sf ${SERVICE_URL}${CHECK_PATH} | jq .
           \`\`\`
 
           [Workflow run that detected this](${RUN_URL})
