@@ -1,0 +1,108 @@
+name: Migration Drift Check
+
+# Item 269/M3: PR #51 (0008_rls_deny_by_default.py) merged to master but was never applied to
+# the production database -- confirmed by direct query, all 5 target tables still show
+# relrowsecurity=False. This repo has no CI step that runs `alembic upgrade head` anywhere
+# (grepped every workflow and scripts/deploy_unified.sh -- zero references), so migrations
+# only ever reach production via someone manually running alembic by hand. Nothing detects the
+# gap when that manual step is forgotten. review-iq hit the identical class of bug (Wave 2/3
+# sitting merged-but-unapplied for two days, Item 246a) and built migration-drift-check.yml to
+# close it; this is the same idea adapted for Alembic instead of review-iq's custom
+# supabase/push.py ledger. The check: does the repo's Alembic HEAD match what production's own
+# alembic_version table says is actually applied? If they differ, something merged to master
+# was never run against the live database.
+
+on:
+  schedule:
+    # Every 6 hours, matching review-iq's cadence for the same class of check.
+    - cron: "22 */6 * * *"
+  push:
+    branches: [master]
+    paths:
+      - "alembic/versions/**"
+      - ".github/workflows/migration-drift-check.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-drift-check
+  cancel-in-progress: true
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine repo HEAD revision (offline -- reads migration scripts only)
+        id: repo_head
+        run: |
+          HEAD=$(alembic heads | awk '{print $1}')
+          if [ -z "$HEAD" ]; then
+            echo "::error::Could not determine Alembic head from alembic/versions/ -- failing closed."
+            exit 1
+          fi
+          echo "Repo HEAD revision: ${HEAD}"
+          echo "head=${HEAD}" >> "$GITHUB_OUTPUT"
+
+      - name: Check production's applied revision matches repo HEAD
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REPO_HEAD: ${{ steps.repo_head.outputs.head }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not set -- cannot check production. Failing closed rather than skipping the check."
+            exit 1
+          fi
+          pip install psycopg2-binary python-dotenv --quiet
+          python - <<'PYEOF'
+          import os
+          import sys
+
+          import psycopg2
+
+          url = os.environ["DATABASE_URL"]
+          repo_head = os.environ["REPO_HEAD"]
+
+          prefix, host_port = url.rsplit("@", 1)
+          scheme, user_pass = prefix.split("://", 1)
+          user, password = user_pass.split(":", 1)
+          host, port_db = host_port.split(":", 1)
+          port, dbname = port_db.split("/", 1)
+          dbname = dbname.split("?")[0]
+
+          conn = psycopg2.connect(
+              host=host, port=port, user=user, password=password, dbname=dbname, sslmode="require"
+          )
+          cur = conn.cursor()
+          cur.execute("SELECT version_num FROM alembic_version")
+          row = cur.fetchone()
+          prod_head = row[0] if row else None
+          cur.close()
+          conn.close()
+
+          print(f"Repo HEAD:       {repo_head}")
+          print(f"Production HEAD: {prod_head}")
+
+          if prod_head != repo_head:
+              print(
+                  f"::error::Migration drift detected -- repo HEAD is '{repo_head}' but "
+                  f"production's alembic_version is '{prod_head}'. A migration merged to "
+                  "master has not been applied to production. Run "
+                  "`DATABASE_URL=<prod-url> alembic upgrade head` to fix, or if this is "
+                  "expected (e.g. head was just reverted), investigate before ignoring."
+              )
+              sys.exit(1)
+
+          print("Repo HEAD matches production. No drift.")
+          PYEOF
