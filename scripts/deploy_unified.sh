@@ -144,6 +144,27 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # are both in-memory and assume a single running instance. >1 instance would let
 # traffic silently bypass the demo rate/cost caps and would fragment in-memory
 # session state across instances.
+#
+# min-instances=1: cold start loads a 112,425-vector CLIP index and measures
+# 261-340s across 5 real cold starts sampled from production logs (2026-08-17) --
+# CLIP-ViT-B-32 model load + index load, not image pull. With min-instances=0
+# (the prior setting) every scale-to-zero cycle reproduces this on the next real
+# visitor -- confirmed to have already happened to the one real external session
+# this service has recorded (a LinkedIn-referred visitor, 2026-08-17). Since
+# max-instances=1 already caps this at exactly one instance, min-instances=1
+# makes it permanently warm at a fixed, bounded cost -- never a scaling risk.
+#
+# Cost, computed precisely (2026-08-17): asia-south1 is Tier 1 Cloud Run pricing
+# (same rate as us-central1, confirmed via Google Cloud docs -- not a Tier 2
+# region despite being outside the US). Tier 1 CPU-always-allocated rates:
+# $0.000018/vCPU-second, $0.000002/GiB-second. At this service's own
+# cpu=1/memory=4Gi, one instance running the full month (730h = 2,628,000s):
+#   vCPU:   2,628,000s x $0.000018       = $47.30
+#   memory: 4 x 2,628,000s x $0.000002   = $21.02
+#   total (before Cloud Run's perpetual free tier, ~$4/mo of that covered)
+#                                         = $68.33/mo gross, ~$64.37/mo net
+# max-instances=1 makes this a hard ceiling, not an estimate that can grow.
+#
 # DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted
 # here. This comment previously claimed the code defaults in
 # api/demo/guards.py (35/hr, 700/day) match production — they don't anymore:
@@ -164,6 +185,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu=1 \
   --concurrency=4 \
   --timeout=300 \
+  --min-instances=1 \
   --max-instances=1
 
 # ---------------------------------------------------------------------------
