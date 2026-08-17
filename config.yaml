@@ -62,7 +62,10 @@ llm:
   temperature: 0.2
   max_tokens: 400
   timeout_seconds: 60
-  groq_model: "llama-3.1-8b-instant"
+  # Groq deprecated llama-3.1-8b-instant on 2026-08-16; openai/gpt-oss-20b is
+  # their documented replacement (console.groq.com/docs/deprecations), same
+  # fast/cheap tier.
+  groq_model: "openai/gpt-oss-20b"
   gemini_model: "gemini-2.5-flash"
   openrouter_model: "openai/gpt-oss-20b:free"
 

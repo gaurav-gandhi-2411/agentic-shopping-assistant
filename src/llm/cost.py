@@ -6,10 +6,19 @@ from dataclasses import dataclass
 # USD per million tokens.  cached_read rates apply to Anthropic prompt-cache
 # read hits only (Wave 3+).  Groq and Ollama have no caching tiers.
 CONSTANTS: dict[str, dict[str, float]] = {
-    # Groq
+    # Groq -- llama-3.1-8b-instant deprecated 2026-08-16; openai/gpt-oss-20b is
+    # the documented replacement (console.groq.com/docs/deprecations, pricing
+    # page checked same day). Old entry kept (harmless) so historical log
+    # lines with the old model string still resolve to a cost.
     "llama-3.1-8b-instant": {
         "input":        0.05,
         "output":       0.08,
+        "cached_read":  0.0,
+        "cached_write": 0.0,
+    },
+    "openai/gpt-oss-20b": {
+        "input":        0.075,
+        "output":       0.30,
         "cached_read":  0.0,
         "cached_write": 0.0,
     },
