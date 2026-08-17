@@ -154,16 +154,32 @@ echo "=== Step 6: Create new revision (no traffic) ==="
 # max-instances=1 already caps this at exactly one instance, min-instances=1
 # makes it permanently warm at a fixed, bounded cost -- never a scaling risk.
 #
-# Cost, computed precisely (2026-08-17): asia-south1 is Tier 1 Cloud Run pricing
-# (same rate as us-central1, confirmed via Google Cloud docs -- not a Tier 2
-# region despite being outside the US). Tier 1 CPU-always-allocated rates:
-# $0.000018/vCPU-second, $0.000002/GiB-second. At this service's own
-# cpu=1/memory=4Gi, one instance running the full month (730h = 2,628,000s):
-#   vCPU:   2,628,000s x $0.000018       = $47.30
-#   memory: 4 x 2,628,000s x $0.000002   = $21.02
-#   total (before Cloud Run's perpetual free tier, ~$4/mo of that covered)
-#                                         = $68.33/mo gross, ~$64.37/mo net
-# max-instances=1 makes this a hard ceiling, not an estimate that can grow.
+# Cost, computed precisely (2026-08-17, corrected -- see Item 256): this service
+# has no run.googleapis.com/cpu-throttling=false annotation (checked directly via
+# `gcloud run services describe`), so it runs Cloud Run's DEFAULT request-based
+# billing (CPU allocated only during request processing), not the "CPU always
+# allocated" mode -- min-instances=1 does not change that. Under request-based
+# billing, an idle minimum instance is billed MEMORY ONLY, zero CPU, while truly
+# idle (confirmed via Google's own min-instances/billing-settings docs plus two
+# independent secondary sources quoting the same Tier 1 idle-memory rate). asia-
+# south1 is Tier 1 pricing (same as us-central1). Tier 1 request-based memory
+# rate: $0.0000025/GiB-second (20% higher than the always-allocated rate, which
+# is the documented always-allocated discount -- the two figures are internally
+# consistent: 0.0000025 x 0.8 = 0.000002).
+#   idle memory: 4 x 2,628,000s (730h/mo) x $0.0000025  = $26.28/mo gross,
+#                                                          ~$25.38/mo net of the
+#                                                          free tier
+#   plus: normal per-request CPU+memory billing for actual traffic on top of
+#   the idle floor -- negligible at this service's real volume (~150 req/mo).
+# max-instances=1 makes the idle floor a hard ceiling; it cannot grow with
+# scale-out since there is no scale-out.
+#
+# NOTE: the primary source (cloud.google.com/run/pricing) could not be fetched
+# directly (repeatedly truncated) -- these rates are cross-confirmed from two
+# independent secondary sources plus Google's own min-instances documentation
+# describing the memory-only idle billing behavior, not quoted from the primary
+# table verbatim. Re-verify against the pricing calculator before treating this
+# as exact to the cent.
 #
 # DEMO_PER_IP_HOUR_LIMIT / DEMO_DAILY_REQUEST_CAP are intentionally omitted
 # here. This comment previously claimed the code defaults in
