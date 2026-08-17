@@ -7,6 +7,19 @@ from dataclasses import dataclass
 # read hits only (Wave 3+).  Groq and Ollama have no caching tiers.
 CONSTANTS: dict[str, dict[str, float]] = {
     # Groq
+    # llama-3.1-8b-instant deprecated by Groq 2026-08-16; groq_model in
+    # config.yaml/src/llm/client.py now defaults to "openai/gpt-oss-20b", but
+    # that model has NO entry here yet -- its real $/M-token Groq rate could
+    # not be verified from a live source as of this fix (2026-08-18, Groq's
+    # pricing page did not return pricing data via automated fetch). Left
+    # OUT deliberately rather than guessing a number CLAUDE.md's cost-honesty
+    # rules forbid stating as fact: CONSTANTS.get(self.model) or
+    # CONSTANTS["ollama"] (see below) means an unrecognized model currently
+    # falls through to a SILENT $0 cost -- this is a real, open gap for the
+    # new default model, not a solved one. Add a verified "openai/gpt-oss-20b"
+    # entry here (check console.groq.com's live pricing page directly, a
+    # page that needs JS rendering this fetch couldn't get past) before
+    # trusting any cost report that includes calls made under this model.
     "llama-3.1-8b-instant": {
         "input":        0.05,
         "output":       0.08,
