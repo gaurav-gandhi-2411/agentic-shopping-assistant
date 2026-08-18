@@ -231,6 +231,27 @@ done
 echo "  ${NEW_REVISION} is Ready"
 
 # ---------------------------------------------------------------------------
+# Step 7.5: Run database migration BEFORE cutting traffic to the new revision
+#   Prior versions of this script had no migration step at all -- migrations
+#   only ever reached production via a human manually running `alembic
+#   upgrade head` after deploy, a step that was skipped for both 0007 and
+#   0008 for days (found and fixed directly, 2026-08-18; see PR history for
+#   0007/0008). Fetches the same DATABASE_URL secret Cloud Run itself uses
+#   via --set-secrets above and runs the migration against production here,
+#   BEFORE Step 8 migrates any real traffic to the new revision. `set -euo
+#   pipefail` (top of file) means a failing migration stops this script
+#   here: traffic never cuts over to a revision whose schema requirements
+#   aren't met, and the previous revision (already serving 100%) is
+#   untouched -- a bad migration blocks the deploy instead of partially
+#   applying against a service already serving the new code.
+# ---------------------------------------------------------------------------
+echo "=== Step 7.5: Run database migration ==="
+MIGRATION_DATABASE_URL=$(gcloud secrets versions access latest --secret=asa-database-url --project="${GCP_PROJECT}")
+DATABASE_URL="${MIGRATION_DATABASE_URL}" alembic upgrade head
+unset MIGRATION_DATABASE_URL
+echo "  Migration applied (repo HEAD now matches production)"
+
+# ---------------------------------------------------------------------------
 # Step 8: Migrate 100% of traffic to the new revision (explicit, not latestRevision)
 # ---------------------------------------------------------------------------
 echo "=== Step 8: Migrate traffic → ${NEW_REVISION} ==="
