@@ -12,10 +12,10 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
     "@radix-ui/react-slot": "^1.1.2",
-    "@sentry/nextjs": "^10.53.1",
-    "@supabase/ssr": "^0.6.1",
+    "@sentry/nextjs": "^10.71.0",
+    "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.49.4",
-    "@tanstack/react-query": "^5.74.4",
+    "@tanstack/react-query": "^5.102.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.511.0",
@@ -35,10 +35,10 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^9",
     "eslint-config-next": "15.5.18",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "next": {
