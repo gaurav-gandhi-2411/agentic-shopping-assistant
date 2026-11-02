@@ -19,7 +19,7 @@ uvicorn[standard]==0.46.0
 pydantic==2.13.4
 websockets==15.0.1
 
-streamlit==1.54.0
+streamlit==1.66.1
 httpx==0.28.1
 
 python-dotenv==1.2.2
@@ -30,12 +30,12 @@ openai==2.32.0
 sqlalchemy==2.0.39
 alembic==1.16.5
 psycopg[binary]==3.3.4
-pyjwt[crypto]==2.13.0
+pyjwt[crypto]==2.15.1
 
 sentry-sdk[fastapi]==2.60.0
 google-cloud-storage>=2.14.0
 
-pillow==12.3.0
+pillow==13.0.0
 pillow-heif==1.4.0
 python-multipart==0.0.32
 

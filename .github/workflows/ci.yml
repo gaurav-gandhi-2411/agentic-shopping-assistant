@@ -91,7 +91,8 @@ jobs:
             --ignore-vuln PYSEC-2025-217 \
             --ignore-vuln CVE-2026-1839 \
             --ignore-vuln CVE-2026-4372 \
-            --ignore-vuln PYSEC-2026-2290
+            --ignore-vuln PYSEC-2026-2290 \
+            --ignore-vuln PYSEC-2026-4164
           # All four are transformers CVEs (PYSEC-2026-2290 added 2026-08-06, a newly
           # disclosed CVE fixed only in transformers>=5.5.0 -- same root cause as the
           # other three, re-verified against the current pin, not assumed). transformers
@@ -102,6 +103,16 @@ jobs:
           # sentence-transformers to a 5.x-compatible release, which is a separate,
           # deliberate migration (embedding output needs re-validating against the
           # eval_gate thresholds) — not a drive-by version bump.
+          # PYSEC-2026-4164 (added 2026-11-02; sentence-transformers<5.6.0, CVE-2026-68770):
+          # trust_remote_code=False is bypassed when the model path exists on local disk,
+          # so an attacker-controlled local model directory => code exec at load. Not
+          # exposed: SentenceTransformer() is only called with hub ids from config.yaml
+          # and clip_encoder ("all-MiniLM-L6-v2", "clip-ViT-B-32"), never a user- or
+          # network-supplied local directory. Fix is the same planned sentence-
+          # transformers 5.x migration as above (fixed in 5.6.0).
+          # PYSEC-2026-4146 (pyjwt, no fix version) needs no ignore: OSV lists it as
+          # last_affected 2.13.0, so the pyjwt 2.15.1 pin is outside the range (and we
+          # never pass a reusable options= dict to jwt.decode).
 
   frontend:
     runs-on: ubuntu-latest
