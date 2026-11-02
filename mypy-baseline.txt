@@ -1,0 +1,236 @@
+api/main.py: [arg-type] Argument "before_send" to "init" has incompatible type "Callable[[dict[Any, Any], object], dict[Any, Any]]"; expected "Callable[[Event, dict[str, Any]], Event | None] | None"
+api/routes/catalogue.py: [union-attr] Item "None" of "Any | None" has no attribute "ntotal"
+eval/adaptive_per_store_cap_test.py: [var-annotated] Need type annotation for "recalls"
+eval/consensus_labeling.py: [assignment] Incompatible types in assignment (expression has type "list[str]", variable has type "dict[str, str | None]")
+eval/consensus_labeling.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
+eval/cross_store_retrieval.py: [assignment] Incompatible types in assignment (expression has type "str", variable has type "int")
+eval/diagnose_pushdown_mechanism.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
+eval/diagnose_pushdown_mechanism.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
+eval/diagnose_pushdown_mechanism.py: [union-attr] Item "None" of "Any | None" has no attribute "search"
+eval/diagnose_store_score_bias.py: [arg-type] Argument 1 to "_tokenize" of "SparseRetriever" has incompatible type "Collection[str]"; expected "str"
+eval/diagnose_store_score_bias.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
+eval/diagnose_store_score_bias.py: [index] Value of type "dict[str, int] | None" is not indexable
+eval/diagnose_store_score_bias.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
+eval/diagnose_store_score_bias.py: [operator] Unsupported right operand type for in ("dict[str, int] | None")
+eval/diagnose_store_score_bias.py: [union-attr] Item "None" of "Any | None" has no attribute "get_scores"
+eval/diagnose_store_score_bias.py: [union-attr] Item "None" of "Any | None" has no attribute "reconstruct"
+eval/f2_calibration.py: [arg-type] Argument 1 to "search" of "HybridRetriever" has incompatible type "Sequence[str]"; expected "str"
+eval/f2_calibration.py: [operator] Unsupported operand types for in ("Sequence[str]" and "str")
+eval/judge_calibration.py: [arg-type] Argument "max_tokens" to "chat" of "GroqClient" has incompatible type "Any | None"; expected "int"
+eval/judge_calibration.py: [arg-type] Argument "max_tokens" to "chat" of "OllamaClient" has incompatible type "Any | None"; expected "int"
+eval/per_store_cap_sweep.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/per_store_cap_sweep.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/per_store_cap_sweep.py: [index] Value of type "object" is not indexable
+eval/per_store_cap_sweep.py: [index] Value of type "object" is not indexable
+eval/per_store_cap_sweep.py: [var-annotated] Need type annotation for "recalls"
+eval/per_store_cap_sweep_broad.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/store_diversity_sweep_mmr_only.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/store_diversity_sweep_mmr_only.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/store_diversity_sweep_mmr_only.py: [index] Value of type "object" is not indexable
+eval/store_diversity_sweep_mmr_only.py: [index] Value of type "object" is not indexable
+eval/store_diversity_sweep_mmr_only.py: [var-annotated] Need type annotation for "recalls"
+eval/store_score_bias_full.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
+eval/store_score_bias_full.py: [index] Value of type "dict[str, int] | None" is not indexable
+eval/store_score_bias_full.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
+eval/store_score_bias_full.py: [operator] Unsupported right operand type for in ("dict[str, int] | None")
+eval/store_score_bias_full.py: [union-attr] Item "None" of "Any | None" has no attribute "get_scores"
+eval/store_score_bias_full.py: [union-attr] Item "None" of "Any | None" has no attribute "reconstruct"
+eval/store_score_normalization_test.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/store_score_normalization_test.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
+eval/store_score_normalization_test.py: [assignment] Incompatible types in assignment (expression has type "Callable[[list[dict[Any, Any]], list[dict[Any, Any]], int, int], list[dict[Any, Any]]]", variable has type "def apply_per_store_cap(selected: list[dict[Any, Any]], full_pool: list[dict[Any, Any]], cap: int, top_k: int) -> list[dict[Any, Any]]")
+eval/store_score_normalization_test.py: [call-arg] Unexpected keyword argument "cap"
+eval/store_score_normalization_test.py: [call-arg] Unexpected keyword argument "top_k"
+eval/store_score_normalization_test.py: [index] Value of type "object" is not indexable
+eval/store_score_normalization_test.py: [index] Value of type "object" is not indexable
+eval/store_score_normalization_test.py: [var-annotated] Need type annotation for "recalls"
+qa/user_flow_matrix.py: [misc] Generator has incompatible item type "object"; expected "bool"
+scripts/03_build_image_subset.py: [assignment] Incompatible types in assignment (expression has type "Image", variable has type "ImageFile")
+scripts/03_build_image_subset.py: [attr-defined] Module has no attribute "LANCZOS"
+scripts/03_build_image_subset.py: [var-annotated] Need type annotation for "filler_selected" (hint: "filler_selected: list[<type>] = ...")
+scripts/_e2e_probe_filter_validation.py: [arg-type] Argument 3 to "build_graph" has incompatible type "OllamaClient | GroqClient"; expected "LLMClient"
+scripts/baseline_bugs.py: [arg-type] Argument 2 to "_get_pdp_with_retry" has incompatible type "Any | None"; expected "str"
+scripts/baseline_bugs.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
+scripts/baseline_bugs.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
+scripts/browser_proof.py: [arg-type] Argument 1 to "sum" has incompatible type "list[int | None]"; expected "Iterable[bool]"
+scripts/browser_proof.py: [arg-type] Argument 1 to "sum" has incompatible type "list[int | None]"; expected "Iterable[bool]"
+scripts/browser_proof.py: [arg-type] Argument 1 to "sum" has incompatible type "list[int | None]"; expected "Iterable[bool]"
+scripts/browser_proof.py: [union-attr] Item "None" of "Any | None" has no attribute "locator"
+scripts/budget_persistence_smoke.py: [attr-defined] "object" has no attribute "invoke"
+scripts/budget_persistence_smoke.py: [var-annotated] Need type annotation for "session"
+scripts/build_unified_index.py: [no-redef] Name "all_stats" already defined on line N
+scripts/build_unified_index.py: [union-attr] Item "None" of "Any | None" has no attribute "ntotal"
+scripts/eval_harness.py: [arg-type] Argument 3 to "build_graph" has incompatible type "OllamaClient | GroqClient"; expected "LLMClient"
+scripts/eval_harness.py: [var-annotated] Need type annotation for "filters" (hint: "filters: dict[<type>, <type>] = ...")
+scripts/eval_harness.py: [var-annotated] Need type annotation for "messages" (hint: "messages: list[<type>] = ...")
+scripts/eval_harness.py: [var-annotated] Need type annotation for "retrieved_items" (hint: "retrieved_items: list[<type>] = ...")
+scripts/eval_model.py: [arg-type] Argument 1 to "_items_of_look" has incompatible type "Collection[str] | tuple[dict[str, Any], dict[str, Any]]"; expected "dict[str, Any]"
+scripts/eval_model.py: [arg-type] Argument 1 to "_items_of_look" has incompatible type "Collection[str] | tuple[dict[str, Any], dict[str, Any]]"; expected "dict[str, Any]"
+scripts/eval_model.py: [arg-type] Argument 1 to "_items_of_look" has incompatible type "Collection[str] | tuple[dict[str, Any], dict[str, Any]]"; expected "dict[str, Any]"
+scripts/eval_model.py: [arg-type] Argument 3 to "build_graph" has incompatible type "OllamaClient | GroqClient"; expected "LLMClient"
+scripts/eval_model.py: [union-attr] Item "Collection[str]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "Collection[str]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "Collection[str]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "Collection[str]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "Collection[str]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "str" of "str | dict[str, Any]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "str" of "str | dict[str, Any]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "tuple[dict[str, Any], ...]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "tuple[dict[str, Any], ...]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "tuple[dict[str, Any], ...]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "tuple[dict[str, Any], ...]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "tuple[dict[str, Any], ...]" of "Collection[str] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/eval_model.py: [union-attr] Item "tuple[dict[str, Any], ...]" of "dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]" has no attribute "get"
+scripts/live_smoke_test.py: [dict-item] Dict entry 2 has incompatible type "str": "dict[str, Sequence[Collection[str]]]"; expected "str": "int | float | Sequence[JsonType] | Mapping[str, JsonType] | None"
+scripts/patch_catalogue_f1.py: [var-annotated] Need type annotation for "type_counts" (hint: "type_counts: dict[<type>, <type>] = ...")
+scripts/product_checks.py: [arg-type] Argument 1 to "join_catalogue" has incompatible type "list[Any | None]"; expected "list[str]"
+scripts/product_checks.py: [arg-type] Argument 1 to "join_catalogue" has incompatible type "list[Any | None]"; expected "list[str]"
+scripts/product_checks.py: [arg-type] Argument 1 to "sum" has incompatible type "list[Any | None]"; expected "Iterable[bool]"
+scripts/product_checks.py: [arg-type] Argument 1 to "sum" has incompatible type "list[Any | None]"; expected "Iterable[bool]"
+scripts/product_checks.py: [type-var] Value of type variable "SupportsRichComparisonT" of "max" cannot be "Any | None"
+scripts/product_checks.py: [type-var] Value of type variable "SupportsRichComparisonT" of "max" cannot be "Any | None"
+scripts/product_checks.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
+scripts/product_checks.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 1 has incompatible type "*tuple[object, ...]"; expected "LLMClient"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 1 has incompatible type "*tuple[object, ...]"; expected "list[dict[Any, Any]]"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "LLMClient"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "bool"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "dict[str, str] | None"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "float | None"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "list[dict[Any, Any]]"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "list[str] | None"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "str | None"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 has incompatible type "**dict[str, object]"; expected "str"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 to "validate_rationale" has incompatible type "list[Collection[str]]"; expected "list[dict[Any, Any]]"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 to "validate_rationale" has incompatible type "list[Collection[str]]"; expected "list[dict[Any, Any]]"
+scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 to "validate_rationale" has incompatible type "list[Collection[str]]"; expected "list[dict[Any, Any]]"
+scripts/rationale_grounding_smoke.py: [assignment] Incompatible types in assignment (expression has type "str", target has type "ConversationMemory | bool | dict[Any, Any] | list[Any] | None")
+scripts/rationale_grounding_smoke.py: [attr-defined] "object" has no attribute "invoke"
+scripts/rationale_grounding_smoke.py: [var-annotated] Need type annotation for "session"
+scripts/rebuild_index_from_enriched.py: [union-attr] Item "None" of "Any | None" has no attribute "ntotal"
+scripts/refinement_pool_underflow_smoke.py: [attr-defined] "object" has no attribute "invoke"
+scripts/refinement_pool_underflow_smoke.py: [var-annotated] Need type annotation for "session"
+scripts/telemetry_analyze.py: [return-value] No return value expected
+scripts/telemetry_fastpath.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+scripts/telemetry_fastpath.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+scripts/ws_live_proof.py: [name-defined] Name "websockets.WebSocketClientProtocol" is not defined
+spaces/app.py: [misc] Type cannot be declared in assignment to non-self attribute
+spaces/app.py: [misc] Type cannot be declared in assignment to non-self attribute
+src/agents/graph.py: [arg-type] Argument "key" to "sorted" has incompatible type "Callable[[dict[Any, Any]], Any | float | None]"; expected "Callable[[dict[Any, Any]], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"
+src/agents/graph.py: [arg-type] Argument "key" to "sorted" has incompatible type "Callable[[dict[Any, Any]], Any | float | None]"; expected "Callable[[dict[Any, Any]], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"
+src/agents/graph.py: [arg-type] Argument 1 to "resolve_partner_gender" has incompatible type "str | None"; expected "str"
+src/agents/graph.py: [assignment] Incompatible types in assignment (expression has type "bool", target has type "str")
+src/agents/graph.py: [dict-item] Dict entry 2 has incompatible type "str": "dict[Any, Any]"; expected "str": "str"
+src/agents/graph.py: [dict-item] Dict entry 2 has incompatible type "str": "dict[Never, Never]"; expected "str": "str"
+src/agents/graph.py: [dict-item] Dict entry 2 has incompatible type "str": "int"; expected "str": "list[dict[Any, Any]]"
+src/agents/graph.py: [no-redef] Name "plan" already defined on line N
+src/agents/graph.py: [no-redef] Name "update" already defined on line N
+src/agents/graph.py: [no-redef] Name "update" already defined on line N
+src/agents/graph.py: [operator] Unsupported operand types for * ("None" and "float")
+src/agents/graph.py: [operator] Unsupported operand types for * ("None" and "float")
+src/agents/graph.py: [return-value] Incompatible return value type (got "Any | float | None", expected "SupportsDunderLT[Any] | SupportsDunderGT[Any]")
+src/agents/graph.py: [return-value] Incompatible return value type (got "Any | float | None", expected "SupportsDunderLT[Any] | SupportsDunderGT[Any]")
+src/agents/graph.py: [type-var] Value of type variable "SupportsRichComparisonT" of "max" cannot be "Any | None"
+src/agents/graph.py: [type-var] Value of type variable "SupportsRichComparisonT" of "max" cannot be "Any | None"
+src/agents/graph.py: [type-var] Value of type variable "_NumberT" of "median" cannot be "Any | None"
+src/agents/graph.py: [union-attr] Item "None" of "Any | None" has no attribute "lower"
+src/agents/outfit/cart_links.py: [arg-type] Argument 1 to "_load_variant_map" has incompatible type "str | None"; expected "str"
+src/agents/outfit/cart_links.py: [arg-type] Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"
+src/agents/outfit/cart_links.py: [arg-type] Argument 2 to "_build_open_all_action" has incompatible type "str | None"; expected "str"
+src/agents/outfit/cart_links.py: [arg-type] Argument 2 to "_build_shopify_action" has incompatible type "str | None"; expected "str"
+src/agents/outfit/composer.py: [arg-type] Argument 1 to "join" of "str" has incompatible type "list[Any | None]"; expected "Iterable[str]"
+src/agents/outfit/composer.py: [arg-type] Argument 1 to "join" of "str" has incompatible type "list[Any | None]"; expected "Iterable[str]"
+src/agents/outfit/image_anchor.py: [attr-defined] "object" has no attribute "ntotal"
+src/agents/outfit/image_anchor.py: [attr-defined] "object" has no attribute "search"
+src/agents/router.py: [assignment] Incompatible default for parameter "format_items_brief" (default has type "None", parameter has type "Callable[..., Any]")
+src/agents/router.py: [assignment] Incompatible default for parameter "format_messages" (default has type "None", parameter has type "Callable[..., Any]")
+src/agents/router.py: [assignment] Incompatible default for parameter "parse_response" (default has type "None", parameter has type "Callable[..., Any]")
+src/agents/tools.py: [assignment] Incompatible types in assignment (expression has type "dict[Any, Any] | None", variable has type "dict[Any, Any]")
+src/catalogue/adapter.py: [list-item] List item 54 has incompatible type "tuple[str, None]"; expected "tuple[str, str]"
+src/catalogue/adapter.py: [list-item] List item 55 has incompatible type "tuple[str, None]"; expected "tuple[str, str]"
+src/catalogue/enrichment.py: [arg-type] Argument 1 to "join" of "str" has incompatible type "list[str | None]"; expected "Iterable[str]"
+src/llm/client.py: [arg-type] Argument "messages" to "create" of "Completions" has incompatible type "list[dict[Any, Any]]"; expected "Iterable[ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam | ChatCompletionToolMessageParam | ChatCompletionFunctionMessageParam]"
+src/llm/client.py: [arg-type] Argument "messages" to "create" of "Completions" has incompatible type "list[dict[Any, Any]]"; expected "Iterable[ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam | ChatCompletionToolMessageParam | ChatCompletionFunctionMessageParam]"
+src/llm/client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/client.py: [assignment] Incompatible types in assignment (expression has type "GeminiClient", variable has type "None")
+src/llm/client.py: [assignment] Incompatible types in assignment (expression has type "OpenRouterClient", variable has type "None")
+src/llm/client.py: [attr-defined] "None" has no attribute "cost_reporter"
+src/llm/client.py: [attr-defined] "None" has no attribute "cost_reporter"
+src/llm/client.py: [return-value] Incompatible return value type (got "GeminiClient", expected "OllamaClient | GroqClient")
+src/llm/client.py: [return-value] Incompatible return value type (got "OpenRouterClient", expected "OllamaClient | GroqClient")
+src/llm/client.py: [return-value] Incompatible return value type (got "str | None", expected "str")
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "choices"
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "choices"
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "usage"
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "usage"
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "usage"
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "usage"
+src/llm/client.py: [union-attr] Item "tuple[str | Any, ...]" of "tuple[str, Any] | ChatCompletionChunk" has no attribute "usage"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "AutomaticFunctionCallingConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "Content | str | Image | File | Part | list[str | Image | File | Part] | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "GenerationConfigRoutingConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "HttpOptions | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "ImageConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "MediaResolution | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "ModelArmorConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "ModelSelectionConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "ServiceTier | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "ThinkingConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "ToolConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "bool | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "dict[str, str] | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "int | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "list[SafetySetting] | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "list[Tool | Callable[..., Any] | Any | Any] | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "list[str] | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "str | None"
+src/llm/gemini_client.py: [arg-type] Argument 1 to "GenerateContentConfig" has incompatible type "**dict[str, float]"; expected "str | SpeechConfig | None"
+src/llm/gemini_client.py: [arg-type] Argument 3 to "_gen_config" of "GeminiClient" has incompatible type "str | None"; expected "str"
+src/llm/gemini_client.py: [arg-type] Argument 3 to "_gen_config" of "GeminiClient" has incompatible type "str | None"; expected "str"
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/gemini_client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/gemini_client.py: [assignment] Incompatible types in assignment (expression has type "str", target has type "float")
+src/llm/gemini_client.py: [return-value] Incompatible return value type (got "str | None", expected "str")
+src/llm/openrouter_client.py: [arg-type] Argument "messages" to "create" of "Completions" has incompatible type "list[dict[Any, Any]]"; expected "Iterable[ChatCompletionDeveloperMessageParam | ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam | ChatCompletionToolMessageParam | ChatCompletionFunctionMessageParam]"
+src/llm/openrouter_client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/openrouter_client.py: [assignment] Incompatible default for parameter "max_tokens" (default has type "None", parameter has type "int")
+src/llm/openrouter_client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/openrouter_client.py: [assignment] Incompatible default for parameter "system" (default has type "None", parameter has type "str")
+src/llm/openrouter_client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/openrouter_client.py: [assignment] Incompatible default for parameter "temperature" (default has type "None", parameter has type "float")
+src/llm/openrouter_client.py: [call-overload] No overload variant of "create" of "Completions" matches argument types "Any", "list[dict[Any, Any]]", "float", "int", "bool", "dict[str, bool]"
+src/llm/openrouter_client.py: [return-value] Incompatible return value type (got "str | None", expected "str")
+src/retrieval/clip_encoder.py: [attr-defined] "object" has no attribute "__iter__"; maybe "__dir__" or "__str__"? (not iterable)
+src/retrieval/clip_encoder.py: [attr-defined] "object" has no attribute "processor"
+src/retrieval/clip_encoder.py: [attr-defined] "object" has no attribute "processor"
+src/retrieval/dense_search.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
+src/retrieval/dense_search.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
+src/retrieval/dense_search.py: [union-attr] Item "None" of "Any | None" has no attribute "reconstruct"
+src/retrieval/dense_search.py: [union-attr] Item "None" of "Any | None" has no attribute "search"
+src/retrieval/dense_search.py: [union-attr] Item "None" of "Any | None" has no attribute "search"
+src/retrieval/hybrid_search.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
+src/retrieval/sparse_search.py: [arg-type] Argument 1 to "len" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Sized"
+src/retrieval/sparse_search.py: [index] Value of type "dict[str, int] | None" is not indexable
+src/retrieval/sparse_search.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
+src/retrieval/sparse_search.py: [operator] Unsupported right operand type for in ("dict[str, int] | None")
+src/retrieval/sparse_search.py: [type-var] Value of type variable "_ScalarT" of "__call__" of "_ConstructorEmpty" cannot be "bool"
+src/retrieval/sparse_search.py: [union-attr] Item "None" of "Any | None" has no attribute "get_scores"
