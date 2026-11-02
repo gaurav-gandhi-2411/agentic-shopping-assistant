@@ -14,7 +14,7 @@ JWKS endpoint (verified 2026-05 against Supabase docs):
 
 Algorithm: ES256 or RS256 (SUPABASE_JWT_ALGORITHMS); never HS256/none.
 aud claim: "authenticated" (Supabase default for logged-in users).
-iss claim: not validated — the RS256 signature is sufficient; iss would
+iss claim: not validated — the asymmetric (ES256/RS256) signature is sufficient; iss would
   require knowing the project URL at decode time without adding security.
 
 Env vars (read at call time so monkeypatching works in tests):
