@@ -87,21 +87,10 @@ jobs:
 
       - name: Security audit (pip-audit)
         run: |
-          pip-audit -r requirements.txt \
-            --ignore-vuln PYSEC-2025-217 \
-            --ignore-vuln CVE-2026-1839 \
-            --ignore-vuln CVE-2026-4372 \
-            --ignore-vuln PYSEC-2026-2290
-          # All four are transformers CVEs (PYSEC-2026-2290 added 2026-08-06, a newly
-          # disclosed CVE fixed only in transformers>=5.5.0 -- same root cause as the
-          # other three, re-verified against the current pin, not assumed). transformers
-          # is a transitive dep of sentence-transformers==2.7.0, which pins
-          # transformers<5.0.0 — the patched versions (5.0.0rc3+/5.3.0/5.5.0) are hard-
-          # incompatible (pip's resolver confirms ResolutionImpossible from a clean
-          # install). Fixing these requires upgrading
-          # sentence-transformers to a 5.x-compatible release, which is a separate,
-          # deliberate migration (embedding output needs re-validating against the
-          # eval_gate thresholds) — not a drive-by version bump.
+          pip-audit -r requirements.txt
+          # No --ignore-vuln: the 4 transformers ignores that lived here were cleared by the
+          # sentence-transformers 2.7 -> 5.7 / transformers 5.10.4 migration (2026-11-02), and
+          # the newer advisories (PYSEC-2026-4164/-4240/-3929/-4174/-4146) by upgrades too.
 
   frontend:
     runs-on: ubuntu-latest
@@ -127,10 +116,10 @@ jobs:
       - name: Security audit (npm audit)
         run: cd frontend && npm audit --audit-level=high
         # BLOCKING (T2 gate — no continue-on-error). Threshold is high, not moderate:
-        # the one known finding today (GHSA-qx2v-qp2m-jg93, postcss XSS via
-        # next's bundled postcss<8.5.10) is moderate severity with no non-major fix
-        # available (`npm audit fix --force` would bump next across a major version).
-        # Re-evaluate this exception the next time next/postcss is upgraded.
+        # the remaining findings (2026-11-02: 18 moderate, 0 high/critical) are the
+        # eslint/@typescript-eslint/minimatch/glob dev-tooling chain, whose only fix
+        # (`npm audit fix --force`) is a breaking major downgrade of eslint /
+        # eslint-config-next / @sentry/nextjs. Re-evaluate when those majors move.
 
   eval:
     runs-on: ubuntu-latest
