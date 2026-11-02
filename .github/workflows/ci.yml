@@ -55,7 +55,7 @@ jobs:
         run: pip install pip-audit
 
       - name: Install lint/type-check tools
-        run: pip install ruff mypy
+        run: pip install ruff mypy==2.4.1
         # Neither is in requirements.txt (that's runtime deps only) — this step was
         # missing entirely, so "Lint (ruff)" has been hard-failing CI with
         # "ruff: command not found" since before this change; only ever worked
@@ -64,9 +64,11 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Type-check (mypy)
-        run: mypy .
-        continue-on-error: true
+      # Blocking ratchet: fails on any mypy error not in mypy-baseline.txt, and fails closed
+      # if mypy crashes or checks nothing. `mypy .` previously aborted on a duplicate-module
+      # error and was masked by continue-on-error, so it never type-checked anything.
+      - name: Type-check (mypy ratchet)
+        run: python scripts/mypy_ratchet.py
 
       # Fail-closed WIF gate. Dependabot-triggered and fork PR runs receive no repo
       # secrets and no id-token, so the GCP steps below cannot work there; those two
