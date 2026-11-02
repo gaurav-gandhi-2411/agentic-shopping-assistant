@@ -1,4 +1,5 @@
-sentence-transformers==2.7.0
+sentence-transformers==5.7.0
+transformers==5.10.4
 colour-science==0.4.7
 rank-bm25==0.2.2
 faiss-cpu==1.13.2
