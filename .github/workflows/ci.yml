@@ -22,6 +22,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; only the jobs that do WIF auth add id-token: write.
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -64,15 +68,53 @@ jobs:
         run: mypy .
         continue-on-error: true
 
+      # Fail-closed WIF gate. Dependabot-triggered and fork PR runs receive no repo
+      # secrets and no id-token, so the GCP steps below cannot work there; those two
+      # contexts (and only those) may skip them. In every other context (push to
+      # master, PR from this repo's own branches, re-runs) a missing secret is a
+      # HARD FAILURE, so a misconfiguration can never silently drop the
+      # requires_index / eval coverage. Secrets can't be read in `if:`, so they are
+      # mapped to env. PR author / head repo are used rather than github.actor, which
+      # changes when a human re-runs a Dependabot run. Event values go via env, never
+      # interpolated into the script body.
+      - name: Check WIF availability (fail closed)
+        id: wif
+        env:
+          WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ] && { [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Index-dependent checks skipped::No WIF secrets (Dependabot/fork PR): requires_index tests were SKIPPED. This green run is NOT full coverage."
+            {
+              echo "### :warning: Reduced coverage (no secrets)"
+              echo "requires_index tests were skipped for lack of secrets (Dependabot/fork PR). A green check here is not full coverage."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::WIF_PROVIDER / WIF_SERVICE_ACCOUNT missing in a context that must have them (event=$EVENT_NAME). Failing closed."
+          exit 1
+
       - name: Authenticate to GCP (read-only, index bucket only)
         uses: google-github-actions/auth@v2
+        if: steps.wif.outputs.available == 'true'
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
       - uses: google-github-actions/setup-gcloud@v2
+        if: steps.wif.outputs.available == 'true'
 
       - name: Download unified index (for requires_index tests)
+        if: steps.wif.outputs.available == 'true'
         run: |
           mkdir -p data/processed/unified data/processed/clip/unified
           gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
@@ -138,20 +180,59 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Fail-closed WIF gate. Dependabot-triggered and fork PR runs receive no repo
+      # secrets and no id-token, so the GCP steps below cannot work there; those two
+      # contexts (and only those) may skip them. In every other context (push to
+      # master, PR from this repo's own branches, re-runs) a missing secret is a
+      # HARD FAILURE, so a misconfiguration can never silently drop the
+      # requires_index / eval coverage. Secrets can't be read in `if:`, so they are
+      # mapped to env. PR author / head repo are used rather than github.actor, which
+      # changes when a human re-runs a Dependabot run. Event values go via env, never
+      # interpolated into the script body.
+      - name: Check WIF availability (fail closed)
+        id: wif
+        env:
+          WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ] && { [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Index-dependent checks skipped::No WIF secrets (Dependabot/fork PR): requires_index tests and the eval relevance gate were SKIPPED. This green run is NOT full coverage."
+            {
+              echo "### :warning: Reduced coverage (no secrets)"
+              echo "requires_index tests and the eval relevance gate were skipped for lack of secrets (Dependabot/fork PR). A green check here is not full coverage."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::WIF_PROVIDER / WIF_SERVICE_ACCOUNT missing in a context that must have them (event=$EVENT_NAME). Failing closed."
+          exit 1
+
       - name: Authenticate to GCP (read-only, index bucket only)
         uses: google-github-actions/auth@v2
+        if: steps.wif.outputs.available == 'true'
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
       - uses: google-github-actions/setup-gcloud@v2
+        if: steps.wif.outputs.available == 'true'
 
       - name: Download unified index
+        if: steps.wif.outputs.available == 'true'
         run: |
           mkdir -p data/processed/unified
           gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
 
       - name: Relevance regression gate
+        if: steps.wif.outputs.available == 'true'
         run: python scripts/eval_gate.py --max-unlabeled 3
         # Deterministic (zero LLM calls: intent/r1/gates) + hand-audited strict gold
         # eval — see scripts/eval_gate.py for thresholds. Replaces the old
