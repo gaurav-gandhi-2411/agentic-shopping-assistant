@@ -1,19 +1,21 @@
 api/main.py: [arg-type] Argument "before_send" to "init" has incompatible type "Callable[[dict[Any, Any], object], dict[Any, Any]]"; expected "Callable[[Event, dict[str, Any]], Event | None] | None"
-api/routes/catalogue.py: [union-attr] Item "None" of "Any | None" has no attribute "ntotal"
+api/routes/catalogue.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "ntotal"
 eval/adaptive_per_store_cap_test.py: [var-annotated] Need type annotation for "recalls"
 eval/consensus_labeling.py: [assignment] Incompatible types in assignment (expression has type "list[str]", variable has type "dict[str, str | None]")
 eval/consensus_labeling.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
 eval/cross_store_retrieval.py: [assignment] Incompatible types in assignment (expression has type "str", variable has type "int")
+eval/cross_store_retrieval.py: [attr-defined] "Tensor" has no attribute "astype"
 eval/diagnose_pushdown_mechanism.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
+eval/diagnose_pushdown_mechanism.py: [call-arg] Unexpected keyword argument "sel" for "SearchParameters"
 eval/diagnose_pushdown_mechanism.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
-eval/diagnose_pushdown_mechanism.py: [union-attr] Item "None" of "Any | None" has no attribute "search"
+eval/diagnose_pushdown_mechanism.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "search"
 eval/diagnose_store_score_bias.py: [arg-type] Argument 1 to "_tokenize" of "SparseRetriever" has incompatible type "Collection[str]"; expected "str"
 eval/diagnose_store_score_bias.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
 eval/diagnose_store_score_bias.py: [index] Value of type "dict[str, int] | None" is not indexable
 eval/diagnose_store_score_bias.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
 eval/diagnose_store_score_bias.py: [operator] Unsupported right operand type for in ("dict[str, int] | None")
 eval/diagnose_store_score_bias.py: [union-attr] Item "None" of "Any | None" has no attribute "get_scores"
-eval/diagnose_store_score_bias.py: [union-attr] Item "None" of "Any | None" has no attribute "reconstruct"
+eval/diagnose_store_score_bias.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "reconstruct"
 eval/f2_calibration.py: [arg-type] Argument 1 to "search" of "HybridRetriever" has incompatible type "Sequence[str]"; expected "str"
 eval/f2_calibration.py: [operator] Unsupported operand types for in ("Sequence[str]" and "str")
 eval/judge_calibration.py: [arg-type] Argument "max_tokens" to "chat" of "GroqClient" has incompatible type "Any | None"; expected "int"
@@ -34,7 +36,7 @@ eval/store_score_bias_full.py: [index] Value of type "dict[str, int] | None" is 
 eval/store_score_bias_full.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
 eval/store_score_bias_full.py: [operator] Unsupported right operand type for in ("dict[str, int] | None")
 eval/store_score_bias_full.py: [union-attr] Item "None" of "Any | None" has no attribute "get_scores"
-eval/store_score_bias_full.py: [union-attr] Item "None" of "Any | None" has no attribute "reconstruct"
+eval/store_score_bias_full.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "reconstruct"
 eval/store_score_normalization_test.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
 eval/store_score_normalization_test.py: [arg-type] Argument 1 to "_mean" has incompatible type "list[int]"; expected "list[float]"
 eval/store_score_normalization_test.py: [assignment] Incompatible types in assignment (expression has type "Callable[[list[dict[Any, Any]], list[dict[Any, Any]], int, int], list[dict[Any, Any]]]", variable has type "def apply_per_store_cap(selected: list[dict[Any, Any]], full_pool: list[dict[Any, Any]], cap: int, top_k: int) -> list[dict[Any, Any]]")
@@ -43,6 +45,8 @@ eval/store_score_normalization_test.py: [call-arg] Unexpected keyword argument "
 eval/store_score_normalization_test.py: [index] Value of type "object" is not indexable
 eval/store_score_normalization_test.py: [index] Value of type "object" is not indexable
 eval/store_score_normalization_test.py: [var-annotated] Need type annotation for "recalls"
+eval/twotower_compare.py: [attr-defined] "Tensor" has no attribute "astype"
+eval/twotower_compare.py: [attr-defined] "Tensor" has no attribute "astype"
 qa/user_flow_matrix.py: [misc] Generator has incompatible item type "object"; expected "bool"
 scripts/03_build_image_subset.py: [assignment] Incompatible types in assignment (expression has type "Image", variable has type "ImageFile")
 scripts/03_build_image_subset.py: [attr-defined] Module has no attribute "LANCZOS"
@@ -51,14 +55,16 @@ scripts/_e2e_probe_filter_validation.py: [arg-type] Argument 3 to "build_graph" 
 scripts/baseline_bugs.py: [arg-type] Argument 2 to "_get_pdp_with_retry" has incompatible type "Any | None"; expected "str"
 scripts/baseline_bugs.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
 scripts/baseline_bugs.py: [union-attr] Item "TextIO" of "TextIO | Any" has no attribute "reconfigure"
+scripts/bench_embedding_models.py: [assignment] Incompatible types in assignment (expression has type "Index", variable has type "IndexFlatIP | None")
 scripts/browser_proof.py: [arg-type] Argument 1 to "sum" has incompatible type "list[int | None]"; expected "Iterable[bool]"
 scripts/browser_proof.py: [arg-type] Argument 1 to "sum" has incompatible type "list[int | None]"; expected "Iterable[bool]"
 scripts/browser_proof.py: [arg-type] Argument 1 to "sum" has incompatible type "list[int | None]"; expected "Iterable[bool]"
 scripts/browser_proof.py: [union-attr] Item "None" of "Any | None" has no attribute "locator"
 scripts/budget_persistence_smoke.py: [attr-defined] "object" has no attribute "invoke"
 scripts/budget_persistence_smoke.py: [var-annotated] Need type annotation for "session"
+scripts/build_unified_index.py: [arg-type] Argument 1 to "_extract_vectors_for_ids" has incompatible type "Index"; expected "IndexFlatIP"
 scripts/build_unified_index.py: [no-redef] Name "all_stats" already defined on line N
-scripts/build_unified_index.py: [union-attr] Item "None" of "Any | None" has no attribute "ntotal"
+scripts/build_unified_index.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "ntotal"
 scripts/eval_harness.py: [arg-type] Argument 3 to "build_graph" has incompatible type "OllamaClient | GroqClient"; expected "LLMClient"
 scripts/eval_harness.py: [var-annotated] Need type annotation for "filters" (hint: "filters: dict[<type>, <type>] = ...")
 scripts/eval_harness.py: [var-annotated] Need type annotation for "messages" (hint: "messages: list[<type>] = ...")
@@ -106,7 +112,7 @@ scripts/rationale_grounding_smoke.py: [arg-type] Argument 2 to "validate_rationa
 scripts/rationale_grounding_smoke.py: [assignment] Incompatible types in assignment (expression has type "str", target has type "ConversationMemory | bool | dict[Any, Any] | list[Any] | None")
 scripts/rationale_grounding_smoke.py: [attr-defined] "object" has no attribute "invoke"
 scripts/rationale_grounding_smoke.py: [var-annotated] Need type annotation for "session"
-scripts/rebuild_index_from_enriched.py: [union-attr] Item "None" of "Any | None" has no attribute "ntotal"
+scripts/rebuild_index_from_enriched.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "ntotal"
 scripts/refinement_pool_underflow_smoke.py: [attr-defined] "object" has no attribute "invoke"
 scripts/refinement_pool_underflow_smoke.py: [var-annotated] Need type annotation for "session"
 scripts/telemetry_analyze.py: [return-value] No return value expected
@@ -222,12 +228,14 @@ src/llm/openrouter_client.py: [return-value] Incompatible return value type (got
 src/retrieval/clip_encoder.py: [attr-defined] "object" has no attribute "__iter__"; maybe "__dir__" or "__str__"? (not iterable)
 src/retrieval/clip_encoder.py: [attr-defined] "object" has no attribute "processor"
 src/retrieval/clip_encoder.py: [attr-defined] "object" has no attribute "processor"
+src/retrieval/dense_search.py: [assignment] Incompatible types in assignment (expression has type "Index", variable has type "IndexFlatIP | None")
 src/retrieval/dense_search.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
 src/retrieval/dense_search.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
-src/retrieval/dense_search.py: [union-attr] Item "None" of "Any | None" has no attribute "reconstruct"
-src/retrieval/dense_search.py: [union-attr] Item "None" of "Any | None" has no attribute "search"
-src/retrieval/dense_search.py: [union-attr] Item "None" of "Any | None" has no attribute "search"
+src/retrieval/dense_search.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "reconstruct"
+src/retrieval/dense_search.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "search"
+src/retrieval/dense_search.py: [union-attr] Item "None" of "IndexFlatIP | None" has no attribute "search"
 src/retrieval/hybrid_search.py: [arg-type] Argument 1 to "enumerate" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Iterable[Any]"
+src/retrieval/hybrid_search.py: [call-arg] Unexpected keyword argument "sel" for "SearchParameters"
 src/retrieval/sparse_search.py: [arg-type] Argument 1 to "len" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "Sized"
 src/retrieval/sparse_search.py: [index] Value of type "dict[str, int] | None" is not indexable
 src/retrieval/sparse_search.py: [index] Value of type "ndarray[tuple[Any, ...], dtype[Any]] | None" is not indexable
