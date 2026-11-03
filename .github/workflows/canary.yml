@@ -1,0 +1,74 @@
+name: Canary
+
+# W9 part A: end-to-end synthetic check of the public chat path (see scripts/ops/canary.py
+# for the full assertion definitions, price invariant and budget maths).
+#
+# 3 fixed queries every 30 min through /demo/session -> /auth/ws-ticket -> WS /chat/stream,
+# exactly as the browser demo does. Hard cap: 150 chat queries/day (UTC), enforced by the
+# script via the workflow-runs API; a capped run is a SKIP, never a failure.
+#
+# CAVEAT: GitHub's scheduled cron is best-effort. On this repo the */15 uptime cron's median
+# gap was 246 min, so expect the 30-min cadence to be aspirational. Not fixed here.
+#
+# Failure -> one GitHub issue labelled `prod-alert` (opened, or commented on if already open).
+# Recovery -> the next passing run closes it. Uses only the job GITHUB_TOKEN; no other secrets.
+#
+# Forced-failure proof (after merge, run by GG):
+#   gh workflow run canary.yml -f force_fail=true
+# This asserts an impossible latency budget on the normal 3 queries (no extra LLM calls),
+# so it opens/updates the prod-alert issue; the next normal run closes it again.
+#
+# TODO(owner: GG, W9 part B, separate PR): Cloud Run ERROR-log count for the last 30 min
+# (alert if > 5). Needs a new read-only WIF identity (logging.viewer) -- intentionally NOT
+# in this workflow; do not add secrets or `id-token: write` here.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_fail:
+        description: "Assert an impossible latency budget so the run fails (tests the prod-alert path end to end)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: canary
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      FORCE_FAIL: ${{ inputs.force_fail }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run canary (3 queries)
+        run: |
+          EXTRA=""
+          if [ "${FORCE_FAIL}" = "true" ]; then EXTRA="--force-fail"; fi
+          # shellcheck disable=SC2086 -- EXTRA is a fixed literal flag or empty
+          python3 scripts/ops/canary.py run --repo "${REPO}" --run-id "${RUN_ID}" \
+            --out "${RUNNER_TEMP}/canary-result.json" ${EXTRA}
+
+      - name: Update prod-alert issue
+        # !cancelled() (not always()) so a failed canary still reports, but a superseded
+        # run (cancel-in-progress) does not touch issues. A skipped (capped) run is a no-op.
+        if: ${{ !cancelled() }}
+        run: |
+          python3 scripts/ops/canary.py issue --repo "${REPO}" --run-url "${RUN_URL}" \
+            --result "${RUNNER_TEMP}/canary-result.json"
