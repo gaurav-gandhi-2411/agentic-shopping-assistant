@@ -64,6 +64,8 @@ guard_not_deleted() {
   local label="$1" undelete="$2" state
   shift 2
   state="$("$@" --format='value(state)' 2>/dev/null || true)"
+  # gcloud on Windows emits CRLF; a stray \r would make "DELETED\r" != "DELETED" (fail open).
+  state="${state//$'\r'/}"
   if [ "$state" = "DELETED" ]; then
     {
       echo "ERROR: ${label} is in state DELETED (soft-deleted; not usable). Undelete it, then re-run:"
@@ -87,6 +89,8 @@ verify_deployer_policy() {
     echo "ERROR: could not read the IAM policy of ${DEPLOYER_SA}" >&2
     return 1
   fi
+  # gcloud on Windows emits CRLF rows; strip \r so members compare exactly.
+  rows="${rows//$'\r'/}"
   if [ -z "$(printf '%s' "$rows" | tr -d '[:space:]')" ]; then
     echo "ERROR: deployer SA policy is empty or unreadable; expected ${EXPECTED_MEMBER}" >&2
     return 1

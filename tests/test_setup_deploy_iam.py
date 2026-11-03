@@ -94,6 +94,25 @@ def test_policy_bad_fails_with_error(stub_env, name: str, rows: str) -> None:
     assert "ERROR" in r.stderr, f"{name} must print ERROR, got: {r.stderr!r}"
 
 
+def test_policy_correct_passes_with_crlf_rows(stub_env) -> None:
+    # Real gcloud on Windows emits CRLF; the good row first, then another role, must still pass.
+    rows = f"{WIU}\t{GOOD}\r\nroles/zzz.other\tuser:someone@example.com\r\n"
+    r = _verify(stub_env, rows)
+    assert r.returncode == 0, r.stderr
+
+
+def test_policy_bad_still_fails_with_crlf_rows(stub_env) -> None:
+    rows = f"{WIU}\t{GOOD}\r\n{WIU}\tallUsers\r\n"
+    r = _verify(stub_env, rows)
+    assert r.returncode != 0 and "ERROR" in r.stderr
+
+
+def test_deleted_state_with_crlf_still_blocks(stub_env) -> None:
+    env = {**stub_env, "STUB_STATE": "DELETED\r"}
+    r = _call(env, 'guard_not_deleted "pool p" "gcloud undelete p" gcloud describe p')
+    assert r.returncode != 0 and "DELETED" in r.stderr
+
+
 def test_policy_read_failure_fails_with_error(stub_env) -> None:
     r = _verify(stub_env, _rows((WIU, GOOD)), rc="1")
     assert r.returncode != 0 and "ERROR" in r.stderr
