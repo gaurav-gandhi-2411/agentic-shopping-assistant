@@ -60,11 +60,13 @@ jobs:
       # Carries the "consecutive cap-lookup failures" counter between runs (no secrets, no API
       # call). Every run saves a fresh key; restore-keys picks the most recent one. If the
       # cache is lost the counter restarts at 0 (a dead-canary alert is delayed, nothing else).
+      # restore and save are split: actions/cache's post-step only saves when the job succeeds,
+      # which would drop a counter reset written by a run whose queries then failed (exit 1).
       - name: Prepare lookup-failure state dir
         run: mkdir -p "${RUNNER_TEMP}/canary-state"
 
-      - name: Restore/save lookup-failure counter
-        uses: actions/cache@v6
+      - name: Restore lookup-failure counter
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/canary-state
           key: canary-lookupfail-${{ github.run_id }}-${{ github.run_attempt }}
@@ -87,3 +89,11 @@ jobs:
         run: |
           python3 scripts/ops/canary.py issue --repo "${REPO}" --run-url "${RUN_URL}" \
             --result "${RUNNER_TEMP}/canary-result.json"
+
+      - name: Save lookup-failure counter
+        # Saved on success AND failure (a reset or increment must persist either way).
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/canary-state
+          key: canary-lookupfail-${{ github.run_id }}-${{ github.run_attempt }}

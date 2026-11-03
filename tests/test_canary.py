@@ -605,6 +605,15 @@ def test_fragmented_message_with_interleaved_ping_gets_masked_pong() -> None:
     b.close()
 
 
+def test_oversized_ping_is_a_protocol_error_not_a_crash() -> None:
+    a, b = _pair()
+    b.sendall(bytes([0x89, 126]) + struct.pack(">H", 200) + b"p" * 200)  # ping > 125 bytes
+    with pytest.raises(canary.CanaryError, match="control frame"):
+        canary.ws_recv_text(a)
+    a.close()
+    b.close()
+
+
 def test_close_frame_raises_wsclosed_with_code() -> None:
     a, b = _pair()
     b.sendall(bytes([0x88, 2]) + struct.pack(">H", 1008))

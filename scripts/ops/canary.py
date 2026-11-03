@@ -293,6 +293,8 @@ def ws_recv_text(sock: socket.socket, deadline: float | None = None) -> str:
             (length,) = struct.unpack(">Q", _recv_exact(sock, 8, deadline))
         if length > MAX_FRAME_BYTES or len(message) + length > MAX_FRAME_BYTES:
             raise CanaryError(f"WS frame length {length} exceeds {MAX_FRAME_BYTES} byte cap")
+        if opcode >= 0x8 and length > 125:  # RFC 6455 5.5: control frames carry <= 125 bytes
+            raise CanaryError(f"WS control frame opcode {opcode:#x} has illegal length {length}")
         masked = bool(b1 & 0x80)
         mask = _recv_exact(sock, 4, deadline) if masked else b""
         payload = _recv_exact(sock, length, deadline)
