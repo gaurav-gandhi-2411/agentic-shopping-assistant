@@ -8,10 +8,13 @@ import logging
 import os
 import threading
 import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 import sentry_sdk
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 import api.deps as deps
 from api.auth import get_current_user_id_or_demo, get_current_user_id_ws
@@ -444,6 +447,272 @@ async def _iter_tokens(llm: Any, prompt: str) -> AsyncIterator[str]:
 
 
 # ---------------------------------------------------------------------------
+# Shared chat-turn runner (used by WS /chat/stream and GET /canary)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TurnOutcome:
+    """How a streamed chat turn ended.
+
+    status: "done" (WSDoneMessage sent), "cancelled", "timeout" (turn deadline) or
+    "stream_error" (the LLM stream failed). For the last three the matching terminal
+    frame (cancelled / error) has already been passed to ``send``.
+    """
+
+    status: str
+    full_response: str = ""
+    result: dict | None = None
+    done: WSDoneMessage | None = None
+
+
+async def run_chat_turn(
+    *,
+    user_id: str,
+    message: str,
+    conversation_id: str,
+    send: Callable[[BaseModel], Awaitable[None]],
+    cancel_event: asyncio.Event,
+    cancel_task: asyncio.Task | None = None,
+) -> TurnOutcome:
+    """Run one streamed chat turn and emit its frames through ``send``.
+
+    This is the single implementation of a turn: the WebSocket handler passes a
+    ``send`` that writes to the socket, GET /canary passes one that collects frames.
+    Frame order: session -> routing -> tool_start* -> items? -> token* -> done.
+
+    ``cancel_task`` is the caller's cancel watcher (WS only); it is awaited alongside
+    the agent and cancelled once the agent has finished. The caller sets
+    ``cancel_event`` from it. Rate limiting / auth are the caller's job.
+    """
+    # ------------------------------------------------------------------
+    # 3. Acknowledge session
+    # ------------------------------------------------------------------
+    await send(WSSessionMessage(conversation_id=conversation_id))
+
+    # ------------------------------------------------------------------
+    # 4. Load / create session and build agent
+    # ------------------------------------------------------------------
+    store: SessionStore = deps.get_session_store()
+    llm = deps.get_llm()
+    config = deps.get_config()
+    _is_anon_ws = user_id.startswith("anon:")
+    if _is_anon_ws:
+        session = _DEMO_SESSIONS.get(conversation_id) or _fresh_session(llm, config)
+    else:
+        session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
+
+    factory = deps.get_agent_factory()
+    agent = factory(session["_memory"], streaming=True)
+    state = _build_invoke_state(session, message)
+
+    # ------------------------------------------------------------------
+    # 5. Run agent in thread; concurrently watch for the caller's cancel task
+    # ------------------------------------------------------------------
+    agent_task = asyncio.create_task(asyncio.to_thread(agent.invoke, state))
+
+    # Wave 7 hang fix (turn 2 of the body-type-then-occasion sequence): bound
+    # total agent-turn wall-clock time so a downstream dependency stall (an
+    # LLM provider's rate-limit retry loop looping for minutes with zero
+    # feedback — see GroqClient.chat's TPD branch in src/llm/client.py,
+    # which has no ceiling on its own total retry time — or any other slow
+    # dependency) can never leave the WS connection open indefinitely with
+    # no response and no error, which is exactly the live symptom ("Stop"
+    # forever, 180s+, nothing surfaced). Direct agent.invoke() reproduction
+    # of this exact 2-turn sequence with a mocked LLM completes in under 5s
+    # with a correct result (see tests/test_body_type_bare_statement.py),
+    # ruling out a graph-logic hang — the deadline below is the actual fix,
+    # not a longer proof timeout, because it converts an unbounded silent
+    # stall into a bounded, honest error response for the live user.
+    # 90s mirrors the app's existing most-generous legitimate turn-latency
+    # convention (scripts/browser_proof.py's IMAGE_WAIT_TIMEOUT_S=90).
+    # agent_task itself cannot be forcibly killed — it wraps a blocking
+    # sync call in a worker thread — so on timeout we only stop WAITING
+    # for it; the thread runs to completion in the background and its
+    # result is discarded.
+    _turn_deadline_s = float(os.environ.get("WS_TURN_DEADLINE_SECONDS", "90"))
+    done, _ = await asyncio.wait(
+        {agent_task} if cancel_task is None else {agent_task, cancel_task},
+        timeout=_turn_deadline_s,
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    if cancel_event.is_set():
+        agent_task.cancel()
+        await send(WSCancelledMessage())
+        return TurnOutcome("cancelled")
+
+    if not done:
+        # Deadline elapsed before the agent (or a cancel) finished.
+        if cancel_task is not None:
+            cancel_task.cancel()
+        agent_task.cancel()
+        logger.error(
+            "[ws_chat] turn exceeded %.0fs deadline with no response — "
+            "surfacing timeout error (agent thread abandoned, not killed)",
+            _turn_deadline_s,
+        )
+        await send(
+            WSErrorMessage(
+                message="This is taking longer than expected — please try again.",
+                code="turn_timeout",
+            )
+        )
+        return TurnOutcome("timeout")
+
+    # Agent finished first — stop the cancel watcher.
+    if cancel_task is not None:
+        cancel_task.cancel()
+    result: dict = agent_task.result()
+
+    # ------------------------------------------------------------------
+    # 6. Emit intermediate events from the completed result
+    # ------------------------------------------------------------------
+    tool_calls: list[dict] = result.get("tool_calls", [])
+
+    routing = _extract_routing(tool_calls)
+    if routing:
+        await send(WSRoutingMessage(decision=routing))
+
+    for tc in tool_calls:
+        tool_name = next((k for k in tc if k != "router_decision"), None)
+        if tool_name:
+            await send(WSToolStartMessage(tool=tool_name))
+
+    if result.get("new_items_this_turn") and result.get("retrieved_items"):
+        # Full ItemSummary inline (not just article_ids) so the frontend can render
+        # product cards without N+1 catalogue fetches per item.
+        # "always visual" hard rule: drop items without an image before serialising.
+        _ws_raw = [it for it in result["retrieved_items"] if it.get("image_url")]
+        items = [ItemSummary.from_agent_item(it) for it in _ws_raw]
+        await send(WSItemsMessage(items=items))
+
+    # ------------------------------------------------------------------
+    # 7. Stream response tokens
+    #    pending_respond → call llm.generate_stream and stream real tokens
+    #    pending_answer  → canned text (OOC / outfit / zero-stock)
+    #    final_answer    → already set (streaming_mode=False fallback)
+    # ------------------------------------------------------------------
+    plan: dict = {}
+    try:
+        plan = json.loads(result.get("current_plan") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    full_response = ""
+
+    # Bug fix (WS session-history overwrite): the streaming-mode graph nodes
+    # (respond_node/outfit_node/clarify_node) return "messages": [] when they
+    # hand off a pending_respond/pending_answer plan — the assistant reply text
+    # isn't known until it's streamed here. `result["messages"]` at this point is
+    # therefore still the FULL accumulated history (prior session messages + this
+    # turn's user message), NOT a fresh single-element list. Capture it before the
+    # branches below and APPEND the assistant reply to it — previously this was
+    # overwritten with a single-element list, truncating multi-turn history on
+    # every streamed turn (the primary frontend path).
+    _accumulated_messages: list[dict] = result.get("messages", session["messages"])
+
+    if plan.get("action") == "pending_respond":
+        chunks: list[str] = []
+        async for tok in _iter_tokens(llm, plan["prompt"]):
+            if tok == STREAM_ERROR_SENTINEL:
+                await send(WSErrorMessage(message="Stream generation failed", code="stream_error"))
+                return TurnOutcome("stream_error")
+            if cancel_event.is_set():
+                await send(WSCancelledMessage())
+                return TurnOutcome("cancelled")
+            await send(WSTokenMessage(text=tok))
+            chunks.append(tok)
+        full_response = "".join(chunks)
+        result = {
+            **result,
+            "final_answer": full_response,
+            "messages": _accumulated_messages + [{"role": "assistant", "content": full_response}],
+        }
+
+    elif plan.get("action") == "pending_answer":
+        full_response = plan.get("text", "")
+        await send(WSTokenMessage(text=full_response))
+        result = {
+            **result,
+            "final_answer": full_response,
+            "messages": _accumulated_messages + [{"role": "assistant", "content": full_response}],
+        }
+
+    else:
+        # final_answer already set (clarify node or non-streaming fallback)
+        full_response = result.get("final_answer") or ""
+        if full_response:
+            await send(WSTokenMessage(text=full_response))
+
+    # ------------------------------------------------------------------
+    # 8. Persist session and send done
+    # ------------------------------------------------------------------
+    _persist_result(session, result)
+    if _is_anon_ws:
+        _DEMO_SESSIONS[conversation_id] = session
+    else:
+        store.set(conversation_id, session, user_id)
+
+    # Fetch the persisted assistant message UUID so the frontend can
+    # submit feedback.  Only available when PostgresSessionStore is in use;
+    # returns None for InMemorySessionStore (no-op feedback buttons).
+    last_message_id: str | None = None
+    if not _is_anon_ws and hasattr(store, "get_last_assistant_message_id"):
+        try:
+            last_message_id = store.get_last_assistant_message_id(conversation_id)
+        except Exception as _mid_exc:
+            logger.warning("could not fetch last message id: %s", _mid_exc)
+
+    logger.info(
+        "ws turn complete",
+        extra={
+            "action": routing.get("action", ""),
+            "n_items": len(result.get("retrieved_items", [])),
+        },
+    )
+
+    _ws_brand = _resolve_brand()
+    _ws_variants = _build_outfit_variants(result)
+    _ws_base_cart_url, _ws_base_item_links = _build_base_cart_action(result, _ws_brand)
+    _ws_partner_look = _partner_look_from_result(result, _ws_brand)
+    done_msg = WSDoneMessage(
+        final_state={
+            "filters": result.get("filters", {}),
+            "out_of_catalogue": bool(result.get("out_of_catalogue")),
+            "new_items_this_turn": bool(result.get("new_items_this_turn")),
+            "response": full_response,
+            "look_id": result.get("look_id"),
+            "occasion": result.get("occasion"),
+            "look_gender": result.get("look_gender"),
+            "budget_total_inr": result.get("budget_total_inr"),
+            "outfit_rationale": result.get("outfit_rationale"),
+            "outfit_variants": (
+                [v.model_dump() for v in _ws_variants]
+                if _ws_variants else None
+            ),
+            "cart_url": _ws_base_cart_url,
+            "item_links": (
+                [lk.model_dump() for lk in _ws_base_item_links]
+                if _ws_base_item_links else None
+            ),
+            "suggestion_chips": result.get("suggestion_chips") or None,
+            "suppressed_slots": result.get("suppressed_slots") or None,
+            "look_role": _normalize_look_role(result.get("look_role")),
+            "look_title": result.get("look_title"),
+            "coordinated_with": result.get("coordinated_with"),
+            # Wave 7 — "couple-from-scratch" turn: a SECOND coordinated board
+            # alongside the primary one above; None on every other turn.
+            "partner_look": (
+                _ws_partner_look.model_dump() if _ws_partner_look else None
+            ),
+        },
+        message_id=last_message_id,
+    )
+    await send(done_msg)
+    return TurnOutcome("done", full_response=full_response, result=result, done=done_msg)
+
+
+# ---------------------------------------------------------------------------
 # WS /chat/stream
 # ---------------------------------------------------------------------------
 
@@ -555,30 +824,8 @@ async def ws_chat(websocket: WebSocket) -> None:
         sentry_sdk.set_tag("conversation_id", conversation_id)
 
         # ------------------------------------------------------------------
-        # 3. Acknowledge session
-        # ------------------------------------------------------------------
-        await websocket.send_text(
-            WSSessionMessage(conversation_id=conversation_id).model_dump_json()
-        )
-
-        # ------------------------------------------------------------------
-        # 4. Load / create session and build agent
-        # ------------------------------------------------------------------
-        store: SessionStore = deps.get_session_store()
-        llm = deps.get_llm()
-        config = deps.get_config()
-        _is_anon_ws = user_id.startswith("anon:")
-        if _is_anon_ws:
-            session = _DEMO_SESSIONS.get(conversation_id) or _fresh_session(llm, config)
-        else:
-            session = store.get(conversation_id, user_id) or _fresh_session(llm, config)
-
-        factory = deps.get_agent_factory()
-        agent = factory(session["_memory"], streaming=True)
-        state = _build_invoke_state(session, user_msg.message)
-
-        # ------------------------------------------------------------------
-        # 5. Run agent in thread; concurrently watch for WSCancelMessage
+        # 3-8. Run the turn (shared with GET /canary); concurrently watch for
+        #      WSCancelMessage. The runner cancels the watcher once the agent is done.
         # ------------------------------------------------------------------
         cancel_event = asyncio.Event()
 
@@ -596,213 +843,23 @@ async def ws_chat(websocket: WebSocket) -> None:
             except (WebSocketDisconnect, Exception):
                 cancel_event.set()
 
-        agent_task = asyncio.create_task(asyncio.to_thread(agent.invoke, state))
+        async def _send(msg: BaseModel) -> None:
+            await websocket.send_text(msg.model_dump_json())
+
         cancel_task = asyncio.create_task(_watch_cancel())
-
-        # Wave 7 hang fix (turn 2 of the body-type-then-occasion sequence): bound
-        # total agent-turn wall-clock time so a downstream dependency stall (an
-        # LLM provider's rate-limit retry loop looping for minutes with zero
-        # feedback — see GroqClient.chat's TPD branch in src/llm/client.py,
-        # which has no ceiling on its own total retry time — or any other slow
-        # dependency) can never leave the WS connection open indefinitely with
-        # no response and no error, which is exactly the live symptom ("Stop"
-        # forever, 180s+, nothing surfaced). Direct agent.invoke() reproduction
-        # of this exact 2-turn sequence with a mocked LLM completes in under 5s
-        # with a correct result (see tests/test_body_type_bare_statement.py),
-        # ruling out a graph-logic hang — the deadline below is the actual fix,
-        # not a longer proof timeout, because it converts an unbounded silent
-        # stall into a bounded, honest error response for the live user.
-        # 90s mirrors the app's existing most-generous legitimate turn-latency
-        # convention (scripts/browser_proof.py's IMAGE_WAIT_TIMEOUT_S=90).
-        # agent_task itself cannot be forcibly killed — it wraps a blocking
-        # sync call in a worker thread — so on timeout we only stop WAITING
-        # for it; the thread runs to completion in the background and its
-        # result is discarded.
-        _turn_deadline_s = float(os.environ.get("WS_TURN_DEADLINE_SECONDS", "90"))
-        done, _ = await asyncio.wait(
-            {agent_task, cancel_task},
-            timeout=_turn_deadline_s,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        if cancel_event.is_set():
-            agent_task.cancel()
-            await websocket.send_text(WSCancelledMessage().model_dump_json())
-            return
-
-        if not done:
-            # Deadline elapsed before the agent (or a cancel) finished.
-            cancel_task.cancel()
-            agent_task.cancel()
-            logger.error(
-                "[ws_chat] turn exceeded %.0fs deadline with no response — "
-                "surfacing timeout error (agent thread abandoned, not killed)",
-                _turn_deadline_s,
-            )
-            await websocket.send_text(
-                WSErrorMessage(
-                    message="This is taking longer than expected — please try again.",
-                    code="turn_timeout",
-                ).model_dump_json()
-            )
-            return
-
-        # Agent finished first — stop the cancel watcher.
-        cancel_task.cancel()
-        result: dict = agent_task.result()
-
-        # ------------------------------------------------------------------
-        # 6. Emit intermediate events from the completed result
-        # ------------------------------------------------------------------
-        tool_calls: list[dict] = result.get("tool_calls", [])
-
-        routing = _extract_routing(tool_calls)
-        if routing:
-            await websocket.send_text(
-                WSRoutingMessage(decision=routing).model_dump_json()
-            )
-
-        for tc in tool_calls:
-            tool_name = next((k for k in tc if k != "router_decision"), None)
-            if tool_name:
-                await websocket.send_text(
-                    WSToolStartMessage(tool=tool_name).model_dump_json()
-                )
-
-        if result.get("new_items_this_turn") and result.get("retrieved_items"):
-            # Full ItemSummary inline (not just article_ids) so the frontend can render
-            # product cards without N+1 catalogue fetches per item.
-            # "always visual" hard rule: drop items without an image before serialising.
-            _ws_raw = [it for it in result["retrieved_items"] if it.get("image_url")]
-            items = [ItemSummary.from_agent_item(it) for it in _ws_raw]
-            await websocket.send_text(WSItemsMessage(items=items).model_dump_json())
-
-        # ------------------------------------------------------------------
-        # 7. Stream response tokens
-        #    pending_respond → call llm.generate_stream and stream real tokens
-        #    pending_answer  → canned text (OOC / outfit / zero-stock)
-        #    final_answer    → already set (streaming_mode=False fallback)
-        # ------------------------------------------------------------------
-        plan: dict = {}
         try:
-            plan = json.loads(result.get("current_plan") or "{}")
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        full_response = ""
-
-        # Bug fix (WS session-history overwrite): the streaming-mode graph nodes
-        # (respond_node/outfit_node/clarify_node) return "messages": [] when they
-        # hand off a pending_respond/pending_answer plan — the assistant reply text
-        # isn't known until it's streamed here. `result["messages"]` at this point is
-        # therefore still the FULL accumulated history (prior session messages + this
-        # turn's user message), NOT a fresh single-element list. Capture it before the
-        # branches below and APPEND the assistant reply to it — previously this was
-        # overwritten with a single-element list, truncating multi-turn history on
-        # every streamed turn (the primary frontend path).
-        _accumulated_messages: list[dict] = result.get("messages", session["messages"])
-
-        if plan.get("action") == "pending_respond":
-            chunks: list[str] = []
-            async for tok in _iter_tokens(llm, plan["prompt"]):
-                if tok == STREAM_ERROR_SENTINEL:
-                    await websocket.send_text(
-                        WSErrorMessage(message="Stream generation failed", code="stream_error").model_dump_json()
-                    )
-                    return
-                if cancel_event.is_set():
-                    await websocket.send_text(WSCancelledMessage().model_dump_json())
-                    return
-                await websocket.send_text(WSTokenMessage(text=tok).model_dump_json())
-                chunks.append(tok)
-            full_response = "".join(chunks)
-            result = {
-                **result,
-                "final_answer": full_response,
-                "messages": _accumulated_messages + [{"role": "assistant", "content": full_response}],
-            }
-
-        elif plan.get("action") == "pending_answer":
-            full_response = plan.get("text", "")
-            await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
-            result = {
-                **result,
-                "final_answer": full_response,
-                "messages": _accumulated_messages + [{"role": "assistant", "content": full_response}],
-            }
-
-        else:
-            # final_answer already set (clarify node or non-streaming fallback)
-            full_response = result.get("final_answer") or ""
-            if full_response:
-                await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
-
-        # ------------------------------------------------------------------
-        # 8. Persist session and send done
-        # ------------------------------------------------------------------
-        _persist_result(session, result)
-        if _is_anon_ws:
-            _DEMO_SESSIONS[conversation_id] = session
-        else:
-            store.set(conversation_id, session, user_id)
-
-        # Fetch the persisted assistant message UUID so the frontend can
-        # submit feedback.  Only available when PostgresSessionStore is in use;
-        # returns None for InMemorySessionStore (no-op feedback buttons).
-        last_message_id: str | None = None
-        if not _is_anon_ws and hasattr(store, "get_last_assistant_message_id"):
-            try:
-                last_message_id = store.get_last_assistant_message_id(conversation_id)
-            except Exception as _mid_exc:
-                logger.warning("could not fetch last message id: %s", _mid_exc)
-
-        logger.info(
-            "ws turn complete",
-            extra={
-                "action": routing.get("action", ""),
-                "n_items": len(result.get("retrieved_items", [])),
-            },
-        )
-
-        _ws_brand = _resolve_brand()
-        _ws_variants = _build_outfit_variants(result)
-        _ws_base_cart_url, _ws_base_item_links = _build_base_cart_action(result, _ws_brand)
-        _ws_partner_look = _partner_look_from_result(result, _ws_brand)
-        await websocket.send_text(
-            WSDoneMessage(
-                final_state={
-                    "filters": result.get("filters", {}),
-                    "out_of_catalogue": bool(result.get("out_of_catalogue")),
-                    "new_items_this_turn": bool(result.get("new_items_this_turn")),
-                    "response": full_response,
-                    "look_id": result.get("look_id"),
-                    "occasion": result.get("occasion"),
-                    "look_gender": result.get("look_gender"),
-                    "budget_total_inr": result.get("budget_total_inr"),
-                    "outfit_rationale": result.get("outfit_rationale"),
-                    "outfit_variants": (
-                        [v.model_dump() for v in _ws_variants]
-                        if _ws_variants else None
-                    ),
-                    "cart_url": _ws_base_cart_url,
-                    "item_links": (
-                        [lk.model_dump() for lk in _ws_base_item_links]
-                        if _ws_base_item_links else None
-                    ),
-                    "suggestion_chips": result.get("suggestion_chips") or None,
-                    "suppressed_slots": result.get("suppressed_slots") or None,
-                    "look_role": _normalize_look_role(result.get("look_role")),
-                    "look_title": result.get("look_title"),
-                    "coordinated_with": result.get("coordinated_with"),
-                    # Wave 7 — "couple-from-scratch" turn: a SECOND coordinated board
-                    # alongside the primary one above; None on every other turn.
-                    "partner_look": (
-                        _ws_partner_look.model_dump() if _ws_partner_look else None
-                    ),
-                },
-                message_id=last_message_id,
-            ).model_dump_json()
-        )
+            outcome = await run_chat_turn(
+                user_id=user_id,
+                message=user_msg.message,
+                conversation_id=conversation_id,
+                send=_send,
+                cancel_event=cancel_event,
+                cancel_task=cancel_task,
+            )
+        finally:
+            cancel_task.cancel()
+        if outcome.status != "done":
+            return
 
         # Explicitly close the connection after the terminal frame so the
         # client sees a clean handshake (code 1000) rather than relying on
