@@ -9,6 +9,7 @@ import os
 import threading
 import uuid
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Executor
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
@@ -473,6 +474,7 @@ async def run_chat_turn(
     send: Callable[[BaseModel], Awaitable[None]],
     cancel_event: asyncio.Event,
     cancel_task: asyncio.Task | None = None,
+    executor: Executor | None = None,
 ) -> TurnOutcome:
     """Run one streamed chat turn and emit its frames through ``send``.
 
@@ -482,7 +484,8 @@ async def run_chat_turn(
 
     ``cancel_task`` is the caller's cancel watcher (WS only); it is awaited alongside
     the agent and cancelled once the agent has finished. The caller sets
-    ``cancel_event`` from it. Rate limiting / auth are the caller's job.
+    ``cancel_event`` from it. Rate limiting / auth are the caller's job. ``executor`` runs
+    the blocking agent call; None (WS) keeps asyncio's default pool.
     """
     # ------------------------------------------------------------------
     # 3. Acknowledge session
@@ -508,7 +511,14 @@ async def run_chat_turn(
     # ------------------------------------------------------------------
     # 5. Run agent in thread; concurrently watch for the caller's cancel task
     # ------------------------------------------------------------------
-    agent_task = asyncio.create_task(asyncio.to_thread(agent.invoke, state))
+    if executor is None:
+        agent_task: asyncio.Future = asyncio.create_task(asyncio.to_thread(agent.invoke, state))
+    else:
+        # Dedicated pool (GET /canary): a stalled provider call must never occupy the
+        # default executor that real users' turns share. Same context propagation as to_thread.
+        agent_task = asyncio.get_running_loop().run_in_executor(
+            executor, contextvars.copy_context().run, agent.invoke, state
+        )
 
     # Wave 7 hang fix (turn 2 of the body-type-then-occasion sequence): bound
     # total agent-turn wall-clock time so a downstream dependency stall (an

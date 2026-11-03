@@ -49,6 +49,8 @@ class _Behaviour:
         self.new_items = True
         self.reply = "A lovely black kurta set."
         self.delay_s = 0.0
+        self.thread_names: list[str] = []
+        self.factory_error: Exception | None = None
         self.invocations = 0
         self._lock = threading.Lock()
 
@@ -63,6 +65,7 @@ class _Agent:
 
     def invoke(self, state: dict, **kwargs: Any) -> dict:
         self._b.bump()
+        self._b.thread_names.append(threading.current_thread().name)
         if self._b.delay_s:
             time.sleep(self._b.delay_s)
         return {
@@ -96,10 +99,21 @@ def b(monkeypatch: pytest.MonkeyPatch) -> _Behaviour:
     monkeypatch.setattr(deps, "_llm", _LLM(beh))
     monkeypatch.setattr(deps, "_config", _CONFIG)
     monkeypatch.setattr(deps, "_db_engine", None)
-    monkeypatch.setattr(deps, "get_agent_factory", lambda: lambda memory, streaming=False: _Agent(beh))
+
+    def _factory_getter() -> Any:
+        def factory(memory: Any, streaming: bool = False) -> _Agent:
+            if beh.factory_error is not None:
+                raise beh.factory_error
+            return _Agent(beh)
+
+        return factory
+
+    monkeypatch.setattr(deps, "get_agent_factory", _factory_getter)
     monkeypatch.setattr(chat_routes, "_DEMO_SESSIONS", {})
     monkeypatch.setenv("CANARY_TOKEN", TOKEN)
     monkeypatch.setattr(canary, "_state", canary._State())
+    # fresh dedicated pool per test: a timed-out test leaves abandoned threads behind
+    monkeypatch.setattr(canary, "_executor", canary._CountingExecutor(max_workers=3, thread_name_prefix="canary"))
     return beh
 
 
@@ -352,3 +366,137 @@ def test_ws_and_canary_use_the_same_turn_function(
     assert sorted(calls[1:]) == sorted(
         text for _, text in canary.QUERIES
     )
+
+
+# ----------------------------------------------------------------------------- round 2
+
+
+def test_canary_runs_on_dedicated_pool_not_default(client: TestClient, b: _Behaviour) -> None:
+    assert _get(client).status_code == 200
+    assert len(b.thread_names) == 3
+    assert all(n.startswith("canary") for n in b.thread_names)
+
+
+def test_ws_turn_still_uses_default_pool(
+    client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
+    with client.websocket_connect("/chat/stream") as ws:
+        ws.send_json({"type": "user_message", "message": "hi"})
+        while ws.receive_json()["type"] != "done":
+            pass
+    assert b.thread_names and not any(n.startswith("canary") for n in b.thread_names)
+
+
+def test_executor_busy_fails_fast_then_recovers(client: TestClient, b: _Behaviour) -> None:
+    release = threading.Event()
+    stuck = [canary._executor.submit(release.wait) for _ in range(3)]  # simulated stalled calls
+    try:
+        t0 = time.monotonic()
+        r = _get(client)
+        assert time.monotonic() - t0 < 2.0, "must fail fast, not queue behind stuck workers"
+        assert r.status_code == 500 and r.json()["failing_assertion"] == "executor_busy"
+        assert b.invocations == 0 and canary._state.runs_total == 0
+    finally:
+        release.set()
+        for fut in stuck:
+            fut.result(timeout=5)
+    deadline = time.monotonic() + 2
+    while canary._executor.inflight and time.monotonic() < deadline:
+        time.sleep(0.01)
+    ok = _get(client)  # busy result was not cached; the pool has drained
+    assert ok.status_code == 200 and ok.json()["cached"] is False
+
+
+def test_agent_factory_exception_is_500_transport_without_message(
+    client: TestClient, b: _Behaviour, caplog: pytest.LogCaptureFixture
+) -> None:
+    b.factory_error = RuntimeError("secret-detail-xyz")
+    caplog.set_level(logging.DEBUG)
+    r = _get(client)
+    assert r.status_code == 500
+    body = r.json()
+    assert body["failing_assertion"] == "transport"
+    assert "secret-detail-xyz" not in r.text
+    assert "RuntimeError" in body["detail"]  # type name only
+    server = "\n".join(x.getMessage() for x in caplog.records if not x.name.startswith("httpx"))
+    assert "RuntimeError" in server
+    assert "secret-detail-xyz" not in server
+
+
+def test_run_chat_turn_exception_is_500_transport(
+    client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def boom(**kwargs: Any) -> Any:
+        raise ValueError("another-secret-detail")
+
+    monkeypatch.setattr(chat_routes, "run_chat_turn", boom)
+    r = _get(client)
+    assert r.status_code == 500 and r.json()["failing_assertion"] == "transport"
+    assert "another-secret-detail" not in r.text
+
+
+def test_wrong_token_header_only_is_404(client: TestClient, b: _Behaviour) -> None:
+    assert client.get("/canary", headers={"X-Canary-Token": "wrong"}).status_code == 404
+
+
+def test_wrong_token_query_only_is_404(client: TestClient, b: _Behaviour) -> None:
+    assert client.get("/canary", params={"token": "wrong"}).status_code == 404
+
+
+def test_header_takes_precedence_over_query(client: TestClient, b: _Behaviour) -> None:
+    good = client.get("/canary?token=wrong", headers={"X-Canary-Token": TOKEN})
+    assert good.status_code == 200  # right header, wrong query -> header decides
+    bad = client.get(f"/canary?token={TOKEN}", headers={"X-Canary-Token": "wrong"})
+    assert bad.status_code == 404  # wrong header, right query -> still refused
+
+
+@pytest.mark.parametrize("name", ["%74oken", "tok%65n", "TOKEN", "Token", "%54OKEN"])
+def test_only_plain_lowercase_token_param_authenticates(
+    client: TestClient, b: _Behaviour, name: str
+) -> None:
+    assert client.get(f"/canary?{name}={TOKEN}").status_code == 404
+    assert b.invocations == 0
+
+
+def test_plain_token_param_among_others_and_repeated(client: TestClient, b: _Behaviour) -> None:
+    assert client.get(f"/canary?a=1&token={TOKEN}&b=2").status_code == 200
+    # the first plain token param is the one used
+    assert client.get(f"/canary?token=wrong&token={TOKEN}").status_code == 404
+
+
+def test_ws_client_disconnect_ends_via_cancelled_path_without_error_log(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Refactor delta: the cancel watcher now starts before the session frame is sent."""
+    monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
+    b.delay_s = 0.5
+    statuses: list[str] = []
+    real = chat_routes.run_chat_turn
+
+    async def spy(**kwargs: Any) -> Any:
+        try:
+            out = await real(**kwargs)
+        except BaseException as exc:
+            statuses.append(f"raised:{type(exc).__name__}")
+            raise
+        statuses.append(out.status)
+        return out
+
+    monkeypatch.setattr(chat_routes, "run_chat_turn", spy)
+    caplog.set_level(logging.DEBUG)
+    with client.websocket_connect("/chat/stream") as ws:
+        ws.send_json({"type": "user_message", "message": "hi"})
+    # leaving the block disconnects the client immediately after its first frame
+    deadline = time.monotonic() + 5
+    while not statuses and time.monotonic() < deadline:
+        time.sleep(0.05)
+    # Either the runner reports "cancelled" (watcher saw the disconnect) or the TestClient portal
+    # cancels the handler task on teardown first (CancelledError, a harness race). Never an
+    # error path, and never an ERROR log.
+    assert statuses in (["cancelled"], ["raised:CancelledError"])
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert not errors, [r.getMessage() for r in errors]

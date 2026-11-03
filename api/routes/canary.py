@@ -11,7 +11,8 @@ tokens, tickets, session ids, user text or exception messages.
 
 Auth: env ``CANARY_TOKEN`` (Secret Manager ``asa-canary-token``). Unset, missing or wrong token
 all return 404, so the endpoint is invisible. The token is accepted as ``X-Canary-Token`` header
-(preferred: never lands in a URL) or ``?token=``. Cloud Run's own request log records the full
+(preferred: never lands in a URL) or a plain ``?token=`` (a percent-encoded param name is
+rejected; if the header is present it alone decides). Cloud Run's own request log records the full
 request URL including the query string; that cannot be masked from this code (see DEPLOY.md).
 
 Budget (per instance; Cloud Run maxScale is low, so the fleet-wide bound is
@@ -29,13 +30,16 @@ import hmac
 import logging
 import math
 import os
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import unquote_plus
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -62,6 +66,8 @@ MAX_RUNS_PER_DAY = 60  # hard per-instance cap; 30 min cache alone gives <= 48
 _CANARY_USER_ID = "anon:canary-internal"  # anon: -> in-memory session path, no Postgres user row
 
 _monotonic = time.monotonic  # patched in tests
+
+
 def _utcnow() -> datetime:
     """Current UTC time (patched in tests)."""
     return datetime.now(timezone.utc)
@@ -97,16 +103,68 @@ def _commit() -> str:
     return os.environ.get("COMMIT_SHA") or os.environ.get("K_REVISION") or "unknown"
 
 
+def _plain_query_token(raw_query: bytes) -> str | None:
+    """Value of the first query param whose RAW name is exactly ``token``.
+
+    Starlette percent-decodes param names, so ``?%74oken=x`` would also authenticate; that
+    form is rejected here so the secret can only travel in a shape the access-log filter
+    and a human reading the URL recognise.
+    """
+    for part in raw_query.split(b"&"):
+        name, eq, value = part.partition(b"=")
+        if eq and name == b"token":
+            return unquote_plus(value.decode("latin-1"))
+    return None
+
+
 def _authorised(header_token: str | None, query_token: str | None) -> bool:
+    """Header wins: if ``X-Canary-Token`` is present it alone decides (no fallthrough to the
+    query string, so a wrong header with a right ``?token=`` is refused); else the query token.
+    """
     expected = os.environ.get("CANARY_TOKEN", "")
     if not expected:
         return False  # fail closed: unset secret -> endpoint does not exist
-    exp = expected.encode()
-    ok = False
-    for supplied in (header_token, query_token):
-        if supplied and hmac.compare_digest(supplied.encode(), exp):
-            ok = True
-    return ok
+    supplied = header_token if header_token else query_token
+    return bool(supplied) and hmac.compare_digest(supplied.encode(), expected.encode())
+
+
+class _CountingExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor that knows how many submitted calls have not yet returned.
+
+    A timed-out canary turn abandons its worker thread (it cannot be killed); counting
+    calls until they truly return tells the next run whether the pool is still wedged.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._inflight = 0
+        self._count_lock = threading.Lock()
+
+    @property
+    def inflight(self) -> int:
+        with self._count_lock:
+            return self._inflight
+
+    def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+        with self._count_lock:
+            self._inflight += 1
+        try:
+            fut = super().submit(fn, *args, **kwargs)
+        except BaseException:
+            with self._count_lock:
+                self._inflight -= 1
+            raise
+        fut.add_done_callback(self._done)
+        return fut
+
+    def _done(self, _fut: Any) -> None:
+        with self._count_lock:
+            self._inflight -= 1
+
+
+# Dedicated pool: canary agent calls never touch the default executor real chat turns share.
+WORKERS = len(QUERIES)
+_executor = _CountingExecutor(max_workers=WORKERS, thread_name_prefix="canary")
 
 
 # --------------------------------------------------------------------------- assertions
@@ -199,6 +257,7 @@ async def _run_query(query_id: str, text: str) -> dict[str, Any]:
             conversation_id=conversation_id,
             send=_collect,
             cancel_event=asyncio.Event(),
+            executor=_executor,
         )
     except _Failure:
         raise
@@ -267,10 +326,11 @@ def _fresh() -> bool:
 
 @router.get("/canary")
 async def canary(
-    token: str | None = Query(default=None),
+    request: Request,
     x_canary_token: str | None = Header(default=None),
 ) -> JSONResponse:
     """Run (or return the cached result of) the production canary. See module docstring."""
+    token = _plain_query_token(request.scope.get("query_string", b""))
     if not _authorised(x_canary_token, token):
         raise HTTPException(status_code=404, detail="Not Found")
 
@@ -290,6 +350,12 @@ async def canary(
         if not check_daily_cost(_resolve_brand()):
             logger.error("canary not run: global daily cost guard exhausted")
             return _respond(500, _fail_body("cost_guard", "daily cost guard exhausted"), False)
+
+        if _executor.inflight + len(QUERIES) > WORKERS:
+            # Earlier timed-out turns are still holding the dedicated pool's threads (a stalled
+            # provider call). Fail fast rather than queue behind them; not cached, not counted.
+            logger.error("canary not run: dedicated executor busy (%d stuck)", _executor.inflight)
+            return _respond(500, _fail_body("executor_busy", "canary workers still busy"), False)
 
         _state.runs_today += 1
         _state.runs_total += 1
