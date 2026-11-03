@@ -7,6 +7,7 @@ from fastapi import APIRouter, Response
 
 import api.deps as deps
 from api.auth import _is_verification_disabled
+from src.utils.redact import Redactor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
@@ -64,7 +65,8 @@ def readiness(response: Response) -> dict:
                 conn.execute(text("SELECT 1"))
             checks["database"] = "ok"
         except Exception as exc:
-            checks["database"] = f"error: {exc}"
+            # Driver errors echo the connect string; mask before it reaches the response body.
+            checks["database"] = f"error: {Redactor.from_env().redact(str(exc))}"
             ok = False
     else:
         checks["database"] = "not configured"

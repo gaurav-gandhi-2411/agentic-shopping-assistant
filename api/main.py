@@ -41,6 +41,7 @@ from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.image_style import router as image_style_router
 from api.routes.looks import router as looks_router
+from src.utils.redact import Redactor
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +60,10 @@ def _build_session_store(llm: Any, config: dict):
     if not db_url:
         return InMemorySessionStore(), None
 
-    for prefix in ("postgresql://", "postgres://"):
-        if db_url.startswith(prefix):
-            db_url = "postgresql+psycopg://" + db_url[len(prefix):]
-            break
-
-    from sqlalchemy import create_engine
-
     from src.storage.postgres_session_store import PostgresSessionStore
+    from src.utils.db_url import create_db_engine
 
-    engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
+    engine = create_db_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
     return PostgresSessionStore(engine, llm, config), engine
 _DATA_DIR = _REPO_ROOT / "data" / "processed"
 _CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
@@ -97,7 +92,7 @@ def _sentry_before_breadcrumb(crumb: dict, hint: object) -> dict:
     for key in ("url", "from", "to"):
         if isinstance(data.get(key), str):
             data[key] = _scrub_token_from_url(data[key])
-    return crumb
+    return Redactor.from_env().redact_inplace(crumb)
 
 
 def _sentry_before_send(event: dict, hint: object) -> dict:
@@ -112,7 +107,8 @@ def _sentry_before_send(event: dict, hint: object) -> dict:
         req["query_string"] = [
             [k, "[Filtered]" if k == "token" else v] for k, v in qs
         ]
-    return event
+    # Mask DB passwords / API keys / Bearer tokens in exception values, messages, etc.
+    return Redactor.from_env().redact_inplace(event)
 
 
 @asynccontextmanager

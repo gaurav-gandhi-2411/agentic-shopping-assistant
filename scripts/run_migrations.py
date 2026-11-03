@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -39,17 +38,11 @@ os.chdir(REPO_ROOT)
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def _normalise_url(url: str) -> str:
-    """Add the +psycopg driver qualifier required by SQLAlchemy 2.x + psycopg3."""
-    for prefix in ("postgresql://", "postgres://"):
-        if url.startswith(prefix):
-            return "postgresql+psycopg://" + url[len(prefix):]
-    return url
-
-
 def _redact(url: str) -> str:
-    """Replace the password in a connection string with *** for display."""
-    return re.sub(r"(:)([^:@/][^:@]*)(@)", r"\1***\3", url)
+    """Return the connection string with the password masked, for display."""
+    from src.utils.db_url import parse_database_url
+
+    return str(parse_database_url(url))
 
 
 def apply_auth_shim(engine) -> None:
@@ -127,7 +120,9 @@ def main() -> None:
     from alembic import command
 
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
-    cfg.set_main_option("sqlalchemy.url", _normalise_url(db_url))
+    # alembic/env.py reads DATABASE_URL itself; this value is display-only, so mask it
+    # ('%' doubled because ConfigParser interpolates it).
+    cfg.set_main_option("sqlalchemy.url", _redact(db_url).replace("%", "%%"))
 
     if args.dry_run:
         # sql=True generates migration SQL without connecting to the database.
@@ -140,10 +135,10 @@ def main() -> None:
     print(f"Connecting to: {_redact(db_url)}")
 
     if use_shim:
-        from sqlalchemy import create_engine
+        from src.utils.db_url import create_db_engine
 
         print("Creating auth schema shim (local Postgres mode)...")
-        engine = create_engine(_normalise_url(db_url))
+        engine = create_db_engine(db_url)
         try:
             apply_auth_shim(engine)
         finally:

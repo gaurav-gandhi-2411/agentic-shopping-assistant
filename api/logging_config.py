@@ -10,6 +10,8 @@ import time
 from contextvars import ContextVar
 from typing import Any
 
+from src.utils.redact import install_log_redaction
+
 # Module-level contextvar: set at the start of each request, read by the log filter.
 conversation_id_var: ContextVar[str] = ContextVar("conversation_id", default="")
 
@@ -52,6 +54,9 @@ class _JsonFormatter(logging.Formatter):
             data["conversation_id"] = cid
         if record.exc_info:
             data["exc"] = self.formatException(record.exc_info)
+        elif record.exc_text:
+            # RedactionFilter pre-renders (and masks) the traceback, then clears exc_info.
+            data["exc"] = record.exc_text
         # Include any extra fields attached via logging.getLogger().info(..., extra={...})
         for key in ("latency_ms", "tool", "action", "n_items", "provider"):
             val = record.__dict__.get(key)
@@ -82,3 +87,7 @@ def setup_logging(log_level: str | None = None) -> None:
 
     # Redact ?token=<jwt> from uvicorn's built-in access log (WS upgrade lines).
     logging.getLogger("uvicorn.access").addFilter(_TokenRedactFilter())
+
+    # Mask DB passwords, API keys, userinfo URLs and Bearer/JWT tokens in every
+    # handler (ours and uvicorn's), including exception text and tracebacks.
+    install_log_redaction()
