@@ -144,6 +144,35 @@ outcome:
      --update-env-vars="SOME_VAR=value"
    ```
 
+### Production canary secret (`GET /canary`)
+
+`GET /canary` (api/routes/canary.py) is guarded by env `CANARY_TOKEN`. While it is unset the
+endpoint returns 404 by design, so merging the code changes nothing live. To enable it, once
+the Secret Manager secret `asa-canary-token` exists (it is created by hand, never by code), run
+as its own step (`--update-secrets` merges; never use `--set-secrets` on a live service, see the
+gotcha under "LLM provider secrets"):
+
+```bash
+gcloud run services update asa-stylist-api --region=asia-south1 \
+  --update-secrets="CANARY_TOKEN=asa-canary-token:latest"
+```
+
+`scripts/deploy_backend.ps1` and the `chore/w8-deploy-pipeline` deploy.yml (#79) both deploy
+with `--image` only, so they inherit this secret from the running revision and need no change.
+`scripts/deploy_unified.sh` (legacy, full replace via `--set-secrets="${SECRETS}"`, line 79) would
+DROP it: if that script is ever used again, append
+`,CANARY_TOKEN=asa-canary-token:latest` to its `SECRETS` string first. `deploy/service.yaml`
+is deliberately not edited: a secretKeyRef to a not-yet-created secret would break an
+emergency `services replace`.
+
+The `commit` field in the canary response reads env `COMMIT_SHA`, falling back to Cloud Run's
+`K_REVISION`. No deploy path sets `COMMIT_SHA` today (images are tagged with the SHA but it is not
+passed as an env var), so the field shows the revision name until a deploy step adds
+`--update-env-vars=COMMIT_SHA=<sha>`.
+
+The monitor's `?token=` value is recorded in Cloud Run's own request log (the full URL is
+logged by the platform and cannot be masked by the app); the `X-Canary-Token` header avoids that.
+
 If a deploy needs to be reverted, the script prints the exact rollback command at the end
 of every run:
 

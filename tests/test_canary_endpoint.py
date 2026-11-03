@@ -108,6 +108,11 @@ def client() -> TestClient:
     return TestClient(app, raise_server_exceptions=True)  # no lifespan: no index needed
 
 
+def _has_token(text: str) -> bool:
+    """Boolean so a failing assert never echoes the token value."""
+    return TOKEN in text
+
+
 def _get(client: TestClient, **kw: Any) -> httpx.Response:
     return client.get("/canary", params={"token": TOKEN}, **kw)
 
@@ -125,7 +130,7 @@ def test_pass_returns_200_and_keyword(client: TestClient, b: _Behaviour) -> None
     for q in body["queries"]:
         assert q["cards"] == 1 and q["answer_chars"] > 0 and 0 <= q["latency_s"] < 15
     assert body["checked_at"] and "commit" in body
-    assert TOKEN not in r.text
+    assert not _has_token(r.text), "token leaked into response"
     assert b.invocations == 3
 
 
@@ -158,7 +163,7 @@ def test_assertion_failures_return_500(
     assert body["failing_assertion"] == assertion
     assert body["query_id"] == "q1"
     assert '"status":"pass"' not in r.text
-    assert TOKEN not in r.text
+    assert not _has_token(r.text), "token leaked into response"
 
 
 def test_owned_item_exempt_from_price(client: TestClient, b: _Behaviour) -> None:
@@ -300,10 +305,12 @@ def test_token_never_logged(
     canary._state.cached_at = None  # force a failing run so error paths log too
     _get(client)
     client.get("/canary", params={"token": "wrong-" + TOKEN})
-    assert TOKEN not in caplog.text
-    assert "wrong-" + TOKEN not in caplog.text
-    # app access-log middleware records the path only, never the query string
-    assert any(r.getMessage().startswith("GET /canary") for r in caplog.records)
+    # Scope to SERVER loggers: the in-process httpx client logs its own request URL (with the
+    # query string) at INFO; that is a test-harness artefact, not something the API emits.
+    server = [r for r in caplog.records if not r.name.startswith("httpx")]
+    leaked = any(TOKEN in r.getMessage() for r in server)
+    assert not leaked, "canary token appeared in a server log record"  # never echo the value
+    assert any(r.getMessage().startswith("GET /canary") for r in server)
 
 
 def test_uvicorn_access_log_masks_token() -> None:
@@ -314,7 +321,7 @@ def test_uvicorn_access_log_masks_token() -> None:
         ("1.2.3.4:5", "GET", f"/canary?token={TOKEN}&x=1", "1.1", 200), None,
     )
     assert _TokenRedactFilter().filter(rec)
-    assert TOKEN not in rec.getMessage()
+    assert not _has_token(rec.getMessage()), "token not masked"
     assert "token=[REDACTED]" in rec.getMessage() and "x=1" in rec.getMessage()
 
 
