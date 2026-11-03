@@ -66,6 +66,10 @@ llm:
   # their documented replacement (console.groq.com/docs/deprecations), same
   # fast/cheap tier.
   groq_model: "openai/gpt-oss-20b"
+  # gpt-oss is a reasoning model; at the default effort hidden reasoning consumed all
+  # 400 max_tokens and the reply came back empty (measured 2026-11-03: 0 content chars,
+  # finish_reason=length, twice; "low" -> 112 completion tokens, finish_reason=stop).
+  groq_reasoning_effort: "low"
   gemini_model: "gemini-2.5-flash"
   openrouter_model: "openai/gpt-oss-20b:free"
 

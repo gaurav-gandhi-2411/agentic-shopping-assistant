@@ -35,6 +35,7 @@ from api.schemas import (
     WSUserMessage,
 )
 from api.session import SessionStore
+from src.agents.grounding import grounded_fallback_reply
 from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
 from src.llm.context import llm_user_id_var
@@ -716,6 +717,41 @@ async def ws_chat(websocket: WebSocket) -> None:
                 await websocket.send_text(WSTokenMessage(text=tok).model_dump_json())
                 chunks.append(tok)
             full_response = "".join(chunks)
+            if not full_response.strip():
+                # Empty stream with no error sentinel: a reasoning model spent its
+                # token budget on hidden reasoning (finish_reason=length) or the
+                # provider returned nothing. Never leave the user with cards and
+                # no words — retry once non-streaming, then fall back to a
+                # deterministic reply built from the shown items.
+                logger.warning(
+                    "ws empty reply after stream: provider=%s model=%s finish_reason=%s "
+                    "n_items=%d — retrying non-streaming",
+                    type(llm).__name__,
+                    getattr(llm, "model", "unknown"),
+                    getattr(llm, "last_finish_reason", None),
+                    len(result.get("retrieved_items", [])),
+                )
+                retry_text = ""
+                try:
+                    retry_text = await asyncio.to_thread(
+                        contextvars.copy_context().run, llm.generate, plan["prompt"]
+                    )
+                except Exception as retry_exc:
+                    logger.warning("ws empty-reply retry failed: %r", retry_exc)
+                retry_text = (retry_text or "").strip()
+                if retry_text and retry_text != STREAM_ERROR_SENTINEL:
+                    full_response = retry_text
+                else:
+                    logger.warning(
+                        "ws empty reply persisted after retry: model=%s — "
+                        "serving grounded fallback",
+                        getattr(llm, "model", "unknown"),
+                    )
+                    full_response = grounded_fallback_reply(result.get("retrieved_items", []))
+                if cancel_event.is_set():
+                    await websocket.send_text(WSCancelledMessage().model_dump_json())
+                    return
+                await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
             result = {
                 **result,
                 "final_answer": full_response,
