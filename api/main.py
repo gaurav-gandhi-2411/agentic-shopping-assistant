@@ -178,6 +178,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("Initialising LLM client (provider=%s)", config["llm"]["provider"])
     llm = get_llm_client(config)
+    # W4: fail the revision (lifespan raises -> container never listens -> Cloud Run's
+    # TCP startup probe fails) if the configured Groq model no longer exists.
+    if hasattr(llm, "verify_models"):
+        logger.info("LLM model check: %s", llm.verify_models())
     logger.info("LLM client ready")
 
     # LangSmith tracing — enabled when LANGSMITH_API_KEY is present.

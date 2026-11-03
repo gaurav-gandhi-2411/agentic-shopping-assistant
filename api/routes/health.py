@@ -2,14 +2,24 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, Response
 
 import api.deps as deps
 from api.auth import _is_verification_disabled
+from src.llm.resilience import ProbeCache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
+
+# W4: /readyz makes a real minimal LLM call (max_tokens=1) through the whole chain.
+# Cached so a burst of probes costs one call: the uptime cron (every 15 min) and the
+# keep-warm cron (every 10 min) each trigger roughly one real call, ~240 calls/day
+# at most, against Groq's free 1K requests/day per model. Failures are cached too.
+_llm_probe_cache = ProbeCache(
+    ttl_s=float(os.environ.get("READYZ_LLM_CACHE_SECONDS", "60")), timeout_s=20.0
+)
 
 # Item 257: readiness previously checked retriever/catalogue/LLM but never the
 # database, despite looks.py/feedback.py/events.py/auth.py all depending on it.
@@ -49,8 +59,15 @@ def readiness(response: Response) -> dict:
         ok = False
 
     try:
-        deps.get_llm()
-        checks["llm"] = "ok"
+        llm = deps.get_llm()
+        probe = getattr(llm, "probe", None)  # only GroqClient has a chain to probe
+        if probe is None:
+            checks["llm"] = "ok"
+        else:
+            res = _llm_probe_cache.get(probe)
+            served = f"{res['tier']}:{res['model']}" if res.get("model") else res["tier"]
+            fallback = res["tier"] != "groq" or res["model"] != getattr(llm, "model", None)
+            checks["llm"] = f"ok ({served}, {res['latency_ms']} ms{', FALLBACK' if fallback else ''})"
     except Exception as exc:
         checks["llm"] = f"error: {exc}"
         ok = False
