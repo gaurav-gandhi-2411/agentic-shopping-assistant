@@ -316,3 +316,39 @@ def test_probe_cache_keeps_result_of_probe_that_finishes_after_timeout():
     release.set()
     assert done.wait(5)
     assert cache.get(slow)["model"] == "m1" and len(calls) == 1  # served from cache
+
+
+def test_late_probe_result_does_not_overwrite_a_newer_cached_result():
+    from concurrent.futures import Future
+
+    cache = ProbeCache(ttl_s=60)
+    cache.get(lambda: {"tier": "groq", "model": "newer", "latency_ms": 1})
+    stale = Future()  # an OLDER probe finishing after the newer one was cached
+    stale.set_result((0.0, {"tier": "groq", "model": "older", "latency_ms": 1}, None))
+    cache._cache_late_result(stale)
+    assert cache._cached[1]["model"] == "newer"
+    assert cache.get(lambda: pytest.fail("must be served from cache"))["model"] == "newer"
+
+
+def test_late_callback_attached_once_and_stamped_with_completion_time():
+    import threading
+    import time as _t
+
+    release = threading.Event()
+    cache = ProbeCache(ttl_s=60, timeout_s=0.05)
+
+    def slow() -> dict:
+        release.wait(5)
+        return {"tier": "groq", "model": "m1", "latency_ms": 1}
+
+    for _ in range(3):  # three timeouts on the same in-flight probe
+        with pytest.raises(RuntimeError, match="timed out"):
+            cache.get(slow)
+    fut = cache._inflight
+    assert len(fut._done_callbacks) == 1
+    done = threading.Event()
+    fut.add_done_callback(lambda _f: done.set())
+    t_release = _t.monotonic()
+    release.set()
+    assert done.wait(5)
+    assert cache._cached[0] >= t_release and cache._cached[0] <= _t.monotonic()

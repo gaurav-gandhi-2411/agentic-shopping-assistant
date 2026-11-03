@@ -52,6 +52,7 @@ class ProbeCache:
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._inflight: concurrent.futures.Future | None = None
         self._cached: tuple[float, dict[str, Any] | None, str | None] | None = None
+        self._late_cb_for: concurrent.futures.Future | None = None  # callback attached once
 
     def get(self, probe: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         """Return the probe result dict, or raise RuntimeError(reason) if degraded."""
@@ -60,30 +61,44 @@ class ProbeCache:
             if self._cached and now - self._cached[0] < self.ttl_s:
                 return self._unpack(self._cached)
             if self._inflight is None or self._inflight.done():
-                self._inflight = self._pool.submit(probe)
+                self._inflight = self._pool.submit(self._run, probe)
             fut = self._inflight
         try:
-            result: dict[str, Any] | None = fut.result(timeout=self.timeout_s)
-            err = None
+            entry = fut.result(timeout=self.timeout_s)
         except concurrent.futures.TimeoutError:
             # Not cached now; if the probe finishes later its outcome is cached then.
-            fut.add_done_callback(self._cache_late_result)
+            with self._lock:
+                if self._late_cb_for is not fut:
+                    self._late_cb_for = fut
+                    fut.add_done_callback(self._cache_late_result)
             raise RuntimeError(f"LLM probe timed out after {self.timeout_s:.0f}s") from None
+        self._store(fut, entry)
+        with self._lock:
+            return self._unpack(entry)
+
+    @staticmethod
+    def _run(
+        probe: Callable[[], dict[str, Any]],
+    ) -> tuple[float, dict[str, Any] | None, str | None]:
+        """Run the probe and stamp the entry with its COMPLETION time."""
+        try:
+            result, err = probe(), None
         except Exception as exc:
             result, err = None, f"{type(exc).__name__}: {exc}"
+        return time.monotonic(), result, err
+
+    def _store(
+        self, fut: concurrent.futures.Future,
+        entry: tuple[float, dict[str, Any] | None, str | None],
+    ) -> None:
+        # Only the most recently started probe may write: an older probe finishing
+        # late must not overwrite a newer cached result.
         with self._lock:
-            self._cached = (time.monotonic(), result, err)
-            return self._unpack(self._cached)
+            if self._inflight is fut:
+                self._cached = entry
 
     def _cache_late_result(self, fut: concurrent.futures.Future) -> None:
-        err: str | None = None
-        result: dict[str, Any] | None = None
-        try:
-            result = fut.result()
-        except Exception as exc:
-            err = f"{type(exc).__name__}: {exc}"
-        with self._lock:
-            self._cached = (time.monotonic(), result, err)
+        self._store(fut, fut.result())
 
     @staticmethod
     def _unpack(entry: tuple[float, dict[str, Any] | None, str | None]) -> dict[str, Any]:
