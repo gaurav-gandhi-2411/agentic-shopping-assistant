@@ -558,7 +558,9 @@ retired `iconic-reactor-496423-m4` project). Production is `stylemaitri-prod-260
 1. Trigger: the `CI` workflow finishes `success` for a **push to `master`** (`workflow_run`), or
    a manual `workflow_dispatch` on `master`. Never PRs, forks or Dependabot. Serialised by
    `concurrency: deploy-prod` (no cancel-in-progress).
-2. Skips (does not fail) if `master` has moved past the commit CI tested.
+2. Fails closed unless a successful `CI` push run on `master` exists for the exact target SHA
+   (checked via the Actions API for BOTH triggers, so a manual dispatch cannot deploy an untested
+   commit). Skips (does not fail) if `master` has moved past that commit.
 3. Captures the revision serving 100% now (the rollback target). Refuses to deploy if there is
    not exactly one.
 4. Builds on the GitHub runner (free on a public repo; no Cloud Build) and pushes
@@ -566,37 +568,73 @@ retired `iconic-reactor-496423-m4` project). Production is `stylemaitri-prod-260
 5. `gcloud run deploy --no-traffic --tag c-<sha7> --min-instances=0 --cpu-boost`. `--min-instances=0`
    is explicit because the service template still carries `minScale: 1`. cpu/memory/maxScale/
    env/secrets are not passed; a step diffs them against the serving revision and fails if they differ.
-6. `scripts/ops/deploy_smoke.py` against the tag URL: liveness, `/readyz`, `/demo/session`, one
-   REST `/chat` ("black kurta set for haldi": non-empty answer and at least one product).
-7. Shifts 100% to the new revision (`--to-revisions NEW=100`), re-runs the smoke on the main URL.
-   Total LLM-backed calls per deploy: 2.
+6. `scripts/ops/deploy_smoke.py` against the **tag URL only**: liveness, `/readyz`, `/demo/session`,
+   one REST `/chat` ("black kurta set for haldi": non-empty answer and at least one product).
+7. Shifts 100% to the new revision (`--to-revisions NEW=100`), then re-checks the main URL with
+   liveness + `/readyz` only (`--no-chat`): no second chat call.
 8. `gcloud run services update --min=0`, then asserts no serving or tagged revision has `minScale > 0`.
-9. **Any failure after step 7 rolls 100% back to the captured revision** and the job stays red.
+9. **Any failure (or cancellation) after step 7 starts rolls 100% back to the captured revision**
+   and the job stays red.
+
+### LLM calls per deploy (measured, not estimated)
+
+- One `POST /chat` "black kurta set for haldi" made **2 LLM calls** (`src/agents/reranker.py:170`,
+  `src/agents/graph.py:3993`). Method: in-process FastAPI `TestClient` against the real local unified
+  index, a counting stub LLM, no network, all temp/profile roots redirected to scratch. The router LLM
+  (`router.py:58`) was not consulted (deterministic fast-path handled the query) and no outfit rationale
+  call (`outfit/rationale.py:446`, one per look) fired. Same count with the router stub forced to
+  `outfit`. Details in `reports/w8-inventory-2026-11-03.md`.
+- Static upper bound for a fresh single turn, if a query is LLM-routed or becomes an outfit:
+  router (1 per agent iteration) + reranker (1) + respond (1) + 1 rationale per look.
+- `/readyz` makes 0 LLM calls today and **1 once W4 (#77) lands**.
+- So one deploy costs **2 measured LLM calls now** (the chat on the tag URL; `/readyz` and the whole main-URL
+  check are 0). Once #77 lands, `/readyz` adds 1 on the tag URL and 1 on the main URL, so **4**. Re-measure
+  after #77. Real providers may add retry/failover attempts on top of these logical calls, and the smoke
+  retries a failing GET once.
 
 ### Required GitHub repo secrets (names only; new, not shared with CI)
 
 | Secret | Value is |
 |---|---|
-| `GCP_DEPLOY_WIF_PROVIDER` | `projects/631709154646/locations/global/workloadIdentityPools/github-pool/providers/github-deploy-provider` |
+| `GCP_DEPLOY_WIF_PROVIDER` | `projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider` |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | `stylemaitri-deployer@stylemaitri-prod-260813.iam.gserviceaccount.com` |
 
-(Both are identifiers, not credentials: auth is keyless WIF, restricted to this repo at
-`refs/heads/master`.) CI's own `WIF_PROVIDER` / `WIF_SERVICE_ACCOUNT` stay read-only on the index bucket.
+Both are identifiers, not credentials. Auth is keyless WIF through a **dedicated pool**
+`github-deploy-pool` whose only provider accepts just this repo at `refs/heads/master`. CI's own
+`WIF_PROVIDER` / `WIF_SERVICE_ACCOUNT` (pool `github-pool`, owner-wide condition, used on PRs) stay
+read-only on the index bucket and have no path to the deployer.
+
+Why a separate pool and not a second provider in `github-pool`: an IAM `principalSet://...` binding
+names a pool plus an attribute, so it matches the identities of every provider in that pool
+([WIF docs](https://cloud.google.com/iam/docs/workload-identity-federation): custom attributes are used
+in `principalSet://` bindings "to grant access to all identities with a certain attribute"). A deployer
+bound on `github-pool` could be impersonated by any branch or PR token the owner-wide provider issues,
+and through `serviceAccountUser` that reaches the runtime SA. Google also recommends
+"a single provider per workload identity pool"
+([best practices](https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation)).
+`setup_deploy_iam.sh` ends with a check that the deployer SA policy references only `github-deploy-pool`
+and exits non-zero otherwise.
 
 ### One-time setup (GG, as gaurav.gandhi1129@gmail.com)
 
 ```bash
 DRY_RUN=1 bash scripts/ops/setup_deploy_iam.sh   # prints every mutation, changes nothing
-bash scripts/ops/setup_deploy_iam.sh             # creates SA, bindings, WIF provider; AR cleanup in --dry-run
+bash scripts/ops/setup_deploy_iam.sh             # creates SA, bindings, pool+provider; AR cleanup in --dry-run
 ```
 
 The script is idempotent. It activates nothing destructive: the Artifact Registry cleanup policy
 (`scripts/ops/ar_cleanup_policy.json`, keep newest 3, delete the rest older than 1 day) is applied
 with `--dry-run`; the command to switch it on is printed at the end.
 
+**Unverified until the first real deploy:** the deployer gets `roles/run.developer` scoped to the
+Cloud Run *service* (not the project). Whether that alone is enough for `gcloud run deploy` of an
+existing service (some operation permissions are project-scoped) has not been tested. If the first
+deploy fails with a `run.*` permission error, use the project-level fallback that is left commented in
+`setup_deploy_iam.sh` step 2, and record the result here.
+
 ### Rollback
 
-Automatic on post-shift failure. Manual, any time (previous revision name is in the run summary):
+Automatic on post-shift failure or cancellation. Manual, any time (previous revision name is in the run summary):
 
 ```bash
 gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVISION>=100 \
@@ -609,6 +647,18 @@ gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVI
 sub-hourly crons reliably (the 15-minute Uptime Alert actually ran with a median gap of 246 min),
 so this lowers the cold-start rate but cannot guarantee a warm instance. `/readyz` is never
 pinged on a timer. Details and numbers: `reports/w8-inventory-2026-11-03.md`.
+
+### Follow-up (separate PR, NOT done here): dedicated runtime service account
+
+The Cloud Run service runs as the **default compute service account**
+(`631709154646-compute@developer.gserviceaccount.com`), which holds project-level `roles/editor`.
+Any code execution inside the container therefore has Editor on the project, and the deployer's
+`iam.serviceAccountUser` on it is effectively an Editor-reachable grant. Recommended: create a dedicated
+runtime SA (for example `asa-stylist-runtime`) with only what the service uses (Secret Manager
+accessor on the six `asa-*` secrets, `storage.objectViewer` on `asa-demo-indices-stylemaitri-prod`,
+log writer), switch the service to it, re-point the deployer's `serviceAccountUser` binding at it,
+and remove `roles/editor` from the compute SA. Needs its own PR, a rollback plan and a live check
+that every secret and the index download still work.
 
 ### Not done by this pipeline
 

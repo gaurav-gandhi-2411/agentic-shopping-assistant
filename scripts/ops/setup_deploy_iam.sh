@@ -13,9 +13,19 @@
 #   - roles/iam.serviceAccountUser on the RUNTIME SA only (needed to deploy a revision running as it)
 #   - roles/artifactregistry.writer on the ONE repo cloud-run-source-deploy only
 #   - NO Cloud Build roles: images are built on the GitHub runner, not in Cloud Build.
-#   - WIF: a NEW provider (github-deploy-provider) in the existing github-pool, whose attribute
-#     condition only accepts repo gaurav-gandhi-2411/agentic-shopping-assistant at refs/heads/master.
-#     The existing CI provider (github-provider, owner-wide condition) is NOT modified.
+#   - WIF: a NEW, SEPARATE pool (github-deploy-pool) holding ONE provider (github-deploy-provider)
+#     whose attribute condition only accepts repo gaurav-gandhi-2411/agentic-shopping-assistant at
+#     refs/heads/master. The existing github-pool / github-provider (owner-wide condition, used by
+#     ci.yml on PRs) is NOT modified and is NOT referenced by any deployer binding.
+#   Why a separate pool and not just a new provider in github-pool: a principalSet binding names a
+#   POOL plus an attribute (principalSet://.../workloadIdentityPools/<pool>/attribute.<k>/<v>), so
+#   it matches the identities of EVERY provider in that pool
+#   (https://cloud.google.com/iam/docs/workload-identity-federation: custom attributes are used "in
+#   IAM principalSet:// role bindings to grant access to all identities with a certain attribute").
+#   A deployer bound on github-pool would be impersonable by any PR/branch token that the old
+#   owner-wide provider issues. Google also advises "use a single provider per workload identity
+#   pool" (https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation).
+#   The script ends with a check that the deployer SA's policy references ONLY github-deploy-pool.
 # It does not grant anything to gaurav.gandhi2411@ or gaurav.gandhi1249@ (they must hold zero).
 #
 # Afterwards, add two repo secrets (values are printed at the end; they are identifiers, not keys):
@@ -31,7 +41,8 @@ AR_REPO="cloud-run-source-deploy"
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 DEPLOYER_NAME="stylemaitri-deployer"
 DEPLOYER_SA="${DEPLOYER_NAME}@${PROJECT}.iam.gserviceaccount.com"
-POOL="github-pool"
+POOL="github-deploy-pool"        # dedicated to the deployer; never reuse the CI pool (github-pool)
+LEGACY_POOL="github-pool"        # CI pool; must NOT appear in the deployer SA policy
 PROVIDER="github-deploy-provider"
 GH_REPO="gaurav-gandhi-2411/agentic-shopping-assistant"
 POOL_PATH="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}"
@@ -76,7 +87,17 @@ run gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
   --member="serviceAccount:${DEPLOYER_SA}" --role="roles/artifactregistry.writer" \
   --account="$ACCOUNT" --project="$PROJECT"
 
-echo "== 5. WIF provider restricted to repo + master ref"
+echo "== 5a. dedicated WIF pool"
+if exists gcloud iam workload-identity-pools describe "$POOL" \
+    --location=global --account="$ACCOUNT" --project="$PROJECT"; then
+  echo "exists: $POOL"
+else
+  run gcloud iam workload-identity-pools create "$POOL" \
+    --location=global --display-name="GitHub deploy (master only)" \
+    --account="$ACCOUNT" --project="$PROJECT"
+fi
+
+echo "== 5b. WIF provider restricted to repo + master ref (the pool's only provider)"
 CONDITION="assertion.repository=='${GH_REPO}' && assertion.ref=='refs/heads/master'"
 MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
 if exists gcloud iam workload-identity-pools providers describe "$PROVIDER" \
@@ -95,11 +116,26 @@ else
     --account="$ACCOUNT" --project="$PROJECT"
 fi
 
-echo "== 6. let the repo's identities (already filtered to master by the provider) impersonate the deployer"
+echo "== 6. let identities of github-deploy-pool (filtered to master by its only provider) impersonate the deployer"
 run gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" \
   --member="principalSet://iam.googleapis.com/${POOL_PATH}/attribute.repository/${GH_REPO}" \
   --role="roles/iam.workloadIdentityUser" \
   --account="$ACCOUNT" --project="$PROJECT"
+
+echo "== 6b. verify: deployer SA policy references ONLY ${POOL} (never ${LEGACY_POOL})"
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  echo "DRY_RUN: skipped (the deployer SA may not exist yet); this check runs on a real apply"
+else
+  POLICY_JSON="$(gcloud iam service-accounts get-iam-policy "$DEPLOYER_SA" \
+    --account="$ACCOUNT" --project="$PROJECT" --format=json)"
+  POOLS_SEEN="$(printf '%s' "$POLICY_JSON" | grep -o 'workloadIdentityPools/[A-Za-z0-9-]*' | sort -u)"
+  echo "pools referenced: ${POOLS_SEEN:-<none>}"
+  if [ "$POOLS_SEEN" != "workloadIdentityPools/${POOL}" ]; then
+    echo "ERROR: deployer SA policy must reference exactly workloadIdentityPools/${POOL}; got: ${POOLS_SEEN:-<none>}" >&2
+    exit 1
+  fi
+  echo "OK: only ${POOL} can impersonate the deployer"
+fi
 
 echo "== 7. Artifact Registry cleanup policy: DRY RUN (deletes nothing)"
 # --dry-run only LOGS what would be deleted (Cloud Audit Logs); review that before step 8.

@@ -71,7 +71,7 @@ Headroom: large. UNVERIFIED: real billed instance time (no billing export; see s
 
 | Resource | Measured | Command | Free allowance (source) | Headroom / cost |
 |---|---|---|---|---|
-| Artifact Registry `cloud-run-source-deploy` (asia-south1) | 4,563.552 (gcloud "SIZE (MB)"; 4.25 to 4.46 GiB depending on MB vs MiB), 5 versions, ~1.61 GB per image, **no cleanup policy** | `gcloud artifacts repositories list $A`; `gcloud artifacts docker images list asia-south1-docker.pkg.dev/stylemaitri-prod-260813/cloud-run-source-deploy $A --include-tags --format=json` | 0.5 GiB-month per BILLING ACCOUNT (shared with 4 projects) | **Over free tier**: about (4.25 to 4.46 - 0.5) x $0.10 = **$0.38 to $0.40/month** gross. Steady state with keep-3 is about 4.5 GiB = $0.40/month; keep-2 = $0.25; keep-1 = $0.10. No image fits in 0.5 GiB, so AR is never $0. |
+| Artifact Registry `cloud-run-source-deploy` (asia-south1) | 4,563.552 MiB = 4.457 GiB (the `repositories list` column is MiB; `gcloud artifacts repositories describe` reports the same repo as "4785.231MB" decimal = 4.785e9 bytes = 4.457 GiB), 5 versions, ~1.61 GB per image, **no cleanup policy** | `gcloud artifacts repositories list $A`; `gcloud artifacts docker images list asia-south1-docker.pkg.dev/stylemaitri-prod-260813/cloud-run-source-deploy $A --include-tags --format=json` | 0.5 GiB-month per BILLING ACCOUNT (shared with 4 projects) | **Over free tier**: about (4.457 - 0.5) x $0.10 = **$0.40/month** gross. Steady state with keep-3 is about 4.5 GiB = $0.40/month; keep-2 = $0.25; keep-1 = $0.10. No image fits in 0.5 GiB, so AR is never $0. |
 | GCS `asa-demo-indices-stylemaitri-prod` (ASIA-SOUTH1, STANDARD) | 862.07 MiB | `gcloud storage du -s -r gs://asa-demo-indices-stylemaitri-prod $A` | Always Free is US regions only, so 0 here | about 0.84 GiB x $0.02 (us-central1 list rate; Mumbai rate UNVERIFIED) = about $0.017/month |
 | GCS `run-sources-stylemaitri-prod-260813-asia-south1` | 136.18 MiB (Cloud Build source zips) | same with that bucket | none (non-US) | about $0.003/month; deletable once builds move to the runner (not done) |
 | Secret Manager | 6 secrets x 1 version each (asa-database-url, asa-demo-jwt-secret, asa-gemini-api-key, asa-groq-api-key, asa-openrouter-api-key, asa-supabase-url) | `gcloud secrets list $A` then `gcloud secrets versions list <name> $A` | 6 active versions, 10,000 access ops (per billing account) | **0 headroom on versions**: a 7th costs about $0.06/month. Access ops: about 6 x 179 starts = about 1,074/month estimated (10.7% of free), but the billing account is shared |
@@ -89,8 +89,8 @@ sql-component, storage-api, storage-component, storage, telemetry.
 
 ## 4. E11 verdict: is the project at INR 0?
 
-**No, not strictly.** Artifact Registry alone is above its free allowance: about $0.38 to $0.40 per month gross
-(computation: `python cost.py` in scratch; inputs 4,563.552 MB, $0.10/GiB-month, 0.5 GiB free). That is the one
+**No, not strictly.** Artifact Registry alone is above its free allowance: about $0.40 per month gross ((4.457 - 0.5) x $0.10 = $0.396)
+(computation: `python cost.py` in scratch; inputs 4,563.552 MiB = 4.457 GiB, $0.10/GiB-month, 0.5 GiB free). That is the one
 confirmed billing line. Everything else (Cloud Run compute and requests, Cloud Build, Secret Manager,
 Cloud Scheduler) is inside its free tier on measured usage, with Secret Manager versions at exactly the cap
 (6/6) and GCS about $0.02/month outside any free tier. Estimated total about $0.42/month (about INR 35 to 40 at a
@@ -191,7 +191,7 @@ Service accounts: `631709154646-compute@developer.gserviceaccount.com` (default 
 WIF: pool `github-pool` (ACTIVE), provider `github-provider`, issuer `https://token.actions.githubusercontent.com`,
 attribute condition `assertion.repository_owner=='gaurav-gandhi-2411'`, mapping google.subject=assertion.sub,
 attribute.repository, attribute.repository_owner (NO attribute.ref mapping, which is why the master-only deploy
-binding needs a separate provider). `stylemaitri-ci-index-reader` allows `roles/iam.workloadIdentityUser` to
+binding needs a separate POOL, since principalSet bindings are pool-scoped). `stylemaitri-ci-index-reader` allows `roles/iam.workloadIdentityUser` to
 `principalSet://.../github-pool/attribute.repository/gaurav-gandhi-2411/agentic-shopping-assistant`.
 
 Repo secrets present (names only, `gh secret list`): DATABASE_URL, DEMO_CORS_ORIGINS, WIF_PROVIDER,
@@ -205,9 +205,48 @@ is NOT available**, hence every cost above is a computation from usage and list 
 ## 10. Deploy pipeline delivered (not applied)
 
 `.github/workflows/deploy.yml`, `.github/workflows/keep-warm.yml`, `scripts/ops/deploy_smoke.py` (+ `tests/test_deploy_smoke.py`),
-`scripts/ops/setup_deploy_iam.sh`, `scripts/ops/ar_cleanup_policy.json`, `DEPLOY.md` CI/CD section. actionlint
+`scripts/ops/setup_deploy_iam.sh`, `scripts/ops/ar_cleanup_policy.json`, `DEPLOY.md` CI/CD section. Revised after independent verification (second commit): dedicated WIF pool,
+chat smoke on the tag URL only, tested `main()`, `workflow_dispatch` requires green CI for the SHA, rollback also on
+`cancelled`. actionlint
 1.7.12 (checksum-verified binary in scratch) reports no findings for both workflows (shellcheck is not installed, so the inline
 shell inside the workflows was NOT linted; `setup_deploy_iam.sh` passed `bash -n` and a `DRY_RUN=1` run).
+
+## 10b. LLM calls in one `/chat` "black kurta set for haldi" (measured)
+
+Method: script `count_llm.py` (scratch, not committed). In-process FastAPI `TestClient` (no lifespan) on `api.main.app`,
+real `HybridRetriever` built from the local `data/processed/unified` index (read-only), a counting stub LLM
+installed via `deps._init`, in-memory session store, no DATABASE_URL, `HF_HUB_OFFLINE=1`, LLM host pointed at a dead port.
+Hermetic roots printed and asserted: TEMP, USERPROFILE, LOCALAPPDATA, APPDATA all under the scratch dir; HF_HOME points at
+the real model cache, read-only (offline mode never writes). Each call is attributed to its call site via the stack frame.
+
+| Scenario (router stub) | HTTP | items | LLM calls | by call site |
+|---|---|---|---|---|
+| router returns `search` | 200 | 5 | **2** | `reranker.py:170` x1, `graph.py:3993` x1 |
+| router returns `outfit` (occasion haldi) | 200 | 5 | **2** | same; `router.py:58` was never called |
+
+The router LLM is bypassed for this query (the code logs a deterministic fast-path, see DEPLOY.md "LLM calls per deploy"),
+so the forced-`outfit` stub had no effect: the observed route was `search` with filters product_type=kurta, colour=Black in both runs.
+Not exercised: LLM-routed turns, outfit turns (`outfit/rationale.py:446`, one call per look) and the memory summariser
+(`memory/conversation.py:54`, only after 12 turns). Static upper bound for a fresh single turn on those paths: router
+1 per agent iteration + reranker 1 + respond 1 + 1 rationale per look. Real provider clients may add retry/failover attempts
+that this logical-call count does not include. `/readyz` currently makes 0 LLM calls (`deps.get_llm()` only fetches the
+client); with W4 (#77) it makes 1. Per deploy: 2 measured now (tag-URL chat), 4 after #77.
+Earlier claim "2 LLM-backed calls per deploy" was an unmeasured assumption of one chat per smoke run; it happened to equal
+the real figure for a different reason (one chat = 2 calls, and the main-URL chat is now removed).
+
+## 10c. Verifier fixes (second commit) in one place
+
+1. WIF: a `principalSet://.../workloadIdentityPools/github-pool/attribute.repository/<repo>` binding is scoped to the whole pool, so it would
+   match tokens from the existing owner-wide `github-provider` (used by ci.yml on PRs). Now a dedicated pool `github-deploy-pool` with one provider
+   (condition: this repo AND `refs/heads/master`) and the deployer is bound only to that pool; the script verifies the deployer SA policy
+   references only `github-deploy-pool` and exits 1 otherwise. Docs: https://cloud.google.com/iam/docs/workload-identity-federation
+   (principalSet bindings grant access to all identities with an attribute) and
+   https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation ("Use a single provider per workload identity pool").
+2. Unit fix: AR size is 4,563.552 MiB = 4.457 GiB (not "MB"/range); cost about $0.40/month.
+3. Follow-up, NOT implemented: the runtime SA is the default compute SA (`631709154646-compute@developer.gserviceaccount.com`) holding
+   project `roles/editor`. Recommend a dedicated least-privilege runtime SA (Secret Manager accessor on the six `asa-*` secrets, objectViewer on the
+   indices bucket, log writer) in a separate PR, then drop Editor from the compute SA and re-point the deployer's `serviceAccountUser`.
+4. `roles/run.developer` is kept service-scoped with the commented project-level fallback; UNVERIFIED until the first real deploy.
 
 ## 11. UNVERIFIED list
 
