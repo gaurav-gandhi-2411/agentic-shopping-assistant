@@ -9,22 +9,46 @@ import sys
 import time
 from contextvars import ContextVar
 from typing import Any
+from urllib.parse import unquote_plus
 
 # Module-level contextvar: set at the start of each request, read by the log filter.
 conversation_id_var: ContextVar[str] = ContextVar("conversation_id", default="")
 
-
 _TOKEN_PARAM_RE = re.compile(r"(\?|&)(token)=[^&\s\"']*", re.IGNORECASE)
+_QUERY_END_RE = re.compile(r"[#\s]")  # a fragment or whitespace ends the query string
+
+
+def _redact_token_params(text: str) -> str:
+    """Mask the value of every ``token`` query param in ``text`` (a request path/URL).
+
+    Plain strings take the regex fast path. If a ``%`` is present the param NAME may be
+    percent-encoded (``?%74oken=x``): Starlette decodes names, so such a request still
+    authenticates and the raw value would reach the access log. In that case the query is
+    split on ``&``, each name is percent-decoded and compared case-insensitively.
+    """
+    if "?" not in text:
+        return text
+    if "%" not in text:
+        return _TOKEN_PARAM_RE.sub(r"\1\2=[REDACTED]", text)
+    base, _, rest = text.partition("?")
+    end = _QUERY_END_RE.search(rest)
+    query, tail = (rest[: end.start()], rest[end.start():]) if end else (rest, "")
+    parts = []
+    for part in query.split("&"):
+        name, eq, _value = part.partition("=")
+        if eq and unquote_plus(name).lower() == "token":
+            part = f"{name}=[REDACTED]"
+        parts.append(part)
+    return f"{base}?{'&'.join(parts)}{tail}"
 
 
 class _TokenRedactFilter(logging.Filter):
-    """Strips ?token=<jwt> from uvicorn access log request lines."""
+    """Strips ?token=<jwt> from uvicorn access log request lines (incl. encoded names)."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple):
             record.args = tuple(
-                _TOKEN_PARAM_RE.sub(r"\1\2=[REDACTED]", a) if isinstance(a, str) else a
-                for a in record.args
+                _redact_token_params(a) if isinstance(a, str) else a for a in record.args
             )
         return True
 
