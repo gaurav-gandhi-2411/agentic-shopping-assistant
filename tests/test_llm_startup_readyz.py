@@ -352,3 +352,47 @@ def test_late_callback_attached_once_and_stamped_with_completion_time():
     release.set()
     assert done.wait(5)
     assert cache._cached[0] >= t_release and cache._cached[0] <= _t.monotonic()
+
+
+def test_late_callback_on_already_completed_future_does_not_deadlock():
+    """The probe may finish between the timeout and callback registration, which
+    runs the callback inline; registering under the (non-reentrant) lock deadlocked."""
+    import threading
+    from concurrent.futures import Future
+    from concurrent.futures import TimeoutError as FutTimeout
+
+    class _FinishesMidGet(Future):
+        """Looks in-flight to the first done() check, times out on the timed
+        result() wait, yet is complete by the time the callback is registered."""
+
+        _first = True
+
+        def done(self) -> bool:
+            if self._first:
+                self._first = False
+                return False
+            return super().done()
+
+        def result(self, timeout=None):
+            if timeout is not None:
+                raise FutTimeout
+            return super().result()
+
+    cache = ProbeCache(ttl_s=60, timeout_s=0.05)
+    fut = _FinishesMidGet()
+    fut.set_result((1.0, {"tier": "groq", "model": "m1", "latency_ms": 1}, None))
+    cache._inflight = fut
+    outcome: list = []
+
+    def call() -> None:
+        try:
+            cache.get(lambda: pytest.fail("must not start a new probe"))
+        except RuntimeError as exc:
+            outcome.append(str(exc))
+
+    t = threading.Thread(target=call, daemon=True)
+    t.start()
+    t.join(5)
+    assert not t.is_alive(), "deadlock: callback re-acquired the held lock"
+    assert "timed out" in outcome[0]
+    assert cache._cached[1]["model"] == "m1"  # inline callback cached the finished probe

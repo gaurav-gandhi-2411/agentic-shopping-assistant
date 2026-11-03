@@ -68,9 +68,12 @@ class ProbeCache:
         except concurrent.futures.TimeoutError:
             # Not cached now; if the probe finishes later its outcome is cached then.
             with self._lock:
-                if self._late_cb_for is not fut:
-                    self._late_cb_for = fut
-                    fut.add_done_callback(self._cache_late_result)
+                attach = self._late_cb_for is not fut
+                self._late_cb_for = fut
+            # Outside the lock: if fut already finished, add_done_callback runs the
+            # callback inline, and _store takes the (non-reentrant) lock itself.
+            if attach:
+                fut.add_done_callback(self._cache_late_result)
             raise RuntimeError(f"LLM probe timed out after {self.timeout_s:.0f}s") from None
         self._store(fut, entry)
         with self._lock:
