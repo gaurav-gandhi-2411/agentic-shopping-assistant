@@ -36,7 +36,7 @@ class GeminiClient:
         # HttpOptions.timeout docs) — see GroqClient's identical comment in
         # src/llm/client.py for why this is added even though the SDK default
         # is already bounded.
-        _timeout_ms = int(llm_cfg.get("timeout_seconds", 60)) * 1000
+        _timeout_ms = round(float(llm_cfg.get("timeout_seconds", 60)) * 1000)
         self._client = genai.Client(
             api_key=api_key, http_options=_types.HttpOptions(timeout=_timeout_ms)
         )

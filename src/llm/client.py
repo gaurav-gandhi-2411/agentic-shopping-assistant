@@ -118,8 +118,14 @@ def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
         finally:
             _BOUNDED_SLOTS.release()
 
-    t = threading.Thread(target=contextvars.copy_context().run, args=(_run,), daemon=True)
-    t.start()
+    try:
+        t = threading.Thread(target=contextvars.copy_context().run, args=(_run,), daemon=True)
+        t.start()
+    except BaseException:
+        # The thread never ran, so its finally will never release: do it here, or
+        # repeated start failures would permanently disable the fallback tiers.
+        _BOUNDED_SLOTS.release()
+        raise
     t.join(timeout_s)
     if t.is_alive():
         raise TimeoutError(f"fallback tier exceeded {timeout_s:.0f}s")

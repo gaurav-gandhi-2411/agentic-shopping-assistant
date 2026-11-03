@@ -417,3 +417,32 @@ def test_hanging_fallback_tier_is_cut_off_on_stream_path_too(monkeypatch):
     tokens = list(GroqClient(_config(fallback_tier_budget_seconds=0.2)).chat_stream(MSGS))
     release.set()
     assert tokens == [LLM_BUSY_MESSAGE] and time.monotonic() - t0 < 3
+
+
+def test_run_bounded_releases_slot_when_thread_cannot_start(monkeypatch):
+    import src.llm.client as c
+
+    monkeypatch.setattr(c, "_BOUNDED_SLOTS", threading.BoundedSemaphore(1))
+    real_start = threading.Thread.start
+
+    def boom(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", boom)
+    for _ in range(3):  # more failures than slots: a leak would exhaust the semaphore
+        with pytest.raises(RuntimeError, match="can't start"):
+            c.run_bounded(lambda: "x", 1)
+    monkeypatch.setattr(threading.Thread, "start", real_start)
+    assert c.run_bounded(lambda: "later call reaches the tier", 1) == "later call reaches the tier"
+
+
+def test_gemini_timeout_keeps_subsecond_budgets(monkeypatch):
+    from src.llm.gemini_client import GeminiClient
+
+    seen = []
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setattr("google.genai.types.HttpOptions", lambda timeout: seen.append(timeout))
+    monkeypatch.setattr("google.genai.Client", lambda **kw: SimpleNamespace())
+    GeminiClient(_config(timeout_seconds=0.5))
+    GeminiClient(_config(timeout_seconds=8))
+    assert seen == [500, 8000]
