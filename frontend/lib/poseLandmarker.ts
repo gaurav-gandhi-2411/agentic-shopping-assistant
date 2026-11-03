@@ -24,7 +24,7 @@ import type { NormalizedLandmark, PoseLandmarker } from "@mediapipe/tasks-vision
 
 // Pinned to the installed @mediapipe/tasks-vision version (package.json) —
 // keep in sync if that dependency is ever bumped.
-const MEDIAPIPE_VERSION = "0.10.35"
+const MEDIAPIPE_VERSION = "1.0.1"
 const WASM_BASE_PATH = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`
 const MODEL_ASSET_PATH =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"
