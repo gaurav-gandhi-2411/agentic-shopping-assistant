@@ -80,9 +80,11 @@ class Redactor:
         return cls(collect_secrets(environ))
 
     def redact(self, text: str) -> str:
-        text = _USERINFO_RE.sub(r"\1" + MASK + "@", text)
+        # Literal secrets first: a password with spaces or a raw '@' would otherwise be only
+        # partly consumed by the userinfo regex, leaving the literal unmatched afterwards.
         for secret in self._secrets:
             text = text.replace(secret, MASK)
+        text = _USERINFO_RE.sub(r"\1" + MASK + "@", text)
         text = _BEARER_RE.sub(r"\1" + MASK, text)
         return _JWT_RE.sub(MASK, text)
 
@@ -110,39 +112,67 @@ class Redactor:
         return self.redact_obj(obj)
 
 
+def redact_record(record: logging.LogRecord, redactor: Redactor) -> None:
+    """Mask a LogRecord in place.
+
+    exc_info is deliberately KEPT: sentry_sdk's logging integration runs after the
+    handlers and reads record.exc_info to build the event's exception section.  The
+    redacted traceback goes in exc_text instead; stdlib Formatter.format (and our
+    _JsonFormatter) use a pre-set exc_text rather than re-rendering exc_info.
+    """
+    try:
+        message = record.getMessage()
+    except Exception:  # noqa: BLE001 - a bad format string must not hide the record
+        message = str(record.msg)
+    record.msg = redactor.redact(message)
+    record.args = None
+    if record.exc_info and record.exc_info[0] is not None and not record.exc_text:
+        record.exc_text = logging.Formatter().formatException(record.exc_info)
+    if record.exc_text:
+        record.exc_text = redactor.redact(record.exc_text)
+    if record.stack_info:
+        record.stack_info = redactor.redact(record.stack_info)
+
+
 class RedactionFilter(logging.Filter):
-    """Redacts message, args, exception text and stack info of every record."""
+    """Handler-level safety net: redacts records that bypassed the record factory."""
 
     def __init__(self, redactor: Redactor) -> None:
         super().__init__()
         self._redactor = redactor
 
     def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            message = record.getMessage()
-        except Exception:  # noqa: BLE001 - a bad format string must not hide the record
-            message = str(record.msg)
-        record.msg = self._redactor.redact(message)
-        record.args = None
-        if record.exc_info and record.exc_info[0] is not None and not record.exc_text:
-            record.exc_text = logging.Formatter().formatException(record.exc_info)
-        if record.exc_text:
-            record.exc_text = self._redactor.redact(record.exc_text)
-        # exc_text now holds the redacted traceback; drop exc_info so no formatter
-        # re-renders the raw one.
-        record.exc_info = None
-        if record.stack_info:
-            record.stack_info = self._redactor.redact(record.stack_info)
+        redact_record(record, self._redactor)
         return True
 
 
-def install_log_redaction(redactor: Redactor | None = None) -> Redactor:
-    """Attach the filter to every handler of the root logger and of every logger.
+# Swapped by install_log_redaction so the factory (installed once) always uses the latest.
+_active_redactor: Redactor | None = None
 
-    Filters on a logger do not apply to records propagated from children, so the
-    filter goes on handlers (including uvicorn's own).  Idempotent.
+
+def install_log_redaction(redactor: Redactor | None = None) -> Redactor:
+    """Redact every LogRecord at creation, and filter every existing handler.
+
+    The record factory is the primary mechanism: it runs for every record before any
+    handler (ours, uvicorn's, Sentry's, or ones added later), so there is no handler
+    ordering or late-registration gap.  The handler filter is a second layer.  Both
+    paths are idempotent; calling this again just swaps the active redactor.
     """
+    global _active_redactor
     redactor = redactor or Redactor.from_env()
+    _active_redactor = redactor
+
+    current = logging.getLogRecordFactory()
+    if not getattr(current, "_asa_redacting", False):
+        def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+            record = current(*args, **kwargs)
+            if _active_redactor is not None:
+                redact_record(record, _active_redactor)
+            return record
+
+        factory._asa_redacting = True  # type: ignore[attr-defined]
+        logging.setLogRecordFactory(factory)
+
     loggers = [logging.getLogger()] + [
         lg for lg in logging.root.manager.loggerDict.values() if isinstance(lg, logging.Logger)
     ]

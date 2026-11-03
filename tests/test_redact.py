@@ -53,7 +53,7 @@ def test_filter_masks_message_args_and_traceback() -> None:
     except RuntimeError as e:
         rec = _record("db error %s", f"pw={DB_PW}", exc=e)
     assert RedactionFilter(red).filter(rec)
-    assert rec.exc_info is None
+    assert rec.exc_info is not None  # kept for Sentry; redacted copy lives in exc_text
     blob = rec.getMessage() + (rec.exc_text or "")
     assert DB_PW not in blob
     assert "RuntimeError" in blob  # traceback still present, just masked
@@ -71,3 +71,68 @@ def test_sentry_before_send_redacts_exception_values(monkeypatch) -> None:
     out = _sentry_before_send(event, {})
     assert DB_PW not in str(out)
     assert "Charlie" not in str(out)
+
+
+def test_factory_redacts_at_creation_for_late_handlers_and_keeps_exc_info() -> None:
+    install_log_redaction(Redactor([DB_PW]))
+    seen: list[logging.LogRecord] = []
+
+    class Late(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            seen.append(record)
+
+    late = Late()  # added after install: no filter on it
+    logging.getLogger().addHandler(late)
+    try:
+        try:
+            raise RuntimeError(f"bad {DB_PW}")
+        except RuntimeError:
+            logging.getLogger("late").exception("failed %s", DB_PW)
+    finally:
+        logging.getLogger().removeHandler(late)
+    (rec,) = seen
+    assert DB_PW not in rec.getMessage()
+    assert rec.exc_info is not None
+    assert DB_PW not in (rec.exc_text or "")
+
+
+def test_sentry_logger_exception_event_has_exception_and_no_credential(monkeypatch) -> None:
+    import json
+
+    import sentry_sdk
+    from sentry_sdk.transport import Transport
+
+    from api.main import _sentry_before_breadcrumb
+
+    monkeypatch.setenv("DATABASE_URL", f"postgresql://u:{DB_PW}@h.invalid/db")
+    install_log_redaction()
+    events: list[dict] = []
+
+    class Capture(Transport):  # in-memory transport: no network
+        def capture_envelope(self, envelope) -> None:
+            events.extend(i.payload.json for i in envelope.items if i.type == "event")
+
+    # A handler carrying the filter is what cleared exc_info before the fix.
+    handler = logging.StreamHandler()
+    handler.addFilter(RedactionFilter(Redactor.from_env()))
+    logging.getLogger().addHandler(handler)
+    sentry_sdk.init(
+        dsn="http://k@localhost:1/1", transport=Capture, traces_sample_rate=0,
+        before_send=_sentry_before_send, before_breadcrumb=_sentry_before_breadcrumb,
+        include_local_variables=False,
+    )
+    try:
+        try:
+            url = f"postgresql://u:{DB_PW}@h.invalid/db"  # noqa: F841 - frame local
+            raise RuntimeError(f"failed to resolve host '{DB_PW}@h.invalid'")
+        except RuntimeError:
+            logging.getLogger("probe").exception("db failure %s", DB_PW)
+        sentry_sdk.flush()
+    finally:
+        logging.getLogger().removeHandler(handler)
+        sentry_sdk.init(dsn=None)
+    assert events
+    assert any(e.get("exception", {}).get("values") for e in events)
+    blob = json.dumps(events, default=str)
+    for leaked in (DB_PW, "Alpha", "Bravo", "Charlie", "Delta"):
+        assert leaked not in blob

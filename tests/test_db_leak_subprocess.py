@@ -94,6 +94,7 @@ def test_uvicorn_startup_and_requests_have_no_password(
                 try:
                     bodies.append(_get(f"http://127.0.0.1:{port}/readyz"))
                     bodies.append(_get(f"http://127.0.0.1:{port}/boom"))
+                    bodies.append(_get(f"http://127.0.0.1:{port}/logurl"))
                     break
                 except (urllib.error.URLError, ConnectionError, TimeoutError, OSError):
                     time.sleep(0.5)
@@ -112,6 +113,8 @@ def test_uvicorn_startup_and_requests_have_no_password(
     # Anti-vacuity: on the fixed code the server answered and named the true host.
     assert bodies, f"server never answered; log:\n{output[-1500:]}"
     assert HOST in output
+    # /logurl logged the raw URL: the redaction layer (not URL parsing) must have masked it.
+    assert "config url postgresql://postgres.projref:***@" in output
 
 
 @pytest.mark.parametrize("module", ["api.main", "src.agents.graph"])

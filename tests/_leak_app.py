@@ -6,6 +6,9 @@ subprocess uvicorn can exercise the DB-failure paths hermetically.
 """
 from __future__ import annotations
 
+import logging
+import os
+
 from fastapi import FastAPI
 
 import api.deps as deps
@@ -25,3 +28,10 @@ def boom() -> None:
     """Uncaught DB connect failure -> uvicorn logs 'Exception in ASGI application'."""
     with feedback._get_engine().connect():
         pass
+
+
+@app.get("/logurl")
+def logurl() -> dict[str, str]:
+    """Deliberately logs the raw credential-bearing URL (as a careless caller would)."""
+    logging.getLogger("leakapp").warning("config url %s", os.environ["DATABASE_URL"])
+    return {"ok": "1"}

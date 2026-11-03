@@ -52,11 +52,12 @@ class _JsonFormatter(logging.Formatter):
         cid = getattr(record, "conversation_id", "")
         if cid:
             data["conversation_id"] = cid
-        if record.exc_info:
-            data["exc"] = self.formatException(record.exc_info)
-        elif record.exc_text:
-            # RedactionFilter pre-renders (and masks) the traceback, then clears exc_info.
+        if record.exc_text:
+            # Redaction pre-renders (and masks) the traceback; exc_info stays on the record
+            # for Sentry, so prefer exc_text over re-rendering the raw exc_info.
             data["exc"] = record.exc_text
+        elif record.exc_info:
+            data["exc"] = self.formatException(record.exc_info)
         # Include any extra fields attached via logging.getLogger().info(..., extra={...})
         for key in ("latency_ms", "tool", "action", "n_items", "provider"):
             val = record.__dict__.get(key)

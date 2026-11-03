@@ -41,9 +41,12 @@ from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.image_style import router as image_style_router
 from api.routes.looks import router as looks_router
-from src.utils.redact import Redactor
+from src.utils.redact import Redactor, install_log_redaction
 
 logger = logging.getLogger(__name__)
+
+# Cover log lines emitted before lifespan (import time, uvicorn startup).
+install_log_redaction()
 
 _REPO_ROOT = Path(__file__).parent.parent
 
@@ -129,6 +132,9 @@ async def lifespan(app: FastAPI):
         max_request_body_size="never",
         before_breadcrumb=_sentry_before_breadcrumb,
         before_send=_sentry_before_send,
+        # Frame locals can hold URLs/passwords; before_send redacts strings but not
+        # every shape, so do not capture them at all.
+        include_local_variables=False,
     )
     if sentry_dsn:
         logger.info("Sentry initialised (traces_sample_rate=0.1)")
