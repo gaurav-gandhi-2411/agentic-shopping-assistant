@@ -85,11 +85,20 @@ _OK_ROUTES: dict[tuple[str, str], tuple[int, str]] = {
 
 
 def _serve(routes: dict[tuple[str, str], tuple[int, str]]):
+    seen: list[dict] = []  # every request the server received (method, path, auth header, json body)
+
     class H(BaseHTTPRequestHandler):
         def _go(self) -> None:
             length = int(self.headers.get("Content-Length", 0))
-            if length:
-                self.rfile.read(length)
+            raw_in = self.rfile.read(length) if length else b""
+            seen.append(
+                {
+                    "method": self.command,
+                    "path": self.path,
+                    "auth": self.headers.get("Authorization"),
+                    "body": json.loads(raw_in) if raw_in else None,
+                }
+            )
             status, body = routes.get((self.command, self.path), (404, "{}"))
             raw = body.encode()
             self.send_response(status)
@@ -103,6 +112,7 @@ def _serve(routes: dict[tuple[str, str], tuple[int, str]]):
             pass
 
     srv = HTTPServer(("127.0.0.1", 0), H)
+    srv.seen = seen  # type: ignore[attr-defined]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -112,7 +122,7 @@ def run_main(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(smoke, "RETRY_SLEEP_S", 0)
     servers = []
 
-    def _run(overrides: dict | None = None, extra_args: list[str] | None = None) -> None:
+    def _run(overrides: dict | None = None, extra_args: list[str] | None = None) -> list[dict]:
         routes = dict(_OK_ROUTES)
         routes.update(overrides or {})
         srv = _serve(routes)
@@ -121,6 +131,7 @@ def run_main(monkeypatch: pytest.MonkeyPatch):
             ["--base-url", f"http://127.0.0.1:{srv.server_port}", *(extra_args or [])],
             require_https=False,
         )
+        return srv.seen  # type: ignore[attr-defined]
 
     yield _run
     for s in servers:
@@ -145,9 +156,32 @@ def test_main_no_chat_skips_llm_endpoints(run_main) -> None:
 
 
 def test_main_rejects_http_base_url_by_default() -> None:
-    with pytest.raises(SystemExit) as exc:
-        smoke.main(["--base-url", "http://example.invalid"])
-    assert exc.value.code == 1
+    # A LIVE loopback http server, default require_https: main() must refuse before sending
+    # anything. (An unreachable host would also exit 1 and hide a removed https check.)
+    srv = _serve(dict(_OK_ROUTES))
+    try:
+        with pytest.raises(SystemExit) as exc:
+            smoke.main(["--base-url", f"http://127.0.0.1:{srv.server_port}"])
+        assert exc.value.code == 1
+        assert srv.seen == []  # type: ignore[attr-defined]
+    finally:
+        srv.shutdown()
+
+
+def test_main_sends_bearer_token_and_exact_query_on_chat(run_main) -> None:
+    seen = run_main()
+    chat = [r for r in seen if r["method"] == "POST" and r["path"] == "/chat"]
+    assert len(chat) == 1
+    assert chat[0]["auth"] == "Bearer tok"  # token from the stubbed /demo/session
+    assert chat[0]["body"] == {"message": smoke.QUERY}
+    assert smoke.QUERY == "black kurta set for haldi"
+    session = [r for r in seen if r["path"] == "/demo/session"]
+    assert len(session) == 1 and session[0]["auth"] is None
+
+
+def test_main_no_chat_sends_no_post_at_all(run_main) -> None:
+    seen = run_main(extra_args=["--no-chat"])
+    assert [r["method"] for r in seen] == ["GET", "GET"]
 
 
 def test_main_fails_on_empty_response(run_main) -> None:

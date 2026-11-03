@@ -54,6 +54,70 @@ run() {
 }
 exists() { "$@" >/dev/null 2>&1; }
 
+# The one principalSet that may impersonate the deployer: full path incl. project number and pool.
+EXPECTED_MEMBER="principalSet://iam.googleapis.com/${POOL_PATH}/attribute.repository/${GH_REPO}"
+
+# Read-only. A soft-deleted pool/provider still answers `describe` (so `exists` would say "yes" and
+# the script would "update" something that is scheduled for deletion). Stop and print the undelete
+# command instead. usage: guard_not_deleted <label> <undelete command text> <describe cmd...>
+guard_not_deleted() {
+  local label="$1" undelete="$2" state
+  shift 2
+  state="$("$@" --format='value(state)' 2>/dev/null || true)"
+  if [ "$state" = "DELETED" ]; then
+    {
+      echo "ERROR: ${label} is in state DELETED (soft-deleted; not usable). Undelete it, then re-run:"
+      echo "  ${undelete}"
+    } >&2
+    return 1
+  fi
+}
+
+# Fails (return 1, message on stderr) unless the deployer SA policy grants
+# roles/iam.workloadIdentityUser to EXACTLY one member, EXPECTED_MEMBER, and no role at all is held
+# by any other workloadIdentityPools principal. Any other member (allUsers, user:, serviceAccount:,
+# another principal:// or principalSet://, legacy pool, wrong project number) is an ERROR.
+# Reads flattened "role<TAB>member" rows so there is no grep/pipeline that can exit silently under
+# `set -o pipefail`; empty or blank output is itself an ERROR, never a pass.
+verify_deployer_policy() {
+  local rows role member n_ok=0 bad=0
+  if ! rows="$(gcloud iam service-accounts get-iam-policy "$DEPLOYER_SA" \
+      --account="$ACCOUNT" --project="$PROJECT" \
+      --flatten='bindings[].members' --format='value(bindings.role,bindings.members)')"; then
+    echo "ERROR: could not read the IAM policy of ${DEPLOYER_SA}" >&2
+    return 1
+  fi
+  if [ -z "$(printf '%s' "$rows" | tr -d '[:space:]')" ]; then
+    echo "ERROR: deployer SA policy is empty or unreadable; expected ${EXPECTED_MEMBER}" >&2
+    return 1
+  fi
+  while IFS=$'\t' read -r role member; do
+    [ -z "${role}${member}" ] && continue
+    if [ "$role" = "roles/iam.workloadIdentityUser" ]; then
+      if [ "$member" = "$EXPECTED_MEMBER" ]; then
+        n_ok=$((n_ok + 1))
+      else
+        echo "ERROR: unexpected workloadIdentityUser member: ${member}" >&2
+        bad=1
+      fi
+    elif [[ "$member" == *workloadIdentityPools/* ]]; then
+      echo "ERROR: ${member} holds ${role} on the deployer SA; only ${POOL} may appear, and only as workloadIdentityUser" >&2
+      bad=1
+    fi
+  done <<< "$rows"
+  if [ "$n_ok" -ne 1 ]; then
+    echo "ERROR: expected exactly one workloadIdentityUser binding for ${EXPECTED_MEMBER}, found ${n_ok}" >&2
+    return 1
+  fi
+  [ "$bad" -eq 0 ]
+}
+
+# Test hook: `SETUP_DEPLOY_IAM_SOURCE_ONLY=1 source scripts/ops/setup_deploy_iam.sh` loads the
+# functions above without running any step (used by tests/ with a stub gcloud).
+if [ "${SETUP_DEPLOY_IAM_SOURCE_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 echo "== 1. deployer service account"
 if exists gcloud iam service-accounts describe "$DEPLOYER_SA" --account="$ACCOUNT" --project="$PROJECT"; then
   echo "exists: $DEPLOYER_SA"
@@ -88,6 +152,10 @@ run gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
   --account="$ACCOUNT" --project="$PROJECT"
 
 echo "== 5a. dedicated WIF pool"
+guard_not_deleted "pool ${POOL}" \
+  "gcloud iam workload-identity-pools undelete ${POOL} --location=global --account=${ACCOUNT} --project=${PROJECT}" \
+  gcloud iam workload-identity-pools describe "$POOL" \
+    --location=global --account="$ACCOUNT" --project="$PROJECT" || exit 1
 if exists gcloud iam workload-identity-pools describe "$POOL" \
     --location=global --account="$ACCOUNT" --project="$PROJECT"; then
   echo "exists: $POOL"
@@ -100,6 +168,10 @@ fi
 echo "== 5b. WIF provider restricted to repo + master ref (the pool's only provider)"
 CONDITION="assertion.repository=='${GH_REPO}' && assertion.ref=='refs/heads/master'"
 MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
+guard_not_deleted "provider ${PROVIDER}" \
+  "gcloud iam workload-identity-pools providers undelete ${PROVIDER} --workload-identity-pool=${POOL} --location=global --account=${ACCOUNT} --project=${PROJECT}" \
+  gcloud iam workload-identity-pools providers describe "$PROVIDER" \
+    --workload-identity-pool="$POOL" --location=global --account="$ACCOUNT" --project="$PROJECT" || exit 1
 if exists gcloud iam workload-identity-pools providers describe "$PROVIDER" \
     --workload-identity-pool="$POOL" --location=global --account="$ACCOUNT" --project="$PROJECT"; then
   # Re-assert the condition so a hand-edited provider converges back to the intended one.
@@ -118,23 +190,16 @@ fi
 
 echo "== 6. let identities of github-deploy-pool (filtered to master by its only provider) impersonate the deployer"
 run gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER_SA" \
-  --member="principalSet://iam.googleapis.com/${POOL_PATH}/attribute.repository/${GH_REPO}" \
+  --member="$EXPECTED_MEMBER" \
   --role="roles/iam.workloadIdentityUser" \
   --account="$ACCOUNT" --project="$PROJECT"
 
-echo "== 6b. verify: deployer SA policy references ONLY ${POOL} (never ${LEGACY_POOL})"
+echo "== 6b. verify: ONLY ${POOL} may impersonate the deployer (exact principalSet, nothing else)"
 if [ "${DRY_RUN:-0}" = "1" ]; then
   echo "DRY_RUN: skipped (the deployer SA may not exist yet); this check runs on a real apply"
 else
-  POLICY_JSON="$(gcloud iam service-accounts get-iam-policy "$DEPLOYER_SA" \
-    --account="$ACCOUNT" --project="$PROJECT" --format=json)"
-  POOLS_SEEN="$(printf '%s' "$POLICY_JSON" | grep -o 'workloadIdentityPools/[A-Za-z0-9-]*' | sort -u)"
-  echo "pools referenced: ${POOLS_SEEN:-<none>}"
-  if [ "$POOLS_SEEN" != "workloadIdentityPools/${POOL}" ]; then
-    echo "ERROR: deployer SA policy must reference exactly workloadIdentityPools/${POOL}; got: ${POOLS_SEEN:-<none>}" >&2
-    exit 1
-  fi
-  echo "OK: only ${POOL} can impersonate the deployer"
+  verify_deployer_policy || exit 1
+  echo "OK: exactly ${EXPECTED_MEMBER} can impersonate the deployer"
 fi
 
 echo "== 7. Artifact Registry cleanup policy: DRY RUN (deletes nothing)"

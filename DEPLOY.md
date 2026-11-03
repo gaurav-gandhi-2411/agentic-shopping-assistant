@@ -584,6 +584,9 @@ retired `iconic-reactor-496423-m4` project). Production is `stylemaitri-prod-260
   (`router.py:58`) was not consulted (deterministic fast-path handled the query) and no outfit rationale
   call (`outfit/rationale.py:446`, one per look) fired. Same count with the router stub forced to
   `outfit`. Details in `reports/w8-inventory-2026-11-03.md`.
+  Reproduce (local tool, never run in CI; needs the local index and model cache):
+  `python scripts/ops/count_llm_calls.py --scratch <empty dir you own>`
+  (flags: `--scenario search|outfit`, `--repo-root`, `--hf-home`, `--index-dir`, `--message`).
 - Static upper bound for a fresh single turn, if a query is LLM-routed or becomes an outfit:
   router (1 per agent iteration) + reranker (1) + respond (1) + 1 rationale per look.
 - `/readyz` makes 0 LLM calls today and **1 once W4 (#77) lands**.
@@ -613,7 +616,17 @@ and through `serviceAccountUser` that reaches the runtime SA. Google also recomm
 "a single provider per workload identity pool"
 ([best practices](https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation)).
 `setup_deploy_iam.sh` ends with a check that the deployer SA policy references only `github-deploy-pool`
-and exits non-zero otherwise.
+and exits non-zero otherwise. The check is exact: `roles/iam.workloadIdentityUser` on the deployer
+must have exactly one member, the full principalSet
+`principalSet://iam.googleapis.com/projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/attribute.repository/gaurav-gandhi-2411/agentic-shopping-assistant`;
+`allUsers`, any `user:`/`serviceAccount:`, any other `principal(Set)://`, the legacy pool, a wrong
+project number, or an empty/blank policy are all errors (tested offline in `tests/test_setup_deploy_iam.py`
+with a stub `gcloud`). The script also refuses to touch a pool or provider whose `state` is `DELETED`
+and prints the `undelete` command instead.
+
+Possible further hardening (NOT applied; the claim string has not been verified): additionally pin the
+workflow with a `job_workflow_ref` condition on the provider so only `deploy.yml` on `master` can mint
+tokens, not any workflow file in the repo at that ref.
 
 ### One-time setup (GG, as gaurav.gandhi1129@gmail.com)
 

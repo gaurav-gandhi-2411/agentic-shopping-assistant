@@ -213,7 +213,7 @@ shell inside the workflows was NOT linted; `setup_deploy_iam.sh` passed `bash -n
 
 ## 10b. LLM calls in one `/chat` "black kurta set for haldi" (measured)
 
-Method: script `count_llm.py` (scratch, not committed). In-process FastAPI `TestClient` (no lifespan) on `api.main.app`,
+Method: script `scripts/ops/count_llm_calls.py` (committed; rerun with `--scratch <dir>`). In-process FastAPI `TestClient` (no lifespan) on `api.main.app`,
 real `HybridRetriever` built from the local `data/processed/unified` index (read-only), a counting stub LLM
 installed via `deps._init`, in-memory session store, no DATABASE_URL, `HF_HUB_OFFLINE=1`, LLM host pointed at a dead port.
 Hermetic roots printed and asserted: TEMP, USERPROFILE, LOCALAPPDATA, APPDATA all under the scratch dir; HF_HOME points at

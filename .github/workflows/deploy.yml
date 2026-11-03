@@ -229,12 +229,25 @@ jobs:
           echo "config parity OK; minScale=0; startup-cpu-boost=true"
 
       - name: Smoke test tag URL (liveness, /readyz, 1 /chat = 2 measured LLM calls)
+        id: smoke_tag
         if: steps.fresh.outputs.stale == 'false'
         env:
           TAG: ${{ steps.target.outputs.tag }}
         run: |
           TAG_URL="${SERVICE_URL/https:\/\//https://${TAG}---}"
           python3 scripts/ops/deploy_smoke.py --base-url "$TAG_URL" --live-path "$LIVE_PATH"
+
+      # A failed gate between deploy and the traffic shift leaves a c-<sha7> tag (and its URL) on a
+      # revision that will never serve. Remove just the tag, best effort. This step sits BEFORE the
+      # shift step and only edits tags: it never changes any traffic percentage.
+      - name: Remove orphan tag after a pre-shift failure (best effort)
+        if: failure() && steps.deploy.outcome == 'success'
+        continue-on-error: true
+        env:
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" --remove-tags "$TAG" \
+            --region "$REGION" --project "$GCP_PROJECT" --quiet
 
       - name: Shift 100% traffic to new revision
         id: shift
