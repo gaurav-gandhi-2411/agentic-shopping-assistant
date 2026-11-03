@@ -23,6 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.llm.client import GroqClient
+from src.llm.resilience import LLM_BUSY_MESSAGE
 
 TPD_ERROR = (
     "Error code: 429 - {'error': {'message': 'Rate limit reached for model "
@@ -98,7 +99,7 @@ def _patch_groq_sdk(monkeypatch, create_side_effect):
         chat=SimpleNamespace(completions=SimpleNamespace(create=mock_create))
     )
     monkeypatch.setattr(
-        "groq.Groq", lambda api_key, timeout: fake_sdk_client
+        "groq.Groq", lambda api_key, timeout, max_retries: fake_sdk_client
     )
     return mock_create
 
@@ -188,50 +189,21 @@ def test_chat_stream_falls_back_to_openrouter_on_tpd_exhaustion(monkeypatch, gro
     assert "".join(chunks) == "hello"
 
 
-def test_chat_tpm_error_does_not_fall_back(monkeypatch, groq_env):
-    calls = {"groq": 0, "openrouter": 0}
-
-    def groq_side_effect(*a, **k):
-        calls["groq"] += 1
-        raise Exception(TPM_ERROR)
-
-    _patch_groq_sdk(monkeypatch, create_side_effect=groq_side_effect)
-
-    def openrouter_side_effect(*a, **k):
-        calls["openrouter"] += 1
-        raise AssertionError("fallback should not be attempted for non-TPD errors")
-
-    _patch_openrouter_sdk(monkeypatch, create_side_effect=openrouter_side_effect)
-    monkeypatch.setattr("time.sleep", lambda _s: None)
-
-    client = GroqClient(_config())
-    with pytest.raises(Exception, match="tokens per minute"):
-        client.chat([{"role": "user", "content": "hi"}])
-
-    assert calls["openrouter"] == 0
-    assert calls["groq"] == 3  # initial + 2 TPM backoff retries, then raise
-
-
-def test_chat_fallback_unavailable_preserves_legacy_wait_retry(
+def test_chat_no_fallback_configured_returns_busy_message_not_a_wait(
     monkeypatch, groq_env_no_openrouter
 ):
-    call_count = {"n": 0}
-
-    def groq_side_effect(*a, **k):
-        call_count["n"] += 1
-        if call_count["n"] < 2:
-            raise Exception(TPD_ERROR)
-        return _fake_groq_completion("recovered")
-
-    _patch_groq_sdk(monkeypatch, create_side_effect=groq_side_effect)
+    """Replaces the legacy 10 x 60 s TPD wait loop, which could blow the 90 s WS
+    turn deadline: with no fallback tier configured the caller now gets the
+    explicit busy message immediately."""
+    _patch_groq_sdk(monkeypatch, create_side_effect=Exception(TPD_ERROR))
     slept = []
     monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
 
     client = GroqClient(_config())
     result = client.chat([{"role": "user", "content": "hi"}])
 
-    assert result == "recovered"
-    assert slept, "expected legacy TPD wait when no fallback is configured"
+    assert result == LLM_BUSY_MESSAGE
+    assert not slept
 
 
 def test_chat_falls_through_to_gemini_when_openrouter_fails(monkeypatch, groq_env):
@@ -297,33 +269,19 @@ def test_chat_stream_falls_through_to_gemini_when_openrouter_fails(monkeypatch, 
     assert mock_stream.call_count == 1
 
 
-def test_chat_all_tiers_fail_falls_through_to_legacy_retry(monkeypatch, groq_env_no_gemini):
-    """Chain configured (OpenRouter) but every tier fails, and Gemini isn't
-    configured at all — must fall through to the SAME legacy wait-and-retry
-    loop as the "nothing configured" case (test
-    test_chat_fallback_unavailable_preserves_legacy_wait_retry), not raise
-    immediately. See the "deliberately not distinguishing" comment in
-    GroqClient.chat()."""
-    calls = {"groq": 0}
-
-    def groq_side_effect(*a, **k):
-        calls["groq"] += 1
-        if calls["groq"] < 2:
-            raise Exception(TPD_ERROR)
-        return _fake_groq_completion("recovered")
-
-    _patch_groq_sdk(monkeypatch, create_side_effect=groq_side_effect)
+def test_chat_all_tiers_fail_returns_busy_message(monkeypatch, groq_env_no_gemini):
+    """OpenRouter configured but failing, Gemini not configured: the chain ends in
+    the busy message (previously fell into the legacy wait-and-retry loop)."""
+    _patch_groq_sdk(monkeypatch, create_side_effect=Exception(TPD_ERROR))
     mock_openrouter = _patch_openrouter_sdk(
         monkeypatch, create_side_effect=Exception("401 User not found.")
     )
-    slept = []
-    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("time.sleep", lambda s: None)
 
     client = GroqClient(_config())
     result = client.chat([{"role": "user", "content": "hi"}])
 
-    assert result == "recovered"
-    assert slept, "expected legacy TPD wait when the fallback chain is exhausted"
+    assert result == LLM_BUSY_MESSAGE
     # 3 = 1 initial + 2 internal OpenRouterClient backoff retries (see the
     # matching comment in test_chat_falls_through_to_gemini_when_openrouter_fails).
     assert mock_openrouter.call_count == 3

@@ -66,6 +66,17 @@ llm:
   # their documented replacement (console.groq.com/docs/deprecations), same
   # fast/cheap tier.
   groq_model: "openai/gpt-oss-20b"
+  # Ordered Groq fallbacks, tried (after one backoff retry on the primary) before
+  # OpenRouter/Gemini. Chosen from the live GET /models list 2026-11-03: the only
+  # other production chat model is gpt-oss-120b; qwen3.8-27b is Groq "preview"
+  # (may vanish without notice; harmless here because unlisted models are dropped).
+  # Each model has its own free-tier quota (200K TPD / 1K RPD).
+  groq_fallback_models:
+    - "openai/gpt-oss-120b"
+    - "qwen/qwen3.8-27b"
+  groq_timeout_seconds: 20          # per Groq HTTP attempt (was the shared 60 s)
+  groq_chain_budget_seconds: 30     # no new Groq attempt starts after this
+  groq_retry_wait_cap_seconds: 8    # longest Retry-After we sleep through, else next model
   gemini_model: "gemini-2.5-flash"
   openrouter_model: "openai/gpt-oss-20b:free"
 
