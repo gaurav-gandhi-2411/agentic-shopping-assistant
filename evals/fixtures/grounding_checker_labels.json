@@ -84,6 +84,22 @@
     {"id": "v35", "text": "You can return it within 7 days, no questions asked.", "items": ["A"], "expected": [["delivery", "7 days"]]},
     {"id": "v36", "text": "Cash on delivery is available.", "items": ["A"], "expected": [["delivery", "Cash on delivery"]]},
     {"id": "v37", "text": "The Slim Chinos ship free in 7 days.", "items": ["G"], "expected": [["delivery", "7 days"]]},
-    {"id": "v38", "text": "The Jaipur Block Print Shirt has only 5 left.", "items": ["I"], "expected": [["stock", "only 5 left"]]}
+    {"id": "v38", "text": "The Jaipur Block Print Shirt has only 5 left.", "items": ["I"], "expected": [["stock", "only 5 left"]]},
+    {"id": "r01", "text": "Sirf 999 rupaye hai.", "items": ["A"], "expected": [["price", "999"]]},
+    {"id": "r02", "text": "Bas rupaye 999 mein mil jayega.", "items": ["A"], "expected": [["price", "999"]]},
+    {"id": "r03", "text": "The Riviera Sundress is 1200 rupaiya.", "items": ["A"], "expected": [["price", "1200"]]},
+    {"id": "r04", "text": "The Riviera Sundress is 1200 rupaiye.", "items": ["A"], "expected": [["price", "1200"]]},
+    {"id": "r05", "text": "The Riviera Sundress is 1200 rupay.", "items": ["A"], "expected": [["price", "1200"]]},
+    {"id": "r06", "text": "The Riviera Sundress is 1200 rs.", "items": ["A"], "expected": [["price", "1200"]]},
+    {"id": "r07", "text": "Riviera Sundress sirf 2999 rupaye ka hai.", "items": ["A"], "expected": []},
+    {"id": "r08", "text": "Riviera Sundress sirf 2999 hai.", "items": ["A"], "expected": []},
+    {"id": "r09", "text": "The kurta? 1500 only.", "items": ["A"], "expected": [["price", "1500"]]},
+    {"id": "r10", "text": "The kurta is 1,500/- only.", "items": ["A"], "expected": [["price", "1,500"]]},
+    {"id": "r11", "text": "The Riviera Sundress? 2999 only.", "items": ["A"], "expected": []},
+    {"id": "r12", "text": "The Gloss Wrap Skirt is 1200 sirf.", "items": ["B"], "expected": [["price", "1200"]]},
+    {"id": "r13", "text": "I found 3 options only.", "items": ["A"], "expected": []},
+    {"id": "r14", "text": "Only 2 colours are shown.", "items": ["A"], "expected": []},
+    {"id": "r15", "text": "I can show 5 only.", "items": ["A"], "expected": []},
+    {"id": "r16", "text": "I picked 12 looks only for you.", "items": ["A"], "expected": []}
   ]
 }

@@ -64,8 +64,9 @@ class _Claim:
 
 _NUM = r"\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _MULT = r"(?:\s?(?:k\b|thousand\b|lakhs?\b|lacs?\b|crores?\b|cr\b|hundred\b))?"
-_CUR = r"(?:₹|\bRs\.?|\bINR\b|\bUSD\b|\bRupees?\b|[$€£])"
-_CUR_SUFFIX = r"(?:/-|\s*rupees?\b|\s*rs\b\.?|\s*inr\b|\s*bucks\b)"
+_RUPAYE = r"rupa(?:ye|iye|iya|y)"  # Hinglish spellings: rupaye / rupaiye / rupaiya / rupay
+_CUR = rf"(?:₹|\bRs\.?|\bINR\b|\bUSD\b|\bRupees?\b|\b{_RUPAYE}\b|[$€£])"
+_CUR_SUFFIX = rf"(?:\s*/-|\s*{_RUPAYE}\b|\s*rupees?\b|\s*rs\b\.?|\s*inr\b|\s*bucks\b)"
 _MULT_VAL = {
     "k": 1e3, "thousand": 1e3, "hundred": 1e2, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5,
     "lacs": 1e5, "crore": 1e7, "crores": 1e7, "cr": 1e7,
@@ -81,7 +82,7 @@ _PRICE_CUES = (
     r"(?:priced?(?:\s+(?:at|around|about|of|is))?|costs?|costing|worth|pay(?:ing)?|mrp|"
     r"under|below|above|within|upto|up\s+to|budget(?:\s+of)?|around|about|approx(?:imately)?\.?|"
     r"starting\s+(?:at|from)|starts\s+(?:at|from)|less\s+than|more\s+than|at\s+most|at\s+least|"
-    r"max(?:imum)?|between|only|just|for|at|from|over)"
+    r"max(?:imum)?|between|only|just|sirf|for|at|from|over)"
 )
 # Cue words after which an amount is a *constraint* (user-style budget) rather than a price.
 _BUDGET_WORDS = re.compile(
@@ -101,6 +102,12 @@ _RE_SUF = re.compile(rf"(?<![\w.,])(?P<num>{_NUM})(?P<mult>{_MULT})(?P<suf>{_CUR
 _RE_BARE = re.compile(
     rf"(?<![\w₹$€£])(?P<cue>{_PRICE_CUES})\s*(?:of\s+|is\s+|:\s*)?(?P<num>{_NUM})(?P<mult>{_MULT})"
     r"(?![\w,])",
+    re.I,
+)
+# Cue AFTER the number: "The kurta? 1500 only." The number must be directly followed by the cue,
+# so "3 options only" / "only 2 colours" (unit word in between, or < 100) never match.
+_RE_TRAIL = re.compile(
+    rf"(?<![\w₹$€£.,])(?P<num>{_NUM})(?P<mult>{_MULT})\s*(?:only|sirf)\b(?!\s*(?:{_NUM}))",
     re.I,
 )
 _RE_WORDS = re.compile(
@@ -186,6 +193,14 @@ def _money_claims(text: str) -> list[_Claim]:
             v2 = _to_float(r.group("num"), r.group("mult"))
             if v2 >= 100 and not _UNIT_AFTER.match(text[r.end():r.end() + 12]):
                 add(r.start("num"), r.end(), v2)
+    for m in _RE_TRAIL.finditer(text):
+        num = m.group("num")
+        s = m.start("num")
+        e = m.end("mult")
+        val = _to_float(num, m.group("mult"))
+        if not free(s, e) or val < 100 or _is_id_like(num) or _is_year(num):
+            continue
+        add(s, e, val)
     for m in _RE_WORDS.finditer(text):
         if free(m.start(), m.end()):
             base = _WORD_NUM[m.group("w").lower()] * _MULT_VAL[m.group("m").lower().rstrip("s")]

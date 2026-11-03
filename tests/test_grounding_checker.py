@@ -396,3 +396,57 @@ def test_keywords_inside_a_shown_item_name_are_not_claims() -> None:
                               [sale])
     cotton = {"display_name": "Diara|100% Cotton Scallop Blouse ( blouse)", "price_inr": 899.0}
     assert check("Diara|100% Cotton Scallop Blouse ( blouse) at ₹899 is lovely.", [cotton]) == []
+
+
+# ----------------------------------------------------------------- recall holes (post-verifier)
+# Tuned-on cases: written after the verifier found these misses, so they pin the fix and are NOT
+# an independent estimate of recall.
+
+
+@pytest.mark.parametrize("text", [
+    "Sirf 999 rupaye hai.",
+    "Bas rupaye 999 mein mil jayega.",
+    "It is 1200 rupaiya only.",
+    "It is 1200 rupaiye.",
+    "It is 1200 rupay.",
+    "It is Rupaye 1200.",
+    "It is 1200 rs.",
+    "It is 1200 Rs.",
+    "It is 1200 INR.",
+    "It is 1200 rupees.",
+    "sirf 1200 hai.",
+    "The kurta? 1500 only.",
+    "The kurta is 1,500 only.",
+    "The kurta is 1500/- only.",
+    "The kurta is 1500 /-.",
+    "The kurta? 1500 sirf.",
+    "The kurta is 1.5k only.",
+])
+def test_hinglish_and_trailing_cue_prices_are_flagged(text: str) -> None:
+    assert kinds(text, [A]) == ["price"]
+
+
+@pytest.mark.parametrize("text", [
+    "Riviera Sundress sirf 2999 rupaye ka hai.",
+    "Riviera Sundress sirf 2999 hai.",
+    "The Riviera Sundress? 2999 only.",
+    "The Riviera Sundress is 2999 rupaiya only.",
+    "The Riviera Sundress is Rupaye 2999.",
+    "The Riviera Sundress is 2,999 only.",
+])
+def test_hinglish_and_trailing_cue_grounded_prices_pass(text: str) -> None:
+    assert check(text, [A]) == []
+
+
+@pytest.mark.parametrize("text", [
+    "I found 3 options only.",
+    "Only 2 colours are shown.",
+    "I can show 5 only.",
+    "I picked 12 looks only for you.",
+    "Collection of 2020 only.",
+    "Order 1234567 only.",
+    "That is 50% only.",
+    "Only 2 pieces, sirf 2.",
+])
+def test_count_and_non_price_only_phrases_are_not_prices(text: str) -> None:
+    assert "price" not in kinds(text, [A])
