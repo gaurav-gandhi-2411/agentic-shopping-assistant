@@ -295,3 +295,24 @@ def test_lifespan_calls_verify_models_before_serving(monkeypatch, light_startup)
     with pytest.raises(RuntimeError, match="stop-after-llm-check"), TestClient(app):
         pass
     assert seen == ["verified"]
+
+
+def test_probe_cache_keeps_result_of_probe_that_finishes_after_timeout():
+    import threading
+
+    release = threading.Event()
+    done = threading.Event()
+    calls = []
+
+    def slow() -> dict:
+        calls.append(1)
+        release.wait(5)
+        return {"tier": "groq", "model": "m1", "latency_ms": 1}
+
+    cache = ProbeCache(ttl_s=60, timeout_s=0.05)
+    with pytest.raises(RuntimeError, match="timed out"):
+        cache.get(slow)
+    cache._inflight.add_done_callback(lambda _f: done.set())
+    release.set()
+    assert done.wait(5)
+    assert cache.get(slow)["model"] == "m1" and len(calls) == 1  # served from cache

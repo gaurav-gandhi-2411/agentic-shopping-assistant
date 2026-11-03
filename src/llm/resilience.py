@@ -66,13 +66,24 @@ class ProbeCache:
             result: dict[str, Any] | None = fut.result(timeout=self.timeout_s)
             err = None
         except concurrent.futures.TimeoutError:
-            # Do not cache: the probe is still running and may yet succeed.
+            # Not cached now; if the probe finishes later its outcome is cached then.
+            fut.add_done_callback(self._cache_late_result)
             raise RuntimeError(f"LLM probe timed out after {self.timeout_s:.0f}s") from None
         except Exception as exc:
             result, err = None, f"{type(exc).__name__}: {exc}"
         with self._lock:
             self._cached = (time.monotonic(), result, err)
             return self._unpack(self._cached)
+
+    def _cache_late_result(self, fut: concurrent.futures.Future) -> None:
+        err: str | None = None
+        result: dict[str, Any] | None = None
+        try:
+            result = fut.result()
+        except Exception as exc:
+            err = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            self._cached = (time.monotonic(), result, err)
 
     @staticmethod
     def _unpack(entry: tuple[float, dict[str, Any] | None, str | None]) -> dict[str, Any]:
