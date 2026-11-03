@@ -246,3 +246,52 @@ def test_readyz_without_probe_support_stays_ok(monkeypatch, ready_client):
     monkeypatch.setattr(deps, "get_llm", lambda: SimpleNamespace())  # e.g. OllamaClient
     resp = ready_client.get("/readyz")
     assert resp.status_code == 200 and resp.json()["checks"]["llm"] == "ok"
+
+
+# ------------------------------------------------- B3: lifespan wiring (api/main.py)
+
+@pytest.fixture
+def light_startup(monkeypatch, tmp_path):
+    """Run the real lifespan with the heavy index loading stubbed out."""
+    import pandas as pd
+
+    import src.retrieval.dense_search as dense
+    import src.retrieval.hybrid_search as hybrid
+    import src.retrieval.index_store as store
+    import src.retrieval.sparse_search as sparse
+
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.delenv("INDEX_STORE_URI", raising=False)
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(store, "ensure_index_dir", lambda *a, **k: tmp_path)
+    monkeypatch.setattr(pd, "read_parquet", lambda *a, **k: pd.DataFrame())
+    stub = SimpleNamespace(load=lambda *a, **k: SimpleNamespace(index=None))
+    monkeypatch.setattr(dense, "DenseRetriever", stub)
+    monkeypatch.setattr(sparse, "SparseRetriever", stub)
+    monkeypatch.setattr(hybrid, "HybridRetriever", lambda *a, **k: SimpleNamespace(dense=stub.load()))
+
+
+def test_lifespan_aborts_startup_when_primary_model_not_listed(monkeypatch, light_startup):
+    # Real config.yaml primary is openai/gpt-oss-20b; Groq no longer lists it.
+    _sdk(monkeypatch, models=["openai/gpt-oss-120b"])
+    with pytest.raises(LLMStartupError, match="gpt-oss-20b"), TestClient(app):
+        pass
+
+
+def test_lifespan_calls_verify_models_before_serving(monkeypatch, light_startup):
+    """Primary listed: startup passes the model check and proceeds past it (a later
+    unrelated init step is made to stop the run so the test stays light)."""
+    _sdk(monkeypatch, models=["openai/gpt-oss-20b"])
+    seen: list[str] = []
+    orig = GroqClient.verify_models
+
+    def spy(self: GroqClient, *a: Any, **k: Any) -> str:
+        seen.append(orig(self, *a, **k))
+        return seen[-1]
+
+    monkeypatch.setattr(GroqClient, "verify_models", spy)
+    monkeypatch.setattr("api.main._build_session_store",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop-after-llm-check")))
+    with pytest.raises(RuntimeError, match="stop-after-llm-check"), TestClient(app):
+        pass
+    assert seen == ["verified"]
