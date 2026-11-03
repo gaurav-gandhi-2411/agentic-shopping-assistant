@@ -363,6 +363,20 @@ def post_chat(
         routing = _extract_routing(tool_calls)
         items = _items_from_result(result)
         response_text = result.get("final_answer") or ""
+        if not response_text.strip():
+            # Same choke-point guard as the WS path: never return cards with no text.
+            logger.warning(
+                "rest empty reply: path=%s provider=%s model=%s n_items_shown=%d "
+                "— serving grounded fallback",
+                routing.get("action", "") or "final_answer",
+                type(llm).__name__,
+                getattr(llm, "model", "unknown"),
+                len(items),
+            )
+            response_text = grounded_fallback_reply(
+                [it for it in result.get("retrieved_items", []) if it.get("image_url")]
+                if result.get("new_items_this_turn") else []
+            )
         _brand = _resolve_brand()
         _outfit_variants = _build_outfit_variants(result)
 
@@ -760,7 +774,8 @@ async def ws_chat(websocket: WebSocket) -> None:
 
         elif plan.get("action") == "pending_answer":
             full_response = plan.get("text", "")
-            await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
+            if full_response.strip():  # blank text is replaced by the choke-point guard below
+                await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
             result = {
                 **result,
                 "final_answer": full_response,
@@ -772,6 +787,36 @@ async def ws_chat(websocket: WebSocket) -> None:
             full_response = result.get("final_answer") or ""
             if full_response:
                 await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
+
+        # Single choke point: whichever branch ran, never send `done` with no text.
+        # (pending_respond has its own retry above; this also covers an empty
+        # pending_answer text and an empty final_answer on the else branch.)
+        if not full_response.strip():
+            _reply_path = plan.get("action") or "final_answer"
+            _shown = (
+                [it for it in result.get("retrieved_items", []) if it.get("image_url")]
+                if result.get("new_items_this_turn") else []
+            )
+            logger.warning(
+                "ws empty reply at done: path=%s provider=%s model=%s n_items_shown=%d "
+                "— serving grounded fallback",
+                _reply_path,
+                type(llm).__name__,
+                getattr(llm, "model", "unknown"),
+                len(_shown),
+            )
+            full_response = grounded_fallback_reply(_shown)
+            _base = list(_accumulated_messages)
+            if _base and _base[-1].get("role") == "assistant" and not (
+                _base[-1].get("content") or ""
+            ).strip():
+                _base.pop()  # drop the blank assistant turn a node may have appended
+            await websocket.send_text(WSTokenMessage(text=full_response).model_dump_json())
+            result = {
+                **result,
+                "final_answer": full_response,
+                "messages": _base + [{"role": "assistant", "content": full_response}],
+            }
 
         # ------------------------------------------------------------------
         # 8. Persist session and send done

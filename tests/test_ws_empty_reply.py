@@ -277,3 +277,84 @@ def test_rest_respond_node_none_reply_uses_grounded_fallback() -> None:
     answer = result["final_answer"]
     assert answer and answer.strip()
     assert result["messages"][-1]["content"] == answer
+
+
+# ---------------------------------------------------------------------------
+# Choke point: no WS `done` / REST response without text, whichever branch ran
+# ---------------------------------------------------------------------------
+
+
+class _FixedResultAgent:
+    def __init__(self, result: dict[str, Any]) -> None:
+        self._result = result
+
+    def invoke(self, state: dict, **kwargs: Any) -> dict[str, Any]:
+        return {**self._result, "messages": state.get("messages", [])}
+
+
+def _use_result(monkeypatch: pytest.MonkeyPatch, result: dict[str, Any]) -> None:
+    monkeypatch.setattr(
+        deps, "get_agent_factory",
+        lambda: (lambda memory, streaming=False: _FixedResultAgent(result)),
+    )
+
+
+_CANNED_MARK = "couldn't put together a written reply"
+
+
+def test_ws_else_branch_empty_final_answer_gets_fallback(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _use_result(monkeypatch, {**_RESULT, "current_plan": None, "final_answer": ""})
+    with caplog.at_level(logging.WARNING):
+        streamed, final = _run_turn(_NormalLLM())
+    assert streamed == final
+    assert "Test Jacket (Blue) (₹1,999)" in final
+    assert any("ws empty reply at done: path=final_answer" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_ws_empty_pending_answer_gets_fallback(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    plan = json.dumps({"action": "pending_answer", "text": "  "})
+    _use_result(monkeypatch, {**_RESULT, "current_plan": plan})
+    with caplog.at_level(logging.WARNING):
+        streamed, final = _run_turn(_NormalLLM())
+    assert streamed == final  # no blank token streamed before the fallback
+    assert "Test Jacket (Blue)" in final
+    assert any("path=pending_answer" in r.getMessage() for r in caplog.records)
+
+
+def test_ws_empty_reply_without_items_gets_canned_text_no_numbers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_result(monkeypatch, {
+        **_RESULT, "retrieved_items": [], "new_items_this_turn": False,
+        "current_plan": None, "final_answer": None,
+    })
+    streamed, final = _run_turn(_NormalLLM())
+    assert streamed == final and _CANNED_MARK in final
+    assert not any(ch.isdigit() or ch == "₹" for ch in final)
+
+
+def test_ws_non_empty_pending_answer_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = json.dumps({"action": "pending_answer", "text": "Clothing only here."})
+    _use_result(monkeypatch, {**_RESULT, "current_plan": plan})
+    streamed, final = _run_turn(_NormalLLM())
+    assert streamed == final == "Clothing only here."
+
+
+def test_rest_empty_final_answer_gets_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    deps._llm = _NormalLLM()
+    _use_result(monkeypatch, {**_RESULT, "current_plan": None, "final_answer": None})
+    resp = TestClient(app, raise_server_exceptions=True).post("/chat", json={"message": "jackets"})
+    assert resp.status_code == 200
+    assert "Test Jacket (Blue) (₹1,999)" in resp.json()["response"]
+
+
+def test_rest_non_empty_answer_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    deps._llm = _NormalLLM()
+    _use_result(monkeypatch, {**_RESULT, "current_plan": None, "final_answer": "Nice."})
+    resp = TestClient(app, raise_server_exceptions=True).post("/chat", json={"message": "jackets"})
+    assert resp.json()["response"] == "Nice."
