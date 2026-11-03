@@ -125,7 +125,9 @@ def _authorised(header_token: str | None, query_token: str | None) -> bool:
     if not expected:
         return False  # fail closed: unset secret -> endpoint does not exist
     supplied = header_token if header_token else query_token
-    return bool(supplied) and hmac.compare_digest(supplied.encode(), expected.encode())
+    if not supplied:
+        return False
+    return hmac.compare_digest(supplied.encode(), expected.encode())
 
 
 class _CountingExecutor(ThreadPoolExecutor):

@@ -34,6 +34,8 @@ SECRET = "s3cr3t-value"  # invented test constant
             "/canary?x=a%26token%3Dkeep&%74oken=zz",
             "/canary?x=a%26token%3Dkeep&%74oken=[REDACTED]",
         ),
+        (f"/canary?token%3D{SECRET}", "/canary?token=[REDACTED]"),
+        (f"/canary?a=1&%54oken%3D{SECRET}&b=2", "/canary?a=1&token=[REDACTED]&b=2"),
         ("/health?x=%41", "/health?x=%41"),
         ("/no-query", "/no-query"),
     ],

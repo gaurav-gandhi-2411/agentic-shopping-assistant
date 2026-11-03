@@ -38,6 +38,8 @@ def _redact_token_params(text: str) -> str:
         name, eq, _value = part.partition("=")
         if eq and unquote_plus(name).lower() == "token":
             part = f"{name}=[REDACTED]"
+        elif unquote_plus(part).lower().startswith("token="):
+            part = "token=[REDACTED]"  # encoded "=": ?token%3D<v> (does not authenticate)
         parts.append(part)
     return f"{base}?{'&'.join(parts)}{tail}"
 
