@@ -341,3 +341,79 @@ def test_bounded_flag_skips_openrouter_rate_limit_wait(monkeypatch, _env):
     with pytest.raises(FakeAPIError):
         client.chat(MSGS, bounded=True)
     assert create.call_count == 1 and _env == []
+
+
+# ---------------- M1: orphan threads die near the cap; concurrency is limited
+
+def test_run_bounded_skips_immediately_when_all_slots_are_taken(monkeypatch):
+    import src.llm.client as c
+
+    monkeypatch.setattr(c, "_BOUNDED_SLOTS", threading.BoundedSemaphore(1))
+    release = threading.Event()
+    with pytest.raises(TimeoutError):
+        c.run_bounded(lambda: release.wait(10), 0.05)  # orphan keeps the only slot
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="too many in-flight"):
+        c.run_bounded(lambda: "x", 5)
+    assert time.monotonic() - t0 < 0.5  # skipped, not waited
+    release.set()
+    for _ in range(100):  # slot is freed once the orphan finishes
+        try:
+            assert c.run_bounded(lambda: "ok", 1) == "ok"
+            break
+        except RuntimeError:
+            threading.Event().wait(0.02)  # time.sleep is patched by the autouse fixture
+    else:
+        pytest.fail("slot never released")
+
+
+def test_saturated_slots_make_chain_skip_tiers_to_busy_message(monkeypatch):
+    import src.llm.client as c
+
+    sem = threading.BoundedSemaphore(1)
+    sem.acquire()  # all slots taken
+    monkeypatch.setattr(c, "_BOUNDED_SLOTS", sem)
+    _sdk(monkeypatch, {"m1": [FakeAPIError(404, "x")], "m2": [FakeAPIError(404, "x")]})
+    create = _openrouter(monkeypatch, return_value=_completion("never"))
+    assert GroqClient(_config()).chat(MSGS) == LLM_BUSY_MESSAGE
+    assert create.call_count == 0
+
+
+def test_fallback_clients_get_tier_budget_as_sdk_timeout_primary_unchanged(monkeypatch):
+    from src.llm.openrouter_client import OpenRouterClient
+
+    seen: list[float] = []
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=MagicMock())))
+    monkeypatch.setattr("openai.OpenAI", lambda api_key, base_url, timeout: (seen.append(timeout), fake)[1])
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    _sdk(monkeypatch, {})
+    GroqClient(_config(fallback_tier_budget_seconds=3))._get_openrouter_fallback()
+    OpenRouterClient(_config())  # as primary provider: configured timeout_seconds (60)
+    assert seen == [3.0, 60]
+
+
+def test_bounded_openrouter_disables_sdk_retries(monkeypatch):
+    from src.llm.openrouter_client import OpenRouterClient
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    opts: list[dict] = []
+    create = MagicMock(return_value=_completion("hi"))
+    inner = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    outer = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=MagicMock(side_effect=AssertionError))),
+        with_options=lambda **kw: (opts.append(kw), inner)[1],
+    )
+    monkeypatch.setattr("openai.OpenAI", lambda api_key, base_url, timeout: outer)
+    assert OpenRouterClient(_config()).chat(MSGS, bounded=True) == "hi"
+    assert opts == [{"max_retries": 0}]
+
+
+def test_hanging_fallback_tier_is_cut_off_on_stream_path_too(monkeypatch):
+    """Kills the is_alive() -> TimeoutError branch on the streaming path."""
+    _sdk(monkeypatch, {"m1": [FakeAPIError(404, "x")], "m2": [FakeAPIError(404, "x")]})
+    release = threading.Event()
+    _openrouter(monkeypatch, side_effect=lambda **kw: release.wait(10))
+    t0 = time.monotonic()
+    tokens = list(GroqClient(_config(fallback_tier_budget_seconds=0.2)).chat_stream(MSGS))
+    release.set()
+    assert tokens == [LLM_BUSY_MESSAGE] and time.monotonic() - t0 < 3

@@ -127,6 +127,7 @@ class GeminiClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        bounded: bool = False,  # accepted for interface parity; streaming never retries here
     ) -> Iterator[str]:
         from src.llm.client import STREAM_ERROR_SENTINEL
 

@@ -94,6 +94,9 @@ def retry_wait_seconds(info: ErrorInfo, cap_s: float) -> float | None:
     return wait if wait <= cap_s else None
 
 
+_BOUNDED_SLOTS = threading.BoundedSemaphore(4)
+
+
 def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
     """Run fn in a daemon thread and give up after timeout_s (raises TimeoutError).
 
@@ -101,6 +104,10 @@ def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
     they contain, the caller is never held longer than timeout_s. The abandoned
     thread finishes on its own (same trade-off as the WS turn deadline).
     """
+    # Cap on simultaneously live fallback threads (abandoned ones included): a
+    # sustained provider hang must not grow threads without limit.
+    if not _BOUNDED_SLOTS.acquire(blocking=False):
+        raise RuntimeError("fallback tier skipped: too many in-flight bounded calls")
     box: dict[str, object] = {}
 
     def _run() -> None:
@@ -108,6 +115,8 @@ def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
             box["value"] = fn()
         except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
             box["error"] = exc
+        finally:
+            _BOUNDED_SLOTS.release()
 
     t = threading.Thread(target=contextvars.copy_context().run, args=(_run,), daemon=True)
     t.start()
@@ -282,6 +291,12 @@ class GroqClient:
         self._gemini_client = None
         self._gemini_unavailable = False
 
+    def _fallback_config(self) -> dict:
+        """Config copy for fallback-tier clients: SDK request timeout = the tier
+        budget, so an abandoned run_bounded thread dies close to the cap. The
+        primary-provider path never sees this copy."""
+        return {**self._config, "llm": {**self._config["llm"], "timeout_seconds": self._fallback_tier_s}}
+
     def _get_openrouter_fallback(self) -> "object | None":
         """Return a lazily-constructed OpenRouterClient, or None if unavailable.
 
@@ -305,7 +320,7 @@ class GroqClient:
         if self._openrouter_client is None:
             try:
                 from src.llm.openrouter_client import OpenRouterClient
-                self._openrouter_client = OpenRouterClient(self._config)
+                self._openrouter_client = OpenRouterClient(self._fallback_config())
                 self._openrouter_client.cost_reporter = self.cost_reporter
             except Exception as exc:
                 logger.error("[groq] OpenRouter fallback unavailable: %r", exc)
@@ -327,7 +342,7 @@ class GroqClient:
         if self._gemini_client is None:
             try:
                 from src.llm.gemini_client import GeminiClient
-                self._gemini_client = GeminiClient(self._config)
+                self._gemini_client = GeminiClient(self._fallback_config())
                 self._gemini_client.cost_reporter = self.cost_reporter
             except Exception as exc:
                 logger.error("[groq] Gemini fallback unavailable: %r", exc)
@@ -597,7 +612,8 @@ class GroqClient:
                 try:
                     buffer = run_bounded(
                         lambda c=fb_client: list(c.chat_stream(
-                            messages, temperature=temperature, max_tokens=max_tokens
+                            messages, temperature=temperature, max_tokens=max_tokens,
+                            bounded=True,
                         )),
                         self._fallback_tier_s,
                     )

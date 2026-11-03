@@ -57,6 +57,12 @@ class OpenRouterClient:
         )
         self.cost_reporter: Callable[[float], None] | None = None
 
+    def _sdk(self, bounded: bool):
+        """The SDK client, with its own 429 retry/Retry-After sleeps off when bounded."""
+        if bounded and hasattr(self._client, "with_options"):
+            return self._client.with_options(max_retries=0)
+        return self._client
+
     def chat(
         self,
         messages: list[dict],
@@ -77,7 +83,9 @@ class OpenRouterClient:
         turn_id = str(uuid.uuid4())
         while True:
             try:
-                resp = self._client.chat.completions.create(
+                # bounded: also disable the openai SDK's own 429 retry/Retry-After sleeps.
+                sdk = self._sdk(bounded)
+                resp = sdk.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=temperature if temperature is not None else self.default_temperature,
@@ -127,6 +135,7 @@ class OpenRouterClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        bounded: bool = False,
     ) -> Iterator[str]:
         from src.llm.client import STREAM_ERROR_SENTINEL
 
@@ -135,7 +144,7 @@ class OpenRouterClient:
         output_tokens = 0
         turn_id = str(uuid.uuid4())
         try:
-            stream = self._client.chat.completions.create(
+            stream = self._sdk(bounded).chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature if temperature is not None else self.default_temperature,
