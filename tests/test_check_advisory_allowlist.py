@@ -212,6 +212,78 @@ def test_bad_ids_per_ecosystem(
     assert code == 1 and "not a valid" in err
 
 
+def test_unicode_digit_ids_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # Arabic-Indic digits satisfy str `\d` unless the pattern is ASCII-only.
+    for eco, adv_id in [("pip", "CVE-2026-١٢٣٤"),
+                        ("pip", "PYSEC-2026-١"), ("npm", "١٢")]:
+        code, _, err = run(["check"], write(tmp_path, [entry(ecosystem=eco, id=adv_id)]), capsys)
+        assert code == 1 and "not a valid" in err, (eco, adv_id)
+
+
+@pytest.mark.parametrize("field", ["ecosystem", "id", "package", "approver", "justification"])
+def test_non_string_field_gives_clean_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], field: str
+) -> None:
+    code, _, err = run(["check"], write(tmp_path, [entry(**{field: ["pip"]})]), capsys)
+    assert code == 1 and f"{field} must be a string" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("field", ["added", "expires"])
+def test_non_date_field_gives_clean_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], field: str
+) -> None:
+    code, _, err = run(["check"], write(tmp_path, [entry(**{field: [1, 2]})]), capsys)
+    assert code == 1 and f"{field} must be a date" in err
+
+
+def test_unquoted_yaml_dates_accepted(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    p = tmp_path / "allow.yaml"
+    p.write_text(
+        "entries:\n  - id: PYSEC-2026-1234\n    ecosystem: pip\n    package: examplepkg\n"
+        "    justification: Vulnerable function is never imported or called; verified by grep.\n"
+        "    added: 2026-11-02\n    expires: 2026-12-02\n    approver: GG\n",
+        encoding="utf-8",
+    )
+    assert run(["check"], p, capsys)[0] == 0
+
+
+def test_oversized_file_rejected_before_parsing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    p = tmp_path / "big.yaml"
+    p.write_bytes(("entries: []\n# " + "x" * (64 * 1024) + "\n").encode())
+    assert p.stat().st_size > 64 * 1024
+
+    def _no_parse(*a: Any, **k: Any) -> None:
+        raise AssertionError("yaml parsed an oversized file")
+
+    monkeypatch.setattr(mod.yaml, "safe_load", _no_parse)
+    code, _, err = run(["check"], p, capsys)
+    assert code == 1 and "64 KiB" in err
+
+
+def test_file_at_cap_still_parsed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    p = tmp_path / "edge.yaml"
+    body = "entries: []\n# "
+    # write_bytes: write_text would translate \n to CRLF on Windows and shift the size.
+    p.write_bytes((body + "x" * (64 * 1024 - len(body) - 1) + "\n").encode())
+    assert p.stat().st_size == 64 * 1024
+    assert run(["check"], p, capsys)[0] == 0
+
+
+@pytest.mark.parametrize(("expires", "added", "expected"), [
+    (TODAY, "2026-10-11", 0),          # expires == today: still valid
+    ("2026-11-09", "2026-10-11", 1),   # expires == yesterday: rejected
+])
+def test_expiry_boundary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], expires: str, added: str, expected: int
+) -> None:
+    code, _, err = run(["check"], write(tmp_path, [entry(added=added, expires=expires)]), capsys)
+    assert code == expected
+    if expected:
+        assert "EXPIRED" in err
+
+
 def test_duplicates(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code, _, err = run(["check"], write(tmp_path, [entry(), entry()]), capsys)
     assert code == 1 and "duplicate" in err
