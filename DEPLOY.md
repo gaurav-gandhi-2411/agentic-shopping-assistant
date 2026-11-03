@@ -102,7 +102,9 @@ docker push "${IMAGE}"
 ## Deploy backend (unified service)
 
 `pwsh scripts/deploy_backend.ps1` is THE deploy path for the backend (`asa-stylist-api`,
-the current unified single-service deployment). There is no CI deploy path — the GitHub
+the current unified single-service deployment). NOTE: superseded by the CI deploy path in the
+"CI/CD" section at the end of this file (W8); the text below is the legacy local path.
+There was no CI deploy path — the GitHub
 Actions workflow that used to cover this (`.github/workflows/deploy-demo.yml`) was removed
 2026-07-09 because it never had its required secrets (`WIF_PROVIDER`,
 `WIF_SERVICE_ACCOUNT`, `GCP_PROJECT_ID`, `GROQ_API_KEY`, `DEMO_JWT_SECRET`, `DATABASE_URL`,
@@ -546,24 +548,69 @@ each Cloud Run service via the `update-env-vars` command above.
 
 ## CI/CD
 
-There is no CI deploy path. `.github/workflows/deploy-demo.yml` was removed 2026-07-09:
-it triggered on manual dispatch and looked correct on paper (WIF auth, no service account
-key JSON), but the required GitHub secrets (`GCP_PROJECT_ID`, `WIF_PROVIDER`,
-`WIF_SERVICE_ACCOUNT`, `GROQ_API_KEY`, `DEMO_JWT_SECRET`, `DATABASE_URL`, `SUPABASE_URL`,
-`GCS_BUCKET`, `DEMO_CORS_ORIGINS`) were never actually added to the repo, so the workflow
-never ran successfully — every deploy to date has been local, via
-`pwsh scripts/deploy_backend.ps1` (see "Deploy backend (unified service)" above).
+Prod deploys now run from CI: `.github/workflows/deploy.yml` (added in W8; supersedes the
+removed `deploy-demo.yml` and the local-script path above, whose defaults still point at the
+retired `iconic-reactor-496423-m4` project). Production is `stylemaitri-prod-260813`,
+`asia-south1`, service `asa-stylist-api`.
 
-If a CI deploy path is built in the future, it should:
+### Flow
 
-- Authenticate via Workload Identity Federation (WIF), as the removed workflow attempted —
-  no service account key JSON as a GitHub secret.
-- Pass secrets to Cloud Run via `--set-secrets` against Secret Manager references (see
-  `scripts/deploy_unified.sh`'s `SECRETS` variable for the reference names already in use
-  for this project), not via plain env-var GitHub secrets rendered into
-  `--set-env-vars` — that pattern both requires re-adding all the secrets above to GitHub
-  and is exactly the mechanism that produces the env-block-replacement gotcha documented
-  above.
-- Include the same post-deploy `update-traffic --to-latest` + verification step as
-  `scripts/deploy_backend.ps1`, so CI can't reproduce the traffic-pinning "deployed but
-  not live" failure either.
+1. Trigger: the `CI` workflow finishes `success` for a **push to `master`** (`workflow_run`), or
+   a manual `workflow_dispatch` on `master`. Never PRs, forks or Dependabot. Serialised by
+   `concurrency: deploy-prod` (no cancel-in-progress).
+2. Skips (does not fail) if `master` has moved past the commit CI tested.
+3. Captures the revision serving 100% now (the rollback target). Refuses to deploy if there is
+   not exactly one.
+4. Builds on the GitHub runner (free on a public repo; no Cloud Build) and pushes
+   `asia-south1-docker.pkg.dev/stylemaitri-prod-260813/cloud-run-source-deploy/asa-stylist-api:<full-sha>`.
+5. `gcloud run deploy --no-traffic --tag c-<sha7> --min-instances=0 --cpu-boost`. `--min-instances=0`
+   is explicit because the service template still carries `minScale: 1`. cpu/memory/maxScale/
+   env/secrets are not passed; a step diffs them against the serving revision and fails if they differ.
+6. `scripts/ops/deploy_smoke.py` against the tag URL: liveness, `/readyz`, `/demo/session`, one
+   REST `/chat` ("black kurta set for haldi": non-empty answer and at least one product).
+7. Shifts 100% to the new revision (`--to-revisions NEW=100`), re-runs the smoke on the main URL.
+   Total LLM-backed calls per deploy: 2.
+8. `gcloud run services update --min=0`, then asserts no serving or tagged revision has `minScale > 0`.
+9. **Any failure after step 7 rolls 100% back to the captured revision** and the job stays red.
+
+### Required GitHub repo secrets (names only; new, not shared with CI)
+
+| Secret | Value is |
+|---|---|
+| `GCP_DEPLOY_WIF_PROVIDER` | `projects/631709154646/locations/global/workloadIdentityPools/github-pool/providers/github-deploy-provider` |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | `stylemaitri-deployer@stylemaitri-prod-260813.iam.gserviceaccount.com` |
+
+(Both are identifiers, not credentials: auth is keyless WIF, restricted to this repo at
+`refs/heads/master`.) CI's own `WIF_PROVIDER` / `WIF_SERVICE_ACCOUNT` stay read-only on the index bucket.
+
+### One-time setup (GG, as gaurav.gandhi1129@gmail.com)
+
+```bash
+DRY_RUN=1 bash scripts/ops/setup_deploy_iam.sh   # prints every mutation, changes nothing
+bash scripts/ops/setup_deploy_iam.sh             # creates SA, bindings, WIF provider; AR cleanup in --dry-run
+```
+
+The script is idempotent. It activates nothing destructive: the Artifact Registry cleanup policy
+(`scripts/ops/ar_cleanup_policy.json`, keep newest 3, delete the rest older than 1 day) is applied
+with `--dry-run`; the command to switch it on is printed at the end.
+
+### Rollback
+
+Automatic on post-shift failure. Manual, any time (previous revision name is in the run summary):
+
+```bash
+gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVISION>=100 \
+  --region asia-south1 --project stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+### Keep-warm
+
+`.github/workflows/keep-warm.yml` GETs `/api/brand` on a 10-minute cron. GitHub does not honour
+sub-hourly crons reliably (the 15-minute Uptime Alert actually ran with a median gap of 246 min),
+so this lowers the cold-start rate but cannot guarantee a warm instance. `/readyz` is never
+pinged on a timer. Details and numbers: `reports/w8-inventory-2026-11-03.md`.
+
+### Not done by this pipeline
+
+Frontend (Vercel) deploys, Secret Manager changes, index uploads to GCS and DB migrations are
+unchanged and remain manual (see the sections above).
