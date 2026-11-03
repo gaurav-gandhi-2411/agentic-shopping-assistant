@@ -57,17 +57,32 @@ jobs:
         with:
           persist-credentials: false
 
+      # Carries the "consecutive cap-lookup failures" counter between runs (no secrets, no API
+      # call). Every run saves a fresh key; restore-keys picks the most recent one. If the
+      # cache is lost the counter restarts at 0 (a dead-canary alert is delayed, nothing else).
+      - name: Prepare lookup-failure state dir
+        run: mkdir -p "${RUNNER_TEMP}/canary-state"
+
+      - name: Restore/save lookup-failure counter
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/canary-state
+          key: canary-lookupfail-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            canary-lookupfail-
+
       - name: Run canary (3 queries)
         run: |
           EXTRA=""
           if [ "${FORCE_FAIL}" = "true" ]; then EXTRA="--force-fail"; fi
           # shellcheck disable=SC2086 -- EXTRA is a fixed literal flag or empty
           python3 scripts/ops/canary.py run --repo "${REPO}" --run-id "${RUN_ID}" \
+            --state-file "${RUNNER_TEMP}/canary-state/lookup-failures" \
             --out "${RUNNER_TEMP}/canary-result.json" ${EXTRA}
 
       - name: Update prod-alert issue
         # !cancelled() (not always()) so a failed canary still reports, but a superseded
-        # run (cancel-in-progress) does not touch issues. A skipped (capped) run is a no-op.
+        # run (cancel-in-progress) does not touch issues. skip and capped (demo limit) runs are no-ops.
         if: ${{ !cancelled() }}
         run: |
           python3 scripts/ops/canary.py issue --repo "${REPO}" --run-url "${RUN_URL}" \

@@ -21,8 +21,8 @@ Assertions per query (all evaluated; every failure is recorded):
                       renders as ``pendingItems``); if no ``items`` frame arrived, the first
                       ``final_state.outfit_variants[*].items`` list is used instead.
     * price         - see PRICE INVARIANT.
-    * latency       - ``user_message`` sent -> ``done`` received must be <= LATENCY_BUDGET_MS
-                      (15 000). Cloud Run cold start is absorbed by the (separately timed,
+    * latency       - ``user_message`` sent -> ``done`` received must be < LATENCY_BUDGET_MS
+                      (15 000; exactly equal fails, the spec says "< 15 s"). Cloud Run cold start is absorbed by the (separately timed,
                       generous) /demo/session call, so it does not count against the budget.
 
 PRICE INVARIANT ("every card price present in item data"). The API returns no separate item
@@ -34,16 +34,28 @@ answer text is free LLM prose and is NOT parsed for prices. Each non-owned card 
     (c) if the same ``article_id`` appears in another item list of the same response
         (``outfit_variants`` / ``partner_look`` / duplicate card), the prices are EQUAL
         (|diff| < 0.005).
-(c) is the strongest cross-check available; the result records how many cards were actually
-cross-checked (``crosschecked``) so a run where nothing could be cross-checked is visible, not
-silently green. Owned items (``is_owned``: the user's own garment) are not for sale and are
+(c) is the strongest cross-check available. LIMITATION, stated plainly: the other item lists
+exist only on outfit turns. On a plain search turn (the ``items`` frame alone) nothing else in
+the response carries prices, so the check degrades to "price present and > 0" with NO
+cross-reference. Each query result records ``crosschecked`` and every run prints a SUMMARY line
+with ``crosschecked_total`` so that degradation is visible rather than silently green; failing a
+run on ``crosschecked == 0`` is deliberately NOT done (a stronger check against catalogue data
+is left to W10/W11). Owned items (``is_owned``: the user's own garment) are not for sale and are
 exempt from (a).
 
 BUDGET. Hard cap 150 chat queries/day (UTC). 3 queries x 48 runs = 144 nominal. Before sending
 anything, ``run`` counts today's runs of this workflow via ``gh api`` (every run except the
 current one and ``skipped`` ones, x 3 queries - an over-count when a run died before querying,
 which errs on the side of the cap) and SKIPS (exit 0, not a failure) if this run would exceed
-150. If the count cannot be fetched the run also skips (fail closed on spend). Each query costs
+150. A ``force_fail`` dispatch may exceed the cap by one run (allowed when spent + 3 <= 150 + 3,
+i.e. 3 extra queries); if even that is exceeded it prints ``::error::`` and exits 1 so the
+alert-path proof can never silently not happen.
+Cap lookup: the listing must contain the current run id (empty/partial output is a lookup
+failure, never spent=0; retried 3x). A failed lookup skips without querying (fail closed on
+spend). The consecutive-failure count lives in ``--state-file`` persisted by actions/cache (no
+secrets); the 3rd consecutive failure turns the run into ``fail`` (goes through the issue path),
+so a canary that cannot check its budget is not silently green forever. If the cache is lost the
+count restarts at 0 (alert delayed, never a false pass of the queries themselves). Each query costs
 about 2 Groq LLM calls (measured for "black kurta set for haldi" in PR #79) -> roughly 290 of
 the free tier's 1,000 requests/day. Note: anonymous demo sessions also consume the shared demo
 daily cap (api/demo/guards.py), once per WS connection.
@@ -51,9 +63,17 @@ daily cap (api/demo/guards.py), once per WS connection.
 CAVEAT: GitHub's scheduled cron is unreliable for this repo (the */15 uptime cron's median gap
 was 246 min), so */30 here does not guarantee 30-minute coverage.
 
+Demo caps: an ``error`` frame with code ``demo_limit``/``rate_limited`` (api/routes/chat.py) or
+HTTP 429 from /demo/session is not an outage: the query is ``capped``, the run is ``capped`` (a
+``::warning::``, exit 0) - neither a pass nor a failure, and the issue step does nothing.
+Each response read is bounded by one overall deadline (30 s) even if the server trickles bytes,
+and frames over 8 MiB are rejected; any unexpected exception is reported as ``unexpected:
+<TypeName>`` and a result file with status ``fail`` is ALWAYS written, so a crash still alerts.
+
 Issue lifecycle (``issue`` subcommand, pure decision in ``decide_issue_action``): on failure
-comment on the open ``prod-alert`` issue or create one; on pass close open ones with a recovery
-comment. Issue text never contains tokens/headers: bearer tokens, JWTs and ticket/token
+comment on the open ``prod-alert`` issue titled exactly ALERT_TITLE or create one; on pass close
+those with a recovery comment. Other ``prod-alert`` issues (e.g. a future part-B alert) are
+never touched. Issue text never contains tokens/headers: bearer tokens, JWTs and ticket/token
 values are redacted by ``redact`` and response snippets are cut to 500 chars.
 
 ERROR-log-count check (Cloud Run, via WIF) is part B and deliberately absent here.
@@ -97,6 +117,9 @@ DAILY_QUERY_CAP = 150
 SNIPPET_CHARS = 500
 ALERT_LABEL = "prod-alert"
 ALERT_TITLE = "StyleMaitri prod canary is failing"
+MAX_FRAME_BYTES = 8 * 1024 * 1024  # a hostile/garbled length must not allocate GBs
+CAP_CODES = frozenset({"demo_limit", "rate_limited"})  # api/routes/chat.py WSErrorMessage codes
+LOOKUP_FAIL_LIMIT = 3  # consecutive cap-lookup failures before the canary reports itself dead
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -129,6 +152,10 @@ def snippet(text: str, limit: int = SNIPPET_CHARS) -> str:
 class CanaryError(Exception):
     """A transport/protocol failure; the message is safe to publish (no URLs/tokens)."""
 
+    def __init__(self, message: str, http_status: int | None = None) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+
 
 def http_post_json(
     url: str, headers: dict[str, str] | None = None, timeout: float = HTTP_TIMEOUT_S
@@ -142,7 +169,9 @@ def http_post_json(
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
             status, body = resp.status, resp.read()
     except urllib.error.HTTPError as exc:
-        raise CanaryError(f"POST {path} returned HTTP {exc.code}: {snippet(_read(exc), 200)}") from None
+        raise CanaryError(
+            f"POST {path} returned HTTP {exc.code}: {snippet(_read(exc), 200)}", exc.code
+        ) from None
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         raise CanaryError(f"POST {path} failed: {type(exc).__name__}") from None
     if status != 200:
@@ -170,9 +199,15 @@ class WsClosed(Exception):
     """The peer closed the socket / sent a close frame before the caller was done."""
 
 
-def _recv_exact(sock: socket.socket, n: int) -> bytes:
+def _recv_exact(sock: socket.socket, n: int, deadline: float | None = None) -> bytes:
+    """Read exactly n bytes; ``deadline`` (perf_counter) bounds the WHOLE read, not each recv."""
     buf = b""
     while len(buf) < n:
+        if deadline is not None:
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                raise TimeoutError
+            sock.settimeout(max(0.01, remaining))
         chunk = sock.recv(n - len(buf))
         if not chunk:
             raise WsClosed("connection closed")
@@ -200,7 +235,10 @@ def ws_connect(url: str, timeout: float) -> socket.socket:
             ).encode()
         )
         head = b""
+        hs_deadline = time.perf_counter() + timeout
         while b"\r\n\r\n" not in head:
+            if time.perf_counter() > hs_deadline:
+                raise TimeoutError
             chunk = sock.recv(1)  # byte-wise so no frame bytes after the headers are swallowed
             if not chunk:
                 raise WsClosed("closed during handshake")
@@ -238,20 +276,26 @@ def ws_send_text(sock: socket.socket, text: str) -> None:
     sock.sendall(bytes(header) + mask + masked)
 
 
-def ws_recv_text(sock: socket.socket) -> str:
-    """Return the next complete text message; answers pings; raises WsClosed on close."""
+def ws_recv_text(sock: socket.socket, deadline: float | None = None) -> str:
+    """Return the next complete text message; answers pings; raises WsClosed on close.
+
+    ``deadline`` is an absolute perf_counter time bounding the whole message, so a server that
+    trickles one byte at a time cannot stretch the wait past it (raises TimeoutError).
+    """
     message = b""
     while True:
-        b0, b1 = _recv_exact(sock, 2)
+        b0, b1 = _recv_exact(sock, 2, deadline)
         fin, opcode = b0 & 0x80, b0 & 0x0F
         length = b1 & 0x7F
         if length == 126:
-            (length,) = struct.unpack(">H", _recv_exact(sock, 2))
+            (length,) = struct.unpack(">H", _recv_exact(sock, 2, deadline))
         elif length == 127:
-            (length,) = struct.unpack(">Q", _recv_exact(sock, 8))
+            (length,) = struct.unpack(">Q", _recv_exact(sock, 8, deadline))
+        if length > MAX_FRAME_BYTES or len(message) + length > MAX_FRAME_BYTES:
+            raise CanaryError(f"WS frame length {length} exceeds {MAX_FRAME_BYTES} byte cap")
         masked = bool(b1 & 0x80)
-        mask = _recv_exact(sock, 4) if masked else b""
-        payload = _recv_exact(sock, length)
+        mask = _recv_exact(sock, 4, deadline) if masked else b""
+        payload = _recv_exact(sock, length, deadline)
         if masked:
             payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         if opcode == 0x8:
@@ -284,10 +328,12 @@ class QueryResult:
     cards: int = 0
     crosschecked: int = 0
     failures: list[str] = dataclasses.field(default_factory=list)
+    # Server said demo/rate limit hit (CAP_CODES / HTTP 429): not an outage, not a pass.
+    capped: bool = False
 
     @property
     def ok(self) -> bool:
-        return not self.failures
+        return not self.failures and not self.capped
 
 
 def _is_price(value: Any) -> bool:
@@ -303,22 +349,27 @@ def collect_cards(items_frame: list[dict[str, Any]] | None, final_state: dict[st
     """Cards the user sees: the ``items`` frame, else the first outfit variant's items."""
     if items_frame:
         return [c for c in items_frame if isinstance(c, dict)]
-    variants = final_state.get("outfit_variants") or []
+    variants = _as_list(final_state.get("outfit_variants"))
     if variants and isinstance(variants[0], dict):
-        return [c for c in variants[0].get("items") or [] if isinstance(c, dict)]
+        return [c for c in _as_list(variants[0].get("items")) if isinstance(c, dict)]
     return []
+
+
+def _as_list(value: Any) -> list[Any]:
+    """Tolerate hostile shapes: anything that is not a list is treated as empty."""
+    return value if isinstance(value, list) else []
 
 
 def reference_prices(final_state: dict[str, Any]) -> list[tuple[str, Any]]:
     """(article_id, price_inr) pairs from the other item lists in the same response."""
     pairs: list[tuple[str, Any]] = []
-    lists: list[Any] = [v.get("items") for v in final_state.get("outfit_variants") or []
+    lists: list[Any] = [v.get("items") for v in _as_list(final_state.get("outfit_variants"))
                         if isinstance(v, dict)]
     partner = final_state.get("partner_look")
     if isinstance(partner, dict):
         lists.append(partner.get("items"))
     for lst in lists:
-        for it in lst or []:
+        for it in _as_list(lst):
             if isinstance(it, dict) and it.get("article_id"):
                 pairs.append((str(it["article_id"]), it.get("price_inr")))
     return pairs
@@ -378,7 +429,7 @@ def evaluate(
         res.failures.append("no product cards returned")
     price_failures, res.crosschecked = check_prices(cards, reference_prices(final_state))
     res.failures += price_failures
-    if latency_ms > budget_ms:
+    if latency_ms >= budget_ms:  # spec: latency must be < 15 s
         res.failures.append(f"latency {latency_ms:.0f} ms exceeds budget {budget_ms:.0f} ms")
     return res
 
@@ -413,29 +464,41 @@ def run_query(
     items_frame: list[dict[str, Any]] | None = None
     final_state: dict[str, Any] | None = None
     error: str | None = None
+    capped = False
     started = time.perf_counter()
     sock: socket.socket | None = None
     try:
         sock = ws_connect(ws_url, ws_timeout_s)
-        sock.settimeout(ws_timeout_s)
         started = time.perf_counter()  # latency = user_message sent -> done received
         ws_send_text(sock, json.dumps({"type": "user_message", "conversation_id": None,
                                        "message": query}))
         deadline = started + ws_timeout_s
         while True:
-            if time.perf_counter() > deadline:
-                raise TimeoutError
-            frame = json.loads(ws_recv_text(sock))
+            frame = json.loads(ws_recv_text(sock, deadline))
+            if not isinstance(frame, dict):
+                error = "WS frame is not a JSON object"
+                break
             ftype = frame.get("type")
             if ftype == "items":
-                items_frame = list(frame.get("items") or [])
+                raw_items = frame.get("items")
+                if not isinstance(raw_items, list):
+                    error = "items frame has non-list items"
+                    break
+                items_frame = raw_items
             elif ftype == "token":
                 tokens.append(str(frame.get("text", "")))
             elif ftype == "done":
-                final_state = frame.get("final_state") or {}
+                final_state = frame.get("final_state")
+                if not isinstance(final_state, dict):
+                    final_state = None
+                    error = "done frame final_state is not an object"
                 break
             elif ftype in ("error", "cancelled"):
-                error = f"server sent {ftype} frame: {snippet(str(frame.get('message') or frame.get('code') or ''), 200)}"
+                if ftype == "error" and frame.get("code") in CAP_CODES:
+                    capped = True  # demo/rate limit: not an outage (see QueryResult.capped)
+                else:
+                    error = (f"server sent {ftype} frame: "
+                             f"{snippet(str(frame.get('message') or frame.get('code') or ''), 200)}")
                 break
     except WsClosed as exc:
         error = f"WS closed before done frame ({exc})"
@@ -447,6 +510,8 @@ def run_query(
         error = str(exc)
     except (OSError, ssl.SSLError) as exc:
         error = f"WS I/O error: {type(exc).__name__}"
+    except Exception as exc:  # noqa: BLE001 - incl. MemoryError: a crash must still alert
+        error = f"unexpected: {type(exc).__name__}"
     finally:
         latency_ms = (time.perf_counter() - started) * 1000
         if sock is not None:
@@ -454,9 +519,15 @@ def run_query(
                 sock.close()
             except OSError:
                 pass
-    return evaluate(query, answer="".join(tokens), items_frame=items_frame,
-                    final_state=final_state, latency_ms=latency_ms, budget_ms=budget_ms,
-                    protocol_error=error)
+    try:
+        res = evaluate(query, answer="".join(tokens), items_frame=items_frame,
+                       final_state=final_state, latency_ms=latency_ms, budget_ms=budget_ms,
+                       protocol_error=error)
+    except Exception as exc:  # noqa: BLE001 - hostile response shape must not skip the alert
+        res = QueryResult(query=query, latency_ms=round(latency_ms, 1),
+                          failures=[f"unexpected: {type(exc).__name__}"])
+    res.capped = capped
+    return res
 
 
 # --------------------------------------------------------------------------- budget cap
@@ -472,9 +543,14 @@ def count_queries_today(run_rows: list[tuple[str, str, str]], current_run_id: st
     return len(prior) * len(QUERIES)
 
 
-def would_exceed_cap(spent: int, cap: int = DAILY_QUERY_CAP) -> bool:
-    """True if running another len(QUERIES) queries would pass ``cap``."""
-    return spent + len(QUERIES) > cap
+def would_exceed_cap(spent: int, cap: int = DAILY_QUERY_CAP, forced: bool = False) -> bool:
+    """True if running another len(QUERIES) queries would pass ``cap``.
+
+    A forced-failure run (the alert-path proof) may exceed the cap by one run: it is allowed
+    when spent + 3 <= cap + 3. That costs at most 3 extra queries.
+    """
+    allowed = cap + (len(QUERIES) if forced else 0)
+    return spent + len(QUERIES) > allowed
 
 
 GhRunner = Callable[[list[str], str | None], str]
@@ -511,6 +587,54 @@ def fetch_run_rows(
     return rows
 
 
+def lookup_spent(
+    repo: str, workflow: str, today: str, run_id: str,
+    runner: GhRunner = gh, attempts: int = 3, pause_s: float = 5.0,
+) -> int:
+    """Queries spent today, or CanaryError.
+
+    The listing must contain the CURRENT run (it is in_progress and created today); empty or
+    partial output without it is treated as a lookup failure, never as spent=0. Retried a few
+    times because a just-created run can lag in the listing.
+    """
+    last = "unknown"
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(pause_s)
+        try:
+            rows = fetch_run_rows(repo, workflow, today, runner)
+        except CanaryError as exc:
+            last = str(exc)
+            continue
+        if run_id and any(r[0] == run_id for r in rows):
+            return count_queries_today(rows, run_id)
+        last = f"current run {run_id!r} not in workflow-runs listing ({len(rows)} rows)"
+    raise CanaryError(last)
+
+
+def read_fail_count(path: str) -> int:
+    """Consecutive cap-lookup failures recorded by earlier runs (0 if absent/garbled)."""
+    try:
+        return max(0, int(Path(path).read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def decide_lookup_failure(prev_count: int, forced: bool) -> tuple[str, int]:
+    """Outcome of a failed cap lookup -> (status, new consecutive-failure count).
+
+    skip  : do not query (protect budget), run stays green, count+1
+    fail  : the Nth consecutive failure - the canary is effectively dead, so alert
+    error : a forced run cannot prove anything while skipped; exit non-zero (status stays skip)
+
+    The count is persisted across runs by actions/cache (no secrets): see canary.yml.
+    """
+    if forced:
+        return "error", prev_count
+    count = prev_count + 1
+    return ("fail" if count >= LOOKUP_FAIL_LIMIT else "skip"), count
+
+
 # --------------------------------------------------------------------------- issue lifecycle
 
 
@@ -523,7 +647,10 @@ class IssueAction:
 
 
 def decide_issue_action(status: str, open_issues: list[int]) -> IssueAction:
-    """Pure issue-lifecycle decision. ``status`` is pass | fail | skip."""
+    """Pure issue-lifecycle decision. ``status`` is pass | fail | skip | capped.
+
+    Only ``fail`` opens/comments and only ``pass`` closes; skip and capped never touch issues.
+    """
     if status == "fail":
         if open_issues:
             return IssueAction("comment", (min(open_issues),))
@@ -536,6 +663,8 @@ def decide_issue_action(status: str, open_issues: list[int]) -> IssueAction:
 def build_issue_body(result: dict[str, Any], run_url: str, heading: str) -> str:
     """Markdown body: query, failed assertion, latency, run URL, <=500-char snippet."""
     lines = [f"{heading} at {result.get('timestamp', '')}", ""]
+    if result.get("note"):
+        lines += [f"**Failure:** {redact(str(result['note']))[:300]}", ""]
     for q in result.get("queries", []):
         if q.get("failures"):
             lines += [
@@ -555,11 +684,20 @@ def build_issue_body(result: dict[str, Any], run_url: str, heading: str) -> str:
 
 
 def apply_issue_action(repo: str, result: dict[str, Any], run_url: str, runner: GhRunner = gh) -> IssueAction:
-    """Execute the lifecycle against GitHub via gh (needs only ``issues: write``)."""
+    """Execute the lifecycle against GitHub via gh (needs only ``issues: write``).
+
+    Only open issues with the canary's OWN fixed title are considered, so other `prod-alert`
+    issues (e.g. a future part-B log-count alert) are never commented on or closed here.
+    """
     status = result.get("status", "skip")
     listed = runner(["issue", "list", "--repo", repo, "--label", ALERT_LABEL, "--state", "open",
-                     "--json", "number", "--jq", ".[].number"], None)
-    open_issues = [int(x) for x in listed.split()]
+                     "--limit", "100", "--json", "number,title", "--jq",
+                     r'.[] | [(.number|tostring), .title] | @tsv'], None)
+    open_issues = []
+    for line in listed.splitlines():
+        num, _, title = line.partition("\t")
+        if title.strip() == ALERT_TITLE and num.isdigit():
+            open_issues.append(int(num))
     action = decide_issue_action(status, open_issues)
     if action.kind == "create":
         labels = runner(["label", "list", "--repo", repo, "--limit", "200", "--json", "name",
@@ -588,43 +726,110 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def run_canary(args: argparse.Namespace) -> int:
-    """`run` subcommand: cap check, 3 queries, write result JSON. Exit 1 on failure."""
-    budget = -1.0 if args.force_fail else float(LATENCY_BUDGET_MS)
-    result: dict[str, Any] = {"status": "skip", "timestamp": now_utc().isoformat(timespec="seconds"),
-                              "budget_ms": budget, "forced": bool(args.force_fail), "queries": []}
+def summarize(results: list[QueryResult]) -> str:
+    """One-line per-run summary, including how many cards were actually cross-checked."""
+    return (f"SUMMARY: queries={len(results)} passed={sum(r.ok for r in results)} "
+            f"capped={sum(r.capped for r in results)} "
+            f"cards={sum(r.cards for r in results)} "
+            f"crosschecked_total={sum(r.crosschecked for r in results)}")
+
+
+def classify(results: list[QueryResult]) -> str:
+    """fail if any real failure; else capped if any query hit a demo limit; else pass."""
+    if any(r.failures for r in results):
+        return "fail"
+    if any(r.capped for r in results):
+        return "capped"
+    return "pass"
+
+
+def _write(path: str, result: dict[str, Any]) -> None:
+    Path(path).write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+
+def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
+    budget = result["budget_ms"]
+    forced = bool(args.force_fail)
+    state_file = getattr(args, "state_file", "")
     if args.repo:
+        prev = read_fail_count(state_file) if state_file else 0
         try:
-            rows = fetch_run_rows(args.repo, args.workflow, now_utc().strftime("%Y-%m-%d"))
-            spent = count_queries_today(rows, args.run_id)
+            spent = lookup_spent(args.repo, args.workflow, now_utc().strftime("%Y-%m-%d"),
+                                 args.run_id)
         except CanaryError as exc:
-            result["note"] = f"cap check unavailable, skipping to protect budget: {exc}"
-            print(f"::warning::{result['note']}")
-            Path(args.out).write_text(json.dumps(result), encoding="utf-8")
-            return 0
-        if would_exceed_cap(spent):
+            verdict, count = decide_lookup_failure(prev, forced)
+            result["note"] = f"cap lookup failed ({count} consecutive): {exc}"
+            if state_file:
+                Path(state_file).write_text(str(count), encoding="utf-8")
+            if verdict == "skip":
+                result["status"] = "skip"
+                print(f"::warning::Canary skipped, cap lookup failed ({count}/{LOOKUP_FAIL_LIMIT}"
+                      f" before it alerts): {exc}")
+                return 0
+            if verdict == "error":
+                result["status"] = "skip"
+                print(f"::error::force_fail run could NOT run (cap lookup failed): {exc}")
+                return 1
+            result["status"] = "fail"
+            print(f"::error::Canary dead: cap lookup failed {count} runs in a row: {exc}")
+            return 1
+        if state_file:
+            Path(state_file).write_text("0", encoding="utf-8")
+        if would_exceed_cap(spent, forced=forced):
+            result["status"] = "skip"
             result["note"] = f"daily cap: {spent} queries already spent today (cap {DAILY_QUERY_CAP})"
+            if forced:
+                print(f"::error::force_fail run skipped by the daily cap - {result['note']}")
+                return 1
             print(f"::notice::Canary skipped - {result['note']}")
-            Path(args.out).write_text(json.dumps(result), encoding="utf-8")
             return 0
+    base = args.base_url.rstrip("/")
+    results: list[QueryResult] = []
     try:
-        token = http_post_json(f"{args.base_url.rstrip('/')}/demo/session").get("session_token")
+        token = http_post_json(f"{base}/demo/session").get("session_token")
         if not isinstance(token, str) or not token:
             raise CanaryError("POST /demo/session response has no session_token")
     except CanaryError as exc:
-        results = [evaluate(q, answer="", items_frame=None, final_state=None, latency_ms=0,
-                            budget_ms=budget, protocol_error=str(exc)) for q in QUERIES[:1]]
+        first = evaluate(QUERIES[0], answer="", items_frame=None, final_state=None,
+                         latency_ms=0, budget_ms=budget, protocol_error=str(exc))
+        if exc.http_status == 429:  # frontend treats 429 as "daily limit", not an outage
+            first.failures.clear()
+            first.capped = True
+        results = [first]
     else:
-        results = [run_query(args.base_url, token, q, budget) for q in QUERIES]
+        results = [run_query(base, token, q, budget) for q in QUERIES]
     result["queries"] = [dataclasses.asdict(r) | {"ok": r.ok, "answer": snippet(r.answer)}
                          for r in results]
-    result["status"] = "pass" if all(r.ok for r in results) else "fail"
-    Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    result["status"] = classify(results)
+    result["crosschecked_total"] = sum(r.crosschecked for r in results)
     for r in results:
-        print(f"{'PASS' if r.ok else 'FAIL'} {r.query!a}: latency={r.latency_ms} ms cards={r.cards} "
-              f"crosschecked={r.crosschecked} answer_chars={len(r.answer)}"
-              + ("" if r.ok else f" failures={ascii(r.failures)}"))
-    return 0 if result["status"] == "pass" else 1
+        print(f"{'PASS' if r.ok else 'CAPPED' if r.capped else 'FAIL'} {r.query!a}: "
+              f"latency={r.latency_ms} ms cards={r.cards} crosschecked={r.crosschecked} "
+              f"answer_chars={len(r.answer)}"
+              + ("" if not r.failures else f" failures={ascii(r.failures)}"))
+    print(summarize(results))
+    if result["status"] == "capped":
+        print("::warning::Demo daily/rate cap hit - canary inconclusive (not a pass, no alert change)")
+    return 1 if result["status"] == "fail" else 0
+
+
+def run_canary(args: argparse.Namespace) -> int:
+    """`run` subcommand: cap check, 3 queries, ALWAYS write a result JSON. Exit 1 on failure."""
+    budget = -1.0 if args.force_fail else float(LATENCY_BUDGET_MS)
+    # Default to "fail": if anything below crashes, the issue step must still see a failure.
+    result: dict[str, Any] = {"status": "fail", "timestamp": now_utc().isoformat(timespec="seconds"),
+                              "budget_ms": budget, "forced": bool(args.force_fail), "queries": []}
+    rc = 1
+    try:
+        rc = _run_inner(args, result)
+    except BaseException as exc:  # noqa: BLE001 - incl. MemoryError/KeyboardInterrupt
+        result["status"] = "fail"
+        result["note"] = f"unexpected: {type(exc).__name__}"
+        print(f"::error::canary crashed: {type(exc).__name__}")
+        rc = 1
+    finally:
+        _write(args.out, result)
+    return rc
 
 
 def issue_cmd(args: argparse.Namespace) -> int:
@@ -650,6 +855,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--repo", default="", help="owner/name; enables the daily-cap check via gh")
     r.add_argument("--workflow", default="canary.yml")
     r.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
+    r.add_argument("--state-file", default="",
+                   help="file holding the consecutive cap-lookup-failure count (actions/cache)")
     r.set_defaults(func=run_canary)
     i = sub.add_parser("issue")
     i.add_argument("--result", default="canary-result.json")
