@@ -57,7 +57,9 @@ class GeminiClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        bounded: bool = False,
     ) -> str:
+        # bounded=True: single attempt, no backoff sleeps (see OpenRouterClient.chat).
         system, history, prompt = _split_messages(messages)
         config = self._gen_config(temperature, max_tokens, system)
         delays = iter([1.0, 3.0])
@@ -111,6 +113,8 @@ class GeminiClient:
                 # failed" and advances to the next one; don't raise here.
                 return response.text
             except Exception as exc:
+                if bounded:
+                    raise
                 attempt += 1
                 delay = next(delays, None)
                 if delay is None:

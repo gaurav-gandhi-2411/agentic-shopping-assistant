@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
 import random
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -90,6 +92,31 @@ def retry_wait_seconds(info: ErrorInfo, cap_s: float) -> float | None:
         return None
     wait = max(1.0 + random.uniform(0.0, 1.0), info.retry_after or 0.0)
     return wait if wait <= cap_s else None
+
+
+def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
+    """Run fn in a daemon thread and give up after timeout_s (raises TimeoutError).
+
+    Hard wall-clock cap for fallback tiers: whatever sleeps or SDK-internal retries
+    they contain, the caller is never held longer than timeout_s. The abandoned
+    thread finishes on its own (same trade-off as the WS turn deadline).
+    """
+    box: dict[str, object] = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            box["error"] = exc
+
+    t = threading.Thread(target=contextvars.copy_context().run, args=(_run,), daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        raise TimeoutError(f"fallback tier exceeded {timeout_s:.0f}s")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box.get("value")
 
 
 class LLMClient(Protocol):
@@ -223,6 +250,9 @@ class GroqClient:
         # calls), and the longest Retry-After we are willing to sleep through.
         self._chain_budget_s = float(llm_cfg.get("groq_chain_budget_seconds", 30))
         self._retry_wait_cap_s = float(llm_cfg.get("groq_retry_wait_cap_seconds", 8))
+        # Hard cap per OpenRouter/Gemini fallback call (no rate-limit sleeps either):
+        # two tiers + the Groq budget must stay well inside the 90 s WS deadline.
+        self._fallback_tier_s = float(llm_cfg.get("fallback_tier_budget_seconds", 8))
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         # Explicit per-request HTTP timeout, matching OllamaClient's existing
@@ -406,16 +436,22 @@ class GroqClient:
                     return None
                 time.sleep(wait)
                 continue
-            usage = resp.usage
-            cached = 0
-            if usage and getattr(usage, "prompt_tokens_details", None):
-                cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
             latency_ms = round((time.monotonic() - t_start) * 1000)
-            self._log_llm_call(
-                model, usage.prompt_tokens if usage else 0,
-                usage.completion_tokens if usage else 0, cached, latency_ms, turn_id,
-            )
-            content = resp.choices[0].message.content
+            try:
+                content = resp.choices[0].message.content
+                usage = resp.usage
+                cached = 0
+                if usage and getattr(usage, "prompt_tokens_details", None):
+                    cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                self._log_llm_call(
+                    model, usage.prompt_tokens if usage else 0,
+                    usage.completion_tokens if usage else 0, cached, latency_ms, turn_id,
+                )
+            except (AttributeError, IndexError, TypeError):
+                # Empty `choices` or an unexpected payload shape: a failed model,
+                # never an exception out of chat().
+                self._log_attempt_failed(model, attempt, "malformed", None, latency_ms, None, turn_id)
+                return None
             if content and content.strip():
                 return content
             if allow_empty:
@@ -435,7 +471,12 @@ class GroqClient:
         for name, fb_client in self._iter_fallback_tiers():
             tried.append(name)
             try:
-                result = fb_client.chat(messages, temperature=temperature, max_tokens=max_tokens)
+                result = run_bounded(
+                    lambda c=fb_client: c.chat(
+                        messages, temperature=temperature, max_tokens=max_tokens, bounded=True
+                    ),
+                    self._fallback_tier_s,
+                )
             except Exception as fb_exc:
                 logger.warning("[groq->%s fallback] failed: %r, trying next tier", name, fb_exc)
                 continue
@@ -554,9 +595,12 @@ class GroqClient:
             # buffering lets an empty/errored tier be rejected before committing to it.
             for name, fb_client in self._iter_fallback_tiers():
                 try:
-                    buffer = list(fb_client.chat_stream(
-                        messages, temperature=temperature, max_tokens=max_tokens
-                    ))
+                    buffer = run_bounded(
+                        lambda c=fb_client: list(c.chat_stream(
+                            messages, temperature=temperature, max_tokens=max_tokens
+                        )),
+                        self._fallback_tier_s,
+                    )
                 except Exception as fb_exc:
                     logger.warning("[groq->%s fallback] failed: %r, trying next tier", name, fb_exc)
                     continue

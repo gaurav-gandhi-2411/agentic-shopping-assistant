@@ -62,7 +62,12 @@ class OpenRouterClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        bounded: bool = False,
     ) -> str:
+        # bounded=True (set by GroqClient when this is a fallback tier): one attempt,
+        # no rate-limit waits and no backoff sleeps, so a rate-limited tier fails
+        # fast instead of eating the 90 s WS turn deadline. Default behaviour is
+        # unchanged when OpenRouter is the primary provider.
         # Rate-limit retries: up to 10 waits (parsed from reset header or 65s default)
         # Other errors: short fixed backoff (1s, 3s) then raise.
         ratelimit_retries = 0
@@ -101,6 +106,8 @@ class OpenRouterClient:
                     self.cost_reporter(cost)
                 return resp.choices[0].message.content
             except Exception as exc:
+                if bounded:
+                    raise
                 attempt += 1
                 status = getattr(exc, "status_code", None)
                 if status == 429 and ratelimit_retries < 10:

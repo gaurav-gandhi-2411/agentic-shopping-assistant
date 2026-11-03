@@ -8,6 +8,8 @@ through to the OpenRouter tier, and the final busy message.
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -267,3 +269,75 @@ def test_retry_wait_is_none_for_non_retryable_and_over_cap():
     assert retry_wait_seconds(classify_error(FakeAPIError(404)), 8) is None
     assert retry_wait_seconds(classify_error(FakeAPIError(429, "x", {"retry-after": "30"})), 8) is None
     assert 1.0 <= retry_wait_seconds(classify_error(FakeAPIError(503)), 8) <= 2.0
+
+
+# ------------------------------------------- B4: malformed response payloads
+
+def test_empty_choices_is_a_failed_model_not_an_exception(monkeypatch):
+    bad = SimpleNamespace(choices=[], usage=None)
+    calls = _sdk(monkeypatch, {"m1": [bad], "m2": [_completion("from m2")]})
+    assert GroqClient(_config()).chat(MSGS) == "from m2"
+    assert calls == ["m1", "m2"]
+
+
+def test_empty_choices_everywhere_returns_busy_message(monkeypatch):
+    bad = SimpleNamespace(choices=[], usage=None)
+    _sdk(monkeypatch, {"m1": [bad], "m2": [bad]})
+    assert GroqClient(_config()).chat(MSGS) == LLM_BUSY_MESSAGE
+
+
+# ------------------------- B2: fallback tiers are bounded (no 90 s deadline blowout)
+
+def _gemini_failing(monkeypatch: pytest.MonkeyPatch, exc: Exception) -> MagicMock:
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    gen = MagicMock(side_effect=exc)
+    fake = SimpleNamespace(models=SimpleNamespace(generate_content=gen, generate_content_stream=gen))
+    monkeypatch.setattr("google.genai.Client", lambda **kw: fake)
+    return gen
+
+
+def test_every_tier_rate_limited_ends_fast_with_busy_message(monkeypatch, _env):
+    """Groq 429 x2 on every model, OpenRouter 429, Gemini 429: the unbounded
+    OpenRouter loop used to sleep up to 10 x ~65 s here."""
+    rl = lambda: FakeAPIError(429, "tokens per minute", {"retry-after": "3"})  # noqa: E731
+    _sdk(monkeypatch, {"m1": [rl(), rl()], "m2": [rl(), rl()]})
+    or_create = _openrouter(monkeypatch, side_effect=rl())
+    gem = _gemini_failing(monkeypatch, rl())
+    t0 = time.monotonic()
+    assert GroqClient(_config()).chat(MSGS) == LLM_BUSY_MESSAGE
+    assert time.monotonic() - t0 < 5
+    assert or_create.call_count == 1 and gem.call_count == 1  # no retries in fallback tiers
+    assert sum(_env) < 15 and max(_env) < 10  # only the Groq 1-retry waits, no 65 s sleeps
+
+
+def test_every_tier_rate_limited_stream_ends_with_busy_message(monkeypatch):
+    rl = lambda: FakeAPIError(429, "tokens per minute")  # noqa: E731
+    _sdk(monkeypatch, {"m1": [rl(), rl()], "m2": [rl(), rl()]})
+    _openrouter(monkeypatch, side_effect=rl())
+    _gemini_failing(monkeypatch, rl())
+    assert list(GroqClient(_config()).chat_stream(MSGS)) == [LLM_BUSY_MESSAGE]
+
+
+def test_hanging_fallback_tier_is_cut_off_by_hard_cap(monkeypatch):
+    """Even an SDK-internal wait we cannot see (e.g. openai retry-after sleep)
+    cannot hold the turn longer than fallback_tier_budget_seconds per tier."""
+    _sdk(monkeypatch, {"m1": [FakeAPIError(404, "x")], "m2": [FakeAPIError(404, "x")]})
+    release = threading.Event()
+    _openrouter(monkeypatch, side_effect=lambda **kw: release.wait(10))
+    t0 = time.monotonic()
+    result = GroqClient(_config(fallback_tier_budget_seconds=0.2)).chat(MSGS)
+    release.set()
+    assert result == LLM_BUSY_MESSAGE and time.monotonic() - t0 < 3
+
+
+def test_bounded_flag_skips_openrouter_rate_limit_wait(monkeypatch, _env):
+    from src.llm.openrouter_client import OpenRouterClient
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    create = MagicMock(side_effect=FakeAPIError(429, "rl"))
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr("openai.OpenAI", lambda api_key, base_url, timeout: fake)
+    client = OpenRouterClient(_config())
+    with pytest.raises(FakeAPIError):
+        client.chat(MSGS, bounded=True)
+    assert create.call_count == 1 and _env == []

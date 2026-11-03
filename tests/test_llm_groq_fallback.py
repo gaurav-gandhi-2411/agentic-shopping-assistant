@@ -221,9 +221,9 @@ def test_chat_falls_through_to_gemini_when_openrouter_fails(monkeypatch, groq_en
 
     assert result == "gemini response"
     # Prove the chain was actually walked, not just that some response came
-    # back from an unverified tier. OpenRouterClient.chat() itself retries
-    # non-429 errors twice (1s, 3s backoff) before giving up — 3 calls total.
-    assert mock_openrouter.call_count == 3
+    # back from an unverified tier. As a fallback tier OpenRouterClient runs
+    # bounded (single attempt, no backoff sleeps), so exactly 1 call.
+    assert mock_openrouter.call_count == 1
     assert mock_gemini.call_count == 1
 
 
@@ -282,9 +282,8 @@ def test_chat_all_tiers_fail_returns_busy_message(monkeypatch, groq_env_no_gemin
     result = client.chat([{"role": "user", "content": "hi"}])
 
     assert result == LLM_BUSY_MESSAGE
-    # 3 = 1 initial + 2 internal OpenRouterClient backoff retries (see the
-    # matching comment in test_chat_falls_through_to_gemini_when_openrouter_fails).
-    assert mock_openrouter.call_count == 3
+    # Bounded fallback tier: one attempt, no internal retries.
+    assert mock_openrouter.call_count == 1
 
 
 def test_get_fallback_caches_unavailable_result(monkeypatch, groq_env_no_openrouter):
