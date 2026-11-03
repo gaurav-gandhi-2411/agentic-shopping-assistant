@@ -17,6 +17,7 @@ import api.routes.canary as canary
 import api.routes.chat as chat_routes
 from api.logging_config import _TokenRedactFilter
 from api.main import app
+from api.rate_limit import get_rate_limiter
 from api.session import InMemorySessionStore
 
 TOKEN = "canary-test-token-0123456789"
@@ -111,6 +112,10 @@ def b(monkeypatch: pytest.MonkeyPatch) -> _Behaviour:
     monkeypatch.setattr(deps, "get_agent_factory", _factory_getter)
     monkeypatch.setattr(chat_routes, "_DEMO_SESSIONS", {})
     monkeypatch.setenv("CANARY_TOKEN", TOKEN)
+    # WS tests share the process-wide per-user limiter (default 10/min); CI test order made
+    # it trip. Raise the limit and clear any counts left by earlier tests.
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "10000")
+    get_rate_limiter().reset()
     monkeypatch.setattr(canary, "_state", canary._State())
     # fresh dedicated pool per test: a timed-out test leaves abandoned threads behind
     monkeypatch.setattr(canary, "_executor", canary._CountingExecutor(max_workers=3, thread_name_prefix="canary"))
