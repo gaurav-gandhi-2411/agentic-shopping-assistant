@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextvars
+import functools
 import json
 import logging
 import os
@@ -10,7 +11,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable, Iterator, Protocol
+from typing import Any, Callable, Iterator, Protocol, TypeVar, cast
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
@@ -97,7 +98,15 @@ def retry_wait_seconds(info: ErrorInfo, cap_s: float) -> float | None:
 _BOUNDED_SLOTS = threading.BoundedSemaphore(4)
 
 
-def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
+_T = TypeVar("_T")
+
+
+def _drain(stream_fn: Callable[..., Iterator[str]], *args: Any, **kwargs: Any) -> list[str]:
+    """Call a streaming method and fully buffer its chunks."""
+    return list(stream_fn(*args, **kwargs))
+
+
+def run_bounded(fn: Callable[[], _T], timeout_s: float) -> _T:
     """Run fn in a daemon thread and give up after timeout_s (raises TimeoutError).
 
     Hard wall-clock cap for fallback tiers: whatever sleeps or SDK-internal retries
@@ -131,7 +140,7 @@ def run_bounded(fn: Callable[[], object], timeout_s: float) -> object:
         raise TimeoutError(f"fallback tier exceeded {timeout_s:.0f}s")
     if "error" in box:
         raise box["error"]  # type: ignore[misc]
-    return box.get("value")
+    return cast(_T, box.get("value"))
 
 
 class LLMClient(Protocol):
@@ -356,7 +365,7 @@ class GroqClient:
                 return None
         return self._gemini_client
 
-    def _iter_fallback_tiers(self):
+    def _iter_fallback_tiers(self) -> Iterator[tuple[str, Any]]:
         """Yield (provider_name, client) for each fallback tier that
         successfully constructs, in priority order (OpenRouter first,
         Gemini second)."""
@@ -492,9 +501,12 @@ class GroqClient:
         for name, fb_client in self._iter_fallback_tiers():
             tried.append(name)
             try:
+                # partial (not a lambda) binds fb_client now, like the old `c=fb_client`
+                # default did; mypy cannot infer a default-arg lambda passed to a generic.
                 result = run_bounded(
-                    lambda c=fb_client: c.chat(
-                        messages, temperature=temperature, max_tokens=max_tokens, bounded=True
+                    functools.partial(
+                        fb_client.chat, messages,
+                        temperature=temperature, max_tokens=max_tokens, bounded=True,
                     ),
                     self._fallback_tier_s,
                 )
@@ -617,10 +629,10 @@ class GroqClient:
             for name, fb_client in self._iter_fallback_tiers():
                 try:
                     buffer = run_bounded(
-                        lambda c=fb_client: list(c.chat_stream(
-                            messages, temperature=temperature, max_tokens=max_tokens,
-                            bounded=True,
-                        )),
+                        functools.partial(
+                            _drain, fb_client.chat_stream, messages,
+                            temperature=temperature, max_tokens=max_tokens, bounded=True,
+                        ),
                         self._fallback_tier_s,
                     )
                 except Exception as fb_exc:
