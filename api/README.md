@@ -33,7 +33,7 @@ The lifespan loads `data/processed/catalogue.parquet`, `dense.faiss`, and `bm25.
 | Variable | Description |
 |---|---|
 | `GROQ_API_KEY` | API key for the Groq LLM provider |
-| `SUPABASE_URL` | Supabase project URL (e.g. `https://abc.supabase.co`). Used to derive the JWKS endpoint `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` for RS256 JWT verification. |
+| `SUPABASE_URL` | Supabase project URL (e.g. `https://abc.supabase.co`). Used to derive the JWKS endpoint `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` for ES256/RS256 JWT verification. |
 
 ### Optional / observability
 

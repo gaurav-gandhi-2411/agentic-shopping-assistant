@@ -1,26 +1,27 @@
-"""JWT verification for FastAPI routes using Supabase RS256 tokens.
+"""JWT verification for FastAPI routes using Supabase asymmetric tokens.
 
 JWKS endpoint (verified 2026-05 against Supabase docs):
   {SUPABASE_URL}/auth/v1/.well-known/jwks.json
   Source: https://supabase.com/docs/guides/auth/jwks
 
-  Supabase issues RS256 JWTs signed with a project-scoped RSA private key.
+  Supabase issues JWTs signed with a project-scoped asymmetric private key
+  (ES256/P-256 on current projects, RS256 on older ones).
   The JWKS endpoint exposes only the corresponding public keys, so the
   backend can verify tokens without ever holding the signing secret.
   PyJWT's PyJWKClient selects the correct key by matching the JWT header's
   `kid` field and caches the JWKS response for `lifespan` seconds (24 h
   here; Supabase edge-caches the endpoint for 10 min so refreshes are cheap).
 
-Algorithm: RS256.
+Algorithm: ES256 or RS256 (SUPABASE_JWT_ALGORITHMS); never HS256/none.
 aud claim: "authenticated" (Supabase default for logged-in users).
-iss claim: not validated — the RS256 signature is sufficient; iss would
+iss claim: not validated — the asymmetric (ES256/RS256) signature is sufficient; iss would
   require knowing the project URL at decode time without adding security.
 
 Env vars (read at call time so monkeypatching works in tests):
   SUPABASE_URL              — https://abc.supabase.co (required in prod)
   SUPABASE_JWT_AUD          — audience to verify; default "authenticated"
   JWT_VERIFICATION_DISABLED — "true" skips all verification (dev only)
-  JWT_TEST_PUBLIC_KEY       — PEM RSA public key; bypasses JWKS for unit
+  JWT_TEST_PUBLIC_KEY       — PEM RSA/EC public key; bypasses JWKS for unit
                               tests so no network calls are made
 
 WS ticket store:
@@ -44,6 +45,10 @@ from fastapi import Header, HTTPException, WebSocket
 from jwt import ExpiredSignatureError, InvalidTokenError
 
 logger = logging.getLogger(__name__)
+
+# Supabase's asymmetric JWT signing keys use ES256 (P-256) by default; RS256 kept for older
+# projects. HS256/"none" are deliberately excluded (algorithm-confusion risk with a public key).
+SUPABASE_JWT_ALGORITHMS: tuple[str, ...] = ("ES256", "RS256")
 
 # Lazily created module-level PyJWKClient.  Tests bypass it entirely via
 # JWT_TEST_PUBLIC_KEY so it is never instantiated during the test suite.
@@ -164,7 +169,7 @@ def verify_jwt(token: str) -> dict:
             payload = pyjwt.decode(
                 token,
                 test_key_pem,
-                algorithms=["RS256"],
+                algorithms=list(SUPABASE_JWT_ALGORITHMS),
                 audience=aud,
             )
         else:
@@ -173,7 +178,7 @@ def verify_jwt(token: str) -> dict:
             payload = pyjwt.decode(
                 token,
                 signing_key.key,
-                algorithms=["RS256"],
+                algorithms=list(SUPABASE_JWT_ALGORITHMS),
                 audience=aud,
             )
     except ExpiredSignatureError:
