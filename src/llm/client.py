@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterator, Protocol, TypeVar, cast
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
-from src.llm.resilience import LLM_BUSY_MESSAGE
+from src.llm.resilience import LLM_BUSY_MESSAGE, LLMStartupError, check_models_listed
 
 logger = logging.getLogger(__name__)
 
@@ -551,6 +551,66 @@ class GroqClient:
             return served[1]
         logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
         return LLM_BUSY_MESSAGE
+
+    def probe(self) -> dict:
+        """Minimal real LLM call (max_tokens=1) through the whole chain, for /readyz.
+
+        No retry sleeps. Success means "the provider answered", so empty content is
+        accepted (a reasoning model may spend the single token on reasoning).
+        Returns {"tier", "model", "latency_ms"}; raises RuntimeError if nothing answered.
+        """
+        msgs = [{"role": "user", "content": "ping"}]
+        turn_id = str(uuid.uuid4())
+        for model in self._chain:
+            t0 = time.monotonic()
+            res = self._chat_one(
+                model, msgs, 0, 1, turn_id, time.monotonic() + 10, retry=False, allow_empty=True
+            )
+            if res is not None:
+                return {"tier": "groq", "model": model,
+                        "latency_ms": round((time.monotonic() - t0) * 1000)}
+        t0 = time.monotonic()
+        served = self._fallback_chat(msgs, 0, 1, turn_id, accept_empty=True)
+        if served is not None:
+            return {"tier": served[0], "model": None,
+                    "latency_ms": round((time.monotonic() - t0) * 1000)}
+        raise RuntimeError(f"all LLM tiers failed (groq models tried: {self._chain})")
+
+    def verify_models(self, timeout_s: float = 5.0) -> str:
+        """Startup check against Groq's live GET /models (not a chat call).
+
+        - primary not listed             -> raises LLMStartupError (revision fails).
+        - Groq rejects the key (401/403) -> raises LLMStartupError (fail closed: this
+          revision could never serve).
+        - /models unreachable (timeout, 5xx, 429, network) -> ERROR log and continue,
+          returning "unverified". Fail-open on purpose: a Groq outage at deploy time
+          must not make deploys impossible, and /readyz's real LLM call still reports
+          an actually broken chain.
+        - unlisted fallbacks             -> warning, dropped from the chain.
+        Returns "verified" or "unverified".
+        """
+        try:
+            page = self._client.with_options(timeout=timeout_s, max_retries=0).models.list()
+            listed = {m.id for m in page.data}
+        except Exception as exc:
+            info = classify_error(exc)
+            if info.status in (401, 403):
+                raise LLMStartupError(
+                    f"Groq /models rejected the API key (HTTP {info.status}); "
+                    "this revision could not serve chat."
+                ) from exc
+            logger.error(json.dumps({
+                "event": "llm_startup_check_unverified", "error_kind": info.kind,
+                "status": info.status, "primary": self._chain[0],
+            }))
+            return "unverified"
+        kept = check_models_listed(listed, self._chain[0], self._chain[1:])
+        for dropped in self._chain[1:]:
+            if dropped not in kept:
+                logger.warning(json.dumps({"event": "llm_fallback_model_unlisted", "model": dropped}))
+        self._chain = [self._chain[0], *kept]
+        logger.info(json.dumps({"event": "llm_startup_check_ok", "chain": self._chain}))
+        return "verified"
 
     def chat_stream(
         self,
