@@ -1,0 +1,43 @@
+{
+  "_doc": "Held-out labelled cases written AFTER the first-pass checker was tuned on grounding_checker_labels.json. Reported separately: the first run on this file is the honest generalisation estimate. Labels follow intended semantics, not checker output.",
+  "items": {
+    "A": {"article_id": "a1", "display_name": "Riviera Sundress", "prod_name": "Riviera Sundress", "price_inr": 2999.0, "detail_desc": "Blue sundress, relaxed cut."},
+    "B": {"article_id": "b1", "display_name": "Gloss Wrap Skirt", "prod_name": "Gloss Wrap Skirt", "price_inr": 1499.0, "detail_desc": "Wrap skirt with tie waist."},
+    "D": {"article_id": "d1", "display_name": "Meera Anarkali Kurta Set", "prod_name": "Meera Anarkali Kurta Set", "price_inr": 1899.0, "detail_desc": "Anarkali kurta with dupatta."},
+    "G": {"article_id": "g1", "display_name": "Slim Chinos", "prod_name": "Slim Chinos", "price_inr": 1599.0, "mrp_inr": 1999.0, "discount_pct": 20, "sizes": ["30", "32", "34"], "in_stock": true, "detail_desc": "Cotton chinos."},
+    "I": {"article_id": "i1", "display_name": "Jaipur Block Print Shirt", "prod_name": "Jaipur Block Print Shirt", "price_inr": 999.0, "sizes": ["S", "M", "L"], "in_stock": true, "detail_desc": "Block print shirt."}
+  },
+  "cases": [
+    {"id": "h01", "text": "The Meera Anarkali Kurta Set at ₹1,899 is a lovely festive pick, and the Gloss Wrap Skirt at ₹1,499 pairs well.", "items": ["D", "B"], "expected": []},
+    {"id": "h02", "text": "Starting at just ₹1,499, these are great.", "items": ["B", "A"], "expected": []},
+    {"id": "h03", "text": "I'd go for the Riviera Sundress, it's ₹2,999, which is well under the ₹5,000 you mentioned.", "items": ["A"], "user": "a dress under ₹5000", "expected": []},
+    {"id": "h04", "text": "Perfect for a size 38 waist.", "items": ["A"], "expected": [["size", "38"]]},
+    {"id": "h05", "text": "The Riviera Sundress is a steal at 2999 rupees!", "items": ["A"], "expected": []},
+    {"id": "h06", "text": "Grab it before it's gone, limited stock!", "items": ["A"], "expected": [["stock", "limited stock"]]},
+    {"id": "h07", "text": "It costs ₹2,999 (MRP ₹3,999).", "items": ["A"], "expected": [["price", "3,999"]]},
+    {"id": "h08", "text": "Save ₹500 on this one.", "items": ["A"], "expected": [["discount", "500"]]},
+    {"id": "h09", "text": "We offer free delivery across India.", "items": ["A"], "expected": [["delivery", "free delivery"]]},
+    {"id": "h10", "text": "The kurta is available in S, M, L and XL.", "items": ["D"], "expected": [["size", "S"], ["size", "M"], ["size", "L"], ["size", "XL"]]},
+    {"id": "h11", "text": "Size: 32", "items": ["A"], "expected": [["size", "32"]]},
+    {"id": "h12", "text": "The Meera Anarkali Kurta Set is ₹1,899 and the Gloss Wrap Skirt is ₹1,899.", "items": ["D", "B"], "expected": [["price_wrong_item", "1,899"]]},
+    {"id": "h13", "text": "Prices range from ₹999 to ₹2,999.", "items": ["I", "A"], "expected": []},
+    {"id": "h14", "text": "These cost between ₹999 and ₹3,500.", "items": ["I", "A"], "expected": [["price", "3,500"]]},
+    {"id": "h15", "text": "Great for Diwali 2025!", "items": ["A"], "expected": []},
+    {"id": "h16", "text": "A 5-star pick for brunch.", "items": ["A"], "expected": []},
+    {"id": "h17", "text": "Order now for delivery by Friday.", "items": ["A"], "expected": [["delivery", "delivery"]]},
+    {"id": "h18", "text": "It is in stock in your size.", "items": ["A"], "expected": [["stock", "in stock"]]},
+    {"id": "h19", "text": "The Slim Chinos are 20% off, so ₹1,599 instead of ₹1,999.", "items": ["G"], "expected": []},
+    {"id": "h20", "text": "I can't see stock levels, but it says in stock on the page.", "items": ["A"], "expected": [["stock", "in stock"]]},
+    {"id": "h21", "text": "The Jaipur Block Print Shirt is ₹999 and comes in S, M and L.", "items": ["I"], "expected": []},
+    {"id": "h22", "text": "Kurtas up to ₹2,000 are shown.", "items": ["D"], "user": "kurtas up to 2000", "expected": []},
+    {"id": "h23", "text": "That is 15% cheaper than the other one.", "items": ["A", "B"], "expected": [["percent", "15%"]]},
+    {"id": "h24", "text": "The Gloss Wrap Skirt is ₹ 1,499.", "items": ["B"], "expected": []},
+    {"id": "h25", "text": "The Gloss Wrap Skirt is Rs1499.", "items": ["B"], "expected": []},
+    {"id": "h26", "text": "The Gloss Wrap Skirt is 1,499 INR.", "items": ["B"], "expected": []},
+    {"id": "h27", "text": "The sale on Banarasi silk is on.", "items": ["A"], "expected": [["discount", "sale"]]},
+    {"id": "h28", "text": "Buy 2 get 1 free on this one.", "items": ["A"], "expected": [["discount", "Buy 2 get 1 free"]]},
+    {"id": "h29", "text": "Here are 3 pieces from Myntra.", "items": ["A"], "expected": []},
+    {"id": "h30", "text": "Pair it with juttis in size 7.", "items": ["A"], "expected": [["size", "7"]]},
+    {"id": "h31", "text": "This will arrive in 2 days.", "items": ["A"], "expected": [["delivery", "arrive"], ["delivery", "2 days"]]}
+  ]
+}
