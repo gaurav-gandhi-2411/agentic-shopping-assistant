@@ -636,7 +636,7 @@ bash scripts/ops/setup_deploy_iam.sh             # creates SA, bindings, pool+pr
 ```
 
 The script is idempotent. It activates nothing destructive: the Artifact Registry cleanup policy
-(`scripts/ops/ar_cleanup_policy.json`, keep newest 3, delete the rest older than 1 day) is applied
+(`scripts/ops/ar_cleanup_policy.json`, keep newest 2, delete the rest older than 1 day) is applied
 with `--dry-run`; the command to switch it on is printed at the end.
 
 **Unverified until the first real deploy:** the deployer gets `roles/run.developer` scoped to the

@@ -5,8 +5,8 @@
     "condition": {"tagState": "any", "olderThan": "1d"}
   },
   {
-    "name": "keep-newest-3",
+    "name": "keep-newest-2",
     "action": {"type": "Keep"},
-    "mostRecentVersions": {"keepCount": 3}
+    "mostRecentVersions": {"keepCount": 2}
   }
 ]
