@@ -6,10 +6,13 @@ import os
 import re
 import time
 import uuid
-from typing import Callable, Iterator, Protocol
+from typing import TYPE_CHECKING, Callable, Iterator, Protocol, cast
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
+
+if TYPE_CHECKING:
+    from groq.types.chat import ChatCompletionChunk
 
 logger = logging.getLogger(__name__)
 
@@ -409,7 +412,10 @@ class GroqClient:
                 **self._reasoning_kwargs(),
             )
             finish_reason = None
-            for chunk in stream:
+            # Splatting **self._reasoning_kwargs() defeats the SDK's stream=True overload, so
+            # mypy sees the iterable as `tuple | ChatCompletionChunk`; at runtime it is always
+            # a Stream[ChatCompletionChunk]. Typing-only: no behaviour change.
+            for chunk in cast("Iterator[ChatCompletionChunk]", stream):
                 if chunk.choices:
                     content = chunk.choices[0].delta.content
                     if getattr(chunk.choices[0], "finish_reason", None):
