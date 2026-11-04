@@ -95,11 +95,6 @@ spec:
             secretKeyRef:
               name: asa-supabase-url
               key: "latest"
-        - name: OPENROUTER_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: asa-openrouter-api-key
-              key: "latest"
       serviceAccountName: 631709154646-compute@developer.gserviceaccount.com
       timeoutSeconds: 300
   # IMPORTANT: traffic must always pin to an explicit revisionName, never latestRevision: true.

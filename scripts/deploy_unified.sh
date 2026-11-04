@@ -71,12 +71,9 @@ LOCAL_CLIP_DIR="$(git rev-parse --show-toplevel)/data/processed/clip/unified"
 # secrets fresh in stylemaitri-prod-260813, where each currently has exactly
 # one version (verified via `gcloud secrets versions list`). Using ":latest"
 # instead of a hardcoded version number avoids this exact class of staleness
-# recurring on the next secret rotation. OPENROUTER_API_KEY was
-# added: it was already wired into the live revision's env
-# (`gcloud run services describe`) but was missing from this script entirely
-# — a deploy through this script would have silently dropped it from
-# production. (The third-tier fallback secret was removed in W7; see DEPLOY.md.)
-SECRETS="GROQ_API_KEY=asa-groq-api-key:latest,DEMO_JWT_SECRET=asa-demo-jwt-secret:latest,DATABASE_URL=asa-database-url:latest,SUPABASE_URL=asa-supabase-url:latest,OPENROUTER_API_KEY=asa-openrouter-api-key:latest"
+# recurring on the next secret rotation. No non-Groq LLM secret is wired in:
+# both extra fallback tiers were removed; see DEPLOY.md "OpenRouter removed".
+SECRETS="GROQ_API_KEY=asa-groq-api-key:latest,DEMO_JWT_SECRET=asa-demo-jwt-secret:latest,DATABASE_URL=asa-database-url:latest,SUPABASE_URL=asa-supabase-url:latest"
 
 # ---------------------------------------------------------------------------
 # Step 1: Upload rebuilt index to GCS (ALWAYS overwrite — never use --no-clobber)
