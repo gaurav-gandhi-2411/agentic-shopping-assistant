@@ -333,16 +333,6 @@ jobs:
       - name: Pin live and prev image tags (after a fully successful deploy)
         id: pin_images
         if: success() && steps.fresh.outputs.stale == 'false' && steps.minscale.outcome == 'success'
-        run: |
-          pin() {  # $1 = revision JSON file, $2 = tag name
-            IMG=$(jq -r '.spec.containers[0].image' "$1")
-            DIGEST=$(jq -r '.status.imageDigest // empty' "$1")
-            [ -n "$DIGEST" ] || DIGEST=$(printf '%s' "$IMG" | sed -nE 's/.*@(sha256:[0-9a-f]+)$/\1/p')
-            [ -n "$DIGEST" ] || { echo "::error::cannot resolve an image digest for $1 ($IMG)"; exit 1; }
-            BASE=$(printf '%s' "$IMG" | sed -E 's/@.*//; s#(/[^/:]+):[^/]*$#\1#')
-            echo "tag ${BASE}:$2 -> ${DIGEST}"
-            # 'tags add' moves an existing tag and is a no-op if it already points there.
-            gcloud artifacts docker tags add "${BASE}@${DIGEST}" "${BASE}:$2" --project "$GCP_PROJECT"
-          }
-          pin rev-new.json live
-          pin rev-prev.json prev
+        # Logic (digest normalisation, 'tags add' argv) lives in a tested script; 'tags add' moves an
+        # existing tag and is a no-op if it already points there.
+        run: python3 scripts/ops/pin_images.py rev-new.json rev-prev.json
