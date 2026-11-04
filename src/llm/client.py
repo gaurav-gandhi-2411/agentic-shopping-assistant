@@ -6,10 +6,13 @@ import os
 import re
 import time
 import uuid
-from typing import Callable, Iterator, Protocol
+from typing import TYPE_CHECKING, Callable, Iterator, Protocol, cast
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
+
+if TYPE_CHECKING:
+    from groq.types.chat import ChatCompletionChunk
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +165,12 @@ class GroqClient:
         self._client = _groq_lib.Groq(
             api_key=api_key, timeout=llm_cfg.get("timeout_seconds", 60)
         )
+        # gpt-oss models are reasoning models: hidden reasoning tokens count against
+        # max_tokens, so at the default effort a ~400-token budget can be fully spent
+        # before any content is emitted (empty reply, finish_reason=length).
+        self._reasoning_effort = llm_cfg.get("groq_reasoning_effort")
+        # finish_reason of the most recent call (diagnostics only; not per-request safe).
+        self.last_finish_reason: str | None = None
         self.cost_reporter: Callable[[float], None] | None = None
         # Lazy fallback chain for TPD (daily quota) exhaustion — see
         # _iter_fallback_tiers(). Config is retained (not the clients
@@ -173,6 +182,12 @@ class GroqClient:
         self._openrouter_unavailable = False
         self._gemini_client = None
         self._gemini_unavailable = False
+
+    def _reasoning_kwargs(self) -> dict:
+        """reasoning_effort kwarg for gpt-oss models only (other models reject it)."""
+        if self._reasoning_effort and self.model.startswith("openai/gpt-oss"):
+            return {"reasoning_effort": self._reasoning_effort}
+        return {}
 
     def _get_openrouter_fallback(self) -> "object | None":
         """Return a lazily-constructed OpenRouterClient, or None if unavailable.
@@ -260,6 +275,7 @@ class GroqClient:
                     messages=messages,
                     temperature=temperature if temperature is not None else self.default_temperature,
                     max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                    **self._reasoning_kwargs(),
                 )
                 usage = resp.usage
                 input_tokens = usage.prompt_tokens if usage else 0
@@ -285,7 +301,20 @@ class GroqClient:
                 )
                 if self.cost_reporter is not None:
                     self.cost_reporter(cost)
-                return resp.choices[0].message.content
+                content = resp.choices[0].message.content
+                self.last_finish_reason = getattr(resp.choices[0], "finish_reason", None)
+                if not content or not content.strip():
+                    logger.warning(
+                        json.dumps({
+                            "event": "llm_empty_content",
+                            "provider": "groq",
+                            "model": self.model,
+                            "finish_reason": self.last_finish_reason,
+                            "output_tokens": output_tokens,
+                            "turn_id": turn_id,
+                        })
+                    )
+                return content
             except Exception as exc:
                 attempt += 1
                 exc_str = str(exc)
@@ -380,10 +409,17 @@ class GroqClient:
                 # stream_options is not in the groq SDK's TypedDict; pass via extra_body
                 # so the API returns a usage chunk at the end for cost tracking.
                 extra_body={"stream_options": {"include_usage": True}},
+                **self._reasoning_kwargs(),
             )
-            for chunk in stream:
+            finish_reason = None
+            # Splatting **self._reasoning_kwargs() defeats the SDK's stream=True overload, so
+            # mypy sees the iterable as `tuple | ChatCompletionChunk`; at runtime it is always
+            # a Stream[ChatCompletionChunk]. Typing-only: no behaviour change.
+            for chunk in cast("Iterator[ChatCompletionChunk]", stream):
                 if chunk.choices:
                     content = chunk.choices[0].delta.content
+                    if getattr(chunk.choices[0], "finish_reason", None):
+                        finish_reason = chunk.choices[0].finish_reason
                     if content:
                         yielded_any = True
                         yield content
@@ -392,6 +428,18 @@ class GroqClient:
                     output_tokens = chunk.usage.completion_tokens or 0
                     if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
                         cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", 0) or 0
+            self.last_finish_reason = finish_reason
+            if not yielded_any:
+                logger.warning(
+                    json.dumps({
+                        "event": "llm_empty_content",
+                        "provider": "groq",
+                        "model": self.model,
+                        "finish_reason": finish_reason,
+                        "output_tokens": output_tokens,
+                        "turn_id": turn_id,
+                    })
+                )
         except Exception as exc:
             exc_str = str(exc)
             # Only fall back if nothing has streamed to the client yet — Groq's
