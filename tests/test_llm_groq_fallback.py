@@ -1,15 +1,12 @@
 """
-GroqClient -> OpenRouter -> Gemini automatic fallback chain on TPD (daily
-quota) exhaustion.
+GroqClient -> OpenRouter automatic fallback chain on TPD (daily quota)
+exhaustion.
 
-All Groq/OpenRouter/Gemini SDK calls are mocked — no live API calls, no
-network. Covers the 2026-07-29/30 incident: Groq's TPD retry-and-wait loop
-caused multi-minute hangs that the WS turn-deadline had to cut off. The fix
-falls over to OpenRouter immediately instead of waiting on the same exhausted
-provider. Gemini was added 2026-07-31 as a second fallback tier, and as a
-safety net for OpenRouter's free reasoning model (gpt-oss-20b:free)
-returning empty content when max_tokens is too tight for it to finish its
-hidden reasoning.
+All Groq/OpenRouter SDK calls are mocked — no live API calls, no network.
+Covers the 2026-07-29/30 incident: Groq's TPD retry-and-wait loop caused
+multi-minute hangs that the WS turn-deadline had to cut off. The fix falls
+over to OpenRouter immediately instead of waiting on the same exhausted
+provider. (A Gemini tier existed 2026-07-31..W7 and was removed.)
 """
 from __future__ import annotations
 
@@ -48,7 +45,6 @@ def _config(with_openrouter_key: bool = True) -> dict:
             "timeout_seconds": 60,
             "groq_model": "llama-3.1-8b-instant",
             "openrouter_model": "openai/gpt-oss-20b:free",
-            "gemini_model": "gemini-2.5-flash",
         }
     }
 
@@ -69,10 +65,9 @@ def _fake_groq_stream_chunk(content: str | None, usage=None):
 
 @pytest.fixture
 def groq_env(monkeypatch):
-    """Full chain configured: Groq, OpenRouter, and Gemini all have keys."""
+    """Full chain configured: Groq and OpenRouter both have keys."""
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
 
 
 @pytest.fixture
@@ -81,16 +76,6 @@ def groq_env_no_openrouter(monkeypatch):
     wait-and-retry path (zero fallback tiers available)."""
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-
-
-@pytest.fixture
-def groq_env_no_gemini(monkeypatch):
-    """OpenRouter configured, Gemini not — used to exercise "chain
-    configured but every tier fails" falling through to legacy retry."""
-    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
 def _patch_groq_sdk(monkeypatch, create_side_effect):
@@ -113,49 +98,6 @@ def _patch_openrouter_sdk(monkeypatch, create_return=None, create_side_effect=No
         "openai.OpenAI", lambda api_key, base_url, timeout: fake_openai_client
     )
     return mock_create
-
-
-def _fake_gemini_response(text, prompt_tokens=10, candidates_tokens=5, cached_tokens=0):
-    return SimpleNamespace(
-        text=text,
-        usage_metadata=SimpleNamespace(
-            prompt_token_count=prompt_tokens,
-            candidates_token_count=candidates_tokens,
-            cached_content_token_count=cached_tokens,
-        ),
-    )
-
-
-def _fake_gemini_stream_chunk(text, prompt_tokens=None, candidates_tokens=None):
-    usage = None
-    if prompt_tokens is not None:
-        usage = SimpleNamespace(
-            prompt_token_count=prompt_tokens,
-            candidates_token_count=candidates_tokens,
-            cached_content_token_count=0,
-        )
-    return SimpleNamespace(text=text, usage_metadata=usage)
-
-
-def _patch_gemini_sdk(
-    monkeypatch,
-    generate_content_return=None,
-    generate_content_side_effect=None,
-    stream_return=None,
-):
-    # No history in these tests' single-user-message fixtures, so
-    # GeminiClient.chat()/chat_stream() always take the no-history branch
-    # (models.generate_content / models.generate_content_stream) — see
-    # src/llm/gemini_client.py::_split_messages.
-    mock_generate = MagicMock(
-        return_value=generate_content_return, side_effect=generate_content_side_effect
-    )
-    mock_stream = MagicMock(return_value=stream_return)
-    fake_gemini_client = SimpleNamespace(
-        models=SimpleNamespace(generate_content=mock_generate, generate_content_stream=mock_stream)
-    )
-    monkeypatch.setattr("google.genai.Client", lambda **kwargs: fake_gemini_client)
-    return mock_generate, mock_stream
 
 
 def test_chat_falls_back_to_openrouter_on_tpd_exhaustion(monkeypatch, groq_env):
@@ -206,71 +148,34 @@ def test_chat_no_fallback_configured_returns_busy_message_not_a_wait(
     assert not slept
 
 
-def test_chat_falls_through_to_gemini_when_openrouter_fails(monkeypatch, groq_env):
-    _patch_groq_sdk(monkeypatch, create_side_effect=Exception(TPD_ERROR))
-    mock_openrouter = _patch_openrouter_sdk(
-        monkeypatch, create_side_effect=Exception("401 User not found.")
-    )
-    mock_gemini, _ = _patch_gemini_sdk(
-        monkeypatch, generate_content_return=_fake_gemini_response("gemini response")
-    )
-    monkeypatch.setattr("time.sleep", lambda _s: None)
-
-    client = GroqClient(_config())
-    result = client.chat([{"role": "user", "content": "hi"}])
-
-    assert result == "gemini response"
-    # Prove the chain was actually walked, not just that some response came
-    # back from an unverified tier. As a fallback tier OpenRouterClient runs
-    # bounded (single attempt, no backoff sleeps), so exactly 1 call.
-    assert mock_openrouter.call_count == 1
-    assert mock_gemini.call_count == 1
-
-
-def test_chat_falls_through_to_gemini_when_openrouter_returns_empty(monkeypatch, groq_env):
+def test_chat_openrouter_empty_content_is_a_failed_tier(monkeypatch, groq_env):
     """OpenRouter's free reasoning model (gpt-oss-20b:free) can burn its whole
-    max_tokens budget on hidden reasoning and return content: None — this
-    must advance to the next tier, not be treated as a successful (blank)
-    response."""
+    max_tokens budget on hidden reasoning and return content: None — that must
+    count as a failed tier (busy message, chain exhausted), not as a successful
+    blank response."""
     _patch_groq_sdk(monkeypatch, create_side_effect=Exception(TPD_ERROR))
     mock_openrouter = _patch_openrouter_sdk(
         monkeypatch, create_return=_fake_groq_completion(None)
     )
-    mock_gemini, _ = _patch_gemini_sdk(
-        monkeypatch, generate_content_return=_fake_gemini_response("gemini response")
-    )
 
     client = GroqClient(_config())
     result = client.chat([{"role": "user", "content": "hi"}])
 
-    assert result == "gemini response"
+    assert result == LLM_BUSY_MESSAGE
     assert mock_openrouter.call_count == 1
-    assert mock_gemini.call_count == 1
 
 
-def test_chat_stream_falls_through_to_gemini_when_openrouter_fails(monkeypatch, groq_env):
+def test_fallback_tiers_are_openrouter_only(monkeypatch, groq_env):
     _patch_groq_sdk(monkeypatch, create_side_effect=Exception(TPD_ERROR))
-    mock_openrouter = _patch_openrouter_sdk(
-        monkeypatch, create_side_effect=Exception("401 User not found.")
-    )
-    gemini_chunks = [
-        _fake_gemini_stream_chunk("gem"),
-        _fake_gemini_stream_chunk("ini", prompt_tokens=9, candidates_tokens=3),
-    ]
-    mock_generate, mock_stream = _patch_gemini_sdk(
-        monkeypatch, stream_return=iter(gemini_chunks)
-    )
+    _patch_openrouter_sdk(monkeypatch, create_return=_fake_groq_completion("x"))
 
     client = GroqClient(_config())
-    chunks = list(client.chat_stream([{"role": "user", "content": "hi"}]))
 
-    assert "".join(chunks) == "gemini"
-    assert mock_openrouter.call_count == 1
-    assert mock_stream.call_count == 1
+    assert [name for name, _ in client._iter_fallback_tiers()] == ["openrouter"]
 
 
-def test_chat_all_tiers_fail_returns_busy_message(monkeypatch, groq_env_no_gemini):
-    """OpenRouter configured but failing, Gemini not configured: the chain ends in
+def test_chat_all_tiers_fail_returns_busy_message(monkeypatch, groq_env):
+    """OpenRouter configured but failing: the chain ends in
     the busy message (previously fell into the legacy wait-and-retry loop)."""
     _patch_groq_sdk(monkeypatch, create_side_effect=Exception(TPD_ERROR))
     mock_openrouter = _patch_openrouter_sdk(
@@ -295,6 +200,3 @@ def test_get_fallback_caches_unavailable_result(monkeypatch, groq_env_no_openrou
     # Second call must not re-attempt construction (would raise again if it did,
     # but more importantly this asserts the sticky-cache behaviour directly).
     assert client._get_openrouter_fallback() is None
-    # Gemini is likewise unconfigured under this fixture.
-    assert client._get_gemini_fallback() is None
-    assert client._gemini_unavailable is True

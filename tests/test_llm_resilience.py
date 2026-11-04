@@ -56,7 +56,7 @@ def _config(**llm: Any) -> dict:
     cfg = {
         "provider": "groq", "temperature": 0.2, "max_tokens": 400, "timeout_seconds": 60,
         "groq_model": "m1", "groq_fallback_models": ["m2"],
-        "openrouter_model": "or-model", "gemini_model": "gem",
+        "openrouter_model": "or-model",
     }
     cfg.update(llm)
     return {"llm": cfg}
@@ -67,7 +67,6 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """No external tiers by default; time.sleep recorded instead of slept."""
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     slept: list[float] = []
     monkeypatch.setattr("time.sleep", slept.append)
     return slept
@@ -288,25 +287,17 @@ def test_empty_choices_everywhere_returns_busy_message(monkeypatch):
 
 # ------------------------- B2: fallback tiers are bounded (no 90 s deadline blowout)
 
-def _gemini_failing(monkeypatch: pytest.MonkeyPatch, exc: Exception) -> MagicMock:
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    gen = MagicMock(side_effect=exc)
-    fake = SimpleNamespace(models=SimpleNamespace(generate_content=gen, generate_content_stream=gen))
-    monkeypatch.setattr("google.genai.Client", lambda **kw: fake)
-    return gen
-
 
 def test_every_tier_rate_limited_ends_fast_with_busy_message(monkeypatch, _env):
-    """Groq 429 x2 on every model, OpenRouter 429, Gemini 429: the unbounded
+    """Groq 429 x2 on every model, OpenRouter 429: the unbounded
     OpenRouter loop used to sleep up to 10 x ~65 s here."""
     rl = lambda: FakeAPIError(429, "tokens per minute", {"retry-after": "3"})  # noqa: E731
     _sdk(monkeypatch, {"m1": [rl(), rl()], "m2": [rl(), rl()]})
     or_create = _openrouter(monkeypatch, side_effect=rl())
-    gem = _gemini_failing(monkeypatch, rl())
     t0 = time.monotonic()
     assert GroqClient(_config()).chat(MSGS) == LLM_BUSY_MESSAGE
     assert time.monotonic() - t0 < 5
-    assert or_create.call_count == 1 and gem.call_count == 1  # no retries in fallback tiers
+    assert or_create.call_count == 1  # no retries in fallback tiers
     assert sum(_env) < 15 and max(_env) < 10  # only the Groq 1-retry waits, no 65 s sleeps
 
 
@@ -314,7 +305,6 @@ def test_every_tier_rate_limited_stream_ends_with_busy_message(monkeypatch):
     rl = lambda: FakeAPIError(429, "tokens per minute")  # noqa: E731
     _sdk(monkeypatch, {"m1": [rl(), rl()], "m2": [rl(), rl()]})
     _openrouter(monkeypatch, side_effect=rl())
-    _gemini_failing(monkeypatch, rl())
     assert list(GroqClient(_config()).chat_stream(MSGS)) == [LLM_BUSY_MESSAGE]
 
 
@@ -435,14 +425,3 @@ def test_run_bounded_releases_slot_when_thread_cannot_start(monkeypatch):
     monkeypatch.setattr(threading.Thread, "start", real_start)
     assert c.run_bounded(lambda: "later call reaches the tier", 1) == "later call reaches the tier"
 
-
-def test_gemini_timeout_keeps_subsecond_budgets(monkeypatch):
-    from src.llm.gemini_client import GeminiClient
-
-    seen = []
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    monkeypatch.setattr("google.genai.types.HttpOptions", lambda timeout: seen.append(timeout))
-    monkeypatch.setattr("google.genai.Client", lambda **kw: SimpleNamespace())
-    GeminiClient(_config(timeout_seconds=0.5))
-    GeminiClient(_config(timeout_seconds=8))
-    assert seen == [500, 8000]

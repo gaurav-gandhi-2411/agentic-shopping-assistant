@@ -45,7 +45,7 @@ def _config(**llm: Any) -> dict:
     cfg = {
         "provider": "groq", "temperature": 0.2, "max_tokens": 400, "timeout_seconds": 60,
         "groq_model": "m1", "groq_fallback_models": ["m2", "m3"],
-        "openrouter_model": "or", "gemini_model": "gem",
+        "openrouter_model": "or",
     }
     cfg.update(llm)
     return {"llm": cfg}
@@ -55,7 +55,6 @@ def _config(**llm: Any) -> dict:
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
 

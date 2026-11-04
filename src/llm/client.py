@@ -265,8 +265,8 @@ class GroqClient:
         # calls), and the longest Retry-After we are willing to sleep through.
         self._chain_budget_s = float(llm_cfg.get("groq_chain_budget_seconds", 30))
         self._retry_wait_cap_s = float(llm_cfg.get("groq_retry_wait_cap_seconds", 8))
-        # Hard cap per OpenRouter/Gemini fallback call (no rate-limit sleeps either):
-        # two tiers + the Groq budget must stay well inside the 90 s WS deadline.
+        # Hard cap per OpenRouter fallback call (no rate-limit sleeps either):
+        # the Groq budget + this cap must stay well inside the 90 s WS deadline.
         self._fallback_tier_s = float(llm_cfg.get("fallback_tier_budget_seconds", 8))
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
@@ -294,8 +294,6 @@ class GroqClient:
         self._config = config
         self._openrouter_client = None
         self._openrouter_unavailable = False
-        self._gemini_client = None
-        self._gemini_unavailable = False
 
     def _fallback_config(self) -> dict:
         """Config copy for fallback-tier clients: SDK request timeout = the tier
@@ -315,11 +313,9 @@ class GroqClient:
         `_openrouter_unavailable` so a dead fallback doesn't add per-call retry
         overhead — see 2026-07-30 finding that the OpenRouter key was dead.
 
-        First tier of the fallback chain — see _iter_fallback_tiers(). Gemini
-        (_get_gemini_fallback) was added 2026-07-31 as a second tier once
-        OpenRouter's free-tier model (a reasoning model) was found to
-        sometimes return empty content when max_tokens is too tight for it
-        to finish its hidden reasoning.
+        Only tier of the fallback chain after the Groq models — see
+        _iter_fallback_tiers(). (A Gemini tier existed 2026-07-31..2026-11; removed
+        in W7 once the Groq model chain replaced its extra free capacity.)
         """
         if self._openrouter_unavailable:
             return None
@@ -334,35 +330,11 @@ class GroqClient:
                 return None
         return self._openrouter_client
 
-    def _get_gemini_fallback(self) -> "object | None":
-        """Return a lazily-constructed GeminiClient, or None if unavailable.
-
-        Second tier of the fallback chain, tried only when OpenRouter is
-        itself unavailable or its call fails/returns empty — see
-        _iter_fallback_tiers(). Same lazy-construct-and-cache pattern as
-        _get_openrouter_fallback (construction failure cached in
-        `_gemini_unavailable` so a dead/missing key isn't retried every call).
-        """
-        if self._gemini_unavailable:
-            return None
-        if self._gemini_client is None:
-            try:
-                from src.llm.gemini_client import GeminiClient
-                self._gemini_client = GeminiClient(self._fallback_config())
-                self._gemini_client.cost_reporter = self.cost_reporter
-            except Exception as exc:
-                logger.error("[groq] Gemini fallback unavailable: %r", exc)
-                self._gemini_unavailable = True
-                return None
-        return self._gemini_client
-
     def _iter_fallback_tiers(self):
         """Yield (provider_name, client) for each fallback tier that
-        successfully constructs, in priority order (OpenRouter first,
-        Gemini second)."""
+        successfully constructs, in priority order (OpenRouter is the only one today)."""
         for name, getter in (
             ("openrouter", self._get_openrouter_fallback),
-            ("gemini", self._get_gemini_fallback),
         ):
             client = getter()
             if client is not None:
@@ -487,7 +459,7 @@ class GroqClient:
         self, messages: list[dict], temperature: float | None, max_tokens: int | None,
         turn_id: str, *, accept_empty: bool = False,
     ) -> "tuple[str, str] | None":
-        """Walk the OpenRouter -> Gemini tiers. Returns (tier_name, text) or None."""
+        """Walk the OpenRouter fallback tier. Returns (tier_name, text) or None."""
         tried: list[str] = []
         for name, fb_client in self._iter_fallback_tiers():
             tried.append(name)
@@ -502,8 +474,8 @@ class GroqClient:
                 logger.warning("[groq->%s fallback] failed: %r, trying next tier", name, fb_exc)
                 continue
             # Empty/None content is not an exception on either provider (OpenRouter's
-            # free reasoning model can burn max_tokens on hidden reasoning; Gemini
-            # returns empty on safety-filtered output): treat as a failed tier.
+            # free reasoning model can burn max_tokens on hidden reasoning):
+            # treat as a failed tier.
             if (not result or not result.strip()) and not accept_empty:
                 logger.warning("[groq->%s fallback] returned empty response, trying next tier", name)
                 continue
@@ -521,7 +493,7 @@ class GroqClient:
         max_tokens: int = None,
     ) -> str:
         """Groq models in order (each: attempt + one backoff retry) -> OpenRouter ->
-        Gemini -> LLM_BUSY_MESSAGE. Never returns empty and never waits unboundedly:
+        LLM_BUSY_MESSAGE. Never returns empty and never waits unboundedly:
         the Groq portion stops starting new attempts after groq_chain_budget_seconds
         (the WS turn deadline is 90s, api/routes/chat.py)."""
         turn_id = str(uuid.uuid4())
@@ -721,10 +693,7 @@ def get_llm_client(config: dict) -> "OllamaClient | GroqClient":
         return OllamaClient(config)
     if provider == "groq":
         return GroqClient(config)
-    if provider == "gemini":
-        from src.llm.gemini_client import GeminiClient
-        return GeminiClient(config)
     if provider == "openrouter":
         from src.llm.openrouter_client import OpenRouterClient
         return OpenRouterClient(config)
-    raise NotImplementedError(f"Unknown LLM provider: {provider!r}. Supported: ollama, groq, gemini, openrouter")
+    raise NotImplementedError(f"Unknown LLM provider: {provider!r}. Supported: ollama, groq, openrouter")

@@ -95,11 +95,6 @@ spec:
             secretKeyRef:
               name: asa-supabase-url
               key: "latest"
-        - name: GEMINI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: asa-gemini-api-key
-              key: "latest"
         - name: OPENROUTER_API_KEY
           valueFrom:
             secretKeyRef:
