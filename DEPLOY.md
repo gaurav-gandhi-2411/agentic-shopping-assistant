@@ -211,7 +211,30 @@ revision, so it will not remove it either).** In this order, nothing skipped:
 3. Only then disable, and later destroy, the secret version(s) of `asa-gemini-api-key`.
    Disabling or destroying earlier would break any revision that still mounts it.
 
-Every fallthrough is logged as a structured event — `{"event": "llm_fallback_served",
+**OpenRouter removed (post-W7).** The chain is now Groq models (`llm.groq_model`, then
+`llm.groq_fallback_models`) -> busy message; `GroqClient._iter_fallback_tiers()` and its
+bounded-thread machinery are gone. Why (all three had to hold to keep it in prod, and (c)
+is unknown): (a) config names `openai/gpt-oss-20b:free` but nothing enforces the `:free`
+suffix; (b) the validity of secret `asa-openrouter-api-key` is unproven (a 2026-07-30 note
+found it dead, 401; the 2026-07-31 rotation below was not re-verified); (c) whether the
+OpenRouter account can incur charges is UNKNOWN. `OpenRouterClient` and
+`LLM_PROVIDER=openrouter` stay as a local-dev PRIMARY provider only. Re-enabling it as a
+fallback later requires proving, first: `:free`-only enforcement, key validity, and a
+no-charge account.
+
+**OpenRouter post-merge ops order (NOT yet run; one approved step).** The live service still
+references both secrets; removing them from `deploy/service.yaml` does not change a running
+revision. In this order, nothing skipped:
+
+1. `gcloud run services update asa-stylist-api --region=<region> --project=<project> --remove-secrets=GEMINI_API_KEY,OPENROUTER_API_KEY`
+2. Confirm the SERVING revision (`status.traffic`, not `latestReadyRevisionName`) has neither:
+   `gcloud run revisions describe <serving-revision> --format=json | grep -i -e gemini -e openrouter`
+   must be empty.
+3. Only then disable BOTH secret versions (`asa-gemini-api-key`, `asa-openrouter-api-key`).
+   Worst-case per-call latency is now the 30 s Groq chain budget plus one 20 s attempt in
+   flight = 50 s (config-derived, not measured live); there is no 8 s OpenRouter tier.
+
+Historical (pre-removal) fallthrough event — `{"event": "llm_fallback_served",
 "from_provider": "groq", "to_provider": "openrouter", "reason": "tpd_exhausted"}` —
 so degraded-mode traffic is visible in Cloud Logging (`jsonPayload.msg:"llm_fallback_served"`)
 instead of only discoverable via user complaints. Full chain exhaustion logs

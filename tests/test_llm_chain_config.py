@@ -37,7 +37,14 @@ def test_every_groq_chain_model_has_a_cost_rate() -> None:
     assert missing == []
 
 
-def test_only_remaining_non_groq_tier_is_openrouter_and_priced() -> None:
+def test_no_gemini_key_and_no_fallback_tier_budget_in_config() -> None:
     cfg = _llm_cfg()
-    assert cfg["openrouter_model"] in CONSTANTS
     assert not [k for k in cfg if "gemini" in k.lower()]
+    # The per-fallback-tier budget belonged to the removed OpenRouter tier.
+    assert "fallback_tier_budget_seconds" not in cfg
+
+
+def test_openrouter_model_key_is_local_dev_primary_only_and_priced() -> None:
+    # Kept for LLM_PROVIDER=openrouter (local dev); must stay priced so a swap to a
+    # paid model cannot silently report $0.
+    assert _llm_cfg()["openrouter_model"] in CONSTANTS
