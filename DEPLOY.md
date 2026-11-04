@@ -190,8 +190,9 @@ tier/model that answered and marks `FALLBACK` when it was not the primary.
 
 **W7 (2026-11): the Gemini tier and `google-genai` were removed.** The chain is now Groq
 models (`llm.groq_model`, then `llm.groq_fallback_models`) -> OpenRouter -> busy message.
-Reason: Gemini was only ever the third-tier fallback, Cloud Run logs showed 0 lines mentioning
-it in 30 days, the Generative Language API is not enabled in `stylemaitri-prod-260813`, and
+Reason: Gemini was only ever the third-tier fallback (the claims that Cloud Run logs show 0
+Gemini lines in 30 days and that the Generative Language API is not enabled in
+`stylemaitri-prod-260813` come from the architect review and were NOT re-verified here), and
 its job (extra free capacity once Groq runs out) is covered by the Groq model chain, each
 model with its own free quota. `LLM_PROVIDER=gemini` is now an error. Past Gemini
 measurements in this file are kept as history.

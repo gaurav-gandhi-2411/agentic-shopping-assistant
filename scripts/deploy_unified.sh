@@ -75,7 +75,7 @@ LOCAL_CLIP_DIR="$(git rev-parse --show-toplevel)/data/processed/clip/unified"
 # added: it was already wired into the live revision's env
 # (`gcloud run services describe`) but was missing from this script entirely
 # — a deploy through this script would have silently dropped it from
-# production. (GEMINI_API_KEY was removed in W7 with the Gemini tier.)
+# production. (The third-tier fallback secret was removed in W7; see DEPLOY.md.)
 SECRETS="GROQ_API_KEY=asa-groq-api-key:latest,DEMO_JWT_SECRET=asa-demo-jwt-secret:latest,DATABASE_URL=asa-database-url:latest,SUPABASE_URL=asa-supabase-url:latest,OPENROUTER_API_KEY=asa-openrouter-api-key:latest"
 
 # ---------------------------------------------------------------------------
