@@ -45,7 +45,7 @@ def _config(**llm: Any) -> dict:
     cfg = {
         "provider": "groq", "temperature": 0.2, "max_tokens": 400, "timeout_seconds": 60,
         "groq_model": "m1", "groq_fallback_models": ["m2", "m3"],
-        "openrouter_model": "or", "gemini_model": "gem",
+        "openrouter_model": "or",
     }
     cfg.update(llm)
     return {"llm": cfg}
@@ -55,7 +55,6 @@ def _config(**llm: Any) -> dict:
 def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
 
@@ -140,13 +139,14 @@ def test_probe_reports_fallback_model_when_primary_fails(monkeypatch):
     assert res["model"] == "m2" and create.call_count == 2  # no retry sleeps in a probe
 
 
-def test_probe_reports_openrouter_tier_when_all_groq_models_fail(monkeypatch):
+def test_probe_never_uses_openrouter_when_all_groq_models_fail(monkeypatch):
     _sdk(monkeypatch, create=MagicMock(side_effect=FakeAPIError(500, "x")))
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    or_create = MagicMock(return_value=_completion("p"))
-    fake_or = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=or_create)))
-    monkeypatch.setattr("openai.OpenAI", lambda api_key, base_url, timeout: fake_or)
-    assert GroqClient(_config()).probe()["tier"] == "openrouter"
+    boom = MagicMock(side_effect=AssertionError("OpenRouter must not be consulted"))
+    monkeypatch.setattr("openai.OpenAI", boom)
+    with pytest.raises(RuntimeError, match="all LLM tiers failed"):
+        GroqClient(_config()).probe()
+    boom.assert_not_called()
 
 
 def test_probe_raises_when_whole_chain_fails(monkeypatch):
