@@ -55,3 +55,12 @@ ignore = ["E501"]
 python_version = "3.11"
 ignore_missing_imports = true
 warn_return_any = false
+# Without these, `mypy .` aborted ("Source file found twice under different module names:
+# eval_harness and scripts.eval_harness") before checking anything: scripts/ has no
+# __init__.py yet is imported as `scripts.*`. explicit_package_bases resolves module names
+# from the repo root so both spellings agree.
+explicit_package_bases = true
+mypy_path = "."
+# Production + operational code. tests/ is excluded for now (439 errors at introduction,
+# mostly fixture/mock typing); frontend, data and caches are not Python we ship.
+files = ["src", "api", "eval", "qa", "alembic", "spaces", "scripts"]
