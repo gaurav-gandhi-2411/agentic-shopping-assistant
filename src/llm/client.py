@@ -148,7 +148,7 @@ class GroqClient:
             raise ValueError("GROQ_API_KEY environment variable is not set")
 
         llm_cfg = config["llm"]
-        self.model = llm_cfg.get("groq_model", "llama-3.1-8b-instant")
+        self.model = llm_cfg.get("groq_model", "openai/gpt-oss-20b")
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         # Explicit per-request HTTP timeout, matching OllamaClient's existing

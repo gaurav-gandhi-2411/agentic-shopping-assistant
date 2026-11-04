@@ -22,6 +22,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; only the jobs that do WIF auth add id-token: write.
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -30,14 +34,14 @@ jobs:
       id-token: write   # required for WIF auth (google-github-actions/auth)
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
@@ -51,7 +55,7 @@ jobs:
         run: pip install pip-audit
 
       - name: Install lint/type-check tools
-        run: pip install ruff mypy
+        run: pip install ruff mypy==2.4.1
         # Neither is in requirements.txt (that's runtime deps only) — this step was
         # missing entirely, so "Lint (ruff)" has been hard-failing CI with
         # "ruff: command not found" since before this change; only ever worked
@@ -60,19 +64,59 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Type-check (mypy)
-        run: mypy .
-        continue-on-error: true
+      # Blocking ratchet: fails on any mypy error not in mypy-baseline.txt, and fails closed
+      # if mypy crashes or checks nothing. `mypy .` previously aborted on a duplicate-module
+      # error and was masked by continue-on-error, so it never type-checked anything.
+      - name: Type-check (mypy ratchet)
+        run: python scripts/mypy_ratchet.py
+
+      # Fail-closed WIF gate. Dependabot-triggered and fork PR runs receive no repo
+      # secrets and no id-token, so the GCP steps below cannot work there; those two
+      # contexts (and only those) may skip them. In every other context (push to
+      # master, PR from this repo's own branches, re-runs) a missing secret is a
+      # HARD FAILURE, so a misconfiguration can never silently drop the
+      # requires_index / eval coverage. Secrets can't be read in `if:`, so they are
+      # mapped to env. PR author / head repo are used rather than github.actor, which
+      # changes when a human re-runs a Dependabot run. Event values go via env, never
+      # interpolated into the script body.
+      - name: Check WIF availability (fail closed)
+        id: wif
+        env:
+          WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ] && { [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Index-dependent checks skipped::No WIF secrets (Dependabot/fork PR): requires_index tests were SKIPPED. This green run is NOT full coverage."
+            {
+              echo "### :warning: Reduced coverage (no secrets)"
+              echo "requires_index tests were skipped for lack of secrets (Dependabot/fork PR). A green check here is not full coverage."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::WIF_PROVIDER / WIF_SERVICE_ACCOUNT missing in a context that must have them (event=$EVENT_NAME). Failing closed."
+          exit 1
 
       - name: Authenticate to GCP (read-only, index bucket only)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
+        if: steps.wif.outputs.available == 'true'
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
+        if: steps.wif.outputs.available == 'true'
 
       - name: Download unified index (for requires_index tests)
+        if: steps.wif.outputs.available == 'true'
         run: |
           mkdir -p data/processed/unified data/processed/clip/unified
           gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
@@ -87,29 +131,18 @@ jobs:
 
       - name: Security audit (pip-audit)
         run: |
-          pip-audit -r requirements.txt \
-            --ignore-vuln PYSEC-2025-217 \
-            --ignore-vuln CVE-2026-1839 \
-            --ignore-vuln CVE-2026-4372 \
-            --ignore-vuln PYSEC-2026-2290
-          # All four are transformers CVEs (PYSEC-2026-2290 added 2026-08-06, a newly
-          # disclosed CVE fixed only in transformers>=5.5.0 -- same root cause as the
-          # other three, re-verified against the current pin, not assumed). transformers
-          # is a transitive dep of sentence-transformers==2.7.0, which pins
-          # transformers<5.0.0 — the patched versions (5.0.0rc3+/5.3.0/5.5.0) are hard-
-          # incompatible (pip's resolver confirms ResolutionImpossible from a clean
-          # install). Fixing these requires upgrading
-          # sentence-transformers to a 5.x-compatible release, which is a separate,
-          # deliberate migration (embedding output needs re-validating against the
-          # eval_gate thresholds) — not a drive-by version bump.
+          pip-audit -r requirements.txt
+          # No --ignore-vuln: the 4 transformers ignores that lived here were cleared by the
+          # sentence-transformers 2.7 -> 5.7 / transformers 5.10.4 migration (2026-11-02), and
+          # the newer advisories (PYSEC-2026-4164/-4240/-3929/-4174/-4146) by upgrades too.
 
   frontend:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -127,10 +160,10 @@ jobs:
       - name: Security audit (npm audit)
         run: cd frontend && npm audit --audit-level=high
         # BLOCKING (T2 gate — no continue-on-error). Threshold is high, not moderate:
-        # the one known finding today (GHSA-qx2v-qp2m-jg93, postcss XSS via
-        # next's bundled postcss<8.5.10) is moderate severity with no non-major fix
-        # available (`npm audit fix --force` would bump next across a major version).
-        # Re-evaluate this exception the next time next/postcss is upgraded.
+        # the remaining findings (2026-11-02: 18 moderate, 0 high/critical) are the
+        # eslint/@typescript-eslint/minimatch/glob dev-tooling chain, whose only fix
+        # (`npm audit fix --force`) is a breaking major downgrade of eslint /
+        # eslint-config-next / @sentry/nextjs. Re-evaluate when those majors move.
 
   eval:
     runs-on: ubuntu-latest
@@ -140,29 +173,68 @@ jobs:
       id-token: write   # required for WIF auth (google-github-actions/auth)
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Fail-closed WIF gate. Dependabot-triggered and fork PR runs receive no repo
+      # secrets and no id-token, so the GCP steps below cannot work there; those two
+      # contexts (and only those) may skip them. In every other context (push to
+      # master, PR from this repo's own branches, re-runs) a missing secret is a
+      # HARD FAILURE, so a misconfiguration can never silently drop the
+      # requires_index / eval coverage. Secrets can't be read in `if:`, so they are
+      # mapped to env. PR author / head repo are used rather than github.actor, which
+      # changes when a human re-runs a Dependabot run. Event values go via env, never
+      # interpolated into the script body.
+      - name: Check WIF availability (fail closed)
+        id: wif
+        env:
+          WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ] && { [ "$PR_AUTHOR" = "dependabot[bot]" ] || [ "$PR_HEAD_REPO" != "$THIS_REPO" ]; }; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Index-dependent checks skipped::No WIF secrets (Dependabot/fork PR): requires_index tests and the eval relevance gate were SKIPPED. This green run is NOT full coverage."
+            {
+              echo "### :warning: Reduced coverage (no secrets)"
+              echo "requires_index tests and the eval relevance gate were skipped for lack of secrets (Dependabot/fork PR). A green check here is not full coverage."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::WIF_PROVIDER / WIF_SERVICE_ACCOUNT missing in a context that must have them (event=$EVENT_NAME). Failing closed."
+          exit 1
+
       - name: Authenticate to GCP (read-only, index bucket only)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
+        if: steps.wif.outputs.available == 'true'
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
+        if: steps.wif.outputs.available == 'true'
 
       - name: Download unified index
+        if: steps.wif.outputs.available == 'true'
         run: |
           mkdir -p data/processed/unified
           gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
 
       - name: Relevance regression gate
+        if: steps.wif.outputs.available == 'true'
         run: python scripts/eval_gate.py --max-unlabeled 3
         # Deterministic (zero LLM calls: intent/r1/gates) + hand-audited strict gold
         # eval — see scripts/eval_gate.py for thresholds. Replaces the old
