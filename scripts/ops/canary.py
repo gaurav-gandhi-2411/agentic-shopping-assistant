@@ -382,14 +382,14 @@ def check_prices(cards: list[dict[str, Any]], refs: list[tuple[str, Any]]) -> tu
     failures: list[str] = []
     seen: dict[str, Any] = {}
     others: dict[str, list[Any]] = {}
-    for aid, price in refs:
-        others.setdefault(aid, []).append(price)
+    for ref_aid, ref_price in refs:  # distinct names: `aid` below is Any|None until narrowed
+        others.setdefault(ref_aid, []).append(ref_price)
     crosschecked = 0
     for idx, card in enumerate(cards):
         if card.get("is_owned"):
             continue
         aid = card.get("article_id")
-        price = card.get("price_inr")
+        price: Any = card.get("price_inr")  # validated by _is_price (numeric, finite, >0) below
         if not isinstance(aid, str) or not aid:
             failures.append(f"card[{idx}] has no article_id")
             continue
