@@ -22,6 +22,20 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "cached_read":  0.0,
         "cached_write": 0.0,
     },
+    # Groq fallback-chain models (config.yaml llm.groq_fallback_models). Rates from
+    # console.groq.com/docs/models, checked 2026-11-03.
+    "openai/gpt-oss-120b": {
+        "input":        0.15,
+        "output":       0.60,
+        "cached_read":  0.0,
+        "cached_write": 0.0,
+    },
+    "qwen/qwen3.8-27b": {
+        "input":        0.80,
+        "output":       4.00,
+        "cached_read":  0.0,
+        "cached_write": 0.0,
+    },
     # Ollama — local inference, zero marginal cost
     "ollama": {
         "input":        0.0,

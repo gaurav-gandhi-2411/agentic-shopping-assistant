@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import contextvars
+import functools
 import json
 import logging
 import os
+import random
 import re
+import threading
 import time
 import uuid
-from typing import Callable, Iterator, Protocol
+from dataclasses import dataclass
+from typing import Any, Callable, Iterator, Protocol, TypeVar, cast
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
+from src.llm.resilience import LLM_BUSY_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,114 @@ def _parse_retry_after(exc_str: str) -> float:
         seconds = float(m.group(2))
         return minutes * 60 + seconds
     return 0.0
+
+
+@dataclass(frozen=True)
+class ErrorInfo:
+    """Classification of a provider exception.
+
+    kind: "daily_quota" (TPD/RPD 429: retrying the same model is pointless),
+    "rate_limit" (other 429), "server" (5xx), "timeout" (timeouts and
+    connection errors), or "fatal" (404 model_not_found, 400, 401, ...).
+    """
+
+    kind: str
+    status: int | None
+    retry_after: float | None
+
+
+_TIMEOUT_CLASS_NAMES = {"APITimeoutError", "APIConnectionError", "TimeoutError", "ReadTimeout", "ConnectTimeout"}
+
+
+def classify_error(exc: BaseException) -> ErrorInfo:
+    """Map a Groq SDK exception (or a plain Exception carrying the API's text)
+    to an ErrorInfo. Falls back to parsing 'Error code: NNN' because tests and
+    some wrappers raise bare Exceptions with only the message."""
+    text = str(exc)
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        m = re.search(r"Error code:\s*(\d{3})", text)
+        status = int(m.group(1)) if m else None
+    retry_after: float | None = None
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is not None:
+        try:
+            retry_after = float(headers.get("retry-after"))
+        except (TypeError, ValueError):
+            retry_after = None
+    if retry_after is None:
+        retry_after = _parse_retry_after(text) or None
+    if status == 429:
+        daily = "per day" in text or "(TPD)" in text or "(RPD)" in text
+        kind = "daily_quota" if daily else "rate_limit"
+    elif status is not None and status >= 500:
+        kind = "server"
+    elif status == 408 or _TIMEOUT_CLASS_NAMES & {c.__name__ for c in type(exc).__mro__}:
+        kind = "timeout"
+    else:
+        kind = "fatal"
+    return ErrorInfo(kind, status, retry_after)
+
+
+def retry_wait_seconds(info: ErrorInfo, cap_s: float) -> float | None:
+    """Seconds to sleep before the single retry, or None if retrying is pointless.
+
+    Backoff is 1-2 s with jitter, raised to Retry-After when the provider sent
+    one. If the required wait exceeds `cap_s` there is no retry (the next model
+    is a better use of the turn's 90 s WS deadline than sleeping).
+    """
+    if info.kind not in ("rate_limit", "server", "timeout"):
+        return None
+    wait = max(1.0 + random.uniform(0.0, 1.0), info.retry_after or 0.0)
+    return wait if wait <= cap_s else None
+
+
+_BOUNDED_SLOTS = threading.BoundedSemaphore(4)
+
+
+_T = TypeVar("_T")
+
+
+def _drain(stream_fn: Callable[..., Iterator[str]], *args: Any, **kwargs: Any) -> list[str]:
+    """Call a streaming method and fully buffer its chunks."""
+    return list(stream_fn(*args, **kwargs))
+
+
+def run_bounded(fn: Callable[[], _T], timeout_s: float) -> _T:
+    """Run fn in a daemon thread and give up after timeout_s (raises TimeoutError).
+
+    Hard wall-clock cap for fallback tiers: whatever sleeps or SDK-internal retries
+    they contain, the caller is never held longer than timeout_s. The abandoned
+    thread finishes on its own (same trade-off as the WS turn deadline).
+    """
+    # Cap on simultaneously live fallback threads (abandoned ones included): a
+    # sustained provider hang must not grow threads without limit.
+    if not _BOUNDED_SLOTS.acquire(blocking=False):
+        raise RuntimeError("fallback tier skipped: too many in-flight bounded calls")
+    box: dict[str, object] = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            box["error"] = exc
+        finally:
+            _BOUNDED_SLOTS.release()
+
+    try:
+        t = threading.Thread(target=contextvars.copy_context().run, args=(_run,), daemon=True)
+        t.start()
+    except BaseException:
+        # The thread never ran, so its finally will never release: do it here, or
+        # repeated start failures would permanently disable the fallback tiers.
+        _BOUNDED_SLOTS.release()
+        raise
+    t.join(timeout_s)
+    if t.is_alive():
+        raise TimeoutError(f"fallback tier exceeded {timeout_s:.0f}s")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return cast(_T, box.get("value"))
 
 
 class LLMClient(Protocol):
@@ -149,6 +263,20 @@ class GroqClient:
 
         llm_cfg = config["llm"]
         self.model = llm_cfg.get("groq_model", "openai/gpt-oss-20b")
+        # Ordered Groq model chain: primary, then groq_fallback_models (each Groq
+        # model has its own free-tier quota, so a 429/404 on one does not imply
+        # the next is down). Duplicates of the primary are dropped.
+        self._chain: list[str] = [self.model] + [
+            m for m in (llm_cfg.get("groq_fallback_models") or []) if m != self.model
+        ]
+        # Total wall-clock after which no NEW Groq attempt starts (the WS turn
+        # deadline in api/routes/chat.py is 90 s and one turn makes several LLM
+        # calls), and the longest Retry-After we are willing to sleep through.
+        self._chain_budget_s = float(llm_cfg.get("groq_chain_budget_seconds", 30))
+        self._retry_wait_cap_s = float(llm_cfg.get("groq_retry_wait_cap_seconds", 8))
+        # Hard cap per OpenRouter/Gemini fallback call (no rate-limit sleeps either):
+        # two tiers + the Groq budget must stay well inside the 90 s WS deadline.
+        self._fallback_tier_s = float(llm_cfg.get("fallback_tier_budget_seconds", 8))
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
         # Explicit per-request HTTP timeout, matching OllamaClient's existing
@@ -159,8 +287,12 @@ class GroqClient:
         # Wave 7 hang (that was an unbounded application-level retry loop, fixed
         # at the WS turn-deadline in api/routes/chat.py::ws_chat) — a single HTTP
         # call here was already bounded.
+        # max_retries=0: the SDK's hidden retries (default 2) would compound with
+        # this class's own bounded retry/fallback policy and blow the time budget.
         self._client = _groq_lib.Groq(
-            api_key=api_key, timeout=llm_cfg.get("timeout_seconds", 60)
+            api_key=api_key,
+            timeout=llm_cfg.get("groq_timeout_seconds", llm_cfg.get("timeout_seconds", 60)),
+            max_retries=0,
         )
         self.cost_reporter: Callable[[float], None] | None = None
         # Lazy fallback chain for TPD (daily quota) exhaustion — see
@@ -173,6 +305,12 @@ class GroqClient:
         self._openrouter_unavailable = False
         self._gemini_client = None
         self._gemini_unavailable = False
+
+    def _fallback_config(self) -> dict:
+        """Config copy for fallback-tier clients: SDK request timeout = the tier
+        budget, so an abandoned run_bounded thread dies close to the cap. The
+        primary-provider path never sees this copy."""
+        return {**self._config, "llm": {**self._config["llm"], "timeout_seconds": self._fallback_tier_s}}
 
     def _get_openrouter_fallback(self) -> "object | None":
         """Return a lazily-constructed OpenRouterClient, or None if unavailable.
@@ -197,7 +335,7 @@ class GroqClient:
         if self._openrouter_client is None:
             try:
                 from src.llm.openrouter_client import OpenRouterClient
-                self._openrouter_client = OpenRouterClient(self._config)
+                self._openrouter_client = OpenRouterClient(self._fallback_config())
                 self._openrouter_client.cost_reporter = self.cost_reporter
             except Exception as exc:
                 logger.error("[groq] OpenRouter fallback unavailable: %r", exc)
@@ -219,7 +357,7 @@ class GroqClient:
         if self._gemini_client is None:
             try:
                 from src.llm.gemini_client import GeminiClient
-                self._gemini_client = GeminiClient(self._config)
+                self._gemini_client = GeminiClient(self._fallback_config())
                 self._gemini_client.cost_reporter = self.cost_reporter
             except Exception as exc:
                 logger.error("[groq] Gemini fallback unavailable: %r", exc)
@@ -227,7 +365,7 @@ class GroqClient:
                 return None
         return self._gemini_client
 
-    def _iter_fallback_tiers(self):
+    def _iter_fallback_tiers(self) -> Iterator[tuple[str, Any]]:
         """Yield (provider_name, client) for each fallback tier that
         successfully constructs, in priority order (OpenRouter first,
         Gemini second)."""
@@ -239,124 +377,180 @@ class GroqClient:
             if client is not None:
                 yield name, client
 
+    def _log_llm_call(
+        self, model: str, input_tokens: int, output_tokens: int, cached_tokens: int,
+        latency_ms: int, turn_id: str,
+    ) -> None:
+        cost = TurnCost(model, input_tokens, output_tokens, cached_tokens).usd_cost
+        logger.info(
+            json.dumps({
+                "event": "llm_call",
+                "provider": "groq",
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cached_tokens": cached_tokens,
+                "latency_ms": latency_ms,
+                "usd_cost": round(cost, 8),
+                "user_id": llm_user_id_var.get(""),
+                "turn_id": turn_id,
+            })
+        )
+        if self.cost_reporter is not None:
+            self.cost_reporter(cost)
+
+    def _log_attempt_failed(
+        self, model: str, attempt: int, kind: str, status: int | None,
+        latency_ms: int, wait_s: float | None, turn_id: str,
+    ) -> None:
+        logger.warning(
+            json.dumps({
+                "event": "llm_attempt_failed",
+                "provider": "groq",
+                "model": model,
+                "attempt": attempt,
+                "error_kind": kind,
+                "status": status,
+                "latency_ms": latency_ms,
+                "retry_in_s": None if wait_s is None else round(wait_s, 2),
+                "turn_id": turn_id,
+            })
+        )
+
+    def _log_fallback_served(self, to_provider: str, model: str | None, turn_id: str) -> None:
+        logger.warning(
+            json.dumps({
+                "event": "llm_fallback_served",
+                "from_provider": "groq",
+                "from_model": self._chain[0],
+                "to_provider": to_provider,
+                "to_model": model,
+                "turn_id": turn_id,
+            })
+        )
+
+    def _retry_delay(self, info: ErrorInfo, attempt: int, deadline: float) -> float | None:
+        """Seconds to wait before the single retry, or None to move to the next model."""
+        if attempt != 1:
+            return None
+        wait = retry_wait_seconds(info, self._retry_wait_cap_s)
+        if wait is not None and time.monotonic() + wait >= deadline:
+            return None
+        return wait
+
+    def _chat_one(
+        self, model: str, messages: list[dict], temperature: float | None,
+        max_tokens: int | None, turn_id: str, deadline: float, *,
+        retry: bool = True, allow_empty: bool = False,
+    ) -> str | None:
+        """Call one Groq model: initial attempt plus (if retry) one backoff retry on
+        429/5xx/timeout. Returns the content, or None if this model failed or
+        returned empty content (the caller then moves to the next model)."""
+        for attempt in (1, 2):
+            t_start = time.monotonic()
+            try:
+                resp = self._client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature if temperature is not None else self.default_temperature,
+                    max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                )
+            except Exception as exc:
+                info = classify_error(exc)
+                wait = self._retry_delay(info, attempt, deadline) if retry else None
+                self._log_attempt_failed(
+                    model, attempt, info.kind, info.status,
+                    round((time.monotonic() - t_start) * 1000), wait, turn_id,
+                )
+                if wait is None:
+                    return None
+                time.sleep(wait)
+                continue
+            latency_ms = round((time.monotonic() - t_start) * 1000)
+            try:
+                content = resp.choices[0].message.content
+                usage = resp.usage
+                cached = 0
+                if usage and getattr(usage, "prompt_tokens_details", None):
+                    cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                self._log_llm_call(
+                    model, usage.prompt_tokens if usage else 0,
+                    usage.completion_tokens if usage else 0, cached, latency_ms, turn_id,
+                )
+            except (AttributeError, IndexError, TypeError):
+                # Empty `choices` or an unexpected payload shape: a failed model,
+                # never an exception out of chat().
+                self._log_attempt_failed(model, attempt, "malformed", None, latency_ms, None, turn_id)
+                return None
+            if content and content.strip():
+                return content
+            if allow_empty:
+                return ""
+            # Reasoning models can spend the whole max_tokens budget thinking and
+            # return content=None: that is a failed model, not a blank reply.
+            self._log_attempt_failed(model, attempt, "empty", None, latency_ms, None, turn_id)
+            return None
+        return None
+
+    def _fallback_chat(
+        self, messages: list[dict], temperature: float | None, max_tokens: int | None,
+        turn_id: str, *, accept_empty: bool = False,
+    ) -> "tuple[str, str] | None":
+        """Walk the OpenRouter -> Gemini tiers. Returns (tier_name, text) or None."""
+        tried: list[str] = []
+        for name, fb_client in self._iter_fallback_tiers():
+            tried.append(name)
+            try:
+                # partial (not a lambda) binds fb_client now, like the old `c=fb_client`
+                # default did; mypy cannot infer a default-arg lambda passed to a generic.
+                result = run_bounded(
+                    functools.partial(
+                        fb_client.chat, messages,
+                        temperature=temperature, max_tokens=max_tokens, bounded=True,
+                    ),
+                    self._fallback_tier_s,
+                )
+            except Exception as fb_exc:
+                logger.warning("[groq->%s fallback] failed: %r, trying next tier", name, fb_exc)
+                continue
+            # Empty/None content is not an exception on either provider (OpenRouter's
+            # free reasoning model can burn max_tokens on hidden reasoning; Gemini
+            # returns empty on safety-filtered output): treat as a failed tier.
+            if (not result or not result.strip()) and not accept_empty:
+                logger.warning("[groq->%s fallback] returned empty response, trying next tier", name)
+                continue
+            self._log_fallback_served(name, None, turn_id)
+            return name, result or ""
+        logger.error(json.dumps({
+            "event": "llm_fallback_exhausted", "provider_attempts": tried, "turn_id": turn_id,
+        }))
+        return None
+
     def chat(
         self,
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
     ) -> str:
-        # Separate TPD (daily) retries from TPM (per-minute) backoff.
-        # TPD: parse "try again in Xm Ys" and wait the full duration (up to 10 times).
-        # TPM and other errors: use a short fixed backoff (1s, 3s), then raise.
-        tpd_retries = 0
-        tpm_delays = iter([1.0, 3.0])
-        attempt = 0
-        t0 = time.monotonic()
+        """Groq models in order (each: attempt + one backoff retry) -> OpenRouter ->
+        Gemini -> LLM_BUSY_MESSAGE. Never returns empty and never waits unboundedly:
+        the Groq portion stops starting new attempts after groq_chain_budget_seconds
+        (the WS turn deadline is 90s, api/routes/chat.py)."""
         turn_id = str(uuid.uuid4())
-        while True:
-            try:
-                resp = self._client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature if temperature is not None else self.default_temperature,
-                    max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
-                )
-                usage = resp.usage
-                input_tokens = usage.prompt_tokens if usage else 0
-                output_tokens = usage.completion_tokens if usage else 0
-                cached_tokens = 0
-                if usage and hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
-                    cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
-                latency_ms = round((time.monotonic() - t0) * 1000)
-                cost = TurnCost(self.model, input_tokens, output_tokens, cached_tokens).usd_cost
-                logger.info(
-                    json.dumps({
-                        "event": "llm_call",
-                        "provider": "groq",
-                        "model": self.model,
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "cached_tokens": cached_tokens,
-                        "latency_ms": latency_ms,
-                        "usd_cost": round(cost, 8),
-                        "user_id": llm_user_id_var.get(""),
-                        "turn_id": turn_id,
-                    })
-                )
-                if self.cost_reporter is not None:
-                    self.cost_reporter(cost)
-                return resp.choices[0].message.content
-            except Exception as exc:
-                attempt += 1
-                exc_str = str(exc)
-                if "tokens per day" in exc_str or "(TPD)" in exc_str:
-                    tried_tiers: list[str] = []
-                    for name, fb_client in self._iter_fallback_tiers():
-                        tried_tiers.append(name)
-                        try:
-                            result = fb_client.chat(
-                                messages, temperature=temperature, max_tokens=max_tokens
-                            )
-                        except Exception as fb_exc:
-                            logger.warning(
-                                "[groq->%s fallback] failed: %r, trying next tier", name, fb_exc
-                            )
-                            continue
-                        # Empty/None content is not an exception on either provider —
-                        # OpenRouter's free reasoning model (gpt-oss-20b:free) can burn
-                        # its whole max_tokens budget on hidden reasoning and return
-                        # content: None; Gemini can return an empty response on
-                        # safety-filtered or empty-candidate output. Treat both as a
-                        # failed tier rather than surfacing blank text to the caller.
-                        if not result or not result.strip():
-                            logger.warning(
-                                "[groq->%s fallback] returned empty response, trying next tier",
-                                name,
-                            )
-                            continue
-                        logger.warning(
-                            json.dumps({
-                                "event": "llm_fallback_served",
-                                "from_provider": "groq",
-                                "to_provider": name,
-                                "reason": "tpd_exhausted",
-                                "turn_id": turn_id,
-                            })
-                        )
-                        return result
-                    logger.error(
-                        json.dumps({
-                            "event": "llm_fallback_exhausted",
-                            "provider_attempts": tried_tiers,
-                            "turn_id": turn_id,
-                        })
-                    )
-                    # Chain exhausted (zero tiers configured, or every configured
-                    # tier failed/returned empty) — fall through to the legacy
-                    # wait-and-retry behaviour below rather than fail fast.
-                    # Deliberately NOT distinguishing "nothing configured" from
-                    # "everything down": a daily quota won't recover in 60s
-                    # either way, but retrying Groq once more is a defensible
-                    # last resort when every fallback has also failed, and
-                    # splitting the two cases adds complexity for a rare
-                    # (all-providers-down) edge case with no clear behavioural
-                    # win.
-                    if tpd_retries < 10:
-                        tpd_retries += 1
-                        wait = _parse_retry_after(exc_str)
-                        wait = max(wait, 60.0)  # minimum 60s for TPD
-                        logger.warning(
-                            "[groq] attempt %d failed: %r. TPD limit, fallback chain "
-                            "exhausted (tried=%s) — waiting %.0fs…",
-                            attempt, exc, tried_tiers, wait,
-                        )
-                        time.sleep(wait + 2)
-                        continue
-                delay = next(tpm_delays, None)
-                if delay is None:
-                    raise
-                logger.warning("[groq] attempt %d failed: %r. Retrying in %.1fs…", attempt, exc, delay)
-                time.sleep(delay)
+        deadline = time.monotonic() + self._chain_budget_s
+        for i, model in enumerate(self._chain):
+            if time.monotonic() >= deadline:
+                break
+            result = self._chat_one(model, messages, temperature, max_tokens, turn_id, deadline)
+            if result is not None:
+                if i > 0:
+                    self._log_fallback_served("groq", model, turn_id)
+                return result
+        served = self._fallback_chat(messages, temperature, max_tokens, turn_id)
+        if served is not None:
+            return served[1]
+        logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
+        return LLM_BUSY_MESSAGE
 
     def chat_stream(
         self,
@@ -364,113 +558,99 @@ class GroqClient:
         temperature: float = None,
         max_tokens: int = None,
     ) -> Iterator[str]:
-        t0 = time.monotonic()
-        input_tokens = 0
-        output_tokens = 0
-        cached_tokens = 0
+        """Streaming twin of chat(). Failover only happens before the first token
+        reaches the caller; an empty stream is a failure, and chain exhaustion yields
+        LLM_BUSY_MESSAGE as ordinary text. A failure after tokens were already sent
+        still yields STREAM_ERROR_SENTINEL (the partial reply cannot be unsent)."""
         turn_id = str(uuid.uuid4())
+        deadline = time.monotonic() + self._chain_budget_s
+        model_used = self._chain[0]
+        input_tokens = output_tokens = cached_tokens = 0
+        t_start = time.monotonic()
         yielded_any = False
         try:
-            stream = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature if temperature is not None else self.default_temperature,
-                max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
-                stream=True,
-                # stream_options is not in the groq SDK's TypedDict; pass via extra_body
-                # so the API returns a usage chunk at the end for cost tracking.
-                extra_body={"stream_options": {"include_usage": True}},
-            )
-            for chunk in stream:
-                if chunk.choices:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        yielded_any = True
-                        yield content
-                if chunk.usage:
-                    input_tokens = chunk.usage.prompt_tokens or 0
-                    output_tokens = chunk.usage.completion_tokens or 0
-                    if hasattr(chunk.usage, "prompt_tokens_details") and chunk.usage.prompt_tokens_details:
-                        cached_tokens = getattr(chunk.usage.prompt_tokens_details, "cached_tokens", 0) or 0
-        except Exception as exc:
-            exc_str = str(exc)
-            # Only fall back if nothing has streamed to the client yet — Groq's
-            # TPD 429 always fires at request-initiation, before any chunk, but
-            # this guards against re-sending a duplicate partial response if that
-            # ever changes.
-            if ("tokens per day" in exc_str or "(TPD)" in exc_str) and not yielded_any:
-                tried_tiers: list[str] = []
-                for name, fb_client in self._iter_fallback_tiers():
-                    tried_tiers.append(name)
+            for i, model in enumerate(self._chain):
+                for attempt in (1, 2):
+                    if time.monotonic() >= deadline:
+                        break
+                    model_used, t_start = model, time.monotonic()
+                    input_tokens = output_tokens = cached_tokens = 0
                     try:
-                        # Fully buffer before yielding anything. Fallback
-                        # clients catch their OWN errors internally and yield
-                        # STREAM_ERROR_SENTINEL rather than raising (see
-                        # OpenRouterClient/GeminiClient.chat_stream), so a
-                        # try/except around `yield from` would never see a
-                        # failure — the sentinel would already be mid-stream
-                        # to the real caller. Buffering also lets the empty-
-                        # response case (reasoning-model budget exhaustion /
-                        # safety filtering) be detected before committing to
-                        # this tier. Accepted tradeoff: fallback-tier
-                        # responses are not truly token-streamed to the end
-                        # user — a rare degraded-mode path, not the common one.
-                        buffer = list(fb_client.chat_stream(
-                            messages, temperature=temperature, max_tokens=max_tokens
-                        ))
-                    except Exception as fb_exc:
-                        logger.warning(
-                            "[groq->%s fallback] failed: %r, trying next tier", name, fb_exc
+                        stream = self._client.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            temperature=temperature if temperature is not None else self.default_temperature,
+                            max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
+                            stream=True,
+                            # stream_options is not in the groq SDK's TypedDict; pass via
+                            # extra_body so the API returns a usage chunk for cost tracking.
+                            extra_body={"stream_options": {"include_usage": True}},
                         )
-                        continue
-                    if STREAM_ERROR_SENTINEL in buffer or not "".join(buffer).strip():
-                        logger.warning(
-                            "[groq->%s fallback] returned empty response, trying next tier",
-                            name,
+                        for chunk in stream:
+                            if chunk.choices:
+                                content = chunk.choices[0].delta.content
+                                if content:
+                                    if not yielded_any and i > 0:
+                                        self._log_fallback_served("groq", model, turn_id)
+                                    yielded_any = True
+                                    yield content
+                            if chunk.usage:
+                                input_tokens = chunk.usage.prompt_tokens or 0
+                                output_tokens = chunk.usage.completion_tokens or 0
+                                details = getattr(chunk.usage, "prompt_tokens_details", None)
+                                if details:
+                                    cached_tokens = getattr(details, "cached_tokens", 0) or 0
+                    except Exception as exc:
+                        if yielded_any:
+                            logger.error("[groq] chat_stream error mid-stream: %s", exc, exc_info=True)
+                            yield STREAM_ERROR_SENTINEL
+                            return
+                        info = classify_error(exc)
+                        wait = self._retry_delay(info, attempt, deadline)
+                        self._log_attempt_failed(
+                            model, attempt, info.kind, info.status,
+                            round((time.monotonic() - t_start) * 1000), wait, turn_id,
                         )
+                        if wait is None:
+                            break
+                        time.sleep(wait)
                         continue
-                    logger.warning(
-                        json.dumps({
-                            "event": "llm_fallback_served",
-                            "from_provider": "groq",
-                            "to_provider": name,
-                            "reason": "tpd_exhausted",
-                            "turn_id": turn_id,
-                        })
+                    if yielded_any:
+                        return
+                    # Stream ended without a single content token: failed model.
+                    self._log_attempt_failed(
+                        model, attempt, "empty", None,
+                        round((time.monotonic() - t_start) * 1000), None, turn_id,
                     )
-                    yield from buffer
-                    return
-                logger.error(
-                    json.dumps({
-                        "event": "llm_fallback_exhausted",
-                        "provider_attempts": tried_tiers,
-                        "turn_id": turn_id,
-                    })
-                )
-            # Chain exhausted (or nothing configured) — unlike chat(), there
-            # is no pre-existing retry loop here to fall through to; preserve
-            # the current chat_stream() behaviour of yielding the sentinel.
-            logger.error("[groq] chat_stream error: %s", exc, exc_info=True)
-            yield STREAM_ERROR_SENTINEL
+                    break
+            # Groq models exhausted. Fully buffer fallback tiers: their clients catch
+            # their own errors and yield STREAM_ERROR_SENTINEL instead of raising, and
+            # buffering lets an empty/errored tier be rejected before committing to it.
+            for name, fb_client in self._iter_fallback_tiers():
+                try:
+                    buffer = run_bounded(
+                        functools.partial(
+                            _drain, fb_client.chat_stream, messages,
+                            temperature=temperature, max_tokens=max_tokens, bounded=True,
+                        ),
+                        self._fallback_tier_s,
+                    )
+                except Exception as fb_exc:
+                    logger.warning("[groq->%s fallback] failed: %r, trying next tier", name, fb_exc)
+                    continue
+                if STREAM_ERROR_SENTINEL in buffer or not "".join(buffer).strip():
+                    logger.warning("[groq->%s fallback] returned empty response, trying next tier", name)
+                    continue
+                self._log_fallback_served(name, None, turn_id)
+                yield from buffer
+                return
+            logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
+            yield LLM_BUSY_MESSAGE
         finally:
-            latency_ms = round((time.monotonic() - t0) * 1000)
-            cost = TurnCost(self.model, input_tokens, output_tokens, cached_tokens).usd_cost
-            logger.info(
-                json.dumps({
-                    "event": "llm_call",
-                    "provider": "groq",
-                    "model": self.model,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "cached_tokens": cached_tokens,
-                    "latency_ms": latency_ms,
-                    "usd_cost": round(cost, 8),
-                    "user_id": llm_user_id_var.get(""),
-                    "turn_id": turn_id,
-                })
+            self._log_llm_call(
+                model_used, input_tokens, output_tokens, cached_tokens,
+                round((time.monotonic() - t_start) * 1000), turn_id,
             )
-            if self.cost_reporter is not None:
-                self.cost_reporter(cost)
 
     def generate(self, prompt: str, system: str = None, **kwargs) -> str:
         messages = []

@@ -1,4 +1,5 @@
 from src.llm.client import LLMClient
+from src.llm.resilience import LLM_BUSY_MESSAGE
 
 
 class ConversationMemory:
@@ -24,11 +25,19 @@ class ConversationMemory:
             self._cached_summary is None
             or len(messages) - self._summary_computed_at >= self.trigger_turns
         ):
-            self._cached_summary = self.summarise(older)
-            self._summary_computed_at = len(messages)
-            if state is not None:
-                state["_summary"] = self._cached_summary
-                state["_summary_message_count"] = self._summary_computed_at
+            fresh = self.summarise(older)
+            # The LLM chain returns LLM_BUSY_MESSAGE (or nothing) when every tier
+            # failed. That is not a summary: do not cache or persist it. Leaving
+            # _cached_summary/_summary_computed_at untouched makes the next turn retry.
+            if fresh and fresh.strip() and fresh != LLM_BUSY_MESSAGE:
+                self._cached_summary = fresh
+                self._summary_computed_at = len(messages)
+                if state is not None:
+                    state["_summary"] = self._cached_summary
+                    state["_summary_message_count"] = self._summary_computed_at
+
+        if self._cached_summary is None:
+            return messages[-self.recent_turns :]
 
         summary_msg = {
             "role": "system",

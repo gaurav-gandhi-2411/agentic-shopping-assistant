@@ -36,7 +36,7 @@ class GeminiClient:
         # HttpOptions.timeout docs) — see GroqClient's identical comment in
         # src/llm/client.py for why this is added even though the SDK default
         # is already bounded.
-        _timeout_ms = int(llm_cfg.get("timeout_seconds", 60)) * 1000
+        _timeout_ms = round(float(llm_cfg.get("timeout_seconds", 60)) * 1000)
         self._client = genai.Client(
             api_key=api_key, http_options=_types.HttpOptions(timeout=_timeout_ms)
         )
@@ -57,7 +57,9 @@ class GeminiClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        bounded: bool = False,
     ) -> str:
+        # bounded=True: single attempt, no backoff sleeps (see OpenRouterClient.chat).
         system, history, prompt = _split_messages(messages)
         config = self._gen_config(temperature, max_tokens, system)
         delays = iter([1.0, 3.0])
@@ -111,6 +113,8 @@ class GeminiClient:
                 # failed" and advances to the next one; don't raise here.
                 return response.text
             except Exception as exc:
+                if bounded:
+                    raise
                 attempt += 1
                 delay = next(delays, None)
                 if delay is None:
@@ -123,6 +127,7 @@ class GeminiClient:
         messages: list[dict],
         temperature: float = None,
         max_tokens: int = None,
+        bounded: bool = False,  # accepted for interface parity; streaming never retries here
     ) -> Iterator[str]:
         from src.llm.client import STREAM_ERROR_SENTINEL
 
