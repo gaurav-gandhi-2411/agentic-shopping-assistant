@@ -75,6 +75,16 @@ DATABASE_URL=<url> alembic upgrade head
 This creates the `demo_rate_limits` and `demo_daily_stats` tables required by the demo
 rate-limiting middleware.
 
+**Migration CI vs. production drift.** CI (`.github/workflows/migration-integrity.yml`) only
+proves the migration chain is sound on an ephemeral Postgres (one head, applies from empty,
+downgrade round trips, RLS/revoke sanity). It holds no production credentials and does NOT
+detect whether production is behind master. That is covered by (i) migrations running on
+deploy (PR #55) and (ii) this post-deploy step, which the deploy runbook must perform:
+
+```bash
+DATABASE_URL=<prod-url> alembic current   # must print the same revision as: alembic heads
+```
+
 ---
 
 ## Build & push Docker image
