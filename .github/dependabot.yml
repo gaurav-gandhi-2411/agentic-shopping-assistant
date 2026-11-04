@@ -33,6 +33,12 @@ updates:
         update-types:
           - minor
           - patch
+    # @types/node is pinned to ^24 to match the Vercel (Node 24.x) and CI runtime; bump the
+    # major only when that runtime moves. Minor/patch updates are still proposed.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
     assignees:
       - gaurav-gandhi-2411
     labels:
