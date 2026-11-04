@@ -636,8 +636,21 @@ bash scripts/ops/setup_deploy_iam.sh             # creates SA, bindings, pool+pr
 ```
 
 The script is idempotent. It activates nothing destructive: the Artifact Registry cleanup policy
-(`scripts/ops/ar_cleanup_policy.json`, keep newest 2, delete the rest older than 1 day) is applied
-with `--dry-run`; the command to switch it on is printed at the end.
+(`scripts/ops/ar_cleanup_policy.json`: keep newest 2, ALSO keep images tagged `live` or `prev`,
+delete the rest older than 1 day) is applied with `--dry-run`; the command to switch it on is
+printed at the end.
+
+Why the tag pin: a count-based keep cannot protect the serving image if a deploy pushes an image
+that then fails a pre-shift gate and a later run pushes another (newest two = the two non-serving
+images). The final deploy.yml step "Pin live and prev image tags" moves `live` to the new image and
+`prev` to the previously serving image (both by digest) only after a fully successful deploy. It
+runs after the rollback step, so a tagging failure turns the job red but never rolls back a healthy
+deploy; the pins are then stale until the next deploy. The deployer's `roles/artifactregistry.writer`
+on the repo should cover tag create/update (unverified until the first deploy runs the step).
+
+**Activation order:** deploy first (the first deploy after this merge creates the tags), then apply
+the policy. Before `--no-dry-run`, confirm `gcloud artifacts docker tags list <repo>/<package>` shows
+`live` pointing at the digest of the serving revision; the printed step 8 commands do this.
 
 **Unverified until the first real deploy:** the deployer gets `roles/run.developer` scoped to the
 Cloud Run *service* (not the project). Whether that alone is enough for `gcloud run deploy` of an

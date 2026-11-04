@@ -267,6 +267,7 @@ jobs:
         run: python3 scripts/ops/deploy_smoke.py --base-url "$SERVICE_URL" --live-path "$LIVE_PATH" --no-chat
 
       - name: Pin min-instances 0 at service level and assert none serving
+        id: minscale
         if: steps.fresh.outputs.stale == 'false'
         run: |
           gcloud run services update "$SERVICE" --min=0 --region "$REGION" --project "$GCP_PROJECT" --quiet
@@ -305,7 +306,7 @@ jobs:
             echo "- rollback: \`gcloud run services update-traffic ${SERVICE} --to-revisions ${PREV}=100 --region ${REGION} --project ${GCP_PROJECT}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # LAST step, runs on ANY failure or cancellation once the traffic shift started or finished (incl. a
+      # Last ROLLBACK step (only the live/prev pin step follows, on purpose); runs on ANY failure or cancellation once the traffic shift started or finished (incl. a
       # shift step that was itself cancelled mid-flight, outcome 'cancelled'; including
       # the min-instances assertion; a failed shift is rolled back too, which is idempotent). Rolls back to the revision captured before the deploy, then re-checks it.
       # The job stays failed; this only restores service.
@@ -321,3 +322,27 @@ jobs:
           curl --fail --silent --show-error --max-time 150 -o /dev/null "${SERVICE_URL}${LIVE_PATH}" \
             && echo "rollback verified: ${LIVE_PATH} -> 200" \
             || echo "::error::rolled back but ${LIVE_PATH} did not return 200; investigate immediately"
+
+      # Pins the serving and rollback images against the Artifact Registry cleanup policy (which keeps
+      # tagged live/prev, see scripts/ops/ar_cleanup_policy.json). Deliberately AFTER the rollback step:
+      # the rollback step's condition (job.status != 'success') is evaluated before this runs, so a
+      # failure here can never trigger a rollback of a healthy deploy. success() makes it skip on any
+      # failed deploy (it must only pin images of a deploy that fully passed, incl. the minScale
+      # assertion). If it fails, the job goes red loudly, traffic is untouched, and the pins are simply
+      # stale until the next deploy re-runs it; the cleanup policy is still dry-run only.
+      - name: Pin live and prev image tags (after a fully successful deploy)
+        id: pin_images
+        if: success() && steps.fresh.outputs.stale == 'false' && steps.minscale.outcome == 'success'
+        run: |
+          pin() {  # $1 = revision JSON file, $2 = tag name
+            IMG=$(jq -r '.spec.containers[0].image' "$1")
+            DIGEST=$(jq -r '.status.imageDigest // empty' "$1")
+            [ -n "$DIGEST" ] || DIGEST=$(printf '%s' "$IMG" | sed -nE 's/.*@(sha256:[0-9a-f]+)$/\1/p')
+            [ -n "$DIGEST" ] || { echo "::error::cannot resolve an image digest for $1 ($IMG)"; exit 1; }
+            BASE=$(printf '%s' "$IMG" | sed -E 's/@.*//; s#(/[^/:]+):[^/]*$#\1#')
+            echo "tag ${BASE}:$2 -> ${DIGEST}"
+            # 'tags add' moves an existing tag and is a no-op if it already points there.
+            gcloud artifacts docker tags add "${BASE}@${DIGEST}" "${BASE}:$2" --project "$GCP_PROJECT"
+          }
+          pin rev-new.json live
+          pin rev-prev.json prev

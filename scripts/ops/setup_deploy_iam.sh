@@ -209,9 +209,10 @@ fi
 echo "== 7. Artifact Registry cleanup policy: DRY RUN (deletes nothing)"
 # --dry-run only LOGS what would be deleted (Cloud Audit Logs); review that before step 8.
 # keepCount 2 = newest two versions (serving image + one rollback target, all the workflow's
-# rollback needs). CAVEAT: a policy keeps by COUNT, it cannot pin the serving digest. A pushed
-# image that fails its gate (never serves) plus a second push could push the serving image out of
-# the newest two, so step 8 prints a check to run BEFORE activating. Older than 1 day and not in that set is
+# rollback needs). keepCount alone cannot pin the serving digest: a pushed image that fails its
+# gate (never serves) plus a second push could push the serving image out of the newest two. So a
+# second Keep rule pins tags live/prev, which the deploy workflow moves to the serving and previous
+# images after each fully successful deploy. Older than 1 day and not in either keep set is
 # deleted. Docker images referenced by a parent manifest are never deleted by a policy
 # (https://cloud.google.com/artifact-registry/docs/repositories/cleanup-policy).
 run gcloud artifacts repositories set-cleanup-policies "$AR_REPO" \
@@ -222,7 +223,9 @@ echo "== 8. to ACTIVATE deletion (run by hand after reviewing the dry-run log):"
 echo "gcloud artifacts repositories set-cleanup-policies ${AR_REPO} --location=${REGION} \\"
 echo "  --policy=scripts/ops/ar_cleanup_policy.json --no-dry-run \\"
 echo "  --account=${ACCOUNT} --project=${PROJECT}"
-echo "# FIRST confirm the serving image is within the newest 2 (the policy keeps by count, not digest):"
+echo "# ORDER: deploy first (the first deploy after merge creates the live/prev tags), apply this policy second."
+echo "# FIRST confirm the live tag exists and points at the serving digest (compare with the image below):"
+echo "gcloud artifacts docker tags list ${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/<package> --account=${ACCOUNT} --project=${PROJECT}"
 echo "gcloud run services describe <service> --region=${REGION} --format='value(spec.template.spec.containers[0].image)' --account=${ACCOUNT} --project=${PROJECT}"
 echo "gcloud artifacts docker images list ${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO} --sort-by=~UPDATE_TIME --limit=3 --account=${ACCOUNT} --project=${PROJECT}"
 echo "# review dry-run results first, e.g.:"

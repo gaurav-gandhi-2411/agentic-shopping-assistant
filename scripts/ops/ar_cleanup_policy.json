@@ -8,5 +8,10 @@
     "name": "keep-newest-2",
     "action": {"type": "Keep"},
     "mostRecentVersions": {"keepCount": 2}
+  },
+  {
+    "name": "keep-live-and-prev",
+    "action": {"type": "Keep"},
+    "condition": {"tagState": "tagged", "tagPrefixes": ["live", "prev"]}
   }
 ]
