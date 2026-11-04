@@ -11,7 +11,12 @@ Usage (CI service container, or a throwaway local container):
         python scripts/ops/check_migrations.py
 
 Safety: the target database is wiped (DROP SCHEMA public CASCADE) and must be on
-localhost / 127.0.0.1 / ::1; anything else is refused before any connection is made.
+localhost / 127.0.0.1 / ::1 with no URL query parameters beyond sslmode, connect_timeout and
+application_name (libpq query params like ?host= would override the authority); anything else, or
+an unparsable URL, is refused before any connection is made.
+
+Known by-design gap: sanity checks cover only the hardcoded table lists below; a table created by
+a future migration is not checked until it is added to them.
 
 Checks, in order (any failure -> exit 1, all failures listed):
   a. exactly one Alembic head in alembic/versions/ (offline, no DB);
@@ -25,6 +30,7 @@ from __future__ import annotations
 
 import os
 import sys
+import traceback
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -34,6 +40,8 @@ from sqlalchemy.engine import URL, Engine, make_url
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# Query keys that cannot redirect the connection. Case-sensitive on purpose (HOST is refused).
+ALLOWED_QUERY_KEYS = frozenset({"sslmode", "connect_timeout", "application_name"})
 
 # Migrations whose downgrade() cannot run. Rev -> reason. The gate does NOT skip them silently:
 # it proves each one still fails (and leaves the DB untouched), so the entry goes stale loudly
@@ -131,11 +139,36 @@ def plan_round_trip(
 
 
 def check_localhost(url: URL) -> list[str]:
-    """Refuse any non-local target: this script DROPs schema public."""
+    """Refuse any non-local target: this script DROPs schema public.
+
+    libpq lets query parameters (host, hostaddr, port, service, ...) override the URL authority,
+    so checking ``url.host`` alone is bypassable. Only a tiny allow-list of harmless query keys
+    is accepted; anything else (any case, any repetition) is refused. Fail closed.
+    """
+    errors: list[str] = []
     host = url.host or ""
     if host not in LOCAL_HOSTS:
-        return [f"refusing to run against host {host!r}: only {sorted(LOCAL_HOSTS)} allowed"]
-    return []
+        errors.append(f"refusing to run against host {host!r}: only {sorted(LOCAL_HOSTS)} allowed")
+    bad = sorted(k for k in url.query if k not in ALLOWED_QUERY_KEYS)
+    if bad:
+        errors.append(
+            f"refusing URL query parameter(s) {bad}: libpq lets them override the host; "
+            f"only {sorted(ALLOWED_QUERY_KEYS)} are allowed"
+        )
+    return errors
+
+
+def parse_target_url(raw: str) -> tuple[URL | None, list[str]]:
+    """Parse and validate the target URL; any parse failure is a clean error, never a traceback.
+
+    The error text deliberately omits the raw URL (it may contain a password).
+    """
+    try:
+        url = make_url(raw)
+    except Exception as exc:  # noqa: BLE001 - fail closed on any parse problem
+        return None, [f"MIGRATION_CHECK_DB_URL is not a parsable database URL ({type(exc).__name__})"]
+    errors = check_localhost(url)
+    return (None, errors) if errors else (url, [])
 
 
 def check_tables(present: Sequence[str]) -> list[str]:
@@ -308,7 +341,13 @@ def run(url: URL) -> list[str]:
             return [f"database not empty after reset: {leftovers}"]
         print("(b) database empty; ephemeral roles/shim ready")
 
-        command.upgrade(cfg, "head")
+        try:
+            command.upgrade(cfg, "head")
+        except Exception as exc:  # noqa: BLE001 - annotate, then show the full traceback
+            print(f"::error::alembic upgrade head from an empty database failed: "
+                  f"{type(exc).__name__}", flush=True)
+            traceback.print_exc()
+            return ["alembic upgrade head from an empty database failed (see traceback above)"]
         print("(b) alembic upgrade head from empty: OK")
         errors = sanity(engine, heads)
         if errors:
@@ -337,7 +376,9 @@ def main() -> None:
         _fail(["MIGRATION_CHECK_DB_URL is not set (ephemeral Postgres URL, localhost only)"])
     sys.path.insert(0, str(REPO_ROOT))
     os.chdir(REPO_ROOT)
-    errors = run(make_url(raw))
+    url, errors = parse_target_url(raw)
+    if url is not None:
+        errors = run(url)
     if errors:
         _fail(errors)
     print("Migration integrity: all checks passed.")

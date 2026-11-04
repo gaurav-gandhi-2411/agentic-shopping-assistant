@@ -43,6 +43,39 @@ def test_localhost_guard() -> None:
     assert cm.check_localhost(make_url("postgresql:///db"))  # no host (unix socket): refuse
 
 
+_BYPASS_QUERIES = [
+    "?host=evil.example",
+    "?hostaddr=8.8.8.8",
+    "?port=5432&host=evil.example",
+    "?service=prod",
+    "?HOST=evil.example",
+    "?host=127.0.0.1",  # even a loopback value: the key itself is refused
+    "?host=127.0.0.1&host=evil.example",  # repeated params
+    "?sslmode=require&host=evil.example",  # allowed key must not mask a bad one
+    "?%68ost=evil.example",  # percent-encoded param name
+    "?ho%73t=evil.example",
+]
+
+
+def test_query_param_overrides_are_refused() -> None:
+    for q in _BYPASS_QUERIES:
+        url, errors = cm.parse_target_url("postgresql://dummy@localhost/postgres" + q)
+        assert url is None and errors, q
+
+
+def test_allowed_query_params_pass() -> None:
+    url, errors = cm.parse_target_url(
+        "postgresql://dummy@localhost/postgres?sslmode=disable&connect_timeout=5"
+        "&application_name=x"
+    )
+    assert url is not None and errors == []
+
+
+def test_unparsable_url_fails_closed_without_echoing_it() -> None:
+    url, errors = cm.parse_target_url("not a url with secret-token")
+    assert url is None and len(errors) == 1 and "secret-token" not in errors[0]
+
+
 def test_url_with_special_chars_roundtrips_without_hand_parsing() -> None:
     url = make_url("postgresql://postgres:p%40ss%3Aw%2Frd%231@127.0.0.1:55432/postgres")
     assert url.password == "p@ss:w/rd#1" and url.host == "127.0.0.1" and url.port == 55432

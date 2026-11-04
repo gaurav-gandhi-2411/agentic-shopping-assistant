@@ -10,8 +10,9 @@ name: Migration Integrity
 # never connects to production. An earlier version (Item 269/M3) compared production's
 # alembic_version to the repo head every 6 h using the DATABASE_URL repo secret; CI must not
 # hold prod DB credentials, and "is prod behind master" is inherently a prod question. Prod
-# drift is covered instead by (i) migrations running on deploy (PR #55) and (ii) the post-deploy
-# `alembic current == head` check in the DEPLOY.md runbook -- NOT by CI. With this change the
+# drift will be covered by migrations-on-deploy once PR #55 merges (it is still open). Until
+# then the only control is the manual runbook step `alembic current == alembic heads`, documented
+# in DEPLOY.md and implemented in NO script -- and never by CI. With this change the
 # DATABASE_URL repo secret has no remaining use and can be deleted.
 
 on:
@@ -19,6 +20,7 @@ on:
     paths:
       - "alembic/**"
       - "alembic.ini"
+      - "requirements.txt"
       - "scripts/ops/check_migrations.py"
       - "scripts/run_migrations.py"
       - "tests/test_check_migrations.py"
@@ -28,6 +30,7 @@ on:
     paths:
       - "alembic/**"
       - "alembic.ini"
+      - "requirements.txt"
       - "scripts/ops/check_migrations.py"
       - "scripts/run_migrations.py"
       - "tests/test_check_migrations.py"
