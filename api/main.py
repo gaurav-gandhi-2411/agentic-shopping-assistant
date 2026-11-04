@@ -115,6 +115,18 @@ def _sentry_before_send(event: dict, hint: object) -> dict:
     return event
 
 
+def _init_sentry(**options: Any) -> bool:
+    """Call sentry_sdk.init only when a DSN is configured.
+
+    Without a DSN init() sends nothing but still auto-enables every installed integration,
+    importing each library it patches (measured ~2 s on a dev box; slower on cold start).
+    """
+    if not options.get("dsn"):
+        return False
+    sentry_sdk.init(**options)
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ------------------------------------------------------------------
@@ -124,8 +136,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Shopping Assistant API")
 
     # Sentry — initialise early so startup errors are captured.
-    sentry_dsn = os.environ.get("SENTRY_DSN", "")
-    sentry_sdk.init(
+    sentry_dsn = os.environ.get("SENTRY_DSN", "").strip()
+    _init_sentry(
         dsn=sentry_dsn or None,
         traces_sample_rate=0.1,
         send_default_pii=False,
