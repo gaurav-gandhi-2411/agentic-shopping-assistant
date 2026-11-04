@@ -47,11 +47,6 @@ ALLOWED_QUERY_KEYS = frozenset({"sslmode", "connect_timeout", "application_name"
 # it proves each one still fails (and leaves the DB untouched), so the entry goes stale loudly
 # the day someone fixes it. Everything between them is cycled down and back up.
 IRREVERSIBLE: dict[str, str] = {
-    "0003": (
-        "KNOWN BUG: downgrade() drops function normalise_allowed_email() before dropping "
-        "allowed_emails, whose trigger depends on it (DependentObjectsStillExist); swap the "
-        "order to fix, then remove this entry"
-    ),
     "0007": "intentional: raises NotImplementedError (restoring the default grant reopens the hole)",
 }
 
@@ -285,6 +280,52 @@ def sanity(engine: Engine, heads: Sequence[str]) -> list[str]:
     return errs
 
 
+# Objects migration 0003 creates; all must vanish on its downgrade and return on re-upgrade.
+OBJECTS_0003: dict[str, str] = {
+    "table allowed_emails": "SELECT 1 FROM pg_class WHERE relname = 'allowed_emails' "
+    "AND relnamespace = 'public'::regnamespace",
+    "trigger allowed_emails_normalise": "SELECT 1 FROM pg_trigger WHERE "
+    "tgname = 'allowed_emails_normalise' AND NOT tgisinternal",
+    "policy allowed_emails_select": "SELECT 1 FROM pg_policies WHERE "
+    "tablename = 'allowed_emails' AND policyname = 'allowed_emails_select'",
+    "function normalise_allowed_email": "SELECT 1 FROM pg_proc WHERE "
+    "proname = 'normalise_allowed_email' AND pronamespace = 'public'::regnamespace",
+    "function check_email_allowed": "SELECT 1 FROM pg_proc WHERE "
+    "proname = 'check_email_allowed' AND pronamespace = 'public'::regnamespace",
+    "function before_user_created": "SELECT 1 FROM pg_proc WHERE "
+    "proname = 'before_user_created' AND pronamespace = 'public'::regnamespace",
+}
+
+
+def check_objects_state(present: dict[str, bool], expect_present: bool) -> list[str]:
+    """Every object must be present (or absent); report each one that is not."""
+    word = "missing after upgrade" if expect_present else "still present after downgrade"
+    return [f"0003 {name} {word}" for name, here in sorted(present.items()) if here != expect_present]
+
+
+def objects_0003(engine: Engine) -> dict[str, bool]:
+    with engine.connect() as conn:
+        return {n: conn.execute(text(q)).first() is not None for n, q in OBJECTS_0003.items()}
+
+
+def check_0003_round_trip(engine: Engine, cfg) -> list[str]:  # noqa: ANN001
+    """0002 <-> 0003 for real: 0003's objects appear, vanish on downgrade, return on re-upgrade."""
+    from alembic import command
+
+    command.upgrade(cfg, "0003")
+    errors = check_objects_state(objects_0003(engine), True)
+    command.downgrade(cfg, "0002")
+    errors += check_applied_equals_head(applied_versions(engine), ["0002"])
+    errors += check_objects_state(objects_0003(engine), False)
+    if errors:
+        return errors
+    command.upgrade(cfg, "0003")
+    errors = check_objects_state(objects_0003(engine), True)
+    if not errors:
+        print("(d) 0003 -> downgrade 0002 (table, trigger, policy, 3 functions gone) -> upgrade 0003: OK")
+    return errors
+
+
 def run_step(engine: Engine, cfg, kind: str, x: str, y: str) -> list[str]:  # noqa: ANN001
     """Execute one plan_round_trip step against the live DB; return error strings."""
     from alembic import command
@@ -356,8 +397,23 @@ def run(url: URL) -> list[str]:
 
         # Downgrades cannot cross an IRREVERSIBLE revision, so walk up from a fresh DB.
         setup_ephemeral(engine)
+        try:
+            errors = check_0003_round_trip(engine, cfg)
+        except Exception as exc:  # noqa: BLE001 - annotate, then show the full traceback
+            print(f"::error::0003 round trip (downgrade 0002 / upgrade 0003) failed: "
+                  f"{type(exc).__name__}", flush=True)
+            traceback.print_exc()
+            return ["0003 downgrade/upgrade round trip failed (see traceback above)"]
+        if errors:
+            return errors
         for kind, x, y in plan_round_trip(chain, list(IRREVERSIBLE)):
-            errors = run_step(engine, cfg, kind, x, y)
+            try:
+                errors = run_step(engine, cfg, kind, x, y)
+            except Exception as exc:  # noqa: BLE001 - annotate, then show the full traceback
+                print(f"::error::migration step {kind} {x}/{y} failed: {type(exc).__name__}",
+                      flush=True)
+                traceback.print_exc()
+                return [f"migration step {kind} {x}/{y} failed (see traceback above)"]
             if errors:
                 return errors
         command.upgrade(cfg, "head")

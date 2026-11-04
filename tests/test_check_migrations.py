@@ -104,7 +104,24 @@ def test_plan_irreversible_first_and_last() -> None:
 def test_plan_repo_chain_covers_every_reversible_revision() -> None:
     chain = [f"000{i}" for i in range(1, 9)]
     steps = cm.plan_round_trip(chain, list(cm.IRREVERSIBLE))
-    assert [s[0] for s in steps] == ["cycle", "irreversible", "cycle", "irreversible", "cycle"]
+    # 0003 is reversible now: only 0007 splits the chain.
+    assert steps == [
+        ("cycle", "base", "0006"),
+        ("irreversible", "0007", "0006"),
+        ("cycle", "0007", "0008"),
+    ]
+    assert list(cm.IRREVERSIBLE) == ["0007"]
+
+
+def test_objects_state_check() -> None:
+    gone = {n: False for n in cm.OBJECTS_0003}
+    here = {n: True for n in cm.OBJECTS_0003}
+    assert cm.check_objects_state(gone, False) == []
+    assert cm.check_objects_state(here, True) == []
+    left = dict(gone, **{"function normalise_allowed_email": True})
+    (msg,) = cm.check_objects_state(left, False)
+    assert "normalise_allowed_email" in msg and "still present" in msg
+    assert len(cm.check_objects_state(gone, True)) == len(cm.OBJECTS_0003)
 
 
 def test_rls_check() -> None:
