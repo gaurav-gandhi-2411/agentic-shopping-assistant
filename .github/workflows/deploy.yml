@@ -172,7 +172,7 @@ jobs:
           IMAGE="${REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${SERVICE}:${SHA}"
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
           # --provenance/--sbom off: keeps each push a single manifest (no untagged attestation
-          # child) so the 'keep newest 3' Artifact Registry cleanup policy counts real images.
+          # child) so the 'keep newest 2' Artifact Registry cleanup policy counts real images.
           docker buildx build --push --provenance=false --sbom=false -t "$IMAGE" .
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
@@ -271,16 +271,16 @@ jobs:
         run: |
           gcloud run services update "$SERVICE" --min=0 --region "$REGION" --project "$GCP_PROJECT" --quiet
           gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service-final.json
-          SVC_MIN=$(jq -r '.metadata.annotations["run.googleapis.com/minScale"] // "0"' service-final.json)
-          [ "$SVC_MIN" = "0" ] || { echo "::error::service-level minScale=$SVC_MIN"; exit 1; }
-          BAD=0
-          for REV in $(jq -r '[.status.traffic[] | select((.percent // 0) > 0 or (.tag // "") != "") | .revisionName] | unique[]' service-final.json); do
-            MIN=$(gcloud run revisions describe "$REV" --region "$REGION" --project "$GCP_PROJECT" --format=json | jq -r '.metadata.annotations["autoscaling.knative.dev/minScale"] // "0"')
-            echo "revision $REV minScale=$MIN"
-            [ "$MIN" = "0" ] || BAD=1
-          done
-          [ "$BAD" = "0" ] || { echo "::error::a revision that serves or is tagged has minScale > 0"; exit 1; }
-          echo "all serving/tagged revisions have minScale 0"
+          # Logic lives in a tested script (tests/test_assert_min_scale.py). It checks service level,
+          # the service TEMPLATE (what the next revision inherits) and every revision in
+          # status.traffic with percent > 0 or a tag; any unreadable input fails closed.
+          mkdir -p revs-final
+          python3 scripts/ops/assert_min_scale.py --service service-final.json --list-revisions > revs-final.txt
+          while IFS= read -r REV; do
+            [ -n "$REV" ] || continue
+            gcloud run revisions describe "$REV" --region "$REGION" --project "$GCP_PROJECT" --format=json > "revs-final/${REV}.json"
+          done < revs-final.txt
+          python3 scripts/ops/assert_min_scale.py --service service-final.json --revisions-dir revs-final
 
       - name: Drop the deploy tag (best effort)
         if: steps.fresh.outputs.stale == 'false'
