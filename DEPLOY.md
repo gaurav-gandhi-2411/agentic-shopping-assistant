@@ -204,32 +204,39 @@ env-block-replacement gotcha above.
 
 ### LLM provider secrets and switching providers
 
-All LLM provider API keys on `asa-stylist-api` are Secret Manager references, never plain
-env vars: `GROQ_API_KEY` → `asa-groq-api-key`, `OPENROUTER_API_KEY` → `asa-openrouter-api-key`
-(added 2026-07-10 — Groq's free-tier daily token quota has been exhausted by heavy testing
-more than once).
+The only LLM provider key wired into the deployed `asa-stylist-api` is `GROQ_API_KEY` →
+`asa-groq-api-key` (a Secret Manager reference, never a plain env var). `OPENROUTER_API_KEY`
+(`asa-openrouter-api-key`, added 2026-07-10 after Groq's free-tier daily token quota was
+exhausted by heavy testing) and `GEMINI_API_KEY` are no longer referenced by deploy code; the
+live service still mounts them until the post-merge ops step below removes them.
 
-**[Superseded by W7 below - the Gemini tier no longer exists; text kept as history.] As of 2026-07-31, `GroqClient` fell over to a 3-tier chain automatically** on a TPD
-(tokens-per-day) 429: Groq → OpenRouter → Gemini — see `GroqClient._iter_fallback_tiers()`
-in `src/llm/client.py`. No manual `LLM_PROVIDER` env-var swap is needed for a quota outage;
-`LLM_PROVIDER=groq` in production now carries an implicit 2-tier fallback for both `chat()`
-and `chat_stream()`. Each tier is tried in order; a tier that raises OR returns falsy/empty
+**Current chain (authoritative):** Groq models in order (`llm.groq_model`, then
+`llm.groq_fallback_models`), each attempt followed by at most one jittered backoff retry on
+429/5xx/timeout, then `LLM_BUSY_MESSAGE`. There is no OpenRouter or Gemini tier. The whole chain
+has a hard budget of `llm.groq_chain_budget_seconds` (20 s). `reasoning_effort: low` is sent only
+to `openai/gpt-oss*` models. The sections below are kept as history where labelled.
+
+**[Superseded - historical; the OpenRouter and Gemini tiers no longer exist, see "OpenRouter removed" below.] As of 2026-07-31, `GroqClient` fell over to a 3-tier chain automatically** on a TPD
+(tokens-per-day) 429: Groq → OpenRouter → Gemini — see the former `GroqClient._iter_fallback_tiers()`
+in `src/llm/client.py`. No manual `LLM_PROVIDER` env-var swap was needed for a quota outage;
+`LLM_PROVIDER=groq` in production then carried an implicit fallback chain for both `chat()`
+and `chat_stream()`. Each tier was tried in order; a tier that raised OR returned falsy/empty
 content (OpenRouter's free model is a reasoning model that can burn its whole token budget
 on hidden reasoning and return `None`; Gemini can return empty output on safety-filtered
-responses) is treated as failed and the chain advances to the next tier — a wired-but-silent
-empty response is not treated as success. The manual switch below is still the right tool
-for a *deliberate* provider change (e.g. cost or model-quality reasons), and the whole chain
-ends in a user-facing "busy, try again in a minute" message if literally no tier answers.
+responses) was treated as failed and the chain advanced to the next tier — a wired-but-silent
+empty response was not treated as success. The chain ended in a user-facing "busy, try again
+in a minute" message if literally no tier answered.
 
 **W4 (2026-11): the chain now starts with Groq models from `config.yaml`** (`llm.groq_model`,
-then `llm.groq_fallback_models`), each with one jittered retry on 429/5xx/timeout, before the
-OpenRouter tier (and, until W7, a Gemini tier). Startup calls Groq `GET /models` (5 s): a primary model that is not
+then `llm.groq_fallback_models`), each with one jittered retry on 429/5xx/timeout (at W4 these
+ran before an OpenRouter tier and, until W7, a Gemini tier; both are gone, see below). Startup calls Groq `GET /models` (5 s): a primary model that is not
 listed aborts startup (the Cloud Run TCP startup probe then fails the revision); unlisted
 fallbacks are dropped with a warning; if `/models` itself is unreachable the check is skipped
 with an ERROR log (deploys must not depend on Groq being up), except a 401/403 which aborts.
 `/readyz` makes a real `max_tokens=1` call through the chain (cached 60 s, env
-`READYZ_LLM_CACHE_SECONDS`) and returns 503 if no tier answers; the `llm` check string names the
-tier/model that answered and marks `FALLBACK` when it was not the primary.
+`READYZ_LLM_CACHE_SECONDS`) and also checks the database (error text redacted); it returns 503
+if no Groq model answers; the `llm` check string names the model that answered and marks
+`FALLBACK` when it was not the primary.
 
 **W7 (2026-11): the Gemini tier and `google-genai` were removed.** The chain is now Groq
 models (`llm.groq_model`, then `llm.groq_fallback_models`) -> busy message (the OpenRouter tier was removed afterwards; see "OpenRouter removed" below).
@@ -274,18 +281,19 @@ revision. In this order, nothing skipped:
    `gcloud run revisions describe <serving-revision> --format=json | grep -i -e gemini -e openrouter`
    must be empty.
 3. Only then disable BOTH secret versions (`asa-gemini-api-key`, `asa-openrouter-api-key`).
-   Worst-case per-call latency is now the 20 s Groq chain budget (`groq_chain_budget_seconds`),
-   a hard cap: each attempt's timeout and each backoff sleep is clamped to what is left, so
-   wall time is budget + small overhead, then `LLM_BUSY_MESSAGE` and an
-   `llm_chain_budget_exceeded` log event (fake-clock tested, not measured live); there is no
-   8 s OpenRouter tier. Streaming: the cap covers time-to-first-chunk only.
 
-Historical (pre-removal) fallthrough event — `{"event": "llm_fallback_served",
-"from_provider": "groq", "to_provider": "openrouter", "reason": "tpd_exhausted"}` —
-so degraded-mode traffic is visible in Cloud Logging (`jsonPayload.msg:"llm_fallback_served"`)
-instead of only discoverable via user complaints. Full chain exhaustion logs
-`llm_fallback_exhausted` with the list of tiers attempted. Every `llm_call` log line (from
-any of the four client classes) also now carries an explicit `"provider"` field.
+Worst-case per-call latency is the 20 s Groq chain budget (`groq_chain_budget_seconds`),
+a hard cap: each attempt's timeout and each backoff sleep is clamped to what is left, so
+wall time is budget + small overhead, then `LLM_BUSY_MESSAGE` and an
+`llm_chain_budget_exceeded` log event (fake-clock tested, not measured live); there is no
+8 s OpenRouter tier. Streaming: the cap covers time-to-first-chunk only.
+
+Degraded-mode traffic is visible in Cloud Logging via the `llm_fallback_served` event
+(`jsonPayload.msg:"llm_fallback_served"`, now emitted when a later Groq model in the chain
+serves the request; `from_provider` and `to_provider` are both `groq`, with `from_model` and
+`to_model`). Historically it was emitted with `"to_provider": "openrouter"` or Gemini. A turn
+that exhausts the chain budget logs `llm_chain_budget_exceeded`. Every `llm_call` log line
+carries an explicit `"provider"` field.
 
 **Resolved 2026-07-31 (was "Known gap 2026-07-30"):** `asa-openrouter-api-key` was rotated
 to a new version (v2) with a valid key, live-verified against `openrouter.ai/api/v1/auth/key`
@@ -296,17 +304,13 @@ a key problem) — swapped to `openai/gpt-oss-20b:free`. `GEMINI_API_KEY` (secre
 previously-configured `gemini-2.0-flash-lite` also had zero free-tier quota (`limit: 0`,
 confirmed via the API's own error) — swapped to `gemini-2.5-flash`, live-verified working.
 
-**To switch providers deliberately** (e.g. for cost or model-quality reasons, not quota outages):
-
-```bash
-gcloud run services update asa-stylist-api --region=asia-south1 \
-  --project=iconic-reactor-496423-m4 \
-  --update-env-vars="LLM_PROVIDER=openrouter"
-# ... and back, once Groq's quota resets:
-gcloud run services update asa-stylist-api --region=asia-south1 \
-  --project=iconic-reactor-496423-m4 \
-  --update-env-vars="LLM_PROVIDER=groq"
-```
+**Switching providers is no longer a runtime option in production.** Do not set
+`LLM_PROVIDER=openrouter` on the deployed service: its key is not wired, so the container would
+fail to construct its LLM client at startup (`OPENROUTER_API_KEY environment variable is not
+set`), and a Groq quota outage is handled by the Groq model chain and the busy message, not by a
+provider swap. To change which Groq models serve traffic, edit `llm.groq_model` /
+`llm.groq_fallback_models` in `config.yaml` and deploy a new revision. `LLM_PROVIDER=openrouter`
+remains valid for local development only (needs a local `OPENROUTER_API_KEY`).
 
 **Critical gotcha, learned the hard way (2026-07-10): `--set-secrets` REPLACES the entire
 secrets block, exactly like `--set-env-vars` replaces the entire env block** — running it
@@ -327,10 +331,11 @@ touching anything further; Cloud Run does not cut traffic to a revision that fai
 startup health check, so the live service stays safe, but the *next* incremental update's
 base can still be silently wrong.
 
-### Free-tier quota ceiling — 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
+### Free-tier quota ceiling — historical 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
 
-> **W7 note:** the Gemini tier (Tier 3 below) was removed; this section is a historical
-> record of past measurements. Current chain: Groq models -> busy message (no OpenRouter tier; see "OpenRouter removed").
+> **Historical:** the OpenRouter tier (Tier 2) and Gemini tier (Tier 3) below were removed;
+> this section is a record of past measurements, not of the current chain. Current chain:
+> Groq models -> busy message (no OpenRouter or Gemini tier; see "OpenRouter removed").
 
 Real production traffic on `asa-stylist-api` averages **~2,922 tokens/conversation** and
 **~2.07 LLM calls/conversation** (source: 31 real `llm_call` log events across 15 real
@@ -394,17 +399,16 @@ calls forcing Groq+OpenRouter failures and confirming Gemini serves a real respo
 Gemini tiers were fixed — it sits below the Groq-only ~170 ceiling so real users hit the
 app's own honest "Demo limit reached for today — try again tomorrow" message (see
 `api/routes/chat.py` / `api/routes/demo.py`) instead of a raw provider 429 or a multi-minute
-hang. Now that tiers 2+3 add real headroom above 170, this cap is conservative rather than
-tight — tighter than necessary fails safe (an honest cap message), tighter is not a
-production risk. Gemini's RPD remains genuinely unknown (see above), so there still isn't a
-safe combined-conversations/day number to raise the cap against.
+hang. (While tiers 2+3 existed they added headroom above 170 and the cap was conservative;
+both tiers are gone, so re-derive any cap from the Groq model chain's own quotas, not from
+this historical table.)
 
 What it would take to raise the ceiling further, each option labeled with what's actually
 verified vs. not:
 
-1. **Check Gemini's real RPD** in the account's AI Studio dashboard (still login-walled) —
-   free, no code change; this is the one number empirical probing deliberately declined to
-   chase (see above) since finding it would mean exhausting it.
+1. **(Obsolete: the Gemini tier was removed.)** Formerly: check Gemini's real RPD in the
+   account's AI Studio dashboard (login-walled); empirical probing deliberately declined to
+   chase it since finding it would mean exhausting it.
 2. **Groq's paid "Developer" tier** raises limits above the free tier, but the exact TPD/TPM
    numbers and pricing are NOT published on console.groq.com/docs/rate-limits without logging
    into the account's own billing page (console.groq.com/settings/billing/plans) — do not
