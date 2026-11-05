@@ -14,7 +14,8 @@ from typing import Any, Iterator
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -333,3 +334,58 @@ def test_ws_still_accepts_legacy_token(client: TestClient) -> None:
         ws.send_json({"type": "user_message", "message": "hello"})
         msg = ws.receive_json()
         assert msg["type"] == "session"
+
+
+# ---------------------------------------------------------------------------
+# verify_jwt — algorithm acceptance (ES256 Supabase tokens; HS256 never)
+# ---------------------------------------------------------------------------
+
+_EC_PRIVATE_KEY = ec.generate_private_key(ec.SECP256R1())
+_EC_PRIVATE_PEM: str = _EC_PRIVATE_KEY.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode()
+_EC_PUBLIC_PEM: str = _EC_PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+).decode()
+
+
+def _claims(aud: str = "authenticated", exp_offset: int = 3600) -> dict:
+    now = int(time.time())
+    return {"sub": deps.DEV_USER_ID, "aud": aud, "iat": now, "exp": now + exp_offset}
+
+
+def test_verify_jwt_accepts_es256(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ES256 (P-256) is what the restored Supabase project signs with."""
+    monkeypatch.setenv("JWT_TEST_PUBLIC_KEY", _EC_PUBLIC_PEM)
+    token = jwt.encode(_claims(), _EC_PRIVATE_PEM, algorithm="ES256")
+    assert auth_module.verify_jwt(token)["sub"] == deps.DEV_USER_ID
+
+
+def test_verify_jwt_still_accepts_rs256() -> None:
+    token = jwt.encode(_claims(), _TEST_PRIVATE_PEM, algorithm="RS256")
+    assert auth_module.verify_jwt(token)["sub"] == deps.DEV_USER_ID
+
+
+def test_verify_jwt_rejects_hs256(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HS256 signed with the public PEM as secret (confusion attack) must be refused."""
+    monkeypatch.setenv("JWT_TEST_PUBLIC_KEY", _EC_PUBLIC_PEM)
+    token = jwt.encode(_claims(), "some-shared-secret-of-32-bytes-min!!", algorithm="HS256")
+    with pytest.raises(HTTPException) as exc:
+        auth_module.verify_jwt(token)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"aud": "wrong-audience"}, {"exp_offset": -10}], ids=["wrong_aud", "expired"]
+)
+def test_verify_jwt_rejects_bad_es256_claims(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict
+) -> None:
+    monkeypatch.setenv("JWT_TEST_PUBLIC_KEY", _EC_PUBLIC_PEM)
+    token = jwt.encode(_claims(**kwargs), _EC_PRIVATE_PEM, algorithm="ES256")
+    with pytest.raises(HTTPException) as exc:
+        auth_module.verify_jwt(token)
+    assert exc.value.status_code == 401
