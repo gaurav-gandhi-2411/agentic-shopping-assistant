@@ -365,6 +365,54 @@ def test_expiry_reruns(
     assert b.invocations == 6
 
 
+def test_failure_is_cached_only_for_the_short_ttl_then_recovery_shows(
+    client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [1000.0]
+    monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
+    b.new_items = False  # no cards -> failing run
+    assert _get(client).status_code == 500
+    b.new_items = True  # the dependency recovers
+    now[0] += canary.FAIL_CACHE_TTL_S - 1
+    still = _get(client)  # inside the window: the cached failure, no re-run (bounds spend)
+    assert still.status_code == 500 and still.json()["cached"] is True
+    assert b.invocations == 3
+    now[0] += 2  # past 60 s, far short of 30 min
+    ok = _get(client)
+    assert ok.status_code == 200 and ok.json()["cached"] is False
+    assert b.invocations == 6
+
+
+def test_fail_ttl_is_short_and_pass_still_cached_for_30_minutes(
+    client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert canary.FAIL_CACHE_TTL_S == 60 and canary.CACHE_TTL_S == 30 * 60
+    now = [1000.0]
+    monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
+    assert _get(client).status_code == 200
+    now[0] += 29 * 60  # well past the failure TTL: a pass is still served from cache
+    cached = _get(client)
+    assert cached.status_code == 200 and cached.json()["cached"] is True
+    assert b.invocations == 3
+    now[0] += 2 * 60  # 31 min after the run
+    assert _get(client).json()["cached"] is False
+
+
+def test_pass_cached_before_outage_hides_it_only_until_ttl_but_failure_is_not_sticky(
+    client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh failure after an expired pass is cached for 60 s only, not 30 min."""
+    now = [1000.0]
+    monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
+    assert _get(client).status_code == 200
+    now[0] += canary.CACHE_TTL_S + 1
+    b.new_items = False
+    assert _get(client).status_code == 500
+    now[0] += canary.FAIL_CACHE_TTL_S + 1
+    b.new_items = True
+    assert _get(client).status_code == 200
+
+
 def test_concurrent_calls_run_once(b: _Behaviour) -> None:
     b.delay_s = 0.2
 

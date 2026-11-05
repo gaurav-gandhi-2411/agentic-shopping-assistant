@@ -16,8 +16,8 @@ rejected; if the header is present it alone decides). Cloud Run's own request lo
 request URL including the query string; that cannot be masked from this code (see DEPLOY.md).
 
 Budget (per instance; Cloud Run maxScale is low, so the fleet-wide bound is
-``instances x`` these numbers): a result is cached for 30 min (-> at most 48 runs/day in steady
-state) and a UTC-day counter caps real runs at 60/day so restarts (which empty the cache) cannot
+``instances x`` these numbers): a pass is cached for 30 min (-> at most 48 runs/day in steady
+state; a failure only for FAIL_CACHE_TTL_S = 60 s so recovery shows quickly) and a UTC-day counter caps real runs at 60/day so restarts (which empty the cache) cannot
 cause unbounded runs. A run bypasses the per-IP and daily-request demo limits (it uses a
 dedicated internal user, never touches ``demo_rate_limits``/``demo_daily_stats``), so it cannot
 block real users; the global daily cost guard still applies and its exhaustion is reported as
@@ -63,7 +63,10 @@ QUERIES: tuple[tuple[str, str], ...] = (
 )
 LATENCY_BUDGET_S = 15.0  # send -> done, strictly less (scripts/ops/canary.py LATENCY_BUDGET_MS)
 DEADLINE_S = 25.0  # all queries; the pinger is assumed to time out at 30 s
-CACHE_TTL_S = 30 * 60
+CACHE_TTL_S = 30 * 60  # a PASS is reused this long (bounds spend: <= 48 runs/day)
+# A FAIL is reused only briefly: after recovery the monitor must go green within about a minute,
+# not stay red for up to 30 min. The 60/day run cap and the cost guard still bound spend.
+FAIL_CACHE_TTL_S = 60
 MAX_RUNS_PER_DAY = 60  # hard per-instance cap; 30 min cache alone gives <= 48
 _CANARY_USER_ID = "anon:canary-internal"  # anon: -> in-memory session path, no Postgres user row
 
@@ -333,10 +336,11 @@ def _respond(status: int, body: dict[str, Any], cached: bool) -> JSONResponse:
 
 
 def _fresh() -> bool:
+    ttl = CACHE_TTL_S if _state.cached_status == 200 else FAIL_CACHE_TTL_S
     return (
         _state.cached_body is not None
         and _state.cached_at is not None
-        and _monotonic() - _state.cached_at < CACHE_TTL_S
+        and _monotonic() - _state.cached_at < ttl
     )
 
 
