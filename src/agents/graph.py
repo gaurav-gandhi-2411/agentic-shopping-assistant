@@ -7,7 +7,7 @@ import statistics
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
-from src.agents.grounding import validate_response
+from src.agents.grounding import grounded_fallback_reply, validate_response
 from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
 from src.agents.outfit.body_type import (
     body_type_ack_message,
@@ -3991,6 +3991,15 @@ def build_graph(
                 "messages": [],
             }
         answer = llm.generate(prompt)
+        if not answer or not answer.strip():
+            # Reasoning models can spend the whole token budget on hidden reasoning
+            # and return None/"" — never hand the user a blank reply (the WS path
+            # has the same guard in api/routes/chat.py).
+            logger.warning(
+                "[respond] empty LLM reply, using grounded fallback: model=%s",
+                getattr(llm, "model", "unknown"),
+            )
+            answer = grounded_fallback_reply(items)
         # allow_price_mentions=True: items now legitimately carry price_inr (Part
         # B fix) — see validate_response's docstring for why the literal word
         # "price"/"cost" no longer needs to appear in an item's own field values.

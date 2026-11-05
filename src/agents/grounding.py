@@ -320,3 +320,31 @@ def validate_rationale(
         return text, flags + ["rationale:all_dropped"]
 
     return " ".join(cleaned), flags
+
+
+def grounded_fallback_reply(items: list[dict]) -> str:
+    """Deterministic reply naming the shown items, used when the LLM returns nothing.
+
+    Built only from fields already on the retrieved items (display_name and,
+    when present, price_inr) so it cannot invent a name or a price. Mirrors the
+    5-item cap of the respond prompt so the text matches the cards on screen.
+    """
+    parts: list[str] = []
+    for it in items[:5]:
+        name = (it.get("display_name") or it.get("prod_name") or "").strip()
+        if not name:
+            continue
+        price = it.get("price_inr")
+        if isinstance(price, (int, float)) and not isinstance(price, bool) and price > 0:
+            parts.append(f"{name} (₹{price:,.0f})")
+        else:
+            parts.append(name)
+    if not parts:
+        return (
+            "I couldn't put together a written reply just now — please try rephrasing "
+            "or ask again and I'll take another look."
+        )
+    return (
+        "Here are the closest matches I found: " + ", ".join(parts) + ". "
+        "Tap any item for details."
+    )

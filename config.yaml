@@ -78,6 +78,10 @@ llm:
   groq_chain_budget_seconds: 30     # no new Groq attempt starts after this
   groq_retry_wait_cap_seconds: 8    # longest Retry-After we sleep through, else next model
   fallback_tier_budget_seconds: 8   # hard cap + SDK timeout per OpenRouter/Gemini fallback call
+  # gpt-oss is a reasoning model; at the default effort hidden reasoning consumed all
+  # 400 max_tokens and the reply came back empty (measured 2026-11-03: 0 content chars,
+  # finish_reason=length, twice; "low" -> 112 completion tokens, finish_reason=stop).
+  groq_reasoning_effort: "low"
   gemini_model: "gemini-2.5-flash"
   openrouter_model: "openai/gpt-oss-20b:free"
 
