@@ -1,0 +1,81 @@
+name: Migration Integrity
+
+# Runs the repo's Alembic migrations against an EPHEMERAL Postgres service container and checks
+# they form one sane chain: exactly one head, `upgrade head` from an empty DB works,
+# alembic_version == head, downgrade round trips work where the migrations support them, and a
+# few post-upgrade sanity queries (tables exist, 0008's RLS, 0007's revokes) hold.
+# Logic lives in scripts/ops/check_migrations.py (unit tests: tests/test_check_migrations.py).
+#
+# What this deliberately is NOT: a production drift check. This workflow holds NO secrets and
+# never connects to production. An earlier version (Item 269/M3) compared production's
+# alembic_version to the repo head every 6 h using the DATABASE_URL repo secret; CI must not
+# hold prod DB credentials, and "is prod behind master" is inherently a prod question. Prod
+# drift will be covered by migrations-on-deploy once PR #55 merges (it is still open). Until
+# then the only control is the manual runbook step `alembic current == alembic heads`, documented
+# in DEPLOY.md and implemented in NO script -- and never by CI. With this change the
+# DATABASE_URL repo secret has no remaining use and can be deleted.
+
+on:
+  pull_request:
+    paths:
+      - "alembic/**"
+      - "alembic.ini"
+      - "requirements.txt"
+      - "scripts/ops/check_migrations.py"
+      - "scripts/run_migrations.py"
+      - "tests/test_check_migrations.py"
+      - ".github/workflows/migration-integrity.yml"
+  push:
+    branches: [master]
+    paths:
+      - "alembic/**"
+      - "alembic.ini"
+      - "requirements.txt"
+      - "scripts/ops/check_migrations.py"
+      - "scripts/run_migrations.py"
+      - "tests/test_check_migrations.py"
+      - ".github/workflows/migration-integrity.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # Pinned to a major (plain Postgres; no migration needs pgvector or other extensions).
+        image: postgres:16
+        env:
+          # Throwaway credential for a container that lives only for this job; not a secret.
+          POSTGRES_PASSWORD: ci-ephemeral-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Unit tests (no database)
+        run: python -m pytest -q tests/test_check_migrations.py
+
+      - name: Migration integrity checks (ephemeral Postgres)
+        env:
+          MIGRATION_CHECK_DB_URL: postgresql://postgres:ci-ephemeral-only@localhost:5432/postgres
+        run: python scripts/ops/check_migrations.py
