@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse
 
 import api.deps as deps
 from api.auth import get_current_user_id_or_demo
+from api.demo.client_ip import get_client_ip
 from api.schemas import ItemLink, ItemSummary, OutfitVariant
 from src.agents.intent_parser import parse_intent
 from src.agents.outfit.cart_links import build_cart_action
@@ -219,29 +220,29 @@ async def post_style_from_image(
 
     # ── Demo guards (same as POST /chat) ──────────────────────────────────────
     if user_id.startswith("anon:"):
-        client_ip = request.client.host if request.client else "0.0.0.0"
+        # Always enforced (fail closed to in-process limits when the DB is unavailable).
+        client_ip = get_client_ip(request)
         engine = deps.get_db_engine()
-        if engine is not None:
-            from api.demo.guards import (
-                check_daily_cap,
-                check_daily_cost,
-                check_ip_rate_limit,
-                record_request,
-            )
+        from api.demo.guards import (
+            check_daily_cap,
+            check_daily_cost,
+            check_ip_rate_limit,
+            record_request,
+        )
 
-            ip_ok, ip_retry = check_ip_rate_limit(client_ip, brand, engine)
-            if not ip_ok:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Rate limit exceeded",
-                    headers={"Retry-After": str(ip_retry)},
-                )
-            if not check_daily_cap(brand, engine) or not check_daily_cost(brand):
-                raise HTTPException(
-                    status_code=429,
-                    detail="Demo limit reached for today — try again tomorrow.",
-                )
-            record_request(brand, engine)
+        ip_ok, ip_retry = check_ip_rate_limit(client_ip, brand, engine)
+        if not ip_ok:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(ip_retry)},
+            )
+        if not check_daily_cap(brand, engine) or not check_daily_cost(brand):
+            raise HTTPException(
+                status_code=429,
+                detail="Demo limit reached for today — try again tomorrow.",
+            )
+        record_request(brand, engine)
 
     # ── Feature flag ───────────────────────────────────────────────────────────
     if not _feature_enabled(config):

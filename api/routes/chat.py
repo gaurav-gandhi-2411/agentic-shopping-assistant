@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSo
 
 import api.deps as deps
 from api.auth import get_current_user_id_or_demo, get_current_user_id_ws
+from api.demo.client_ip import get_client_ip
 from api.logging_config import conversation_id_var
 from api.rate_limit import get_rate_limiter
 from api.schemas import (
@@ -288,29 +289,30 @@ def post_chat(
     # Rate limit: anonymous demo sessions use Postgres-backed per-IP + daily guards;
     # authenticated users use the existing in-memory sliding-window limiter.
     if user_id.startswith("anon:"):
-        client_ip = request.client.host if request.client else "0.0.0.0"
+        # Always enforced: the guards fall back to in-process limits (fail closed) when the
+        # engine is None or the DB errors, so there is no "skip when no DB" branch here.
+        client_ip = get_client_ip(request)
         _brand = _resolve_brand()
         _engine = deps.get_db_engine()
-        if _engine is not None:
-            from api.demo.guards import (
-                check_daily_cap,
-                check_daily_cost,
-                check_ip_rate_limit,
-                record_request,
+        from api.demo.guards import (
+            check_daily_cap,
+            check_daily_cost,
+            check_ip_rate_limit,
+            record_request,
+        )
+        ip_allowed, ip_retry = check_ip_rate_limit(client_ip, _brand, _engine)
+        if not ip_allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(ip_retry)},
             )
-            ip_allowed, ip_retry = check_ip_rate_limit(client_ip, _brand, _engine)
-            if not ip_allowed:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Rate limit exceeded",
-                    headers={"Retry-After": str(ip_retry)},
-                )
-            if not check_daily_cap(_brand, _engine) or not check_daily_cost(_brand):
-                raise HTTPException(
-                    status_code=429,
-                    detail="Demo limit reached for today — try again tomorrow.",
-                )
-            record_request(_brand, _engine)
+        if not check_daily_cap(_brand, _engine) or not check_daily_cost(_brand):
+            raise HTTPException(
+                status_code=429,
+                detail="Demo limit reached for today — try again tomorrow.",
+            )
+        record_request(_brand, _engine)
     else:
         limiter = get_rate_limiter()
         allowed, retry_after = limiter.is_allowed(user_id)
@@ -486,36 +488,36 @@ async def ws_chat(websocket: WebSocket) -> None:
     # Rate limit: anonymous demo sessions use Postgres-backed per-IP + daily guards;
     # authenticated users use the existing in-memory sliding-window limiter.
     if user_id.startswith("anon:"):
-        client_ip = websocket.client.host if websocket.client else "0.0.0.0"
+        # Always enforced (fail closed to in-process limits when the DB is unavailable).
+        client_ip = get_client_ip(websocket)
         _brand = _resolve_brand()
         _engine = deps.get_db_engine()
-        if _engine is not None:
-            from api.demo.guards import (
-                check_daily_cap,
-                check_daily_cost,
-                check_ip_rate_limit,
-                record_request,
+        from api.demo.guards import (
+            check_daily_cap,
+            check_daily_cost,
+            check_ip_rate_limit,
+            record_request,
+        )
+        ip_allowed, ip_retry = check_ip_rate_limit(client_ip, _brand, _engine)
+        if not ip_allowed:
+            await websocket.send_text(
+                WSErrorMessage(
+                    message=f"Rate limit exceeded. Retry in {ip_retry}s",
+                    code="rate_limited",
+                ).model_dump_json()
             )
-            ip_allowed, ip_retry = check_ip_rate_limit(client_ip, _brand, _engine)
-            if not ip_allowed:
-                await websocket.send_text(
-                    WSErrorMessage(
-                        message=f"Rate limit exceeded. Retry in {ip_retry}s",
-                        code="rate_limited",
-                    ).model_dump_json()
-                )
-                await websocket.close(code=1008, reason="Rate limit exceeded")
-                return
-            if not check_daily_cap(_brand, _engine) or not check_daily_cost(_brand):
-                await websocket.send_text(
-                    WSErrorMessage(
-                        message="Demo limit reached for today — try again tomorrow.",
-                        code="demo_limit",
-                    ).model_dump_json()
-                )
-                await websocket.close(code=1008, reason="Demo limit reached")
-                return
-            record_request(_brand, _engine)
+            await websocket.close(code=1008, reason="Rate limit exceeded")
+            return
+        if not check_daily_cap(_brand, _engine) or not check_daily_cost(_brand):
+            await websocket.send_text(
+                WSErrorMessage(
+                    message="Demo limit reached for today — try again tomorrow.",
+                    code="demo_limit",
+                ).model_dump_json()
+            )
+            await websocket.close(code=1008, reason="Demo limit reached")
+            return
+        record_request(_brand, _engine)
     else:
         limiter = get_rate_limiter()
         allowed, retry_after = limiter.is_allowed(user_id)

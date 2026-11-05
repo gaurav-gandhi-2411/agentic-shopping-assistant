@@ -56,11 +56,11 @@ async def create_demo_session(request: Request) -> DemoSessionResponse:
     brand = resolve_brand()
     engine = deps.get_db_engine()
 
-    if engine is not None:
-        if not check_daily_cap(brand, engine):
-            raise HTTPException(status_code=429, detail=DEMO_CAPPED_MSG)
-        if not check_daily_cost(brand):
-            raise HTTPException(status_code=429, detail=DEMO_CAPPED_MSG)
+    # Fail closed: check_daily_cap falls back to the in-process cap when engine is None/down.
+    if not check_daily_cap(brand, engine):
+        raise HTTPException(status_code=429, detail=DEMO_CAPPED_MSG)
+    if not check_daily_cost(brand):
+        raise HTTPException(status_code=429, detail=DEMO_CAPPED_MSG)
 
     anon_id = f"anon:{uuid.uuid4()}"
 
