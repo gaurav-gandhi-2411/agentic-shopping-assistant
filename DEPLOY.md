@@ -166,7 +166,7 @@ env vars: `GROQ_API_KEY` → `asa-groq-api-key`, `OPENROUTER_API_KEY` → `asa-o
 (added 2026-07-10 — Groq's free-tier daily token quota has been exhausted by heavy testing
 more than once).
 
-**As of 2026-07-31, `GroqClient` falls over to a 3-tier chain automatically** on a TPD
+**[Superseded by W7 below - the Gemini tier no longer exists; text kept as history.] As of 2026-07-31, `GroqClient` fell over to a 3-tier chain automatically** on a TPD
 (tokens-per-day) 429: Groq → OpenRouter → Gemini — see `GroqClient._iter_fallback_tiers()`
 in `src/llm/client.py`. No manual `LLM_PROVIDER` env-var swap is needed for a quota outage;
 `LLM_PROVIDER=groq` in production now carries an implicit 2-tier fallback for both `chat()`
@@ -180,7 +180,7 @@ ends in a user-facing "busy, try again in a minute" message if literally no tier
 
 **W4 (2026-11): the chain now starts with Groq models from `config.yaml`** (`llm.groq_model`,
 then `llm.groq_fallback_models`), each with one jittered retry on 429/5xx/timeout, before the
-OpenRouter and Gemini tiers. Startup calls Groq `GET /models` (5 s): a primary model that is not
+OpenRouter tier (and, until W7, a Gemini tier). Startup calls Groq `GET /models` (5 s): a primary model that is not
 listed aborts startup (the Cloud Run TCP startup probe then fails the revision); unlisted
 fallbacks are dropped with a warning; if `/models` itself is unreachable the check is skipped
 with an ERROR log (deploys must not depend on Groq being up), except a 401/403 which aborts.
@@ -188,8 +188,54 @@ with an ERROR log (deploys must not depend on Groq being up), except a 401/403 w
 `READYZ_LLM_CACHE_SECONDS`) and returns 503 if no tier answers; the `llm` check string names the
 tier/model that answered and marks `FALLBACK` when it was not the primary.
 
-Every fallthrough is logged as a structured event — `{"event": "llm_fallback_served",
-"from_provider": "groq", "to_provider": "<openrouter|gemini>", "reason": "tpd_exhausted"}` —
+**W7 (2026-11): the Gemini tier and `google-genai` were removed.** The chain is now Groq
+models (`llm.groq_model`, then `llm.groq_fallback_models`) -> busy message (the OpenRouter tier was removed afterwards; see "OpenRouter removed" below).
+Reason: Gemini was only ever the third-tier fallback (the claims that Cloud Run logs show 0
+Gemini lines in 30 days and that the Generative Language API is not enabled in
+`stylemaitri-prod-260813` come from the architect review and were NOT re-verified here), and
+its job (extra free capacity once Groq runs out) is covered by the Groq model chain, each
+model with its own free quota. `LLM_PROVIDER=gemini` is now an error. Past Gemini
+measurements in this file are kept as history.
+
+**W7 post-merge ops order (the live service still references `asa-gemini-api-key:latest`;
+removing the env from `deploy/service.yaml` does NOT remove it from a running Cloud Run
+revision, and the `.github` deploy pipeline deliberately inherits env/secrets from the serving
+revision, so it will not remove it either).** In this order, nothing skipped:
+
+1. Deploy a new revision with the secret ref dropped, e.g.
+   `gcloud run services update asa-stylist-api --region=<region> --project=<project> --remove-secrets=GEMINI_API_KEY`
+   (or a `scripts/deploy_unified.sh` run, whose `--set-secrets` list no longer carries it).
+2. Confirm the SERVING revision (`status.traffic`, not `latestReadyRevisionName`) has no
+   `GEMINI_API_KEY` env / `asa-gemini-api-key` secretKeyRef:
+   `gcloud run revisions describe <serving-revision> --format=json | grep -i gemini` must be empty.
+3. Only then disable, and later destroy, the secret version(s) of `asa-gemini-api-key`.
+   Disabling or destroying earlier would break any revision that still mounts it.
+
+**OpenRouter removed (post-W7).** The chain is now Groq models (`llm.groq_model`, then
+`llm.groq_fallback_models`) -> busy message; `GroqClient._iter_fallback_tiers()` and its
+bounded-thread machinery are gone. Why (all three had to hold to keep it in prod, and (c)
+is unknown): (a) config names `openai/gpt-oss-20b:free` but nothing enforces the `:free`
+suffix; (b) the validity of secret `asa-openrouter-api-key` is unproven (a 2026-07-30 note
+found it dead, 401; the 2026-07-31 rotation below was not re-verified); (c) whether the
+OpenRouter account can incur charges is UNKNOWN. `OpenRouterClient` and
+`LLM_PROVIDER=openrouter` stay as a local-dev PRIMARY provider only. Re-enabling it as a
+fallback later requires proving, first: `:free`-only enforcement, key validity, and a
+no-charge account.
+
+**OpenRouter post-merge ops order (NOT yet run; one approved step).** The live service still
+references both secrets; removing them from `deploy/service.yaml` does not change a running
+revision. In this order, nothing skipped:
+
+1. `gcloud run services update asa-stylist-api --region=<region> --project=<project> --remove-secrets=GEMINI_API_KEY,OPENROUTER_API_KEY`
+2. Confirm the SERVING revision (`status.traffic`, not `latestReadyRevisionName`) has neither:
+   `gcloud run revisions describe <serving-revision> --format=json | grep -i -e gemini -e openrouter`
+   must be empty.
+3. Only then disable BOTH secret versions (`asa-gemini-api-key`, `asa-openrouter-api-key`).
+   Worst-case per-call latency is now the 30 s Groq chain budget plus one 20 s attempt in
+   flight = 50 s (config-derived, not measured live); there is no 8 s OpenRouter tier.
+
+Historical (pre-removal) fallthrough event — `{"event": "llm_fallback_served",
+"from_provider": "groq", "to_provider": "openrouter", "reason": "tpd_exhausted"}` —
 so degraded-mode traffic is visible in Cloud Logging (`jsonPayload.msg:"llm_fallback_served"`)
 instead of only discoverable via user complaints. Full chain exhaustion logs
 `llm_fallback_exhausted` with the list of tiers attempted. Every `llm_call` log line (from
@@ -236,6 +282,9 @@ startup health check, so the live service stays safe, but the *next* incremental
 base can still be silently wrong.
 
 ### Free-tier quota ceiling — 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
+
+> **W7 note:** the Gemini tier (Tier 3 below) was removed; this section is a historical
+> record of past measurements. Current chain: Groq models -> busy message (no OpenRouter tier; see "OpenRouter removed").
 
 Real production traffic on `asa-stylist-api` averages **~2,922 tokens/conversation** and
 **~2.07 LLM calls/conversation** (source: 31 real `llm_call` log events across 15 real
