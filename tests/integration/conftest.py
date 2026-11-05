@@ -13,21 +13,15 @@ from __future__ import annotations
 import os
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from scripts.run_migrations import apply_auth_shim
+from src.utils.db_url import create_db_engine
 
 DEV_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 _RAW_URL = os.environ.get("DATABASE_URL", "")
-
-
-def _normalise_url(url: str) -> str:
-    for prefix in ("postgresql://", "postgres://"):
-        if url.startswith(prefix):
-            return "postgresql+psycopg://" + url[len(prefix):]
-    return url
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +32,7 @@ def _normalise_url(url: str) -> str:
 def pg_engine() -> Engine:
     if not _RAW_URL:
         pytest.skip("DATABASE_URL not set")
-    engine = create_engine(_normalise_url(_RAW_URL), echo=False)
+    engine = create_db_engine(_RAW_URL, echo=False)
     yield engine
     engine.dispose()
 
