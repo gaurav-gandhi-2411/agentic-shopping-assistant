@@ -136,3 +136,18 @@ def test_sentry_logger_exception_event_has_exception_and_no_credential(monkeypat
     blob = json.dumps(events, default=str)
     for leaked in (DB_PW, "Alpha", "Bravo", "Charlie", "Delta"):
         assert leaked not in blob
+
+
+def test_canary_token_env_value_is_masked_in_log_message_and_exception(monkeypatch) -> None:
+    token = "canary-test-token-not-real-0000"
+    monkeypatch.setenv("CANARY_TOKEN", token)
+    red = Redactor(collect_secrets())
+    assert token not in red.redact(f"GET /canary?token={token} 500")
+    try:
+        raise RuntimeError(f"auth failed for {token}")
+    except RuntimeError as e:
+        rec = _record("canary call failed: %s", f"t={token}", exc=e)
+    assert RedactionFilter(red).filter(rec)
+    blob = rec.getMessage() + (rec.exc_text or "")
+    assert token not in blob
+    assert "RuntimeError" in blob
