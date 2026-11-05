@@ -112,6 +112,34 @@ class Redactor:
         return self.redact_obj(obj)
 
 
+def _redact_message(record: logging.LogRecord, message: str, redactor: Redactor) -> None:
+    """Redact record.msg/args, keeping the args container shape when that is safe.
+
+    Formatters such as uvicorn's AccessFormatter unpack ``record.args`` as a fixed tuple, so
+    blanking it (the old behaviour) raised on every access-log line.  Nothing to mask: leave
+    the record untouched.  Otherwise mask the template and each string arg in place and keep
+    the result only if the re-rendered message is clean (a secret split across template and
+    args would not be); else fall back to the pre-rendered, masked message with args=None.
+    """
+    masked = redactor.redact(message)
+    args = record.args
+    if masked == message and (args is None or isinstance(args, tuple | dict)):
+        return
+    if isinstance(args, tuple | dict) and args and isinstance(record.msg, str):
+        new_msg = redactor.redact(record.msg)
+        new_args = redactor.redact_obj(args)
+        probe = logging.LogRecord("x", 0, "", 0, new_msg, new_args, None)
+        try:
+            rendered: str | None = probe.getMessage()
+        except Exception:  # noqa: BLE001 - fall through to the pre-rendered fallback
+            rendered = None
+        if rendered is not None and redactor.redact(rendered) == rendered:
+            record.msg, record.args = new_msg, new_args
+            return
+    record.msg = masked
+    record.args = None
+
+
 def redact_record(record: logging.LogRecord, redactor: Redactor) -> None:
     """Mask a LogRecord in place.
 
@@ -123,9 +151,10 @@ def redact_record(record: logging.LogRecord, redactor: Redactor) -> None:
     try:
         message = record.getMessage()
     except Exception:  # noqa: BLE001 - a bad format string must not hide the record
-        message = str(record.msg)
-    record.msg = redactor.redact(message)
-    record.args = None
+        record.msg = redactor.redact(str(record.msg))
+        record.args = None
+    else:
+        _redact_message(record, message, redactor)
     if record.exc_info and record.exc_info[0] is not None and not record.exc_text:
         record.exc_text = logging.Formatter().formatException(record.exc_info)
     if record.exc_text:
