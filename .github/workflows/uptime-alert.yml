@@ -229,7 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CHECK_PATH: "/readyz"
-      ALERT_TITLE: "StyleMaitri DB is unreachable (or app not ready)"
+      ALERT_TITLE: "StyleMaitri prod readiness check failed"
 
     steps:
       - name: Probe /readyz (with cold-start retry)
@@ -257,11 +257,15 @@ jobs:
           BODY=$(cat /tmp/ready_body.txt 2>/dev/null || echo "(no body)")
           BODY_ONELINE=$(printf '%s' "${BODY:0:500}" | tr '\n\r' '  ')
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          # Names of the /readyz checks reporting "error..." (empty if the body is not JSON,
+          # e.g. a timeout or an infrastructure 5xx).
+          FAILED_CHECKS=$(jq -r '[.checks // {} | to_entries[] | select(.value | startswith("error")) | .key] | join(", ")' /tmp/ready_body.txt 2>/dev/null || true)
 
           echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
           echo "timestamp=${TIMESTAMP}" >> "$GITHUB_OUTPUT"
           echo "target_url=${TARGET_URL}" >> "$GITHUB_OUTPUT"
           echo "body=${BODY_ONELINE}" >> "$GITHUB_OUTPUT"
+          echo "failed_checks=${FAILED_CHECKS}" >> "$GITHUB_OUTPUT"
 
       - name: Handle DOWN
         if: always() && steps.probe.outputs.status != '200'
@@ -271,8 +275,10 @@ jobs:
           TIMESTAMP: ${{ steps.probe.outputs.timestamp }}
           BODY: ${{ steps.probe.outputs.body }}
           TARGET_URL: ${{ steps.probe.outputs.target_url }}
+          FAILED_CHECKS: ${{ steps.probe.outputs.failed_checks }}
         run: |
           REPO="${{ github.repository }}"
+          FAILED_LINE="${FAILED_CHECKS:-not reported (response had no failing check names)}"
 
           EXISTING_ISSUE=$(gh issue list \
             --repo "${REPO}" \
@@ -291,6 +297,7 @@ jobs:
           Still failing at ${TIMESTAMP}
 
           **HTTP status:** \`${HTTP_STATUS}\`
+          **Failing checks:** ${FAILED_LINE}
           **Checked:** \`${TARGET_URL}\`
 
           **Response body:**
@@ -307,10 +314,11 @@ jobs:
               --repo "${REPO}" \
               --title "${ALERT_TITLE}" \
               --body "$(cat <<EOF
-          ## StyleMaitri /readyz is failing (database or a heavy dependency)
+          ## StyleMaitri prod readiness check failed
 
           **Detected at:** ${TIMESTAMP}
           **HTTP status:** \`${HTTP_STATUS}\`
+          **Failing checks:** ${FAILED_LINE}
           **Checked:** \`${TARGET_URL}\`
 
           **Response body:**
