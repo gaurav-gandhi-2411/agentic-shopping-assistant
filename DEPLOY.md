@@ -176,8 +176,17 @@ on hidden reasoning and return `None`; Gemini can return empty output on safety-
 responses) is treated as failed and the chain advances to the next tier — a wired-but-silent
 empty response is not treated as success. The manual switch below is still the right tool
 for a *deliberate* provider change (e.g. cost or model-quality reasons), and the whole chain
-falls back to the legacy wait-and-retry-on-Groq behaviour if literally no tier can construct
-(all keys unset/invalid) rather than hanging on a broken fallback.
+ends in a user-facing "busy, try again in a minute" message if literally no tier answers.
+
+**W4 (2026-11): the chain now starts with Groq models from `config.yaml`** (`llm.groq_model`,
+then `llm.groq_fallback_models`), each with one jittered retry on 429/5xx/timeout, before the
+OpenRouter and Gemini tiers. Startup calls Groq `GET /models` (5 s): a primary model that is not
+listed aborts startup (the Cloud Run TCP startup probe then fails the revision); unlisted
+fallbacks are dropped with a warning; if `/models` itself is unreachable the check is skipped
+with an ERROR log (deploys must not depend on Groq being up), except a 401/403 which aborts.
+`/readyz` makes a real `max_tokens=1` call through the chain (cached 60 s, env
+`READYZ_LLM_CACHE_SECONDS`) and returns 503 if no tier answers; the `llm` check string names the
+tier/model that answered and marks `FALLBACK` when it was not the primary.
 
 Every fallthrough is logged as a structured event — `{"event": "llm_fallback_served",
 "from_provider": "groq", "to_provider": "<openrouter|gemini>", "reason": "tpd_exhausted"}` —
