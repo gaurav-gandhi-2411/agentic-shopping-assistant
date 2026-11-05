@@ -53,8 +53,13 @@ echo "=== Step 3: Push to Artifact Registry ==="
 docker push "${IMAGE}"
 
 echo "=== Step 4: Run database migration ==="
-echo "  Run: DATABASE_URL='${DATABASE_URL}' alembic upgrade head"
-echo "  (skipping automatic migration — run it manually if not yet done)"
+# Previously only printed this command as an instruction and skipped running
+# it -- the confirmed root cause of migrations 0007 and 0008 sitting merged
+# but unapplied in production for days (found and fixed directly, 2026-08-18).
+# `set -euo pipefail` (top of file) means a failing migration stops this
+# script before any of the brand services below are deployed.
+DATABASE_URL="${DATABASE_URL}" alembic upgrade head
+echo "  Migration applied (repo HEAD now matches production)"
 
 echo "=== Step 5: Upload indices to GCS ==="
 # rsync with trailing slash on source copies CONTENTS into the GCS prefix,
