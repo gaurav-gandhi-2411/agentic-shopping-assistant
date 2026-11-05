@@ -44,6 +44,7 @@ from src.agents.grounding import grounded_fallback_reply
 from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
 from src.llm.context import llm_user_id_var
+from src.llm.resilience import LLM_BUSY_MESSAGE
 from src.retrieval.index_store import resolve_brand as _resolve_brand
 
 logger = logging.getLogger(__name__)
@@ -475,12 +476,18 @@ class TurnOutcome:
     status: "done" (WSDoneMessage sent), "cancelled", "timeout" (turn deadline) or
     "stream_error" (the LLM stream failed). For the last three the matching terminal
     frame (cancelled / error) has already been passed to ``send``.
+
+    degraded: why the reply the user received is not a real model reply, else None. Server-side
+    only (never put on a WS/REST frame): ``"llm_busy"`` (the LLM chain was exhausted and the
+    user got LLM_BUSY_MESSAGE) or ``"grounded_fallback"`` (a blank reply was replaced by
+    ``grounded_fallback_reply``). GET /canary reads it so it cannot stay green on a dead LLM.
     """
 
     status: str
     full_response: str = ""
     result: dict | None = None
     done: WSDoneMessage | None = None
+    degraded: str | None = None
 
 
 async def run_chat_turn(
@@ -626,6 +633,7 @@ async def run_chat_turn(
         pass
 
     full_response = ""
+    degraded: str | None = None
 
     # Bug fix (WS session-history overwrite): the streaming-mode graph nodes
     # (respond_node/outfit_node/clarify_node) return "messages": [] when they
@@ -681,6 +689,7 @@ async def run_chat_turn(
                     getattr(llm, "model", "unknown"),
                 )
                 full_response = grounded_fallback_reply(result.get("retrieved_items", []))
+                degraded = "grounded_fallback"
             if cancel_event.is_set():
                 await send(WSCancelledMessage())
                 return TurnOutcome("cancelled")
@@ -725,6 +734,7 @@ async def run_chat_turn(
             len(_shown),
         )
         full_response = grounded_fallback_reply(_shown)
+        degraded = "grounded_fallback"
         _base = list(_accumulated_messages)
         if _base and _base[-1].get("role") == "assistant" and not (
             _base[-1].get("content") or ""
@@ -736,6 +746,9 @@ async def run_chat_turn(
             "final_answer": full_response,
             "messages": _base + [{"role": "assistant", "content": full_response}],
         }
+
+    if LLM_BUSY_MESSAGE in full_response:  # chain exhausted: streamed/returned as ordinary text
+        degraded = "llm_busy"
 
     # ------------------------------------------------------------------
     # 8. Persist session and send done
@@ -802,7 +815,9 @@ async def run_chat_turn(
         message_id=last_message_id,
     )
     await send(done_msg)
-    return TurnOutcome("done", full_response=full_response, result=result, done=done_msg)
+    return TurnOutcome(
+        "done", full_response=full_response, result=result, done=done_msg, degraded=degraded
+    )
 
 
 # ---------------------------------------------------------------------------

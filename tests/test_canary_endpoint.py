@@ -19,6 +19,8 @@ from api.logging_config import _TokenRedactFilter
 from api.main import app
 from api.rate_limit import get_rate_limiter
 from api.session import InMemorySessionStore
+from src.agents.grounding import GROUNDED_FALLBACK_EMPTY, GROUNDED_FALLBACK_PREFIX
+from src.llm.resilience import LLM_BUSY_MESSAGE
 
 TOKEN = "canary-test-token-0123456789"
 _CONFIG: dict = {
@@ -184,17 +186,97 @@ def test_assertion_failures_return_500(
     assert not _has_token(r.text), "token leaked into response"
 
 
-def test_blank_model_reply_is_replaced_by_82_guard_and_canary_sees_fallback(
+def test_blank_model_reply_is_replaced_by_82_guard_but_canary_fails_llm_degraded(
     client: TestClient, b: _Behaviour
 ) -> None:
-    """PR #82's empty-reply guard now lives in run_chat_turn, so a blank model reply reaches
-    the canary as the grounded fallback (what a real user sees) and the canary passes.
-    (Pre-merge this case asserted failing_assertion == "answer"; that assertion is now
-    covered at unit level by test_evaluate_turn_empty_answer_fails below.)"""
+    """PR #82's empty-reply guard lives in run_chat_turn: the end USER still gets a non-empty
+    grounded fallback, but the canary must NOT stay green on it (a dead LLM chain looks exactly
+    like this because retrieval cards do not need the LLM) -> llm_degraded.
+    (The `answer` assertion itself is covered by test_evaluate_turn_empty_answer_fails.)"""
     b.reply = "   "
     r = _get(client)
-    assert r.status_code == 200
-    assert all(q["answer_chars"] > 0 for q in r.json()["queries"])
+    assert r.status_code == 500
+    assert r.json()["failing_assertion"] == "llm_degraded"
+    # user-facing behaviour unchanged: a real turn on the same path receives the fallback text
+    outcome = _run_turn_directly()
+    assert outcome.full_response.strip()
+    assert outcome.full_response.startswith(GROUNDED_FALLBACK_PREFIX)
+    assert outcome.degraded == "grounded_fallback"
+
+
+def _run_turn_directly() -> chat_routes.TurnOutcome:
+    """One turn via run_chat_turn (the WS handler's runner), collecting the frames the user gets."""
+    from api.schemas import WSTokenMessage
+
+    frames: list[Any] = []
+
+    async def _send(msg: Any) -> None:
+        frames.append(msg)
+
+    async def go() -> chat_routes.TurnOutcome:
+        out = await chat_routes.run_chat_turn(
+            user_id="anon:direct", message="black kurta", conversation_id="c-direct",
+            send=_send, cancel_event=asyncio.Event(),
+        )
+        text = "".join(f.text for f in frames if isinstance(f, WSTokenMessage))
+        # the user sees the streamed text (a blank token may precede the fallback) == the outcome text
+        assert text.strip() == out.full_response
+        return out
+
+    return asyncio.run(go())
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (LLM_BUSY_MESSAGE, "llm_degraded"),  # chain exhausted: client yields the busy message
+        ("   ", "llm_degraded"),  # blank -> grounded fallback
+        ("", "llm_degraded"),
+    ],
+)
+def test_degraded_reply_fails_canary_with_llm_degraded(
+    client: TestClient, b: _Behaviour, reply: str, expected: str
+) -> None:
+    b.reply = reply
+    r = _get(client)
+    body = r.json()
+    assert r.status_code == 500 and body["status"] == "fail"
+    assert body["failing_assertion"] == expected
+    assert not _has_token(r.text)
+
+
+def test_busy_message_reaches_user_unchanged_and_is_flagged(b: _Behaviour) -> None:
+    b.reply = LLM_BUSY_MESSAGE
+    outcome = _run_turn_directly()
+    assert outcome.full_response == LLM_BUSY_MESSAGE  # user-facing behaviour unchanged
+    assert outcome.degraded == "llm_busy"
+
+
+def test_healthy_reply_has_no_degraded_flag_and_passes(client: TestClient, b: _Behaviour) -> None:
+    assert _get(client).status_code == 200
+    assert _run_turn_directly().degraded is None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [LLM_BUSY_MESSAGE, GROUNDED_FALLBACK_EMPTY, GROUNDED_FALLBACK_PREFIX + "Kurta. Tap any item."],
+)
+def test_evaluate_turn_text_backstop_without_degraded_flag(answer: str) -> None:
+    from api.schemas import WSDoneMessage, WSTokenMessage
+
+    frames = [WSTokenMessage(text=answer), WSDoneMessage(final_state={})]
+    with pytest.raises(canary._Failure) as ei:
+        canary.evaluate_turn(frames, 1.0)
+    assert ei.value.name == "llm_degraded"
+
+
+def test_evaluate_turn_degraded_flag_is_primary_signal() -> None:
+    from api.schemas import WSDoneMessage, WSTokenMessage
+
+    frames = [WSTokenMessage(text="fine looking text"), WSDoneMessage(final_state={})]
+    with pytest.raises(canary._Failure) as ei:
+        canary.evaluate_turn(frames, 1.0, degraded="llm_busy")
+    assert ei.value.name == "llm_degraded"
 
 
 def test_evaluate_turn_empty_answer_fails() -> None:

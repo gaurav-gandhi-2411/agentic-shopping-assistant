@@ -47,7 +47,9 @@ from api.demo.guards import check_daily_cost
 from api.logging_config import conversation_id_var
 from api.routes import chat as chat_routes
 from api.schemas import WSDoneMessage, WSErrorMessage, WSItemsMessage, WSTokenMessage
+from src.agents.grounding import GROUNDED_FALLBACK_EMPTY, GROUNDED_FALLBACK_PREFIX
 from src.llm.context import llm_user_id_var
+from src.llm.resilience import LLM_BUSY_MESSAGE
 from src.retrieval.index_store import resolve_brand as _resolve_brand
 
 logger = logging.getLogger(__name__)
@@ -201,7 +203,7 @@ def _check_cards(cards: list[dict]) -> None:
 
 
 def evaluate_turn(
-    frames: list[BaseModel], latency_s: float
+    frames: list[BaseModel], latency_s: float, degraded: str | None = None
 ) -> dict[str, Any]:
     """Apply the canary assertions to the frames of one turn; return its summary or raise.
 
@@ -209,6 +211,11 @@ def evaluate_turn(
     cards, price, latency. ``answer`` is the streamed token text -- what the user sees; with
     the empty-reply guard of PR #82 a blank model reply is replaced by a fallback token, and
     this check still fires if a turn ever reaches ``done`` with no token text.
+
+    ``llm_degraded`` fails the turn when the user got LLM_BUSY_MESSAGE (chain exhausted) or a
+    grounded fallback in place of a model reply: retrieval cards do not need the LLM, so
+    without it a dead Groq chain would still look healthy. Primary signal is ``degraded``
+    (``TurnOutcome.degraded``, set in run_chat_turn); the answer-text match is a backstop.
     """
     errors = [f for f in frames if isinstance(f, WSErrorMessage)]
     done = next((f for f in frames if isinstance(f, WSDoneMessage)), None)
@@ -218,6 +225,13 @@ def evaluate_turn(
     answer = "".join(f.text for f in frames if isinstance(f, WSTokenMessage))
     if not answer.strip():
         raise _Failure("answer", "empty answer")
+    if (
+        degraded
+        or LLM_BUSY_MESSAGE in answer
+        or answer.strip() == GROUNDED_FALLBACK_EMPTY
+        or answer.lstrip().startswith(GROUNDED_FALLBACK_PREFIX)
+    ):
+        raise _Failure("llm_degraded", f"reply not from the model ({degraded or 'text match'})")
 
     cards: list[dict] = []
     for f in frames:
@@ -273,7 +287,7 @@ async def _run_query(query_id: str, text: str) -> dict[str, Any]:
 
     if outcome.status != "done":
         raise _Failure("transport", f"turn ended: {outcome.status}")
-    summary = evaluate_turn(frames, latency_s)
+    summary = evaluate_turn(frames, latency_s, outcome.degraded)
     return {"id": query_id, **summary}
 
 

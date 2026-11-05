@@ -258,6 +258,52 @@ def test_cards_fall_back_to_first_outfit_variant() -> None:
     assert res.ok and res.cards == 1
 
 
+# ------------------------------------------------------------------ llm_degraded
+
+_BUSY = canary.LLM_BUSY_MESSAGE
+_FALLBACKS = [
+    _BUSY,
+    "Sorry. " + _BUSY,  # busy message embedded in a longer reply
+    canary.GROUNDED_FALLBACK_EMPTY,
+    canary.GROUNDED_FALLBACK_PREFIX + "Kurta (\u20b91,299). Tap any item for details.",
+]
+
+
+@pytest.mark.parametrize("answer", _FALLBACKS)
+def test_degraded_reply_fails_as_real_failure_not_capped(answer: str) -> None:
+    res = _eval(answer=answer)
+    assert any(f.startswith("llm_degraded") for f in res.failures)
+    assert not res.capped and not res.ok
+    assert canary.classify([res]) == "fail"  # fail -> opens/updates the prod-alert issue
+    assert canary.decide_issue_action("fail", []).kind == "create"
+
+
+def test_healthy_reply_still_passes() -> None:
+    assert _eval(answer="A lovely black kurta set.").ok
+
+
+def test_busy_message_over_the_wire_fails_the_run() -> None:
+    frames = [f for f in good_frames() if f["type"] != "token"]
+    frames.insert(2, {"type": "token", "text": _BUSY})
+    res, _ = run_full({"frames": frames})
+    assert any(f.startswith("llm_degraded") for f in res.failures)
+    assert not res.capped
+
+
+def test_duplicated_fallback_texts_match_the_app_constants() -> None:
+    """scripts/ops/canary.py is stdlib-only and duplicates these strings; keep them pinned."""
+    from src.agents import grounding
+    from src.llm.resilience import LLM_BUSY_MESSAGE
+
+    assert canary.LLM_BUSY_MESSAGE == LLM_BUSY_MESSAGE
+    assert canary.GROUNDED_FALLBACK_PREFIX == grounding.GROUNDED_FALLBACK_PREFIX
+    assert canary.GROUNDED_FALLBACK_EMPTY == grounding.GROUNDED_FALLBACK_EMPTY
+    assert grounding.grounded_fallback_reply([]) == canary.GROUNDED_FALLBACK_EMPTY
+    assert grounding.grounded_fallback_reply(
+        [{"display_name": "Kurta", "price_inr": 5}]
+    ).startswith(canary.GROUNDED_FALLBACK_PREFIX)
+
+
 # ------------------------------------------------------------------ redaction
 
 

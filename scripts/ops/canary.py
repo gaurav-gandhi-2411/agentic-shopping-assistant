@@ -17,6 +17,8 @@ Assertions per query (all evaluated; every failure is recorded):
     * transport     - session/ticket HTTP 200 with valid JSON; WS handshake ok; a ``done`` frame
                       arrives (an ``error`` frame, early close or timeout fails).
     * answer        - the streamed ``token`` text is non-empty after strip().
+    * llm_degraded  - the answer is the LLM-busy message or a grounded-fallback reply (the LLM
+                      chain is dead; cards still render). A failure, never ``capped``.
     * cards         - >= 1 card. A card is an entry of the ``items`` frame (what the frontend
                       renders as ``pendingItems``); if no ``items`` frame arrived, the first
                       ``final_state.outfit_variants[*].items`` list is used instead.
@@ -120,6 +122,19 @@ ALERT_TITLE = "StyleMaitri prod canary is failing"
 MAX_FRAME_BYTES = 8 * 1024 * 1024  # a hostile/garbled length must not allocate GBs
 CAP_CODES = frozenset({"demo_limit", "rate_limited"})  # api/routes/chat.py WSErrorMessage codes
 LOOKUP_FAIL_LIMIT = 3  # consecutive cap-lookup failures before the canary reports itself dead
+# Duplicated (this script is stdlib-only and runs without the repo on sys.path) from
+# src/llm/resilience.py LLM_BUSY_MESSAGE and src/agents/grounding.py GROUNDED_FALLBACK_*;
+# tests/test_canary.py pins them equal. A reply that is exactly one of these means the LLM
+# chain was dead and retrieval cards alone kept the turn "healthy".
+LLM_BUSY_MESSAGE = (
+    "I'm getting a lot of requests right now and couldn't put together a reply. "
+    "Please try again in a minute."
+)
+GROUNDED_FALLBACK_PREFIX = "Here are the closest matches I found: "
+GROUNDED_FALLBACK_EMPTY = (
+    "I couldn't put together a written reply just now — please try rephrasing "
+    "or ask again and I'll take another look."
+)
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -425,6 +440,13 @@ def evaluate(
         return res  # nothing further is meaningful without a done frame
     if not answer.strip():
         res.failures.append("answer is empty")
+    elif (
+        LLM_BUSY_MESSAGE in answer
+        or answer.strip() == GROUNDED_FALLBACK_EMPTY
+        or answer.lstrip().startswith(GROUNDED_FALLBACK_PREFIX)
+    ):
+        # A real failure (goes through classify() -> "fail" -> prod-alert issue), unlike CAP_CODES.
+        res.failures.append("llm_degraded: reply is the LLM-busy message or a grounded fallback")
     cards = collect_cards(items_frame, final_state)
     res.cards = len(cards)
     if not cards:

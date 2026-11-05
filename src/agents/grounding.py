@@ -322,6 +322,15 @@ def validate_rationale(
     return " ".join(cleaned), flags
 
 
+# Fixed fallback texts. Named so GET /canary and scripts/ops/canary.py (which duplicates them,
+# stdlib-only; pinned equal by tests/test_canary.py) can recognise a replaced reply.
+GROUNDED_FALLBACK_PREFIX = "Here are the closest matches I found: "
+GROUNDED_FALLBACK_EMPTY = (
+    "I couldn't put together a written reply just now — please try rephrasing "
+    "or ask again and I'll take another look."
+)
+
+
 def grounded_fallback_reply(items: list[dict]) -> str:
     """Deterministic reply naming the shown items, used when the LLM returns nothing.
 
@@ -340,11 +349,8 @@ def grounded_fallback_reply(items: list[dict]) -> str:
         else:
             parts.append(name)
     if not parts:
-        return (
-            "I couldn't put together a written reply just now — please try rephrasing "
-            "or ask again and I'll take another look."
-        )
+        return GROUNDED_FALLBACK_EMPTY
     return (
-        "Here are the closest matches I found: " + ", ".join(parts) + ". "
+        GROUNDED_FALLBACK_PREFIX + ", ".join(parts) + ". "
         "Tap any item for details."
     )
