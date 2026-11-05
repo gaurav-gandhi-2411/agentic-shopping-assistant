@@ -95,6 +95,50 @@ def test_reasoning_kwargs_keyed_on_called_model_not_primary(
     assert client._reasoning_kwargs("qwen/qwen3.8-27b") == {}
 
 
+def _chat_client(
+    monkeypatch: pytest.MonkeyPatch, primary: str, fallbacks: list[str], fail: set[str],
+) -> tuple[GroqClient, list[dict[str, Any]]]:
+    """GroqClient whose create() records kwargs; models in `fail` raise a fatal 404."""
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    calls: list[dict[str, Any]] = []
+
+    def create(**kw: Any) -> Any:
+        calls.append(kw)
+        if kw["model"] in fail:
+            raise Exception("Error code: 404 - model_not_found")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr("groq.Groq", lambda api_key, timeout, max_retries: fake)
+    cfg: dict[str, Any] = {
+        "temperature": 0.2, "max_tokens": 400, "timeout_seconds": 60, "groq_model": primary,
+        "groq_fallback_models": fallbacks, "groq_reasoning_effort": "low",
+    }
+    return GroqClient({"llm": cfg}), calls
+
+
+def test_chat_nonstreaming_sends_reasoning_effort_for_gpt_oss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Guards _chat_one's create() call: dropping **_reasoning_kwargs there once failed no test.
+    client, calls = _chat_client(monkeypatch, "openai/gpt-oss-20b", [], set())
+    assert client.chat([{"role": "user", "content": "x"}]) == "ok"
+    assert calls[0]["reasoning_effort"] == "low"
+
+
+def test_chat_fallback_to_qwen_gets_no_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, calls = _chat_client(
+        monkeypatch, "openai/gpt-oss-20b", ["qwen/qwen3.8-27b"], {"openai/gpt-oss-20b"}
+    )
+    assert client.chat([{"role": "user", "content": "x"}]) == "ok"
+    assert [c["model"] for c in calls] == ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+    assert calls[0]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in calls[1]
+
+
 def test_groq_empty_stream_with_finish_length_is_logged(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
