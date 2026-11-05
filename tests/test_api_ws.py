@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 import api.deps as deps
 from api.main import app
+from api.rate_limit import get_rate_limiter
 from api.session import InMemorySessionStore
 
 # ---------------------------------------------------------------------------
@@ -325,3 +326,52 @@ def test_ws_cancel_before_agent_completes(
         assert elapsed < 0.3, (
             f"Cancel took {elapsed:.3f}s — should arrive well before the 500ms agent sleep"
         )
+
+
+def test_ws_authenticated_user_is_rate_limited_on_second_turn(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+):
+    """The non-anon branch of ws_chat enforces the per-user sliding-window limiter.
+
+    JWT_VERIFICATION_DISABLED (autouse fixture) makes the user DEV_USER_ID, which is not
+    ``anon:`` so the in-memory RateLimiter path runs (the anon path uses the demo guards).
+    With RATE_LIMIT_PER_MINUTE=1 the first turn is served and the second connection must get
+    a ``rate_limited`` error frame and a 1008 close, with no turn executed.
+    """
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "1")
+    get_rate_limiter().reset()
+    calls: list[int] = []
+
+    class _CountingAgent(_MockAgent):
+        def invoke(self, state: dict, **kwargs) -> dict[str, Any]:
+            calls.append(1)
+            return super().invoke(state, **kwargs)
+
+    monkeypatch.setattr(
+        deps, "get_agent_factory", _make_factory(_CountingAgent(_SEARCH_RESULT))
+    )
+    try:
+        with client.websocket_connect("/chat/stream") as ws:
+            ws.send_json({"type": "user_message", "message": "show me blue jackets"})
+            types = []
+            while True:
+                msg = ws.receive_json()
+                types.append(msg["type"])
+                if msg["type"] == "done":
+                    break
+        assert "token" in types and types[-1] == "done"
+        assert len(calls) == 1
+
+        with client.websocket_connect("/chat/stream") as ws2:
+            ws2.send_json({"type": "user_message", "message": "show me blue jackets"})
+            err = ws2.receive_json()
+            assert err["type"] == "error" and err["code"] == "rate_limited"
+            assert err["message"].startswith("Rate limit exceeded. Retry in ")
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws2.receive_json()
+            assert ei.value.code == 1008
+        assert len(calls) == 1  # the limited turn never ran the agent
+    finally:
+        get_rate_limiter().reset()  # the limiter is a process singleton: leave it clean
