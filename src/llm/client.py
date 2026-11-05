@@ -221,10 +221,12 @@ class GroqClient:
         self._chain: list[str] = [self.model] + [
             m for m in (llm_cfg.get("groq_fallback_models") or []) if m != self.model
         ]
-        # Total wall-clock after which no NEW Groq attempt starts (the WS turn
+        # Hard total wall-clock cap for the whole retry/fallback chain (the WS turn
         # deadline in api/routes/chat.py is 90 s and one turn makes several LLM
-        # calls), and the longest Retry-After we are willing to sleep through.
-        self._chain_budget_s = float(llm_cfg.get("groq_chain_budget_seconds", 30))
+        # calls). It is a real cap, not just "no new attempt after": every attempt's
+        # HTTP timeout and every backoff sleep is clamped to what is left of it.
+        # Also the longest Retry-After we are willing to sleep through (below).
+        self._chain_budget_s = float(llm_cfg.get("groq_chain_budget_seconds", 20))
         self._retry_wait_cap_s = float(llm_cfg.get("groq_retry_wait_cap_seconds", 8))
         self.default_temperature = llm_cfg["temperature"]
         self.default_max_tokens = llm_cfg["max_tokens"]
@@ -238,9 +240,12 @@ class GroqClient:
         # call here was already bounded.
         # max_retries=0: the SDK's hidden retries (default 2) would compound with
         # this class's own bounded retry/fallback policy and blow the time budget.
+        self._attempt_timeout_s = float(
+            llm_cfg.get("groq_timeout_seconds", llm_cfg.get("timeout_seconds", 60))
+        )
         self._client = _groq_lib.Groq(
             api_key=api_key,
-            timeout=llm_cfg.get("groq_timeout_seconds", llm_cfg.get("timeout_seconds", 60)),
+            timeout=self._attempt_timeout_s,
             max_retries=0,
         )
         # gpt-oss models are reasoning models: hidden reasoning tokens count against
@@ -312,24 +317,60 @@ class GroqClient:
             })
         )
 
+    def _log_budget_exceeded(self, models_tried: list[str], t0: float, turn_id: str) -> None:
+        logger.error(
+            json.dumps({
+                "event": "llm_chain_budget_exceeded",
+                "budget_s": self._chain_budget_s,
+                "elapsed_s": round(time.monotonic() - t0, 3),
+                "models_tried": models_tried,
+                "turn_id": turn_id,
+            })
+        )
+
+    def _attempt_timeout(self, deadline: float) -> float | None:
+        """Per-attempt HTTP timeout: the configured one, clamped to the time left in
+        the chain budget so an in-flight attempt can never run past the deadline.
+        None when the budget is already spent (the caller must not start an attempt)."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        return min(self._attempt_timeout_s, remaining)
+
     def _retry_delay(self, info: ErrorInfo, attempt: int, deadline: float) -> float | None:
         """Seconds to wait before the single retry, or None to move to the next model."""
         if attempt != 1:
             return None
         wait = retry_wait_seconds(info, self._retry_wait_cap_s)
         if wait is not None and time.monotonic() + wait >= deadline:
+            # Sleeping would leave no time for the retry itself: go to the next model.
             return None
         return wait
+
+    @staticmethod
+    def _sleep_within(wait: float, deadline: float) -> None:
+        """Backoff sleep, never past the chain deadline (defence in depth: _retry_delay
+        already refuses waits that would cross it)."""
+        time.sleep(max(0.0, min(wait, deadline - time.monotonic())))
 
     def _chat_one(
         self, model: str, messages: list[dict], temperature: float | None,
         max_tokens: int | None, turn_id: str, deadline: float, *,
-        retry: bool = True, allow_empty: bool = False,
+        retry: bool = True, allow_empty: bool = False, clamp: bool = True,
     ) -> str | None:
         """Call one Groq model: initial attempt plus (if retry) one backoff retry on
         429/5xx/timeout. Returns the content, or None if this model failed or
-        returned empty content (the caller then moves to the next model)."""
+        returned empty content (the caller then moves to the next model).
+
+        clamp=True (chat()): each attempt's HTTP timeout is min(groq_timeout_seconds,
+        time left to `deadline`). clamp=False (probe()) keeps the client default."""
         for attempt in (1, 2):
+            kw: dict = {}
+            if clamp:
+                attempt_timeout = self._attempt_timeout(deadline)
+                if attempt_timeout is None:
+                    return None
+                kw["timeout"] = attempt_timeout
             t_start = time.monotonic()
             try:
                 resp = self._client.chat.completions.create(
@@ -338,6 +379,7 @@ class GroqClient:
                     temperature=temperature if temperature is not None else self.default_temperature,
                     max_tokens=max_tokens if max_tokens is not None else self.default_max_tokens,
                     **self._reasoning_kwargs(model),
+                    **kw,
                 )
             except Exception as exc:
                 info = classify_error(exc)
@@ -348,7 +390,7 @@ class GroqClient:
                 )
                 if wait is None:
                     return None
-                time.sleep(wait)
+                self._sleep_within(wait, deadline)
                 continue
             latency_ms = round((time.monotonic() - t_start) * 1000)
             try:
@@ -391,20 +433,27 @@ class GroqClient:
     ) -> str:
         """Groq models in order (each: attempt + one backoff retry) ->
         LLM_BUSY_MESSAGE (no non-Groq tier: see DEPLOY.md "OpenRouter removed").
-        Never returns empty and never waits unboundedly:
-        the Groq portion stops starting new attempts after groq_chain_budget_seconds
+        Never returns empty and never waits unboundedly: groq_chain_budget_seconds is a
+        hard cap on total wall time (attempt timeouts and backoff sleeps are clamped to
+        what is left), so the busy message arrives within budget + small overhead
         (the WS turn deadline is 90s, api/routes/chat.py)."""
         turn_id = str(uuid.uuid4())
-        deadline = time.monotonic() + self._chain_budget_s
+        t0 = time.monotonic()
+        deadline = t0 + self._chain_budget_s
+        tried: list[str] = []
         for i, model in enumerate(self._chain):
             if time.monotonic() >= deadline:
                 break
+            tried.append(model)
             result = self._chat_one(model, messages, temperature, max_tokens, turn_id, deadline)
             if result is not None:
                 if i > 0:
                     self._log_fallback_served("groq", model, turn_id)
                 return result
-        logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
+        if time.monotonic() >= deadline:
+            self._log_budget_exceeded(tried, t0, turn_id)
+        else:
+            logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
         return LLM_BUSY_MESSAGE
 
     def probe(self) -> dict:
@@ -419,7 +468,8 @@ class GroqClient:
         for model in self._chain:
             t0 = time.monotonic()
             res = self._chat_one(
-                model, msgs, 0, 1, turn_id, time.monotonic() + 10, retry=False, allow_empty=True
+                model, msgs, 0, 1, turn_id, time.monotonic() + 10, retry=False, allow_empty=True,
+                clamp=False,  # probe keeps its own 10 s deadline and client-default timeout
             )
             if res is not None:
                 return {"tier": "groq", "model": model,
@@ -471,9 +521,15 @@ class GroqClient:
         """Streaming twin of chat(). Failover only happens before the first token
         reaches the caller; an empty stream is a failure, and chain exhaustion yields
         LLM_BUSY_MESSAGE as ordinary text. A failure after tokens were already sent
-        still yields STREAM_ERROR_SENTINEL (the partial reply cannot be unsent)."""
+        still yields STREAM_ERROR_SENTINEL (the partial reply cannot be unsent).
+
+        The chain budget caps time-to-first-chunk (connect + failover until a token
+        is yielded). Once tokens are flowing the reply is NOT cut at the deadline:
+        truncating a half-sent answer is worse than a slow one."""
         turn_id = str(uuid.uuid4())
-        deadline = time.monotonic() + self._chain_budget_s
+        t0 = time.monotonic()
+        deadline = t0 + self._chain_budget_s
+        tried: list[str] = []
         model_used = self._chain[0]
         input_tokens = output_tokens = cached_tokens = 0
         t_start = time.monotonic()
@@ -481,8 +537,11 @@ class GroqClient:
         try:
             for i, model in enumerate(self._chain):
                 for attempt in (1, 2):
-                    if time.monotonic() >= deadline:
+                    attempt_timeout = self._attempt_timeout(deadline)
+                    if attempt_timeout is None:
                         break
+                    if not tried or tried[-1] != model:
+                        tried.append(model)
                     model_used, t_start = model, time.monotonic()
                     input_tokens = output_tokens = cached_tokens = 0
                     try:
@@ -496,12 +555,19 @@ class GroqClient:
                             # extra_body so the API returns a usage chunk for cost tracking.
                             extra_body={"stream_options": {"include_usage": True}},
                             **self._reasoning_kwargs(model),
+                            # httpx applies this per read, so it bounds connect and the
+                            # wait for the first chunk; clamped to the budget left.
+                            timeout=attempt_timeout,
                         )
                         finish_reason = None
                         # Splatting **kwargs defeats the SDK's stream=True overload, so mypy
                         # sees `tuple | ChatCompletionChunk`; at runtime it is always a
                         # Stream[ChatCompletionChunk]. Typing-only: no behaviour change.
                         for chunk in cast("Iterator[ChatCompletionChunk]", stream):
+                            if not yielded_any and time.monotonic() >= deadline:
+                                # Keep-alive/empty chunks must not stretch time-to-first-token
+                                # past the budget; classified as a timeout -> no retry.
+                                raise TimeoutError("chain budget exhausted before first token")
                             if chunk.choices:
                                 content = chunk.choices[0].delta.content
                                 if getattr(chunk.choices[0], "finish_reason", None):
@@ -530,7 +596,7 @@ class GroqClient:
                         )
                         if wait is None:
                             break
-                        time.sleep(wait)
+                        self._sleep_within(wait, deadline)
                         continue
                     self.last_finish_reason = finish_reason
                     if yielded_any:
@@ -546,8 +612,11 @@ class GroqClient:
                         round((time.monotonic() - t_start) * 1000), None, turn_id,
                     )
                     break
-            # Groq models exhausted.
-            logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
+            # Groq models exhausted (or the budget ran out): one busy message.
+            if time.monotonic() >= deadline:
+                self._log_budget_exceeded(tried, t0, turn_id)
+            else:
+                logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
             yield LLM_BUSY_MESSAGE
         finally:
             self._log_llm_call(

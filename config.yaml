@@ -75,7 +75,7 @@ llm:
     - "openai/gpt-oss-120b"
     - "qwen/qwen3.8-27b"
   groq_timeout_seconds: 20          # per Groq HTTP attempt (was the shared 60 s)
-  groq_chain_budget_seconds: 30     # no new Groq attempt starts after this
+  groq_chain_budget_seconds: 20     # HARD cap on the whole retry/fallback chain; attempt timeouts and backoff are clamped to it, then LLM_BUSY_MESSAGE
   groq_retry_wait_cap_seconds: 8    # longest Retry-After we sleep through, else next model
   # gpt-oss is a reasoning model; at the default effort hidden reasoning consumed all
   # 400 max_tokens and the reply came back empty (measured 2026-11-03: 0 content chars,

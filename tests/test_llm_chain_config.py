@@ -48,3 +48,8 @@ def test_openrouter_model_key_is_local_dev_primary_only_and_priced() -> None:
     # Kept for LLM_PROVIDER=openrouter (local dev); must stay priced so a swap to a
     # paid model cannot silently report $0.
     assert _llm_cfg()["openrouter_model"] in CONSTANTS
+
+
+def test_chain_budget_is_a_20s_hard_cap_in_shipped_config() -> None:
+    # Total retry/fallback wall time (GG requirement); clamped per attempt in GroqClient.
+    assert _llm_cfg()["groq_chain_budget_seconds"] == 20

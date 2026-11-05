@@ -274,8 +274,11 @@ revision. In this order, nothing skipped:
    `gcloud run revisions describe <serving-revision> --format=json | grep -i -e gemini -e openrouter`
    must be empty.
 3. Only then disable BOTH secret versions (`asa-gemini-api-key`, `asa-openrouter-api-key`).
-   Worst-case per-call latency is now the 30 s Groq chain budget plus one 20 s attempt in
-   flight = 50 s (config-derived, not measured live); there is no 8 s OpenRouter tier.
+   Worst-case per-call latency is now the 20 s Groq chain budget (`groq_chain_budget_seconds`),
+   a hard cap: each attempt's timeout and each backoff sleep is clamped to what is left, so
+   wall time is budget + small overhead, then `LLM_BUSY_MESSAGE` and an
+   `llm_chain_budget_exceeded` log event (fake-clock tested, not measured live); there is no
+   8 s OpenRouter tier. Streaming: the cap covers time-to-first-chunk only.
 
 Historical (pre-removal) fallthrough event — `{"event": "llm_fallback_served",
 "from_provider": "groq", "to_provider": "openrouter", "reason": "tpd_exhausted"}` —
