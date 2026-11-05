@@ -165,9 +165,14 @@ def stub_env(llm: Any) -> Iterator[None]:
     os.environ["RATE_LIMIT_PER_MINUTE"] = "100000"
     from api.session import InMemorySessionStore
 
-    deps._llm, deps._config = llm, MINIMAL_CONFIG
-    deps._session_store = InMemorySessionStore()
-    deps.get_agent_factory = get_factory  # type: ignore[assignment]
+    # setattr loop (mirrors the restore below): mypy rejects assigning a function over
+    # the module-level `get_agent_factory` def.
+    patches = {
+        "_llm": llm, "_config": MINIMAL_CONFIG, "_session_store": InMemorySessionStore(),
+        "get_agent_factory": get_factory,
+    }
+    for k, v in patches.items():
+        setattr(deps, k, v)
     try:
         yield
     finally:

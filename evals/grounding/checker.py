@@ -60,6 +60,17 @@ class _Claim:
     budget_ctx: bool = False
 
 
+def _num(c: _Claim) -> float:
+    """Numeric value of a price / percent / stock-count claim.
+
+    `_Claim.value` is a float | str | None union; those claim kinds are always built with a
+    float. float() keeps the old behaviour exactly (None -> TypeError), now type-checked.
+    """
+    if c.value is None:
+        raise TypeError(f"{c.kind} claim has no numeric value")
+    return float(c.value)
+
+
 # --------------------------------------------------------------------------- number parsing
 
 _NUM = r"\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?"
@@ -566,7 +577,7 @@ def check(
         for c in sc:
             denial = _in_denial(clauses, c.start - s0)
             if c.kind == "price":
-                amt = float(c.value)  # type: ignore[arg-type]
+                amt = _num(c)
                 if _name_number_exempt(assistant_text, c, items):
                     continue
                 mp = [p for p in (_price(i) for i in scope) if p is not None]
@@ -605,14 +616,14 @@ def check(
                 ):
                     continue
                 if c.flavour == "discount":
-                    if any(isinstance(i.get("discount_pct"), (int, float)) and abs(float(i["discount_pct"]) - float(c.value)) <= 1  # type: ignore[arg-type]
+                    if any(isinstance(i.get("discount_pct"), (int, float)) and abs(float(i["discount_pct"]) - _num(c)) <= 1
                            for i in scope):
                         continue
                     mrp_ok = False
                     for i in scope:
                         p, mrp = _price(i), i.get("mrp_inr")
                         if p and isinstance(mrp, (int, float)) and mrp > p:
-                            mrp_ok = mrp_ok or abs((mrp - p) / mrp * 100 - float(c.value)) <= 1  # type: ignore[arg-type]
+                            mrp_ok = mrp_ok or abs((mrp - p) / mrp * 100 - _num(c)) <= 1
                     if mrp_ok:
                         continue
                 if denial and c.value in user_pcts:
@@ -641,7 +652,7 @@ def check(
                 viol(c, "size", f"size {c.value} not in the sizes field of any (mentioned) shown item")
             elif c.kind == "stock":
                 if c.flavour == "count":
-                    if any(i.get("stock_count") == int(c.value) for i in scope):  # type: ignore[arg-type]
+                    if any(i.get("stock_count") == int(_num(c)) for i in scope):
                         continue
                 elif c.flavour == "oos":
                     if any(i.get("in_stock") is False for i in scope):

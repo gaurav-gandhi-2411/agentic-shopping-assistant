@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import copy
 import time
+from collections.abc import Iterable
+from typing import Any
 
 import pytest
 
@@ -24,8 +26,11 @@ FUTURE = {"article_id": "g1", "display_name": "Slim Chinos", "prod_name": "Slim 
           "in_stock": True, "stock_count": 2, "delivery_days": [3, 5], "free_shipping": True}
 
 
-def kinds(text: str, items: list[dict], **kw: object) -> list[str]:
-    return [v.kind for v in check(text, items, **kw)]  # type: ignore[arg-type]
+def kinds(
+    text: str, items: list[dict[str, Any]], user_text: str = "",
+    extra_amounts: Iterable[float] = (),
+) -> list[str]:
+    return [v.kind for v in check(text, items, user_text=user_text, extra_amounts=extra_amounts)]
 
 
 # ----------------------------------------------------------------- price: grounded forms
@@ -313,7 +318,7 @@ def test_no_items_means_every_number_is_ungrounded() -> None:
 
 
 def test_items_with_missing_or_odd_fields() -> None:
-    weird = [{}, {"price_inr": None}, {"price_inr": "free", "display_name": None},
+    weird: list[dict[str, Any]] = [{}, {"price_inr": None}, {"price_inr": "free", "display_name": None},
              {"price_inr": True, "display_name": "X"}, {"display_name": 12345}]
     assert kinds("It is ₹999.", weird) == ["price"]
 

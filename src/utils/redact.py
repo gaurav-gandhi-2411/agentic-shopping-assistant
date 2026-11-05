@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from collections.abc import Iterable, Mapping
+import weakref
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from urllib.parse import quote, quote_plus
 
@@ -147,6 +148,9 @@ class RedactionFilter(logging.Filter):
 
 # Swapped by install_log_redaction so the factory (installed once) always uses the latest.
 _active_redactor: Redactor | None = None
+# Record factories we installed (idempotency marker; a typed replacement for tagging the
+# function with an attribute). Weak so a replaced factory can still be collected.
+_redacting_factories: weakref.WeakSet[Callable[..., logging.LogRecord]] = weakref.WeakSet()
 
 
 def install_log_redaction(redactor: Redactor | None = None) -> Redactor:
@@ -162,14 +166,14 @@ def install_log_redaction(redactor: Redactor | None = None) -> Redactor:
     _active_redactor = redactor
 
     current = logging.getLogRecordFactory()
-    if not getattr(current, "_asa_redacting", False):
+    if current not in _redacting_factories:
         def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
             record = current(*args, **kwargs)
             if _active_redactor is not None:
                 redact_record(record, _active_redactor)
             return record
 
-        factory._asa_redacting = True  # type: ignore[attr-defined]
+        _redacting_factories.add(factory)
         logging.setLogRecordFactory(factory)
 
     loggers = [logging.getLogger()] + [

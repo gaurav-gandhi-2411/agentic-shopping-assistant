@@ -84,7 +84,11 @@ _OK_ROUTES: dict[tuple[str, str], tuple[int, str]] = {
 }
 
 
-def _serve(routes: dict[tuple[str, str], tuple[int, str]]):
+class _RecordingServer(HTTPServer):
+    seen: list[dict]
+
+
+def _serve(routes: dict[tuple[str, str], tuple[int, str]]) -> _RecordingServer:
     seen: list[dict] = []  # every request the server received (method, path, auth header, json body)
 
     class H(BaseHTTPRequestHandler):
@@ -111,8 +115,8 @@ def _serve(routes: dict[tuple[str, str], tuple[int, str]]):
         def log_message(self, *args: object) -> None:
             pass
 
-    srv = HTTPServer(("127.0.0.1", 0), H)
-    srv.seen = seen  # type: ignore[attr-defined]
+    srv = _RecordingServer(("127.0.0.1", 0), H)
+    srv.seen = seen
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -131,7 +135,7 @@ def run_main(monkeypatch: pytest.MonkeyPatch):
             ["--base-url", f"http://127.0.0.1:{srv.server_port}", *(extra_args or [])],
             require_https=False,
         )
-        return srv.seen  # type: ignore[attr-defined]
+        return srv.seen
 
     yield _run
     for s in servers:
@@ -163,7 +167,7 @@ def test_main_rejects_http_base_url_by_default() -> None:
         with pytest.raises(SystemExit) as exc:
             smoke.main(["--base-url", f"http://127.0.0.1:{srv.server_port}"])
         assert exc.value.code == 1
-        assert srv.seen == []  # type: ignore[attr-defined]
+        assert srv.seen == []
     finally:
         srv.shutdown()
 
