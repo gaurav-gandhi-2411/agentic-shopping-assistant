@@ -9,7 +9,9 @@ bias. This script instead:
 
   1. Uses judges from 4 DIFFERENT model families (not variants of one):
      qwen3:30b-a3b (Alibaba, local/free), gemma2:9b (Google DeepMind,
-     local/free), gemini-2.5-flash (Google, API/free-tier),
+     local/free), gemini-2.5-flash (Google, API/free-tier; REMOVED from the
+     codebase in W7 - the Gemini client no longer exists, so this stays as a
+     record of the original plan only),
      openai/gpt-oss-20b:free via OpenRouter (OpenAI, API/free-tier).
   2. Runs all 4 blind (no ground truth shown) against every look in
      eval/fixtures/coherence_calibration.yaml (not just the 5 flagged items —
@@ -102,8 +104,6 @@ def _client_for(spec: dict[str, Any]):
     config["llm"]["provider"] = spec["provider"]
     if spec["provider"] == "ollama":
         config["llm"]["model"] = spec["model"]
-    elif spec["provider"] == "gemini":
-        config["llm"]["gemini_model"] = spec["model"]
     return get_llm_client(config)
 
 

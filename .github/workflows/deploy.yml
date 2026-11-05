@@ -1,0 +1,338 @@
+name: Deploy
+
+# Production deploy of asa-stylist-api to Cloud Run, from CI only (CLAUDE.md rule 31a).
+#
+# Runs ONLY after the `CI` workflow concluded `success` for a PUSH to master, or by manual
+# workflow_dispatch on master. Never on pull requests, forks or Dependabot: the job-level `if`
+# below filters every other workflow_run. Independently, the deployer SA can only be impersonated
+# through the DEDICATED pool `github-deploy-pool`, whose single provider's attribute condition
+# accepts only this repo at refs/heads/master (scripts/ops/setup_deploy_iam.sh). The CI pool
+# `github-pool` (owner-wide condition, tokens for PR runs) has NO binding on the deployer: a
+# principalSet binding is scoped to a whole pool, so sharing a pool would have let any branch
+# or PR token impersonate it. The script verifies this after applying.
+#
+# Required repo secrets (NEW, not shared with CI's WIF_PROVIDER / WIF_SERVICE_ACCOUNT):
+#   GCP_DEPLOY_WIF_PROVIDER      projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
+#   GCP_DEPLOY_SERVICE_ACCOUNT   stylemaitri-deployer@stylemaitri-prod-260813.iam.gserviceaccount.com
+#
+# Flow: build on the GitHub runner (free on a public repo) -> push image tagged with the full
+# commit SHA to Artifact Registry -> deploy a NO-TRAFFIC revision with a tag -> smoke-test the tag
+# URL (incl. one /chat) -> shift 100% traffic -> liveness + /readyz on the main URL (no chat) ->
+# pin service-level min-instances 0 and assert nothing serving has minScale > 0. ANY failure after the traffic shift rolls 100% back to
+# the revision that was serving before this run, then fails the job.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+# Serialise prod deploys; never cancel one halfway (a cancelled run could strand traffic).
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+# No default token permissions; the one job grants itself exactly what it needs.
+permissions: {}
+
+env:
+  GCP_PROJECT: stylemaitri-prod-260813
+  REGION: asia-south1
+  SERVICE: asa-stylist-api
+  AR_REPO: cloud-run-source-deploy
+  # Public URL of the service (same host as uptime-alert.yml).
+  SERVICE_URL: https://asa-stylist-api-ec3mwppesa-el.a.run.app
+  # /healthz is reported to 404 at the infrastructure level; /api/brand is verified 200 in the
+  # Cloud Run request log. Single place to change once /healthz is confirmed.
+  LIVE_PATH: /api/brand
+
+jobs:
+  deploy:
+    if: >-
+      github.repository == 'gaurav-gandhi-2411/agentic-shopping-assistant' &&
+      (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'master' &&
+         github.event.workflow_run.head_repository.full_name == github.repository)
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read     # list CI runs for the target SHA
+      id-token: write   # WIF auth only; this is the only job in the workflow
+
+    steps:
+      - name: Resolve commit to deploy
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_run" ]; then SHA="$RUN_SHA"; else SHA="$DISPATCH_SHA"; fi
+          case "$SHA" in
+            *[!0-9a-f]*|"") echo "::error::bad commit sha: '$SHA'"; exit 1 ;;
+          esac
+          if [ "${#SHA}" -ne 40 ]; then echo "::error::sha is not 40 hex chars: '$SHA'"; exit 1; fi
+          {
+            echo "sha=$SHA"
+            echo "tag=c-${SHA:0:7}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          persist-credentials: false
+
+      # workflow_dispatch can be pointed at any moment, so CI success for the exact target SHA is
+      # re-verified here for BOTH triggers and fails closed: an API error, zero runs, or a
+      # non-success conclusion all stop the deploy.
+      - name: Require successful CI for the target SHA (fail closed)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          RESP=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TARGET_SHA}&event=push&status=completed&per_page=20")             || { echo "::error::cannot query CI runs for ${TARGET_SHA}; failing closed"; exit 1; }
+          OK=$(printf '%s' "$RESP" | jq -r '[.workflow_runs[]? | select(.conclusion == "success" and .head_branch == "master" and .head_sha == "'"$TARGET_SHA"'")] | length')             || { echo "::error::unparseable CI run list; failing closed"; exit 1; }
+          if [ "${OK:-0}" -lt 1 ]; then
+            echo "::error::no successful CI push run on master for ${TARGET_SHA}; refusing to deploy"
+            printf '%s' "$RESP" | jq -c '[.workflow_runs[]? | {id, conclusion, head_branch, event}]' || true
+            exit 1
+          fi
+          echo "CI green for ${TARGET_SHA} (${OK} successful run(s))"
+
+      # Skip (not fail) if master moved on while this run was queued: deploying an older commit
+      # over a newer one would be a silent regression, and the newer commit's own run follows.
+      - name: Skip if a newer commit is on master
+        id: fresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          TIP=$(gh api "repos/${GITHUB_REPOSITORY}/commits/master" --jq .sha) || { echo "::error::cannot read master tip; failing closed"; exit 1; }
+          [ -n "$TIP" ] || { echo "::error::empty master tip; failing closed"; exit 1; }
+          if [ "$TIP" != "$TARGET_SHA" ]; then
+            echo "::notice::master is at $TIP, not $TARGET_SHA; skipping (the newer commit deploys itself)."
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Fail-closed secret gate: these secrets exist for every context this job can run in
+      # (push to master / dispatch on master), so a missing one is a misconfiguration, never a skip.
+      - name: Check deploy secrets (fail closed)
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_DEPLOY_WIF_PROVIDER }}
+          WIF_SA: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$WIF_PROVIDER" ] || [ -z "$WIF_SA" ]; then
+            echo "::error::GCP_DEPLOY_WIF_PROVIDER / GCP_DEPLOY_SERVICE_ACCOUNT not set. Run scripts/ops/setup_deploy_iam.sh and add both repo secrets (see DEPLOY.md)."
+            exit 1
+          fi
+
+      - name: Authenticate to GCP (deployer SA via github-deploy-pool)
+        if: steps.fresh.outputs.stale == 'false'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEPLOY_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        if: steps.fresh.outputs.stale == 'false'
+        uses: google-github-actions/setup-gcloud@v3
+
+      # Captured BEFORE anything changes. If it cannot be determined unambiguously (not exactly
+      # one revision at 100%), fail now: a rollback target we are unsure of is no rollback target.
+      - name: Capture currently serving revision
+        id: prev
+        if: steps.fresh.outputs.stale == 'false'
+        run: |
+          gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service-before.json
+          PREV=$(jq -r '[.status.traffic[] | select((.percent // 0) == 100)] | if length == 1 then .[0].revisionName else empty end' service-before.json)
+          if [ -z "$PREV" ] || [ "$PREV" = "null" ]; then
+            echo "::error::cannot identify a single revision serving 100% of traffic; refusing to deploy"
+            jq -c '.status.traffic' service-before.json
+            exit 1
+          fi
+          gcloud run revisions describe "$PREV" --region "$REGION" --project "$GCP_PROJECT" --format=json > rev-prev.json
+          echo "revision=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Previous serving revision: $PREV"
+
+      - name: Build and push image (tag = full commit SHA)
+        id: image
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}/${SERVICE}:${SHA}"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          # --provenance/--sbom off: keeps each push a single manifest (no untagged attestation
+          # child) so the 'keep newest 2' Artifact Registry cleanup policy counts real images.
+          docker buildx build --push --provenance=false --sbom=false -t "$IMAGE" .
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      # --min-instances=0 is passed EXPLICITLY: the service template still carries minScale 1 from
+      # the retired revision 00005, and a bare image deploy would inherit it (idle min-instance
+      # billing, or always-on CPU). --cpu-boost enables startup CPU boost. cpu / memory / maxScale
+      # / env / secrets are deliberately NOT passed; the step after this one asserts they match
+      # the previously serving revision rather than trusting inheritance.
+      - name: Deploy no-traffic tagged revision
+        id: deploy
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --region "$REGION" --project "$GCP_PROJECT" \
+            --no-traffic --tag "$TAG" \
+            --min-instances=0 --cpu-boost \
+            --quiet
+          gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service-after.json
+          NEW=$(jq -r --arg t "$TAG" '[.status.traffic[] | select(.tag == $t)][0].revisionName // empty' service-after.json)
+          [ -n "$NEW" ] || { echo "::error::no revision carries tag $TAG after deploy"; exit 1; }
+          echo "revision=$NEW" >> "$GITHUB_OUTPUT"
+          echo "New revision: $NEW (tag $TAG, 0% traffic)"
+
+      - name: Assert new revision kept prod config
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          NEW: ${{ steps.deploy.outputs.revision }}
+        run: |
+          gcloud run revisions describe "$NEW" --region "$REGION" --project "$GCP_PROJECT" --format=json > rev-new.json
+          view() {
+            jq -S '{
+              env: (.spec.containers[0].env | sort_by(.name)),
+              limits: .spec.containers[0].resources.limits,
+              concurrency: .spec.containerConcurrency,
+              timeout: .spec.timeoutSeconds,
+              serviceAccount: .spec.serviceAccountName,
+              maxScale: .metadata.annotations["autoscaling.knative.dev/maxScale"]
+            }' "$1"
+          }
+          view rev-prev.json > cfg-prev.json
+          view rev-new.json > cfg-new.json
+          if ! diff -u cfg-prev.json cfg-new.json; then
+            echo "::error::new revision differs from the serving revision in env/secrets/cpu/memory/maxScale/SA (diff above). No traffic was shifted."
+            exit 1
+          fi
+          MIN=$(jq -r '.metadata.annotations["autoscaling.knative.dev/minScale"] // "0"' rev-new.json)
+          [ "$MIN" = "0" ] || { echo "::error::new revision minScale=$MIN, expected 0"; exit 1; }
+          BOOST=$(jq -r '.metadata.annotations["run.googleapis.com/startup-cpu-boost"] // "false"' rev-new.json)
+          [ "$BOOST" = "true" ] || { echo "::error::new revision startup-cpu-boost=$BOOST, expected true"; exit 1; }
+          echo "config parity OK; minScale=0; startup-cpu-boost=true"
+
+      - name: Smoke test tag URL (liveness, /readyz, 1 /chat = 2 measured LLM calls)
+        id: smoke_tag
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          TAG_URL="${SERVICE_URL/https:\/\//https://${TAG}---}"
+          python3 scripts/ops/deploy_smoke.py --base-url "$TAG_URL" --live-path "$LIVE_PATH"
+
+      # A failed gate between deploy and the traffic shift leaves a c-<sha7> tag (and its URL) on a
+      # revision that will never serve. Remove just the tag, best effort. This step sits BEFORE the
+      # shift step and only edits tags: it never changes any traffic percentage.
+      - name: Remove orphan tag after a pre-shift failure (best effort)
+        if: failure() && steps.deploy.outcome == 'success'
+        continue-on-error: true
+        env:
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" --remove-tags "$TAG" \
+            --region "$REGION" --project "$GCP_PROJECT" --quiet
+
+      - name: Shift 100% traffic to new revision
+        id: shift
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          NEW: ${{ steps.deploy.outputs.revision }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --to-revisions "${NEW}=100" \
+            --region "$REGION" --project "$GCP_PROJECT" --quiet
+
+      # No chat here: the LLM-backed check already ran on the tag URL before traffic moved. This
+      # only proves the main URL now serves the new revision (liveness + /readyz; /readyz is 0 LLM
+      # calls today and 1 once W4 / #77 lands).
+      - name: Smoke test main URL (liveness + /readyz, no chat)
+        if: steps.fresh.outputs.stale == 'false'
+        run: python3 scripts/ops/deploy_smoke.py --base-url "$SERVICE_URL" --live-path "$LIVE_PATH" --no-chat
+
+      - name: Pin min-instances 0 at service level and assert none serving
+        id: minscale
+        if: steps.fresh.outputs.stale == 'false'
+        run: |
+          gcloud run services update "$SERVICE" --min=0 --region "$REGION" --project "$GCP_PROJECT" --quiet
+          gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service-final.json
+          # Logic lives in a tested script (tests/test_assert_min_scale.py). It checks service level,
+          # the service TEMPLATE (what the next revision inherits) and every revision in
+          # status.traffic with percent > 0 or a tag; any unreadable input fails closed.
+          mkdir -p revs-final
+          python3 scripts/ops/assert_min_scale.py --service service-final.json --list-revisions > revs-final.txt
+          while IFS= read -r REV; do
+            [ -n "$REV" ] || continue
+            gcloud run revisions describe "$REV" --region "$REGION" --project "$GCP_PROJECT" --format=json > "revs-final/${REV}.json"
+          done < revs-final.txt
+          python3 scripts/ops/assert_min_scale.py --service service-final.json --revisions-dir revs-final
+
+      - name: Drop the deploy tag (best effort)
+        if: steps.fresh.outputs.stale == 'false'
+        continue-on-error: true
+        env:
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" --remove-tags "$TAG" \
+            --region "$REGION" --project "$GCP_PROJECT" --quiet
+
+      - name: Summary
+        if: steps.fresh.outputs.stale == 'false'
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          PREV: ${{ steps.prev.outputs.revision }}
+          NEW: ${{ steps.deploy.outputs.revision }}
+        run: |
+          {
+            echo "### Deployed ${SHA}"
+            echo "- serving: \`${NEW}\` (100%)"
+            echo "- previous (rollback target): \`${PREV}\`"
+            echo "- rollback: \`gcloud run services update-traffic ${SERVICE} --to-revisions ${PREV}=100 --region ${REGION} --project ${GCP_PROJECT}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Last ROLLBACK step (only the live/prev pin step follows, on purpose); runs on ANY failure or cancellation once the traffic shift started or finished (incl. a
+      # shift step that was itself cancelled mid-flight, outcome 'cancelled'; including
+      # the min-instances assertion; a failed shift is rolled back too, which is idempotent). Rolls back to the revision captured before the deploy, then re-checks it.
+      # The job stays failed; this only restores service.
+      - name: Roll back to previous revision
+        if: always() && job.status != 'success' && (steps.shift.outcome == 'success' || steps.shift.outcome == 'failure' || steps.shift.outcome == 'cancelled')
+        env:
+          PREV: ${{ steps.prev.outputs.revision }}
+        run: |
+          echo "::error::post-shift failure; rolling 100% back to $PREV"
+          gcloud run services update-traffic "$SERVICE" \
+            --to-revisions "${PREV}=100" \
+            --region "$REGION" --project "$GCP_PROJECT" --quiet
+          curl --fail --silent --show-error --max-time 150 -o /dev/null "${SERVICE_URL}${LIVE_PATH}" \
+            && echo "rollback verified: ${LIVE_PATH} -> 200" \
+            || echo "::error::rolled back but ${LIVE_PATH} did not return 200; investigate immediately"
+
+      # Pins the serving and rollback images against the Artifact Registry cleanup policy (which keeps
+      # tagged live/prev, see scripts/ops/ar_cleanup_policy.json). Deliberately AFTER the rollback step:
+      # the rollback step's condition (job.status != 'success') is evaluated before this runs, so a
+      # failure here can never trigger a rollback of a healthy deploy. success() makes it skip on any
+      # failed deploy (it must only pin images of a deploy that fully passed, incl. the minScale
+      # assertion). If it fails, the job goes red loudly, traffic is untouched, and the pins are simply
+      # stale until the next deploy re-runs it; the cleanup policy is still dry-run only.
+      - name: Pin live and prev image tags (after a fully successful deploy)
+        id: pin_images
+        if: success() && steps.fresh.outputs.stale == 'false' && steps.minscale.outcome == 'success'
+        # Logic (digest normalisation, 'tags add' argv) lives in a tested script; 'tags add' moves an
+        # existing tag and is a no-op if it already points there.
+        run: python3 scripts/ops/pin_images.py rev-new.json rev-prev.json

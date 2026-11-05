@@ -320,3 +320,37 @@ def validate_rationale(
         return text, flags + ["rationale:all_dropped"]
 
     return " ".join(cleaned), flags
+
+
+# Fixed fallback texts. Named so GET /canary and scripts/ops/canary.py (which duplicates them,
+# stdlib-only; pinned equal by tests/test_canary.py) can recognise a replaced reply.
+GROUNDED_FALLBACK_PREFIX = "Here are the closest matches I found: "
+GROUNDED_FALLBACK_EMPTY = (
+    "I couldn't put together a written reply just now — please try rephrasing "
+    "or ask again and I'll take another look."
+)
+
+
+def grounded_fallback_reply(items: list[dict]) -> str:
+    """Deterministic reply naming the shown items, used when the LLM returns nothing.
+
+    Built only from fields already on the retrieved items (display_name and,
+    when present, price_inr) so it cannot invent a name or a price. Mirrors the
+    5-item cap of the respond prompt so the text matches the cards on screen.
+    """
+    parts: list[str] = []
+    for it in items[:5]:
+        name = (it.get("display_name") or it.get("prod_name") or "").strip()
+        if not name:
+            continue
+        price = it.get("price_inr")
+        if isinstance(price, (int, float)) and not isinstance(price, bool) and price > 0:
+            parts.append(f"{name} (₹{price:,.0f})")
+        else:
+            parts.append(name)
+    if not parts:
+        return GROUNDED_FALLBACK_EMPTY
+    return (
+        GROUNDED_FALLBACK_PREFIX + ", ".join(parts) + ". "
+        "Tap any item for details."
+    )

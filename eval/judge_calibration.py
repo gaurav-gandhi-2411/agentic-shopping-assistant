@@ -26,7 +26,7 @@ more than that.
 
 Usage:
     python -m eval.judge_calibration
-    python -m eval.judge_calibration --candidates ollama:llama3.1:8b,gemini
+    python -m eval.judge_calibration --candidates ollama:llama3.1:8b,ollama:qwen3:30b-a3b
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ _SCRIPTS_DIR = _ROOT / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-load_dotenv(_ROOT / ".env")  # GEMINI_API_KEY etc. — matches scripts/eval_harness.py's convention
+load_dotenv(_ROOT / ".env")  # provider API keys — matches scripts/eval_harness.py's convention
 
 from eval_model import (  # noqa: E402 — path setup above must run first
     JUDGE_SYSTEM_PROMPT,
@@ -83,17 +83,6 @@ _CANDIDATES: dict[str, dict[str, Any]] = {
         # malformed JSON, zero output). 4096 gives the thinking block room to
         # finish before the JSON answer.
         "max_tokens": 4096,
-    },
-    "gemini-2.5-flash": {
-        "provider": "gemini", "model": "gemini-2.5-flash", "decomposed": False,
-        "note": "free-tier API",
-        # Free tier is capped at 5 requests/minute (confirmed via live 429
-        # RESOURCE_EXHAUSTED response, quotaValue=5) — GeminiClient's own
-        # 1s/3s retry backoff is far too short for that cap and produced 100%
-        # UNPARSEABLE (0% pass) on a first attempt that was a rate-limit
-        # artifact, not a judge-quality result. 13s/call keeps every call
-        # under the 5/min ceiling with margin.
-        "min_interval_s": 13.0,
     },
     "ollama:qwen3:30b-a3b-decomposed": {
         "provider": "ollama", "model": "qwen3:30b-a3b", "decomposed": True,
@@ -227,8 +216,6 @@ def run_candidate(name: str, spec: dict[str, Any], looks: list[dict[str, Any]]) 
     config["llm"]["provider"] = spec["provider"]
     if spec["provider"] == "ollama":
         config["llm"]["model"] = spec["model"]
-    elif spec["provider"] == "gemini":
-        config["llm"]["gemini_model"] = spec["model"]
     client = get_llm_client(config)
 
     min_interval_s = spec.get("min_interval_s", 0.0)

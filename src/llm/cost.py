@@ -64,20 +64,6 @@ CONSTANTS: dict[str, dict[str, float]] = {
         "cached_read":  0.0,
         "cached_write": 0.0,
     },
-    # Gemini free tier (config.yaml llm.gemini_model). Confirmed $0 via
-    # ai.google.dev/gemini-api/docs/pricing (2026-07-31): "Free Tier" column
-    # for gemini-2.5-flash input/output is explicitly "Free of charge" — this
-    # app only ever calls Gemini via a non-billing-enabled API key (confirmed
-    # live by the 429 RESOURCE_EXHAUSTED/limit:0 quota error, which is a
-    # free-tier-only failure mode). If this ever switches to a billed key,
-    # the paid-tier rate is $0.30/$2.50 per 1M input/output tokens — update
-    # this entry then so cost no longer silently reports $0.
-    "gemini-2.5-flash": {
-        "input":        0.0,
-        "output":       0.0,
-        "cached_read":  0.0,
-        "cached_write": 0.0,
-    },
     # Anthropic — Wave 3 placeholders (rates as of 2026-05; 5-min prompt-cache TTL)
     "claude-haiku-4-5": {
         "input":        1.00,

@@ -31,6 +31,7 @@ import api.deps as deps
 from api.logging_config import setup_logging
 from api.routes.auth import router as auth_router
 from api.routes.brand import router as brand_router
+from api.routes.canary import router as canary_router
 from api.routes.catalogue import router as catalogue_router
 from api.routes.chat import router as chat_router
 from api.routes.conversations import router as conversations_router
@@ -41,8 +42,12 @@ from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.image_style import router as image_style_router
 from api.routes.looks import router as looks_router
+from src.utils.redact import Redactor, install_log_redaction
 
 logger = logging.getLogger(__name__)
+
+# Cover log lines emitted before lifespan (import time, uvicorn startup).
+install_log_redaction()
 
 _REPO_ROOT = Path(__file__).parent.parent
 
@@ -59,16 +64,10 @@ def _build_session_store(llm: Any, config: dict):
     if not db_url:
         return InMemorySessionStore(), None
 
-    for prefix in ("postgresql://", "postgres://"):
-        if db_url.startswith(prefix):
-            db_url = "postgresql+psycopg://" + db_url[len(prefix):]
-            break
-
-    from sqlalchemy import create_engine
-
     from src.storage.postgres_session_store import PostgresSessionStore
+    from src.utils.db_url import create_db_engine
 
-    engine = create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
+    engine = create_db_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=2)
     return PostgresSessionStore(engine, llm, config), engine
 _DATA_DIR = _REPO_ROOT / "data" / "processed"
 _CONFIG_PATH = str(_REPO_ROOT / "config.yaml")
@@ -97,7 +96,7 @@ def _sentry_before_breadcrumb(crumb: dict, hint: object) -> dict:
     for key in ("url", "from", "to"):
         if isinstance(data.get(key), str):
             data[key] = _scrub_token_from_url(data[key])
-    return crumb
+    return Redactor.from_env().redact_inplace(crumb)
 
 
 def _sentry_before_send(event: dict, hint: object) -> dict:
@@ -112,7 +111,20 @@ def _sentry_before_send(event: dict, hint: object) -> dict:
         req["query_string"] = [
             [k, "[Filtered]" if k == "token" else v] for k, v in qs
         ]
-    return event
+    # Mask DB passwords / API keys / Bearer tokens in exception values, messages, etc.
+    return Redactor.from_env().redact_inplace(event)
+
+
+def _init_sentry(**options: Any) -> bool:
+    """Call sentry_sdk.init only when a DSN is configured.
+
+    Without a DSN init() sends nothing but still auto-enables every installed integration,
+    importing each library it patches (measured ~2 s on a dev box; slower on cold start).
+    """
+    if not options.get("dsn"):
+        return False
+    sentry_sdk.init(**options)
+    return True
 
 
 @asynccontextmanager
@@ -124,8 +136,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Shopping Assistant API")
 
     # Sentry — initialise early so startup errors are captured.
-    sentry_dsn = os.environ.get("SENTRY_DSN", "")
-    sentry_sdk.init(
+    sentry_dsn = os.environ.get("SENTRY_DSN", "").strip()
+    _init_sentry(
         dsn=sentry_dsn or None,
         traces_sample_rate=0.1,
         send_default_pii=False,
@@ -133,6 +145,9 @@ async def lifespan(app: FastAPI):
         max_request_body_size="never",
         before_breadcrumb=_sentry_before_breadcrumb,
         before_send=_sentry_before_send,
+        # Frame locals can hold URLs/passwords; before_send redacts strings but not
+        # every shape, so do not capture them at all.
+        include_local_variables=False,
     )
     if sentry_dsn:
         logger.info("Sentry initialised (traces_sample_rate=0.1)")
@@ -178,6 +193,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("Initialising LLM client (provider=%s)", config["llm"]["provider"])
     llm = get_llm_client(config)
+    # W4: fail the revision (lifespan raises -> container never listens -> Cloud Run's
+    # TCP startup probe fails) if the configured Groq model no longer exists.
+    if hasattr(llm, "verify_models"):
+        logger.info("LLM model check: %s", llm.verify_models())
     logger.info("LLM client ready")
 
     # LangSmith tracing — enabled when LANGSMITH_API_KEY is present.
@@ -319,6 +338,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(image_style_router)
     app.include_router(brand_router)
+    app.include_router(canary_router)
     app.include_router(auth_router)
     app.include_router(chat_router)
     app.include_router(conversations_router)
