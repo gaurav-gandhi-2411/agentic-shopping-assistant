@@ -33,7 +33,7 @@ psycopg[binary]==3.3.5
 pyjwt[crypto]==2.15.1
 
 sentry-sdk[fastapi]==2.69.2
-google-cloud-storage>=2.14.0
+google-cloud-storage>=3.17.1
 
 pillow==13.0.0
 pillow-heif==1.7.0
