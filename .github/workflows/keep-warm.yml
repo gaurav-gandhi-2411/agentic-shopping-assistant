@@ -1,0 +1,50 @@
+name: Keep Warm
+
+# Pings the prod service so the (min-instances 0) instance is less likely to be scaled to zero.
+# No secrets, no GCP auth: it is a plain GET against the public URL.
+#
+# Path: /api/brand, NOT /healthz and NOT /readyz.
+#   - /readyz: the pending W4 change makes it call the LLM. Never ping that on a timer.
+#   - /healthz: uptime-alert.yml records that it 404s at the infrastructure level on this
+#     service, and no /healthz request appears in the Cloud Run request log, so it is unverified.
+#     /api/brand is a cheap unauthenticated GET that returned HTTP 200 219 times (of 224 requests) in the 30-day
+#     request log (reports/w8-inventory-2026-11-03.md). Swap KEEP_WARM_PATH once /healthz is proven.
+#   Model and index are loaded eagerly at container start (the startup probe only passes after
+#   ~71 s, and every later request, including the first, is served in milliseconds), so keeping
+#   the instance alive is what keeps them loaded; the ping does not need to touch them.
+#
+# CAVEAT, measured: GitHub does not honour sub-hourly crons reliably. The existing "*/15"
+# Uptime Alert workflow fired 100 times between 2026-10-16 and 2026-11-03 with a median gap of
+# 246 minutes (min 100, max 613), not 15. Expect the same here: this reduces cold starts, it
+# cannot guarantee a warm instance. A guaranteed cadence needs Cloud Scheduler (3 free jobs per
+# billing account), which requires enabling an API and so is a separate decision.
+# Minutes are offset from :00/:15/:30/:45 on purpose; those slots are the most congested.
+on:
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  SERVICE_URL: https://asa-stylist-api-ec3mwppesa-el.a.run.app
+  KEEP_WARM_PATH: /api/brand
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET ${{ env.KEEP_WARM_PATH }}
+        run: |
+          # --max-time 120: a cold start was 36-88 s over the last 30 days. The point of this
+          # request is the side effect (instance stays up); uptime-alert.yml owns alerting.
+          CODE=$(curl --silent --show-error --max-time 120 --output /dev/null \
+            --write-out '%{http_code} %{time_total}s' "${SERVICE_URL}${KEEP_WARM_PATH}") \
+            || { echo "::warning::keep-warm request failed (network/timeout)"; exit 1; }
+          echo "keep-warm: ${CODE}"
+          case "$CODE" in 200\ *) ;; *) echo "::warning::keep-warm got non-200: ${CODE}"; exit 1 ;; esac

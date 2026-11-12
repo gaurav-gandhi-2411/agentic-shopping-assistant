@@ -3,32 +3,36 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
+from sqlalchemy.engine import URL
 
 from alembic import context
+from src.utils.db_url import parse_database_url
+from src.utils.redact import Redactor, install_log_redaction
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Mask DB passwords / API keys in alembic's own log handlers and error text.
+install_log_redaction()
+
 target_metadata = None
 
 
-def _database_url() -> str:
-    """Return DATABASE_URL, normalised to the psycopg3 SQLAlchemy driver prefix."""
+def _database_url() -> URL:
+    """Return DATABASE_URL as a SQLAlchemy URL (psycopg3 driver, credentials encoded).
+
+    Built from parts via parse_database_url, so a password with raw '@' etc. is safe.
+    """
     url = os.environ.get("DATABASE_URL", "")
     if not url:
         raise ValueError(
             "DATABASE_URL environment variable is required to run migrations. "
             "Example: DATABASE_URL=postgresql://user:pass@localhost/dbname alembic upgrade head"
         )
-    # SQLAlchemy 2.x + psycopg3 needs the +psycopg driver qualifier.
-    for prefix in ("postgresql://", "postgres://"):
-        if url.startswith(prefix):
-            url = "postgresql+psycopg://" + url[len(prefix):]
-            break
-    return url
+    return parse_database_url(url)
 
 
 def run_migrations_offline() -> None:
@@ -45,10 +49,17 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations against a live database connection."""
-    cfg = config.get_section(config.config_ini_section, {})
-    cfg["sqlalchemy.url"] = _database_url()
-    connectable = engine_from_config(cfg, prefix="sqlalchemy.", poolclass=pool.NullPool)
-    with connectable.connect() as connection:
+    connectable = create_engine(_database_url(), poolclass=pool.NullPool)
+    try:
+        connection = connectable.connect()
+    except Exception as exc:
+        # The interpreter prints uncaught tracebacks itself (no logging filter applies),
+        # and driver errors echo the connect string.  Re-raise with masked text and no
+        # chained original.
+        raise RuntimeError(
+            f"Could not connect to the database: {Redactor.from_env().redact(str(exc))}"
+        ) from None
+    with connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

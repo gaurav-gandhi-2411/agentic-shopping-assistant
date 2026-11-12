@@ -70,10 +70,10 @@ class OpenRouterClient:
         max_tokens: int = None,
         bounded: bool = False,
     ) -> str:
-        # bounded=True (set by GroqClient when this is a fallback tier): one attempt,
-        # no rate-limit waits and no backoff sleeps, so a rate-limited tier fails
-        # fast instead of eating the 90 s WS turn deadline. Default behaviour is
-        # unchanged when OpenRouter is the primary provider.
+        # bounded=True: one attempt, no rate-limit waits and no backoff sleeps, so a
+        # rate-limited call fails fast. Nothing in the deployed chain passes it any
+        # more (OpenRouter is no longer a fallback tier). Default behaviour applies
+        # when OpenRouter is the local-dev primary provider.
         # Rate-limit retries: up to 10 waits (parsed from reset header or 65s default)
         # Other errors: short fixed backoff (1s, 3s) then raise.
         ratelimit_retries = 0

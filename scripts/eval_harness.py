@@ -26,7 +26,6 @@ from dotenv import load_dotenv
 _PROVIDER_DELAY = {
     "groq":        3.0,
     "openrouter":  5.0,
-    "gemini":      2.0,
     "ollama":      0.5,
 }
 
@@ -524,7 +523,7 @@ def main():
     parser = argparse.ArgumentParser(description="Eval harness for the Shopping Assistant")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate YAML only — no agent or LLM calls")
-    parser.add_argument("--provider", choices=["groq", "gemini", "openrouter", "ollama"],
+    parser.add_argument("--provider", choices=["groq", "openrouter", "ollama"],
                         help="LLM provider (overrides LLM_PROVIDER env var and config.yaml)")
     parser.add_argument("--router", choices=["llm"],
                         help="Router backend (only 'llm' is supported)")
@@ -543,7 +542,7 @@ def main():
     # API key is only required for live runs
     if not args.dry_run:
         _provider = os.environ.get("LLM_PROVIDER", "groq")
-        _key_map = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+        _key_map = {"groq": "GROQ_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
         _key_var = _key_map.get(_provider)
         if _key_var and not os.environ.get(_key_var):
             sys.exit(

@@ -9,6 +9,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from api.demo.fallback_limiter import FallbackLimiter
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -31,6 +33,74 @@ def _get_daily_request_cap() -> int:
     return max(1, int(os.environ.get("DEMO_DAILY_REQUEST_CAP", "700")))
 
 _DAILY_COST_CAP_USD: float = 0.50  # USD per brand per UTC day
+
+# ---------------------------------------------------------------------------
+# Fail-closed fallback.  When the DB limiter cannot be used (no engine, connect/query
+# error) requests are limited by an in-process limiter with limits derived from the same
+# env-backed getters above.  After a DB failure the DB is skipped for _DB_RETRY_S so a
+# hanging/dead DB costs one failed attempt per window, not one per request.
+#
+# On recovery the fallback counts are NOT merged into Postgres: the per-IP DB window is one
+# hour, so outage counts age out almost immediately; the daily DB count under-counts by at
+# most the fallback's own daily cap (served requests are never lost, merely uncounted).
+# ---------------------------------------------------------------------------
+
+_DB_RETRY_S: float = 15.0
+
+_fallback = FallbackLimiter(_get_per_ip_limit, _get_daily_request_cap)
+
+
+class _DbHealth:
+    """Tracks DB-limiter health; logs one warning per DB->memory and memory->DB transition."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.degraded = False
+        self._retry_at = 0.0
+
+    def usable(self, engine: Any, where: str) -> bool:
+        if engine is None:
+            self._enter(where, "no database engine configured (DATABASE_URL unset)", None)
+            return False
+        with self._lock:
+            return not (self.degraded and time.monotonic() < self._retry_at)
+
+    def failed(self, where: str, exc: BaseException) -> None:
+        self._enter(where, "database error", exc)
+
+    def ok(self) -> None:
+        with self._lock:
+            was_degraded = self.degraded
+            self.degraded = False
+        if was_degraded:
+            logger.info(
+                "demo_limiter_transition state=db reason=recovered; "
+                "using database-backed limits again"
+            )
+
+    def _enter(self, where: str, reason: str, exc: BaseException | None) -> None:
+        with self._lock:
+            first = not self.degraded
+            self.degraded = True
+            self._retry_at = time.monotonic() + _DB_RETRY_S
+        if first:
+            logger.warning(
+                "demo_limiter_transition state=memory reason=%s where=%s; failing CLOSED "
+                "to in-process per-IP + global limits",
+                reason,
+                where,
+                exc_info=(type(exc), exc, exc.__traceback__) if exc is not None else False,
+            )
+
+
+_health = _DbHealth()
+
+
+def reset_fallback_state() -> None:
+    """Clear fallback counters and health state (tests)."""
+    global _health
+    _fallback.reset()
+    _health = _DbHealth()
 
 # ---------------------------------------------------------------------------
 # In-memory cost accumulator — survives warm instances, resets on cold start.
@@ -108,9 +178,11 @@ def _ip_hash(client_ip: str) -> str:
 def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, int]:
     """Check and increment the per-IP hourly rate limit.
 
-    Returns (allowed, retry_after_seconds).  Fails open on DB error so a
-    transient DB blip does not block every anonymous visitor.
+    Returns (allowed, retry_after_seconds).  Fails CLOSED: on a missing engine or any DB
+    error the in-process per-IP limiter (same limit) decides instead.
     """
+    if not _health.usable(engine, "check_ip_rate_limit"):
+        return _fallback.check_ip(client_ip)
     ip_hash = _ip_hash(client_ip)
     try:
         with engine.begin() as conn:
@@ -124,44 +196,43 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
             ).fetchone()
             current_count = int(row[0]) if row else 0
 
+            result = (True, 0)
             if current_count >= _get_per_ip_limit():
                 # Seconds until the current UTC hour rolls over.
-                retry_after = 3600 - int(time.time()) % 3600
-                return (False, retry_after)
+                result = (False, 3600 - int(time.time()) % 3600)
+            else:
+                # Upsert: insert a fresh row or bump the counter.
+                conn.execute(
+                    text(
+                        "INSERT INTO demo_rate_limits (ip_hash, brand, window_start, count)"
+                        " VALUES ("
+                        "   :ih, :brand,"
+                        "   date_trunc('hour', NOW() AT TIME ZONE 'UTC'),"
+                        "   1"
+                        " )"
+                        " ON CONFLICT (ip_hash, brand, window_start)"
+                        " DO UPDATE SET count = demo_rate_limits.count + 1"
+                    ),
+                    {"ih": ip_hash, "brand": brand},
+                )
+    except Exception as exc:
+        _health.failed("check_ip_rate_limit", exc)
+        return _fallback.check_ip(client_ip)
 
-            # Upsert: insert a fresh row or bump the counter.
-            conn.execute(
-                text(
-                    "INSERT INTO demo_rate_limits (ip_hash, brand, window_start, count)"
-                    " VALUES ("
-                    "   :ih, :brand,"
-                    "   date_trunc('hour', NOW() AT TIME ZONE 'UTC'),"
-                    "   1"
-                    " )"
-                    " ON CONFLICT (ip_hash, brand, window_start)"
-                    " DO UPDATE SET count = demo_rate_limits.count + 1"
-                ),
-                {"ih": ip_hash, "brand": brand},
-            )
-    except Exception:
-        logger.warning(
-            "check_ip_rate_limit: DB error for ip_hash=%s brand=%s; failing open",
-            ip_hash,
-            brand,
-            exc_info=True,
-        )
-        return (True, 0)
-
-    return (True, 0)
+    _health.ok()
+    return result
 
 
 def check_daily_cap(brand: str, engine: Any) -> bool:
     """Return True if today's request_count is below the daily request cap.
 
-    Fails open on DB error.
+    Fails CLOSED: on a missing engine or DB error the per-instance in-process daily count
+    (same cap) decides instead.
     """
     import datetime
 
+    if not _health.usable(engine, "check_daily_cap"):
+        return _fallback.daily_allowed()
     today = datetime.date.today().isoformat()
     try:
         with engine.begin() as conn:
@@ -173,14 +244,11 @@ def check_daily_cap(brand: str, engine: Any) -> bool:
                 {"brand": brand, "date": today},
             ).fetchone()
             count = int(row[0]) if row else 0
-            return count < _get_daily_request_cap()
-    except Exception:
-        logger.warning(
-            "check_daily_cap: DB error for brand=%s; failing open",
-            brand,
-            exc_info=True,
-        )
-        return True
+    except Exception as exc:
+        _health.failed("check_daily_cap", exc)
+        return _fallback.daily_allowed()
+    _health.ok()
+    return count < _get_daily_request_cap()
 
 
 def check_daily_cost(brand: str) -> bool:
@@ -212,9 +280,16 @@ def check_daily_cost(brand: str) -> bool:
 
 
 def record_request(brand: str, engine: Any) -> None:
-    """Increment today's request_count in demo_daily_stats by 1."""
+    """Increment today's request_count in demo_daily_stats by 1.
+
+    Always also counts in the in-process fallback so its daily cap is accurate if the DB
+    goes away mid-day.
+    """
     import datetime
 
+    _fallback.record_request()
+    if not _health.usable(engine, "record_request"):
+        return
     today = datetime.date.today().isoformat()
     try:
         with engine.begin() as conn:
@@ -229,12 +304,8 @@ def record_request(brand: str, engine: Any) -> None:
                 ),
                 {"brand": brand, "date": today, "req": 1, "cost": 0},
             )
-    except Exception:
-        logger.warning(
-            "record_request: DB error for brand=%s; request not counted",
-            brand,
-            exc_info=True,
-        )
+    except Exception as exc:
+        _health.failed("record_request", exc)
 
 
 def record_cost(brand: str, usd_cost: float, engine: Any) -> None:

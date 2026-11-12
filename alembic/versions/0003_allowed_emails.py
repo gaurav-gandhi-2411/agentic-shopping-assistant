@@ -201,7 +201,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS public.before_user_created(jsonb);")
     op.execute("DROP FUNCTION IF EXISTS public.check_email_allowed(TEXT);")
-    # Trigger is dropped implicitly when the table is dropped, but drop
-    # the function explicitly since it lives in public schema.
-    op.execute("DROP FUNCTION IF EXISTS public.normalise_allowed_email();")
+    # Trigger and RLS policy go with the table; the trigger must be gone BEFORE the function it
+    # executes can be dropped (the previous order failed with DependentObjectsStillExist).
+    op.execute("DROP TRIGGER IF EXISTS allowed_emails_normalise ON public.allowed_emails;")
     op.drop_table("allowed_emails")
+    op.execute("DROP FUNCTION IF EXISTS public.normalise_allowed_email();")

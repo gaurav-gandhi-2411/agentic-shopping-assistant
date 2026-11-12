@@ -19,3 +19,11 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
             "requires pre-built retrieval index — "
             "run `python scripts/01_build_retrieval.py` first"
         )
+
+
+@pytest.fixture(autouse=True)
+def _reset_demo_fallback_limiter() -> None:
+    """Clear the process-global demo fallback limiter + DB-health state between tests."""
+    from api.demo.guards import reset_fallback_state
+
+    reset_fallback_state()

@@ -75,6 +75,18 @@ DATABASE_URL=<url> alembic upgrade head
 This creates the `demo_rate_limits` and `demo_daily_stats` tables required by the demo
 rate-limiting middleware.
 
+**Migration CI vs. production drift.** CI (`.github/workflows/migration-integrity.yml`) only
+proves the migration chain is sound on an ephemeral Postgres (one head, applies from empty,
+downgrade round trips, RLS/revoke sanity). It holds no production credentials and does NOT
+detect whether production is behind master. That will be covered by migrations-on-deploy once
+PR #55 merges (still open; `scripts/deploy_demo.sh` currently only prints the alembic command).
+Until then the only control is this manual post-deploy step, documented here and implemented in
+NO script:
+
+```bash
+DATABASE_URL=<prod-url> alembic current   # must print the same revision as: alembic heads
+```
+
 ---
 
 ## Build & push Docker image
@@ -102,7 +114,9 @@ docker push "${IMAGE}"
 ## Deploy backend (unified service)
 
 `pwsh scripts/deploy_backend.ps1` is THE deploy path for the backend (`asa-stylist-api`,
-the current unified single-service deployment). There is no CI deploy path — the GitHub
+the current unified single-service deployment). NOTE: superseded by the CI deploy path in the
+"CI/CD" section at the end of this file (W8); the text below is the legacy local path.
+There was no CI deploy path — the GitHub
 Actions workflow that used to cover this (`.github/workflows/deploy-demo.yml`) was removed
 2026-07-09 because it never had its required secrets (`WIF_PROVIDER`,
 `WIF_SERVICE_ACCOUNT`, `GCP_PROJECT_ID`, `GROQ_API_KEY`, `DEMO_JWT_SECRET`, `DATABASE_URL`,
@@ -144,6 +158,35 @@ outcome:
      --update-env-vars="SOME_VAR=value"
    ```
 
+### Production canary secret (`GET /canary`)
+
+`GET /canary` (api/routes/canary.py) is guarded by env `CANARY_TOKEN`. While it is unset the
+endpoint returns 404 by design, so merging the code changes nothing live. To enable it, once
+the Secret Manager secret `asa-canary-token` exists (it is created by hand, never by code), run
+as its own step (`--update-secrets` merges; never use `--set-secrets` on a live service, see the
+gotcha under "LLM provider secrets"):
+
+```bash
+gcloud run services update asa-stylist-api --region=asia-south1 \
+  --update-secrets="CANARY_TOKEN=asa-canary-token:latest"
+```
+
+`scripts/deploy_backend.ps1` and the `chore/w8-deploy-pipeline` deploy.yml (#79) both deploy
+with `--image` only, so they inherit this secret from the running revision and need no change.
+`scripts/deploy_unified.sh` (legacy, full replace via `--set-secrets="${SECRETS}"`, line 79) would
+DROP it: if that script is ever used again, append
+`,CANARY_TOKEN=asa-canary-token:latest` to its `SECRETS` string first. `deploy/service.yaml`
+is deliberately not edited: a secretKeyRef to a not-yet-created secret would break an
+emergency `services replace`.
+
+The `commit` field in the canary response reads env `COMMIT_SHA`, falling back to Cloud Run's
+`K_REVISION`. No deploy path sets `COMMIT_SHA` today (images are tagged with the SHA but it is not
+passed as an env var), so the field shows the revision name until a deploy step adds
+`--update-env-vars=COMMIT_SHA=<sha>`.
+
+The monitor's `?token=` value is recorded in Cloud Run's own request log (the full URL is
+logged by the platform and cannot be masked by the app); the `X-Canary-Token` header avoids that.
+
 If a deploy needs to be reverted, the script prints the exact rollback command at the end
 of every run:
 
@@ -161,30 +204,96 @@ env-block-replacement gotcha above.
 
 ### LLM provider secrets and switching providers
 
-All LLM provider API keys on `asa-stylist-api` are Secret Manager references, never plain
-env vars: `GROQ_API_KEY` → `asa-groq-api-key`, `OPENROUTER_API_KEY` → `asa-openrouter-api-key`
-(added 2026-07-10 — Groq's free-tier daily token quota has been exhausted by heavy testing
-more than once).
+The only LLM provider key wired into the deployed `asa-stylist-api` is `GROQ_API_KEY` →
+`asa-groq-api-key` (a Secret Manager reference, never a plain env var). `OPENROUTER_API_KEY`
+(`asa-openrouter-api-key`, added 2026-07-10 after Groq's free-tier daily token quota was
+exhausted by heavy testing) and `GEMINI_API_KEY` are no longer referenced by deploy code; the
+live service still mounts them until the post-merge ops step below removes them.
 
-**As of 2026-07-31, `GroqClient` falls over to a 3-tier chain automatically** on a TPD
-(tokens-per-day) 429: Groq → OpenRouter → Gemini — see `GroqClient._iter_fallback_tiers()`
-in `src/llm/client.py`. No manual `LLM_PROVIDER` env-var swap is needed for a quota outage;
-`LLM_PROVIDER=groq` in production now carries an implicit 2-tier fallback for both `chat()`
-and `chat_stream()`. Each tier is tried in order; a tier that raises OR returns falsy/empty
+**Current chain (authoritative):** Groq models in order (`llm.groq_model`, then
+`llm.groq_fallback_models`), each attempt followed by at most one jittered backoff retry on
+429/5xx/timeout, then `LLM_BUSY_MESSAGE`. There is no OpenRouter or Gemini tier. The whole chain
+has a hard budget of `llm.groq_chain_budget_seconds` (20 s). `reasoning_effort: low` is sent only
+to `openai/gpt-oss*` models. The sections below are kept as history where labelled.
+
+**[Superseded - historical; the OpenRouter and Gemini tiers no longer exist, see "OpenRouter removed" below.] As of 2026-07-31, `GroqClient` fell over to a 3-tier chain automatically** on a TPD
+(tokens-per-day) 429: Groq → OpenRouter → Gemini — see the former `GroqClient._iter_fallback_tiers()`
+in `src/llm/client.py`. No manual `LLM_PROVIDER` env-var swap was needed for a quota outage;
+`LLM_PROVIDER=groq` in production then carried an implicit fallback chain for both `chat()`
+and `chat_stream()`. Each tier was tried in order; a tier that raised OR returned falsy/empty
 content (OpenRouter's free model is a reasoning model that can burn its whole token budget
 on hidden reasoning and return `None`; Gemini can return empty output on safety-filtered
-responses) is treated as failed and the chain advances to the next tier — a wired-but-silent
-empty response is not treated as success. The manual switch below is still the right tool
-for a *deliberate* provider change (e.g. cost or model-quality reasons), and the whole chain
-falls back to the legacy wait-and-retry-on-Groq behaviour if literally no tier can construct
-(all keys unset/invalid) rather than hanging on a broken fallback.
+responses) was treated as failed and the chain advanced to the next tier — a wired-but-silent
+empty response was not treated as success. The chain ended in a user-facing "busy, try again
+in a minute" message if literally no tier answered.
 
-Every fallthrough is logged as a structured event — `{"event": "llm_fallback_served",
-"from_provider": "groq", "to_provider": "<openrouter|gemini>", "reason": "tpd_exhausted"}` —
-so degraded-mode traffic is visible in Cloud Logging (`jsonPayload.msg:"llm_fallback_served"`)
-instead of only discoverable via user complaints. Full chain exhaustion logs
-`llm_fallback_exhausted` with the list of tiers attempted. Every `llm_call` log line (from
-any of the four client classes) also now carries an explicit `"provider"` field.
+**W4 (2026-11): the chain now starts with Groq models from `config.yaml`** (`llm.groq_model`,
+then `llm.groq_fallback_models`), each with one jittered retry on 429/5xx/timeout (at W4 these
+ran before an OpenRouter tier and, until W7, a Gemini tier; both are gone, see below). Startup calls Groq `GET /models` (5 s): a primary model that is not
+listed aborts startup (the Cloud Run TCP startup probe then fails the revision); unlisted
+fallbacks are dropped with a warning; if `/models` itself is unreachable the check is skipped
+with an ERROR log (deploys must not depend on Groq being up), except a 401/403 which aborts.
+`/readyz` makes a real `max_tokens=1` call through the chain (cached 60 s, env
+`READYZ_LLM_CACHE_SECONDS`) and also checks the database (error text redacted); it returns 503
+if no Groq model answers; the `llm` check string names the model that answered and marks
+`FALLBACK` when it was not the primary.
+
+**W7 (2026-11): the Gemini tier and `google-genai` were removed.** The chain is now Groq
+models (`llm.groq_model`, then `llm.groq_fallback_models`) -> busy message (the OpenRouter tier was removed afterwards; see "OpenRouter removed" below).
+Reason: Gemini was only ever the third-tier fallback (the claims that Cloud Run logs show 0
+Gemini lines in 30 days and that the Generative Language API is not enabled in
+`stylemaitri-prod-260813` come from the architect review and were NOT re-verified here), and
+its job (extra free capacity once Groq runs out) is covered by the Groq model chain, each
+model with its own free quota. `LLM_PROVIDER=gemini` is now an error. Past Gemini
+measurements in this file are kept as history.
+
+**W7 post-merge ops order (the live service still references `asa-gemini-api-key:latest`;
+removing the env from `deploy/service.yaml` does NOT remove it from a running Cloud Run
+revision, and the `.github` deploy pipeline deliberately inherits env/secrets from the serving
+revision, so it will not remove it either).** In this order, nothing skipped:
+
+1. Deploy a new revision with the secret ref dropped, e.g.
+   `gcloud run services update asa-stylist-api --region=<region> --project=<project> --remove-secrets=GEMINI_API_KEY`
+   (or a `scripts/deploy_unified.sh` run, whose `--set-secrets` list no longer carries it).
+2. Confirm the SERVING revision (`status.traffic`, not `latestReadyRevisionName`) has no
+   `GEMINI_API_KEY` env / `asa-gemini-api-key` secretKeyRef:
+   `gcloud run revisions describe <serving-revision> --format=json | grep -i gemini` must be empty.
+3. Only then disable, and later destroy, the secret version(s) of `asa-gemini-api-key`.
+   Disabling or destroying earlier would break any revision that still mounts it.
+
+**OpenRouter removed (post-W7).** The chain is now Groq models (`llm.groq_model`, then
+`llm.groq_fallback_models`) -> busy message; `GroqClient._iter_fallback_tiers()` and its
+bounded-thread machinery are gone. Why (all three had to hold to keep it in prod, and (c)
+is unknown): (a) config names `openai/gpt-oss-20b:free` but nothing enforces the `:free`
+suffix; (b) the validity of secret `asa-openrouter-api-key` is unproven (a 2026-07-30 note
+found it dead, 401; the 2026-07-31 rotation below was not re-verified); (c) whether the
+OpenRouter account can incur charges is UNKNOWN. `OpenRouterClient` and
+`LLM_PROVIDER=openrouter` stay as a local-dev PRIMARY provider only. Re-enabling it as a
+fallback later requires proving, first: `:free`-only enforcement, key validity, and a
+no-charge account.
+
+**OpenRouter post-merge ops order (NOT yet run; one approved step).** The live service still
+references both secrets; removing them from `deploy/service.yaml` does not change a running
+revision. In this order, nothing skipped:
+
+1. `gcloud run services update asa-stylist-api --region=<region> --project=<project> --remove-secrets=GEMINI_API_KEY,OPENROUTER_API_KEY`
+2. Confirm the SERVING revision (`status.traffic`, not `latestReadyRevisionName`) has neither:
+   `gcloud run revisions describe <serving-revision> --format=json | grep -i -e gemini -e openrouter`
+   must be empty.
+3. Only then disable BOTH secret versions (`asa-gemini-api-key`, `asa-openrouter-api-key`).
+
+Worst-case per-call latency is the 20 s Groq chain budget (`groq_chain_budget_seconds`),
+a hard cap: each attempt's timeout and each backoff sleep is clamped to what is left, so
+wall time is budget + small overhead, then `LLM_BUSY_MESSAGE` and an
+`llm_chain_budget_exceeded` log event (fake-clock tested, not measured live); there is no
+8 s OpenRouter tier. Streaming: the cap covers time-to-first-chunk only.
+
+Degraded-mode traffic is visible in Cloud Logging via the `llm_fallback_served` event
+(`jsonPayload.msg:"llm_fallback_served"`, now emitted when a later Groq model in the chain
+serves the request; `from_provider` and `to_provider` are both `groq`, with `from_model` and
+`to_model`). Historically it was emitted with `"to_provider": "openrouter"` or Gemini. A turn
+that exhausts the chain budget logs `llm_chain_budget_exceeded`. Every `llm_call` log line
+carries an explicit `"provider"` field.
 
 **Resolved 2026-07-31 (was "Known gap 2026-07-30"):** `asa-openrouter-api-key` was rotated
 to a new version (v2) with a valid key, live-verified against `openrouter.ai/api/v1/auth/key`
@@ -195,17 +304,13 @@ a key problem) — swapped to `openai/gpt-oss-20b:free`. `GEMINI_API_KEY` (secre
 previously-configured `gemini-2.0-flash-lite` also had zero free-tier quota (`limit: 0`,
 confirmed via the API's own error) — swapped to `gemini-2.5-flash`, live-verified working.
 
-**To switch providers deliberately** (e.g. for cost or model-quality reasons, not quota outages):
-
-```bash
-gcloud run services update asa-stylist-api --region=asia-south1 \
-  --project=iconic-reactor-496423-m4 \
-  --update-env-vars="LLM_PROVIDER=openrouter"
-# ... and back, once Groq's quota resets:
-gcloud run services update asa-stylist-api --region=asia-south1 \
-  --project=iconic-reactor-496423-m4 \
-  --update-env-vars="LLM_PROVIDER=groq"
-```
+**Switching providers is no longer a runtime option in production.** Do not set
+`LLM_PROVIDER=openrouter` on the deployed service: its key is not wired, so the container would
+fail to construct its LLM client at startup (`OPENROUTER_API_KEY environment variable is not
+set`), and a Groq quota outage is handled by the Groq model chain and the busy message, not by a
+provider swap. To change which Groq models serve traffic, edit `llm.groq_model` /
+`llm.groq_fallback_models` in `config.yaml` and deploy a new revision. `LLM_PROVIDER=openrouter`
+remains valid for local development only (needs a local `OPENROUTER_API_KEY`).
 
 **Critical gotcha, learned the hard way (2026-07-10): `--set-secrets` REPLACES the entire
 secrets block, exactly like `--set-env-vars` replaces the entire env block** — running it
@@ -226,7 +331,11 @@ touching anything further; Cloud Run does not cut traffic to a revision that fai
 startup health check, so the live service stays safe, but the *next* incremental update's
 base can still be silently wrong.
 
-### Free-tier quota ceiling — 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
+### Free-tier quota ceiling — historical 3-tier chain (measured, 2026-07-30/31, Gemini 2026-08-06)
+
+> **Historical:** the OpenRouter tier (Tier 2) and Gemini tier (Tier 3) below were removed;
+> this section is a record of past measurements, not of the current chain. Current chain:
+> Groq models -> busy message (no OpenRouter or Gemini tier; see "OpenRouter removed").
 
 Real production traffic on `asa-stylist-api` averages **~2,922 tokens/conversation** and
 **~2.07 LLM calls/conversation** (source: 31 real `llm_call` log events across 15 real
@@ -290,17 +399,16 @@ calls forcing Groq+OpenRouter failures and confirming Gemini serves a real respo
 Gemini tiers were fixed — it sits below the Groq-only ~170 ceiling so real users hit the
 app's own honest "Demo limit reached for today — try again tomorrow" message (see
 `api/routes/chat.py` / `api/routes/demo.py`) instead of a raw provider 429 or a multi-minute
-hang. Now that tiers 2+3 add real headroom above 170, this cap is conservative rather than
-tight — tighter than necessary fails safe (an honest cap message), tighter is not a
-production risk. Gemini's RPD remains genuinely unknown (see above), so there still isn't a
-safe combined-conversations/day number to raise the cap against.
+hang. (While tiers 2+3 existed they added headroom above 170 and the cap was conservative;
+both tiers are gone, so re-derive any cap from the Groq model chain's own quotas, not from
+this historical table.)
 
 What it would take to raise the ceiling further, each option labeled with what's actually
 verified vs. not:
 
-1. **Check Gemini's real RPD** in the account's AI Studio dashboard (still login-walled) —
-   free, no code change; this is the one number empirical probing deliberately declined to
-   chase (see above) since finding it would mean exhausting it.
+1. **(Obsolete: the Gemini tier was removed.)** Formerly: check Gemini's real RPD in the
+   account's AI Studio dashboard (login-walled); empirical probing deliberately declined to
+   chase it since finding it would mean exhausting it.
 2. **Groq's paid "Developer" tier** raises limits above the free tier, but the exact TPD/TPM
    numbers and pricing are NOT published on console.groq.com/docs/rate-limits without logging
    into the account's own billing page (console.groq.com/settings/billing/plans) — do not
@@ -546,24 +654,145 @@ each Cloud Run service via the `update-env-vars` command above.
 
 ## CI/CD
 
-There is no CI deploy path. `.github/workflows/deploy-demo.yml` was removed 2026-07-09:
-it triggered on manual dispatch and looked correct on paper (WIF auth, no service account
-key JSON), but the required GitHub secrets (`GCP_PROJECT_ID`, `WIF_PROVIDER`,
-`WIF_SERVICE_ACCOUNT`, `GROQ_API_KEY`, `DEMO_JWT_SECRET`, `DATABASE_URL`, `SUPABASE_URL`,
-`GCS_BUCKET`, `DEMO_CORS_ORIGINS`) were never actually added to the repo, so the workflow
-never ran successfully — every deploy to date has been local, via
-`pwsh scripts/deploy_backend.ps1` (see "Deploy backend (unified service)" above).
+Prod deploys now run from CI: `.github/workflows/deploy.yml` (added in W8; supersedes the
+removed `deploy-demo.yml` and the local-script path above, whose defaults still point at the
+retired `iconic-reactor-496423-m4` project). Production is `stylemaitri-prod-260813`,
+`asia-south1`, service `asa-stylist-api`.
 
-If a CI deploy path is built in the future, it should:
+### Flow
 
-- Authenticate via Workload Identity Federation (WIF), as the removed workflow attempted —
-  no service account key JSON as a GitHub secret.
-- Pass secrets to Cloud Run via `--set-secrets` against Secret Manager references (see
-  `scripts/deploy_unified.sh`'s `SECRETS` variable for the reference names already in use
-  for this project), not via plain env-var GitHub secrets rendered into
-  `--set-env-vars` — that pattern both requires re-adding all the secrets above to GitHub
-  and is exactly the mechanism that produces the env-block-replacement gotcha documented
-  above.
-- Include the same post-deploy `update-traffic --to-latest` + verification step as
-  `scripts/deploy_backend.ps1`, so CI can't reproduce the traffic-pinning "deployed but
-  not live" failure either.
+1. Trigger: the `CI` workflow finishes `success` for a **push to `master`** (`workflow_run`), or
+   a manual `workflow_dispatch` on `master`. Never PRs, forks or Dependabot. Serialised by
+   `concurrency: deploy-prod` (no cancel-in-progress).
+2. Fails closed unless a successful `CI` push run on `master` exists for the exact target SHA
+   (checked via the Actions API for BOTH triggers, so a manual dispatch cannot deploy an untested
+   commit). Skips (does not fail) if `master` has moved past that commit.
+3. Captures the revision serving 100% now (the rollback target). Refuses to deploy if there is
+   not exactly one.
+4. Builds on the GitHub runner (free on a public repo; no Cloud Build) and pushes
+   `asia-south1-docker.pkg.dev/stylemaitri-prod-260813/cloud-run-source-deploy/asa-stylist-api:<full-sha>`.
+5. `gcloud run deploy --no-traffic --tag c-<sha7> --min-instances=0 --cpu-boost`. `--min-instances=0`
+   is explicit because the service template still carries `minScale: 1`. cpu/memory/maxScale/
+   env/secrets are not passed; a step diffs them against the serving revision and fails if they differ.
+6. `scripts/ops/deploy_smoke.py` against the **tag URL only**: liveness, `/readyz`, `/demo/session`,
+   one REST `/chat` ("black kurta set for haldi": non-empty answer and at least one product).
+7. Shifts 100% to the new revision (`--to-revisions NEW=100`), then re-checks the main URL with
+   liveness + `/readyz` only (`--no-chat`): no second chat call.
+8. `gcloud run services update --min=0`, then asserts no serving or tagged revision has `minScale > 0`.
+9. **Any failure (or cancellation) after step 7 starts rolls 100% back to the captured revision**
+   and the job stays red.
+
+### LLM calls per deploy (measured, not estimated)
+
+- One `POST /chat` "black kurta set for haldi" made **2 LLM calls** (`src/agents/reranker.py:170`,
+  `src/agents/graph.py:3993`). Method: in-process FastAPI `TestClient` against the real local unified
+  index, a counting stub LLM, no network, all temp/profile roots redirected to scratch. The router LLM
+  (`router.py:58`) was not consulted (deterministic fast-path handled the query) and no outfit rationale
+  call (`outfit/rationale.py:446`, one per look) fired. Same count with the router stub forced to
+  `outfit`. Details in `reports/w8-inventory-2026-11-03.md`.
+  Reproduce (local tool, never run in CI; needs the local index and model cache):
+  `python scripts/ops/count_llm_calls.py --scratch <empty dir you own>`
+  (flags: `--scenario search|outfit`, `--repo-root`, `--hf-home`, `--index-dir`, `--message`).
+- Static upper bound for a fresh single turn, if a query is LLM-routed or becomes an outfit:
+  router (1 per agent iteration) + reranker (1) + respond (1) + 1 rationale per look.
+- `/readyz` makes 0 LLM calls today and **1 once W4 (#77) lands**.
+- So one deploy costs **2 measured LLM calls now** (the chat on the tag URL; `/readyz` and the whole main-URL
+  check are 0). Once #77 lands, `/readyz` adds 1 on the tag URL and 1 on the main URL, so **4**. Re-measure
+  after #77. Real providers may add retry/failover attempts on top of these logical calls, and the smoke
+  retries a failing GET once.
+
+### Required GitHub repo secrets (names only; new, not shared with CI)
+
+| Secret | Value is |
+|---|---|
+| `GCP_DEPLOY_WIF_PROVIDER` | `projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider` |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | `stylemaitri-deployer@stylemaitri-prod-260813.iam.gserviceaccount.com` |
+
+Both are identifiers, not credentials. Auth is keyless WIF through a **dedicated pool**
+`github-deploy-pool` whose only provider accepts just this repo at `refs/heads/master`. CI's own
+`WIF_PROVIDER` / `WIF_SERVICE_ACCOUNT` (pool `github-pool`, owner-wide condition, used on PRs) stay
+read-only on the index bucket and have no path to the deployer.
+
+Why a separate pool and not a second provider in `github-pool`: an IAM `principalSet://...` binding
+names a pool plus an attribute, so it matches the identities of every provider in that pool
+([WIF docs](https://cloud.google.com/iam/docs/workload-identity-federation): custom attributes are used
+in `principalSet://` bindings "to grant access to all identities with a certain attribute"). A deployer
+bound on `github-pool` could be impersonated by any branch or PR token the owner-wide provider issues,
+and through `serviceAccountUser` that reaches the runtime SA. Google also recommends
+"a single provider per workload identity pool"
+([best practices](https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation)).
+`setup_deploy_iam.sh` ends with a check that the deployer SA policy references only `github-deploy-pool`
+and exits non-zero otherwise. The check is exact: `roles/iam.workloadIdentityUser` on the deployer
+must have exactly one member, the full principalSet
+`principalSet://iam.googleapis.com/projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/attribute.repository/gaurav-gandhi-2411/agentic-shopping-assistant`;
+`allUsers`, any `user:`/`serviceAccount:`, any other `principal(Set)://`, the legacy pool, a wrong
+project number, or an empty/blank policy are all errors (tested offline in `tests/test_setup_deploy_iam.py`
+with a stub `gcloud`). The script also refuses to touch a pool or provider whose `state` is `DELETED`
+and prints the `undelete` command instead.
+
+Possible further hardening (NOT applied; the claim string has not been verified): additionally pin the
+workflow with a `job_workflow_ref` condition on the provider so only `deploy.yml` on `master` can mint
+tokens, not any workflow file in the repo at that ref.
+
+### One-time setup (GG, as gaurav.gandhi1129@gmail.com)
+
+```bash
+DRY_RUN=1 bash scripts/ops/setup_deploy_iam.sh   # prints every mutation, changes nothing
+bash scripts/ops/setup_deploy_iam.sh             # creates SA, bindings, pool+provider; AR cleanup in --dry-run
+```
+
+The script is idempotent. It activates nothing destructive: the Artifact Registry cleanup policy
+(`scripts/ops/ar_cleanup_policy.json`: keep newest 2, ALSO keep images tagged `live` or `prev`,
+delete the rest older than 1 day) is applied with `--dry-run`; the command to switch it on is
+printed at the end.
+
+Why the tag pin: a count-based keep cannot protect the serving image if a deploy pushes an image
+that then fails a pre-shift gate and a later run pushes another (newest two = the two non-serving
+images). The final deploy.yml step "Pin live and prev image tags" moves `live` to the new image and
+`prev` to the previously serving image (both by digest) only after a fully successful deploy. It
+runs after the rollback step, so a tagging failure turns the job red but never rolls back a healthy
+deploy; the pins are then stale until the next deploy. The deployer's `roles/artifactregistry.writer`
+on the repo should cover tag create/update (unverified until the first deploy runs the step).
+
+**Activation order:** deploy first (the first deploy after this merge creates the tags), then apply
+the policy. Before `--no-dry-run`, confirm `gcloud artifacts docker tags list <repo>/<package>` shows
+`live` pointing at the digest of the serving revision; the printed step 8 commands do this.
+
+**Unverified until the first real deploy:** the deployer gets `roles/run.developer` scoped to the
+Cloud Run *service* (not the project). Whether that alone is enough for `gcloud run deploy` of an
+existing service (some operation permissions are project-scoped) has not been tested. If the first
+deploy fails with a `run.*` permission error, use the project-level fallback that is left commented in
+`setup_deploy_iam.sh` step 2, and record the result here.
+
+### Rollback
+
+Automatic on post-shift failure or cancellation. Manual, any time (previous revision name is in the run summary):
+
+```bash
+gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVISION>=100 \
+  --region asia-south1 --project stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+### Keep-warm
+
+`.github/workflows/keep-warm.yml` GETs `/api/brand` on a 10-minute cron. GitHub does not honour
+sub-hourly crons reliably (the 15-minute Uptime Alert actually ran with a median gap of 246 min),
+so this lowers the cold-start rate but cannot guarantee a warm instance. `/readyz` is never
+pinged on a timer. Details and numbers: `reports/w8-inventory-2026-11-03.md`.
+
+### Follow-up (separate PR, NOT done here): dedicated runtime service account
+
+The Cloud Run service runs as the **default compute service account**
+(`631709154646-compute@developer.gserviceaccount.com`), which holds project-level `roles/editor`.
+Any code execution inside the container therefore has Editor on the project, and the deployer's
+`iam.serviceAccountUser` on it is effectively an Editor-reachable grant. Recommended: create a dedicated
+runtime SA (for example `asa-stylist-runtime`) with only what the service uses (Secret Manager
+accessor on the six `asa-*` secrets, `storage.objectViewer` on `asa-demo-indices-stylemaitri-prod`,
+log writer), switch the service to it, re-point the deployer's `serviceAccountUser` binding at it,
+and remove `roles/editor` from the compute SA. Needs its own PR, a rollback plan and a live check
+that every secret and the index download still work.
+
+### Not done by this pipeline
+
+Frontend (Vercel) deploys, Secret Manager changes, index uploads to GCS and DB migrations are
+unchanged and remain manual (see the sections above).

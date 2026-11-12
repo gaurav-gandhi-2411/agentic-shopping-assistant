@@ -90,7 +90,10 @@ def test_check_daily_cap_db_error() -> None:
     engine = MagicMock()
     engine.begin.side_effect = Exception("DB down")
     result = guards_module.check_daily_cap("snitch", engine)
-    assert result is True
+    assert result is True  # in-process fallback count (0) is under the cap
+    for _ in range(700):  # DEMO_DAILY_REQUEST_CAP default
+        guards_module.record_request("snitch", engine)
+    assert guards_module.check_daily_cap("snitch", engine) is False  # fails closed
 
 
 def test_check_ip_rate_limit_under_limit() -> None:
@@ -113,9 +116,15 @@ def test_check_ip_rate_limit_at_limit() -> None:
 def test_check_ip_rate_limit_db_error() -> None:
     engine = MagicMock()
     engine.begin.side_effect = Exception("DB gone")
+    # Fails CLOSED (W5): in-process fallback allows the first requests, then enforces the limit.
     allowed, retry_after = guards_module.check_ip_rate_limit("1.2.3.4", "snitch", engine)
     assert allowed is True
     assert retry_after == 0
+    for _ in range(34):  # DEMO_PER_IP_HOUR_LIMIT default 35
+        guards_module.check_ip_rate_limit("1.2.3.4", "snitch", engine)
+    allowed, retry_after = guards_module.check_ip_rate_limit("1.2.3.4", "snitch", engine)
+    assert allowed is False
+    assert retry_after > 0
 
 
 def test_check_daily_cost_under_budget(monkeypatch: pytest.MonkeyPatch) -> None:

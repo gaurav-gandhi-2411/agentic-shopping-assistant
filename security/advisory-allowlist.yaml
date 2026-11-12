@@ -1,0 +1,14 @@
+# Time-boxed advisory allow-list. See SECURITY.md. Validated in CI by scripts/check_advisory_allowlist.py.
+# Every entry is time-boxed (expires <= 30 days after `added`) and needs approver: GG.
+# An expired or malformed entry FAILS CI (scripts/check_advisory_allowlist.py).
+# Ships EMPTY: no advisory is allow-listed. Ids must match the ecosystem (pip: PYSEC-YYYY-N | GHSA-xxxx-xxxx-xxxx | CVE-YYYY-NNNN; npm: GHSA-... | numeric); `added` cannot be in the future.
+entries: []
+# Example shape (do not add without GG approval):
+#  - id: PYSEC-2026-0000          # advisory id exactly as pip-audit / npm audit prints it
+#    ecosystem: pip               # pip | npm
+#    package: examplepkg
+#    justification: >-            # why the vulnerable code path is unreachable (>= 40 chars)
+#      Vulnerable function X is never imported or called; verified by grep + sys.modules trace.
+#    added: 2026-11-02
+#    expires: 2026-12-02          # must be > added and <= added + 30 days, and not in the past
+#    approver: GG

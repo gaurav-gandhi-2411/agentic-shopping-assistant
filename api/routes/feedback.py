@@ -12,9 +12,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from api.auth import get_current_user_id
+from src.utils.db_url import create_db_engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["feedback"])
@@ -56,12 +57,7 @@ def _get_engine() -> Any:
             detail="Feedback requires a database. DATABASE_URL is not configured.",
         )
 
-    for prefix in ("postgresql://", "postgres://"):
-        if db_url.startswith(prefix):
-            db_url = "postgresql+psycopg://" + db_url[len(prefix):]
-            break
-
-    _engine = create_engine(db_url, pool_pre_ping=True, pool_size=2, max_overflow=1)
+    _engine = create_db_engine(db_url, pool_pre_ping=True, pool_size=2, max_overflow=1)
     return _engine
 
 
