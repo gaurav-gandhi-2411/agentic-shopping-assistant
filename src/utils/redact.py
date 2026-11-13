@@ -29,7 +29,7 @@ SECRET_ENV_VARS = (
     "SUPABASE_ANON_KEY",
     "SUPABASE_KEY",
     "SENTRY_DSN",
-    "CANARY_TOKEN",  # GET /canary auth secret (Secret Manager asa-canary-token)
+    "CANARY_TOKEN",  # GET /canary auth secret (Secret Manager secret CANARY_TOKEN)
 )
 # Shorter values would mask ordinary words; real secrets are far longer.
 _MIN_SECRET_LEN = 6

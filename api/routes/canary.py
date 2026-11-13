@@ -9,7 +9,7 @@ Response: 200 ``{"status":"pass",...}`` or 500 ``{"status":"fail","failing_asser
 The monitor keyword is ``"status":"pass"`` (compact JSON, no spaces). Bodies never contain
 tokens, tickets, session ids, user text or exception messages.
 
-Auth: env ``CANARY_TOKEN`` (Secret Manager ``asa-canary-token``). Unset, missing or wrong token
+Auth: env ``CANARY_TOKEN`` (Secret Manager secret ``CANARY_TOKEN``). Unset, missing or wrong token
 all return 404, so the endpoint is invisible. The token is accepted as ``X-Canary-Token`` header
 (preferred: never lands in a URL) or a plain ``?token=`` (a percent-encoded param name is
 rejected; if the header is present it alone decides). Cloud Run's own request log records the full
