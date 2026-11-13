@@ -10,8 +10,17 @@
 # Creates / binds, least privilege:
 #   - SA stylemaitri-deployer
 #   - roles/run.developer          on the Cloud Run SERVICE asa-stylist-api only (not project-wide)
-#   - roles/iam.serviceAccountUser on the RUNTIME SA only (needed to deploy a revision running as it)
+#   - roles/iam.serviceAccountUser on the CURRENT runtime SA (the default compute SA) only (needed to
+#     deploy a revision running as it) AND on the NEW runtime SA stylemaitri-runtime (step 4f)
 #   - roles/artifactregistry.writer on the ONE repo cloud-run-source-deploy only
+#   - the custom role artifactRegistryTagMover (tags.create/update/delete/get/list) on that same repo
+#     only: deploy.yml's pin_images step moves the live/prev tags and the writer role lacks
+#     tags.delete. (It was first created by hand on 2026-11-13; this script now converges to it.)
+#   - a NEW dedicated runtime SA stylemaitri-runtime, least privilege (steps 4c-4e): secretAccessor
+#     on each of the 5 secrets the service reads (secret-level), objectViewer on the index bucket
+#     (bucket-level), nothing else. Nothing is switched: the service keeps running as the compute SA
+#     until the DEPLOY.md runbook ("Switch Cloud Run to the dedicated runtime service account") is
+#     followed. This script never touches the compute SA's own roles.
 #   - NO Cloud Build roles: images are built on the GitHub runner, not in Cloud Build.
 #   - WIF: a NEW, SEPARATE pool (github-deploy-pool) holding ONE provider (github-deploy-provider)
 #     whose attribute condition only accepts repo gaurav-gandhi-2411/agentic-shopping-assistant at
@@ -38,7 +47,18 @@ PROJECT_NUMBER="631709154646"
 REGION="asia-south1"
 SERVICE="asa-stylist-api"
 AR_REPO="cloud-run-source-deploy"
-RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+# The service CURRENTLY runs as the default compute SA (holds roles/editor: too broad; see DEPLOY.md).
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+# The dedicated least-privilege runtime SA the service will be switched to (runbook in DEPLOY.md).
+RUNTIME_NAME="stylemaitri-runtime"
+RUNTIME_SA="${RUNTIME_NAME}@${PROJECT}.iam.gserviceaccount.com"
+# The 5 secrets the service reads (each mounted as an env var at :latest). Secret-level bindings only.
+SECRETS=(asa-database-url asa-demo-jwt-secret asa-groq-api-key asa-supabase-url CANARY_TOKEN)
+INDEX_BUCKET="asa-demo-indices-stylemaitri-prod"
+# Custom role created by hand on 2026-11-13; this script converges to exactly these five.
+TAG_ROLE_ID="artifactRegistryTagMover"
+TAG_ROLE="projects/${PROJECT}/roles/${TAG_ROLE_ID}"
+TAG_ROLE_PERMS="artifactregistry.tags.create,artifactregistry.tags.delete,artifactregistry.tags.get,artifactregistry.tags.list,artifactregistry.tags.update"
 DEPLOYER_NAME="stylemaitri-deployer"
 DEPLOYER_SA="${DEPLOYER_NAME}@${PROJECT}.iam.gserviceaccount.com"
 POOL="github-deploy-pool"        # dedicated to the deployer; never reuse the CI pool (github-pool)
@@ -116,6 +136,57 @@ verify_deployer_policy() {
   [ "$bad" -eq 0 ]
 }
 
+# Fails unless the deployer SA holds EXACTLY {roles/artifactregistry.writer, TAG_ROLE} on the AR
+# repo (nothing broader, nothing missing). Same fail-closed row handling as verify_deployer_policy.
+verify_deployer_repo_roles() {
+  local rows role member n_writer=0 n_tag=0 bad=0
+  if ! rows="$(gcloud artifacts repositories get-iam-policy "$AR_REPO" --location="$REGION" \
+      --account="$ACCOUNT" --project="$PROJECT" \
+      --flatten='bindings[].members' --format='value(bindings.role,bindings.members)')"; then
+    echo "ERROR: could not read the IAM policy of AR repo ${AR_REPO}" >&2
+    return 1
+  fi
+  rows="${rows//$'\r'/}"
+  if [ -z "$(printf '%s' "$rows" | tr -d '[:space:]')" ]; then
+    echo "ERROR: AR repo policy is empty or unreadable; expected the deployer's two roles" >&2
+    return 1
+  fi
+  while IFS=$'\t' read -r role member; do
+    [ "$member" = "serviceAccount:${DEPLOYER_SA}" ] || continue
+    case "$role" in
+      roles/artifactregistry.writer) n_writer=$((n_writer + 1)) ;;
+      "$TAG_ROLE") n_tag=$((n_tag + 1)) ;;
+      *) echo "ERROR: unexpected role ${role} for the deployer on repo ${AR_REPO}" >&2; bad=1 ;;
+    esac
+  done <<< "$rows"
+  if [ "$n_writer" -ne 1 ] || [ "$n_tag" -ne 1 ]; then
+    echo "ERROR: deployer must hold exactly roles/artifactregistry.writer and ${TAG_ROLE} on ${AR_REPO} (found writer=${n_writer}, tagMover=${n_tag})" >&2
+    return 1
+  fi
+  [ "$bad" -eq 0 ]
+}
+
+# Fails unless the PROJECT-level policy has NO binding at all for the runtime SA: its least
+# privilege lives only in secret-level and bucket-level bindings.
+verify_runtime_sa_no_project_roles() {
+  local rows
+  if ! rows="$(gcloud projects get-iam-policy "$PROJECT" --account="$ACCOUNT" \
+      --flatten='bindings[].members' --format='value(bindings.role,bindings.members)')"; then
+    echo "ERROR: could not read the project IAM policy" >&2
+    return 1
+  fi
+  rows="${rows//$'\r'/}"
+  if [ -z "$(printf '%s' "$rows" | tr -d '[:space:]')" ]; then
+    echo "ERROR: project IAM policy is empty or unreadable" >&2
+    return 1
+  fi
+  if printf '%s\n' "$rows" | grep -F -q "serviceAccount:${RUNTIME_SA}"; then
+    echo "ERROR: ${RUNTIME_SA} holds a PROJECT-level role; it must hold none (see rows below)" >&2
+    printf '%s\n' "$rows" | grep -F "serviceAccount:${RUNTIME_SA}" >&2 || true
+    return 1
+  fi
+}
+
 # Test hook: `SETUP_DEPLOY_IAM_SOURCE_ONLY=1 source scripts/ops/setup_deploy_iam.sh` loads the
 # functions above without running any step (used by tests/ with a stub gcloud).
 if [ "${SETUP_DEPLOY_IAM_SOURCE_ONLY:-0}" = "1" ]; then
@@ -144,8 +215,8 @@ run gcloud run services add-iam-policy-binding "$SERVICE" \
 #   gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${DEPLOYER_SA}" \
 #     --role="roles/run.developer" --account="$ACCOUNT"
 
-echo "== 3. actAs on the runtime SA only"
-run gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
+echo "== 3. actAs on the current runtime SA (default compute SA) only"
+run gcloud iam service-accounts add-iam-policy-binding "$COMPUTE_SA" \
   --member="serviceAccount:${DEPLOYER_SA}" --role="roles/iam.serviceAccountUser" \
   --account="$ACCOUNT" --project="$PROJECT"
 
@@ -154,6 +225,88 @@ run gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
   --location="$REGION" \
   --member="serviceAccount:${DEPLOYER_SA}" --role="roles/artifactregistry.writer" \
   --account="$ACCOUNT" --project="$PROJECT"
+
+echo "== 4b. custom role ${TAG_ROLE_ID} (tag create/update/delete/get/list) on the one repo"
+# roles/artifactregistry.writer lacks artifactregistry.tags.delete, which deploy.yml's pin_images
+# step needs to move the live/prev tags. Create the role if missing; if present, converge its
+# permission list to exactly the five (a describe-and-compare, so an unchanged role is not rewritten).
+if exists gcloud iam roles describe "$TAG_ROLE_ID" --account="$ACCOUNT" --project="$PROJECT"; then
+  CURRENT_PERMS="$(gcloud iam roles describe "$TAG_ROLE_ID" --account="$ACCOUNT" --project="$PROJECT" \
+    --format='value(includedPermissions)' | tr -d '\r' | tr ';' '\n' | sort | paste -sd, -)"
+  if [ "$CURRENT_PERMS" = "$TAG_ROLE_PERMS" ]; then
+    echo "exists, permissions already exact: $TAG_ROLE"
+  else
+    run gcloud iam roles update "$TAG_ROLE_ID" --permissions="$TAG_ROLE_PERMS" \
+      --account="$ACCOUNT" --project="$PROJECT"
+  fi
+else
+  run gcloud iam roles create "$TAG_ROLE_ID" --title="Artifact Registry tag mover" \
+    --description="Create/update/delete/get/list Artifact Registry tags only (deploy.yml pin_images)" \
+    --permissions="$TAG_ROLE_PERMS" --stage=GA \
+    --account="$ACCOUNT" --project="$PROJECT"
+fi
+run gcloud artifacts repositories add-iam-policy-binding "$AR_REPO" \
+  --location="$REGION" \
+  --member="serviceAccount:${DEPLOYER_SA}" --role="$TAG_ROLE" \
+  --account="$ACCOUNT" --project="$PROJECT"
+
+echo "== 4c. dedicated runtime service account ${RUNTIME_NAME} (NOT yet attached to the service)"
+if exists gcloud iam service-accounts describe "$RUNTIME_SA" --account="$ACCOUNT" --project="$PROJECT"; then
+  echo "exists: $RUNTIME_SA"
+else
+  run gcloud iam service-accounts create "$RUNTIME_NAME" \
+    --display-name="StyleMaitri Cloud Run runtime (least privilege)" \
+    --account="$ACCOUNT" --project="$PROJECT"
+  # A just-created SA is not always visible to IAM binding calls for a few seconds.
+  run sleep "${SA_PROPAGATION_WAIT:-10}"
+fi
+
+echo "== 4d. secretAccessor on each of the 5 secrets (secret-level, never project-level)"
+for secret in "${SECRETS[@]}"; do
+  run gcloud secrets add-iam-policy-binding "$secret" \
+    --member="serviceAccount:${RUNTIME_SA}" --role="roles/secretmanager.secretAccessor" \
+    --account="$ACCOUNT" --project="$PROJECT"
+done
+
+echo "== 4e. objectViewer on the index bucket only (bucket-level, never project-level)"
+# READ-ONLY on purpose. The app only downloads from this bucket: src/retrieval/index_store.py
+# uses storage.Client() + bucket.list_blobs() + blob.download_to_filename() and nothing else
+# (needs storage.objects.list + storage.objects.get, both in objectViewer). No upload/delete/
+# create call exists in api/ or src/. Index uploads stay a manual step done by GG.
+run gcloud storage buckets add-iam-policy-binding "gs://${INDEX_BUCKET}" \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/storage.objectViewer" \
+  --account="$ACCOUNT" --project="$PROJECT"
+# roles/logging.logWriter is DELIBERATELY NOT granted. Cloud Run's platform ships container
+# stdout/stderr to Cloud Logging itself, without the runtime SA holding any logging role. The app
+# never calls the Cloud Logging API (no google-cloud-logging dependency; it uses stdlib logging and
+# structured stdout). logWriter could only be bound at project level (no narrower scope), so it is
+# left out until something provably needs it.
+# Also deliberately absent: roles/editor, Cloud SQL (the DB is external, reached by URL secret), run.*.
+
+echo "== 4f. actAs for the deployer on the NEW runtime SA (SA-level), so deploys can run revisions as it"
+run gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
+  --member="serviceAccount:${DEPLOYER_SA}" --role="roles/iam.serviceAccountUser" \
+  --account="$ACCOUNT" --project="$PROJECT"
+
+echo "== 4g. OPT-IN: remove the deployer's actAs on the compute SA (REMOVE_COMPUTE_ACTAS=1 only)"
+# Run ONLY after: the service was switched to ${RUNTIME_NAME}, a CI deploy has succeeded with it,
+# and the rollback revision no longer runs as the compute SA (a revision running as the compute SA
+# cannot be redeployed by the deployer once this binding is gone). Fails closed: refuses unless the
+# service's template currently names the new runtime SA.
+if [ "${REMOVE_COMPUTE_ACTAS:-0}" = "1" ]; then
+  CURRENT_SERVICE_SA="$(gcloud run services describe "$SERVICE" --region="$REGION" \
+    --account="$ACCOUNT" --project="$PROJECT" \
+    --format='value(spec.template.spec.serviceAccountName)' | tr -d '\r')"
+  if [ "$CURRENT_SERVICE_SA" != "$RUNTIME_SA" ]; then
+    echo "ERROR: REMOVE_COMPUTE_ACTAS=1 but ${SERVICE} runs as '${CURRENT_SERVICE_SA}', not ${RUNTIME_SA}. Switch the service first (DEPLOY.md)." >&2
+    exit 1
+  fi
+  run gcloud iam service-accounts remove-iam-policy-binding "$COMPUTE_SA" \
+    --member="serviceAccount:${DEPLOYER_SA}" --role="roles/iam.serviceAccountUser" \
+    --account="$ACCOUNT" --project="$PROJECT"
+else
+  echo "skipped (default). Set REMOVE_COMPUTE_ACTAS=1 only after the switch; see DEPLOY.md."
+fi
 
 echo "== 5a. dedicated WIF pool"
 guard_not_deleted "pool ${POOL}" \
@@ -206,6 +359,16 @@ else
   echo "OK: exactly ${EXPECTED_MEMBER} can impersonate the deployer"
 fi
 
+echo "== 6c. verify: deployer holds exactly {artifactregistry.writer, ${TAG_ROLE_ID}} on the repo; runtime SA holds no project-level role"
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  echo "DRY_RUN: skipped (the SAs and role may not exist yet); these checks run on a real apply"
+else
+  verify_deployer_repo_roles || exit 1
+  echo "OK: deployer bindings on ${AR_REPO} are exactly writer + ${TAG_ROLE_ID}"
+  verify_runtime_sa_no_project_roles || exit 1
+  echo "OK: ${RUNTIME_SA} holds no project-level role"
+fi
+
 echo "== 7. Artifact Registry cleanup policy: DRY RUN (deletes nothing)"
 # --dry-run only LOGS what would be deleted (Cloud Audit Logs); review that before step 8.
 # keepCount 2 = newest two versions (serving image + one rollback target, all the workflow's
@@ -231,6 +394,15 @@ echo "gcloud artifacts docker images list ${REGION}-docker.pkg.dev/${PROJECT}/${
 echo "# review dry-run results first, e.g.:"
 echo "gcloud logging read 'protoPayload.serviceName=\"artifactregistry.googleapis.com\" AND protoPayload.methodName:\"DeleteVersion\"' \\"
 echo "  --freshness=3d --account=${ACCOUNT} --project=${PROJECT}"
+
+echo
+echo "== 9. MANUAL follow-ups, NOT automated here (each needs explicit approval; see DEPLOY.md):"
+echo "# a) Switch the service to ${RUNTIME_SA}: runbook 'Switch Cloud Run to the dedicated runtime"
+echo "#    service account' (no-traffic tagged revision, smoke the tag URL, then shift traffic)."
+echo "# b) After a later successful deploy and once the rollback revision has been replaced:"
+echo "#    REMOVE_COMPUTE_ACTAS=1 bash scripts/ops/setup_deploy_iam.sh"
+echo "# c) Much later, separately approved: drop the compute SA's per-secret bindings and its"
+echo "#    project-level roles/editor (exact commands in DEPLOY.md)."
 
 echo
 echo "== Done. Add these two GitHub repo secrets (Settings > Secrets and variables > Actions):"

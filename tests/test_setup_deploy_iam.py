@@ -143,18 +143,30 @@ def test_display_names_respect_gcp_length_limits() -> None:
     """GCP rejects WIF pool/provider display names > 32 chars (the 33-char provider name failed
     the first real apply); service-account display names may be up to 100."""
     names = _display_names()
+    sa_names = [v for cmd, v in names.items() if "service-accounts create" in cmd]
     by_kind = {
         kind: value
         for cmd, value in names.items()
-        for kind in ("service-accounts create", "pools create", "providers create-oidc")
+        for kind in ("pools create", "providers create-oidc")
         if kind in cmd
     }
-    kinds = {"service-accounts create", "pools create", "providers create-oidc"}
-    assert set(by_kind) == kinds, names
+    assert set(by_kind) == {"pools create", "providers create-oidc"}, names
+    # deployer SA + the new runtime SA
+    assert len(sa_names) == 2, names
     assert len(by_kind["pools create"]) <= 32, by_kind["pools create"]
     assert len(by_kind["providers create-oidc"]) <= 32, by_kind["providers create-oidc"]
-    assert len(by_kind["service-accounts create"]) <= 100, by_kind["service-accounts create"]
+    assert all(len(n) <= 100 for n in sa_names), sa_names
     assert by_kind["providers create-oidc"] == "GitHub OIDC (deploy, master)"
+
+
+def test_custom_role_title_and_description_respect_gcp_limits() -> None:
+    """GCP custom roles: title <= 100 chars, description <= 300 chars."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    title = re.search(r'iam roles create .*?--title="([^"]*)"', text, re.S)
+    desc = re.search(r'--description="([^"]*)"', text)
+    assert title and desc
+    assert len(title.group(1)) <= 100
+    assert len(desc.group(1)) <= 300
 
 
 def test_deleted_pool_prints_undelete_and_fails(stub_env) -> None:
@@ -167,3 +179,286 @@ def test_deleted_pool_prints_undelete_and_fails(stub_env) -> None:
     assert r.returncode != 0
     assert "ERROR" in r.stderr and "DELETED" in r.stderr
     assert "gcloud iam workload-identity-pools undelete github-deploy-pool --location=global" in r.stderr
+
+
+# ---------------------------------------------------------------------------------------------
+# Whole-script runs against a recording stub gcloud (runtime SA, custom role, opt-in removal).
+# The stub logs every call's argv and answers describe/get-iam-policy from env; mutating verbs
+# just exit 0. Nothing here can reach a real project.
+# ---------------------------------------------------------------------------------------------
+PROJECT = "stylemaitri-prod-260813"
+DEPLOYER = f"stylemaitri-deployer@{PROJECT}.iam.gserviceaccount.com"
+RUNTIME = f"stylemaitri-runtime@{PROJECT}.iam.gserviceaccount.com"
+COMPUTE = "631709154646-compute@developer.gserviceaccount.com"
+TAG_ROLE = f"projects/{PROJECT}/roles/artifactRegistryTagMover"
+SECRETS = [
+    "asa-database-url",
+    "asa-demo-jwt-secret",
+    "asa-groq-api-key",
+    "asa-supabase-url",
+    "CANARY_TOKEN",
+]
+BUCKET = "gs://asa-demo-indices-stylemaitri-prod"
+FIVE_PERMS_GCLOUD = ";".join(
+    f"artifactregistry.tags.{p}" for p in ("update", "list", "get", "delete", "create")
+)
+FIVE_PERMS_SCRIPT = ",".join(
+    f"artifactregistry.tags.{p}" for p in ("create", "delete", "get", "list", "update")
+)
+MUTATING = re.compile(
+    r"(^| )(create|create-oidc|update|update-oidc|add-iam-policy-binding|"
+    r"remove-iam-policy-binding|set-cleanup-policies)( |$)"
+)
+
+FULL_STUB = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$STUB_LOG"
+case "$*" in
+  *"iam roles describe"*"includedPermissions"*)
+    [ "${STUB_EXISTS:-none}" = "all" ] || exit 1
+    printf '%s' "$STUB_ROLE_PERMS" ;;
+  *"run services describe"*) printf '%s' "${STUB_SERVICE_SA:-}" ;;
+  *"repositories get-iam-policy"*) printf '%s' "$STUB_REPO_ROWS" ;;
+  *"projects get-iam-policy"*) printf '%s' "$STUB_PROJECT_ROWS" ;;
+  *"get-iam-policy"*) printf '%s' "$STUB_POLICY_ROWS" ;;
+  *"--format=value(state)"*) printf '%s\\n' "${STUB_STATE:-}" ;;
+  *" describe "*) [ "${STUB_EXISTS:-none}" = "all" ] ;;
+  *create*|*update*|*add-iam-policy-binding*|*remove-iam-policy-binding*|*set-cleanup-policies*)
+    exit 0 ;;
+  *) echo "stub gcloud: unexpected call: $*" >&2; exit 99 ;;
+esac
+"""
+
+REPO_OK = _rows(
+    ("roles/artifactregistry.writer", f"serviceAccount:{DEPLOYER}"),
+    (TAG_ROLE, f"serviceAccount:{DEPLOYER}"),
+)
+PROJECT_OK = _rows(("roles/editor", f"serviceAccount:{COMPUTE}"))
+
+
+@pytest.fixture()
+def full_env(tmp_path: Path) -> dict[str, str]:
+    d = tmp_path / "fbin"
+    d.mkdir()
+    g = d / "gcloud"
+    g.write_text(FULL_STUB, encoding="utf-8", newline="\n")
+    g.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = str(d) + os.pathsep + env["PATH"]
+    env["STUB_LOG"] = (tmp_path / "calls.log").as_posix()
+    env["STUB_POLICY_ROWS"] = _rows((WIU, GOOD))
+    env["STUB_REPO_ROWS"] = REPO_OK
+    env["STUB_PROJECT_ROWS"] = PROJECT_OK
+    env["STUB_ROLE_PERMS"] = FIVE_PERMS_GCLOUD
+    env["SA_PROPAGATION_WAIT"] = "0"
+    env.pop("DRY_RUN", None)
+    env.pop("REMOVE_COMPUTE_ACTAS", None)
+    return env
+
+
+def _run_script(
+    env: dict[str, str], **extra: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    env = {**env, **extra}
+    r = subprocess.run(
+        [BASH, SCRIPT.as_posix()], env=env, capture_output=True, text=True, timeout=120, check=False
+    )
+    log = Path(env["STUB_LOG"])
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    # normalise: drop the common --account/--project suffixes so assertions read cleanly
+    calls = [re.sub(r" --(account|project)=\S+", "", c).strip() for c in calls]
+    return r, calls
+
+
+def _mutations(calls: list[str]) -> list[str]:
+    return [c for c in calls if MUTATING.search(c)]
+
+
+def test_role_created_when_missing(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_EXISTS="none")
+    assert r.returncode == 0, r.stderr
+    created = [c for c in calls if c.startswith("iam roles create artifactRegistryTagMover")]
+    assert len(created) == 1, calls
+    assert f"--permissions={FIVE_PERMS_SCRIPT}" in created[0]
+    assert not [c for c in calls if c.startswith("iam roles update")]
+
+
+def test_role_converged_when_permissions_drift(full_env) -> None:
+    drift = "artifactregistry.tags.create;artifactregistry.repositories.delete"
+    r, calls = _run_script(full_env, STUB_EXISTS="all", STUB_ROLE_PERMS=drift)
+    assert r.returncode == 0, r.stderr
+    updated = [c for c in calls if c.startswith("iam roles update artifactRegistryTagMover")]
+    assert len(updated) == 1, calls
+    assert f"--permissions={FIVE_PERMS_SCRIPT}" in updated[0]
+    assert not [c for c in calls if c.startswith("iam roles create")]
+
+
+def test_role_untouched_when_permissions_exact(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_EXISTS="all")
+    assert r.returncode == 0, r.stderr
+    assert not [c for c in calls if c.startswith(("iam roles create", "iam roles update"))]
+
+
+def test_tag_mover_bound_to_deployer_on_the_one_repo(full_env) -> None:
+    r, calls = _run_script(full_env)
+    assert r.returncode == 0, r.stderr
+    want = (
+        "artifacts repositories add-iam-policy-binding cloud-run-source-deploy "
+        f"--location=asia-south1 --member=serviceAccount:{DEPLOYER} --role={TAG_ROLE}"
+    )
+    assert want in calls
+
+
+def test_secret_bindings_are_secret_level_with_exact_member(full_env) -> None:
+    r, calls = _run_script(full_env)
+    assert r.returncode == 0, r.stderr
+    bound = [c for c in calls if c.startswith("secrets add-iam-policy-binding")]
+    expected = [
+        f"secrets add-iam-policy-binding {s} --member=serviceAccount:{RUNTIME} "
+        "--role=roles/secretmanager.secretAccessor"
+        for s in SECRETS
+    ]
+    assert sorted(bound) == sorted(expected)
+
+
+def test_bucket_binding_is_bucket_level_read_only(full_env) -> None:
+    r, calls = _run_script(full_env)
+    assert r.returncode == 0, r.stderr
+    want = (
+        f"storage buckets add-iam-policy-binding {BUCKET} "
+        f"--member=serviceAccount:{RUNTIME} --role=roles/storage.objectViewer"
+    )
+    assert calls.count(want) == 1
+    # a stray object-write/admin role for the runtime SA would be a regression
+    assert not [
+        c for c in calls if RUNTIME in c and re.search(r"storage\.(object(Admin|Creator)|admin)", c)
+    ]
+
+
+def test_runtime_sa_gets_only_secret_and_bucket_level_bindings(full_env) -> None:
+    r, calls = _run_script(full_env)
+    assert r.returncode == 0, r.stderr
+    assert not [c for c in calls if c.startswith("projects add-iam-policy-binding")], calls
+    runtime_grants = [c for c in calls if f"--member=serviceAccount:{RUNTIME}" in c]
+    assert len(runtime_grants) == len(SECRETS) + 1
+    assert all(
+        c.startswith(("secrets add-iam-policy-binding ", "storage buckets add-iam-policy-binding "))
+        for c in runtime_grants
+    ), runtime_grants
+    assert not [c for c in runtime_grants if "roles/editor" in c or "logging" in c]
+
+
+def test_deployer_gets_actas_on_runtime_sa_and_compute_sa_is_not_touched(full_env) -> None:
+    r, calls = _run_script(full_env)
+    assert r.returncode == 0, r.stderr
+    want = (
+        f"iam service-accounts add-iam-policy-binding {RUNTIME} "
+        f"--member=serviceAccount:{DEPLOYER} --role=roles/iam.serviceAccountUser"
+    )
+    assert want in calls
+    # the only call naming the compute SA is the pre-existing step-3 actAs add: no removal, no roles
+    compute_calls = [c for c in calls if COMPUTE in c]
+    assert compute_calls == [
+        f"iam service-accounts add-iam-policy-binding {COMPUTE} "
+        f"--member=serviceAccount:{DEPLOYER} --role=roles/iam.serviceAccountUser"
+    ]
+    assert not [c for c in calls if "remove-iam-policy-binding" in c]
+
+
+def test_opt_in_removal_runs_only_with_flag_and_only_after_the_switch(full_env) -> None:
+    removal = (
+        f"iam service-accounts remove-iam-policy-binding {COMPUTE} "
+        f"--member=serviceAccount:{DEPLOYER} --role=roles/iam.serviceAccountUser"
+    )
+    r, calls = _run_script(full_env, STUB_SERVICE_SA=RUNTIME)
+    assert r.returncode == 0 and removal not in calls  # flag absent -> never
+    r, calls = _run_script(full_env, REMOVE_COMPUTE_ACTAS="0", STUB_SERVICE_SA=RUNTIME)
+    assert r.returncode == 0 and removal not in calls
+    r, calls = _run_script(full_env, REMOVE_COMPUTE_ACTAS="1", STUB_SERVICE_SA=RUNTIME)
+    assert r.returncode == 0, r.stderr
+    assert calls.count(removal) == 1
+
+
+@pytest.mark.parametrize("service_sa", [COMPUTE, ""])
+def test_opt_in_removal_refuses_while_service_not_on_runtime_sa(full_env, service_sa: str) -> None:
+    r, calls = _run_script(full_env, REMOVE_COMPUTE_ACTAS="1", STUB_SERVICE_SA=service_sa)
+    assert r.returncode != 0
+    assert "ERROR" in r.stderr and "REMOVE_COMPUTE_ACTAS" in r.stderr
+    assert not [c for c in calls if "remove-iam-policy-binding" in c]
+
+
+def test_dry_run_mutates_nothing(full_env) -> None:
+    r, calls = _run_script(
+        full_env, DRY_RUN="1", STUB_EXISTS="none", REMOVE_COMPUTE_ACTAS="1", STUB_SERVICE_SA=RUNTIME
+    )
+    assert r.returncode == 0, r.stderr
+    assert _mutations(calls) == [], calls
+    assert "DRY_RUN: gcloud secrets add-iam-policy-binding" in r.stdout
+    assert "DRY_RUN: gcloud iam roles create artifactRegistryTagMover" in r.stdout
+
+
+def test_second_run_when_everything_exists_issues_no_create(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_EXISTS="all")
+    assert r.returncode == 0, r.stderr
+    creates = [c for c in calls if re.search(r"(^| )create(-oidc)?( |$)", c)]
+    assert creates == [], creates
+    assert "sleep" not in " ".join(calls)
+
+
+@pytest.mark.parametrize(
+    ("name", "rows", "ok"),
+    [
+        ("exact", REPO_OK, True),
+        (
+            "other_member_may_hold_admin",
+            REPO_OK + _rows(("roles/artifactregistry.admin", "user:x@y.z")),
+            True,
+        ),
+        (
+            "extra_role",
+            REPO_OK + _rows(("roles/artifactregistry.admin", f"serviceAccount:{DEPLOYER}")),
+            False,
+        ),
+        (
+            "missing_tag_role",
+            _rows(("roles/artifactregistry.writer", f"serviceAccount:{DEPLOYER}")),
+            False,
+        ),
+        ("missing_writer", _rows((TAG_ROLE, f"serviceAccount:{DEPLOYER}")), False),
+        (
+            "duplicate_writer",
+            REPO_OK + _rows(("roles/artifactregistry.writer", f"serviceAccount:{DEPLOYER}")),
+            False,
+        ),
+        ("empty", "", False),
+    ],
+)
+def test_verify_deployer_repo_roles(stub_env, name: str, rows: str, ok: bool) -> None:
+    env = {**stub_env, "STUB_POLICY_ROWS": rows, "STUB_POLICY_RC": "0"}
+    r = _call(env, "verify_deployer_repo_roles")
+    assert (r.returncode == 0) is ok, f"{name}: {r.stderr!r}"
+    if not ok:
+        assert "ERROR" in r.stderr
+
+
+def test_verify_deployer_repo_roles_read_failure_fails(stub_env) -> None:
+    env = {**stub_env, "STUB_POLICY_ROWS": REPO_OK, "STUB_POLICY_RC": "1"}
+    r = _call(env, "verify_deployer_repo_roles")
+    assert r.returncode != 0 and "ERROR" in r.stderr
+
+
+@pytest.mark.parametrize(
+    ("name", "rows", "ok"),
+    [
+        ("none_for_runtime", PROJECT_OK, True),
+        (
+            "runtime_has_project_role",
+            PROJECT_OK + _rows(("roles/viewer", f"serviceAccount:{RUNTIME}")),
+            False,
+        ),
+        ("empty", "", False),
+    ],
+)
+def test_verify_runtime_sa_has_no_project_roles(stub_env, name: str, rows: str, ok: bool) -> None:
+    env = {**stub_env, "STUB_POLICY_ROWS": rows, "STUB_POLICY_RC": "0"}
+    r = _call(env, "verify_runtime_sa_no_project_roles")
+    assert (r.returncode == 0) is ok, f"{name}: {r.stderr!r}"
