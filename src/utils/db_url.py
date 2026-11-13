@@ -98,8 +98,24 @@ def normalize_database_url(raw: str) -> str:
     return parse_database_url(raw).render_as_string(hide_password=False)
 
 
+def pooler_connect_args(connect_args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """connect_args safe for the Supabase transaction pooler (pgbouncer, port 6543).
+
+    psycopg3 auto-prepares statements after 5 executions; pgbouncer in transaction mode hands
+    out different server connections, so the next PREPARE collides
+    (``DuplicatePreparedStatement: prepared statement "_pg3_N" already exists``).
+    ``prepare_threshold=None`` disables auto-prepare.  Caller-supplied keys win.
+    """
+    return {"prepare_threshold": None, **(connect_args or {})}
+
+
 def create_db_engine(raw: str, **kwargs: Any) -> Engine:
-    """create_engine() over a safely parsed URL.  Every call site uses this."""
+    """create_engine() over a safely parsed URL.  Every call site uses this.
+
+    Always disables psycopg3 auto-prepare (see pooler_connect_args); a caller-supplied
+    ``connect_args`` is merged, not replaced.
+    """
     from sqlalchemy import create_engine
 
+    kwargs["connect_args"] = pooler_connect_args(kwargs.get("connect_args"))
     return create_engine(parse_database_url(raw), **kwargs)

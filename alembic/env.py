@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import URL
 
 from alembic import context
-from src.utils.db_url import parse_database_url
+from src.utils.db_url import parse_database_url, pooler_connect_args
 from src.utils.redact import Redactor, install_log_redaction
 
 config = context.config
@@ -49,7 +49,13 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations against a live database connection."""
-    connectable = create_engine(_database_url(), poolclass=pool.NullPool)
+    # prepare_threshold=None: DATABASE_URL may point at the pgbouncer transaction pooler (6543),
+    # which breaks psycopg3 auto-prepared statements.
+    connectable = create_engine(
+        _database_url(),
+        poolclass=pool.NullPool,
+        connect_args=pooler_connect_args(),
+    )
     try:
         connection = connectable.connect()
     except Exception as exc:

@@ -374,6 +374,8 @@ def run(url: URL) -> list[str]:
     # env.py reads DATABASE_URL only (ignores sqlalchemy.url); set it for this process alone.
     os.environ["DATABASE_URL"] = url.set(drivername="postgresql").render_as_string(hide_password=False)
     cfg = _alembic_cfg()
+    # No prepare_threshold=None here on purpose: this is CI-only against an ephemeral
+    # Postgres on a direct connection, never the pgbouncer pooler (6543) that needs it.
     engine = create_engine(url.set(drivername="postgresql+psycopg"))
     try:
         setup_ephemeral(engine)
