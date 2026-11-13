@@ -921,17 +921,182 @@ LLM budget against the Groq limits: `docs/ops/canary-budget.md`. The WS-path
 `.github/workflows/canary.yml` now runs once a day. Background numbers:
 `reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
-### Follow-up (separate PR, NOT done here): dedicated runtime service account
+### Switch Cloud Run to the dedicated runtime service account
 
-The Cloud Run service runs as the **default compute service account**
-(`631709154646-compute@developer.gserviceaccount.com`), which holds project-level `roles/editor`.
-Any code execution inside the container therefore has Editor on the project, and the deployer's
-`iam.serviceAccountUser` on it is effectively an Editor-reachable grant. Recommended: create a dedicated
-runtime SA (for example `asa-stylist-runtime`) with only what the service uses (Secret Manager
-accessor on the six `asa-*` secrets, `storage.objectViewer` on `asa-demo-indices-stylemaitri-prod`,
-log writer), switch the service to it, re-point the deployer's `serviceAccountUser` binding at it,
-and remove `roles/editor` from the compute SA. Needs its own PR, a rollback plan and a live check
-that every secret and the index download still work.
+Status: the SA and its bindings are defined in `scripts/ops/setup_deploy_iam.sh`; **nothing below has
+been run**. Every command here that writes to production needs GG's explicit approval at run time.
+
+The service (`asa-stylist-api`, revisions `00016-wev` serving and `00013-leh` rollback at the time of
+writing) runs as the **default compute service account**
+`631709154646-compute@developer.gserviceaccount.com`, which holds project-level `roles/editor`. Any code
+execution inside the container therefore has Editor on the project, and the deployer's
+`iam.serviceAccountUser` on it is an Editor-reachable grant. The target is
+`stylemaitri-runtime@stylemaitri-prod-260813.iam.gserviceaccount.com`, which the script gives only:
+
+| Role | Scope | Why |
+|---|---|---|
+| `roles/secretmanager.secretAccessor` | each of `asa-database-url`, `asa-demo-jwt-secret`, `asa-groq-api-key`, `asa-supabase-url`, `CANARY_TOKEN` (secret-level) | the service reads exactly these 5, all as env-var secret refs at `:latest` |
+| `roles/storage.objectViewer` | bucket `gs://asa-demo-indices-stylemaitri-prod` only | the app only lists and downloads (`src/retrieval/index_store.py`); it never writes to GCS |
+
+No project-level role, no `roles/logging.logWriter` (Cloud Run ships container stdout/stderr to Cloud
+Logging by itself, and the app never calls the Logging API), no `roles/editor`, no Cloud SQL, no `run.*`.
+The deployer additionally gets `roles/iam.serviceAccountUser` on the new SA (SA-level) so CI can deploy
+revisions that run as it.
+
+#### Pre-flight checklist
+
+1. `bash scripts/ops/setup_deploy_iam.sh` has been run for real (step 1 below) and its step 6c printed
+   both `OK:` lines (deployer holds exactly writer + tag mover on the repo; runtime SA holds no
+   project-level role).
+2. `gcloud run services describe asa-stylist-api --region asia-south1 --project stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com --format=json`:
+   confirm traffic is pinned by revision name (100% to one named revision, so a new revision is
+   unrouted until `update-traffic`), note the serving and rollback revision names, and that
+   `autoscaling.knative.dev/minScale` is absent or `0`.
+3. No CI deploy is running or about to run (see "Interaction with `deploy.yml`" below).
+4. We cannot read the secrets *as the new SA* from here (`gcloud secrets versions access` would run as
+   our own identity and prove nothing). The proof that the new SA can read them, download the index and
+   reach the database is the tag-URL `/readyz` in step 3: the container fails to start (or `/readyz` is
+   503) if any of that is missing.
+
+#### 1. Create the SA and bindings (writes IAM; approval needed)
+
+```bash
+DRY_RUN=1 bash scripts/ops/setup_deploy_iam.sh   # review every mutation first
+bash scripts/ops/setup_deploy_iam.sh             # idempotent; ends with the 6c verification
+```
+
+This does not touch the compute SA, the service, or any revision.
+
+#### 2. Create a no-traffic tagged revision as the new SA (prod write; approval needed)
+
+```bash
+NEWSA=stylemaitri-runtime@stylemaitri-prod-260813.iam.gserviceaccount.com
+gcloud run services update asa-stylist-api --region=asia-south1 --project=stylemaitri-prod-260813 \
+  --account=gaurav.gandhi1129@gmail.com \
+  --service-account="$NEWSA" --no-traffic --tag=sa-switch
+```
+
+Known traps:
+
+- The service template carries `minScale`/`maxScale`/startup-CPU-boost. `--min-instances` is **not**
+  passed here, so check afterwards that the new revision has no `minScale` above 0 (assert below). Do not
+  add `--min-instances=1`.
+- Traffic is pinned by revision name, so this update is unrouted until step 4. `--no-traffic` plus the
+  tag gives a private URL `https://sa-switch---asa-stylist-api-ec3mwppesa-el.a.run.app`.
+- The update also becomes the **service template**: later `gcloud run deploy` calls (CI) inherit the new
+  SA. That is the point, but it means rollback (step 5) must also be considered against CI (see below).
+- If the bucket or a secret is not readable by the new SA, the new revision fails its startup probe and
+  the command exits non-zero: no traffic was routed, nothing to undo except the tag.
+
+```bash
+REV=$(gcloud run services describe asa-stylist-api --region=asia-south1 --project=stylemaitri-prod-260813 \
+  --account=gaurav.gandhi1129@gmail.com --format=json \
+  | jq -r '[.status.traffic[] | select(.tag == "sa-switch")][0].revisionName // empty')   # same query deploy.yml uses
+test -n "$REV" && echo "$REV"
+gcloud run revisions describe "$REV" --region=asia-south1 --project=stylemaitri-prod-260813 \
+  --account=gaurav.gandhi1129@gmail.com --format=json > rev-sa.json
+# assert: serviceAccountName == $NEWSA and minScale absent or "0"
+jq -r '.spec.serviceAccountName, (.metadata.annotations["autoscaling.knative.dev/minScale"] // "0")' rev-sa.json
+```
+
+#### 3. Smoke the tag URL (read-only)
+
+The non-root `app` user (uid 10001) owns `/app/data/processed`, where the index lands. The index
+download authenticates through the metadata server for the attached SA (Application Default
+Credentials; there are no key files in the image), so a green `/readyz` on the tag URL proves the whole
+chain as the new SA and as the non-root user.
+
+```bash
+TAG_URL=https://sa-switch---asa-stylist-api-ec3mwppesa-el.a.run.app
+curl -sS -w '\n%{http_code}\n' "$TAG_URL/readyz"
+curl -sS -w '\n%{http_code}\n' "$TAG_URL/canary/status"
+python scripts/ops/deploy_smoke.py --base-url "$TAG_URL" --live-path /api/brand   # liveness, /readyz, /demo/session, 1 REST /chat (2 LLM calls)
+```
+
+Required: `/readyz` is HTTP 200 with `"status":"ready"` and `retriever`, `catalogue`, `llm`, `database`
+and `schema` all starting with `ok` (retriever and catalogue prove the index was downloaded from the
+bucket as the new SA; llm proves `asa-groq-api-key` was readable; database and schema prove
+`asa-database-url`). `/canary/status` is a cheap secondary check (the canary reads `CANARY_TOKEN`; it may
+answer 503 `stale` on a fresh instance with no result, which is not an SA problem). One WebSocket chat
+via the tag URL is optional when the smoke's REST `/chat` is deemed enough. Then read the new revision's logs and expect no `PermissionDenied`/`403`:
+
+```bash
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.revision_name=$REV AND severity>=WARNING" \
+  --freshness=15m --limit=50 --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+If anything is not green, stop. Production is unaffected; remove the tag later with
+`gcloud run services update-traffic asa-stylist-api --remove-tags=sa-switch ...` (see step 5 for the
+template caveat).
+
+#### 4. Shift 100% only if step 3 was fully green (prod write; approval needed)
+
+```bash
+gcloud run services update-traffic asa-stylist-api --to-revisions="$REV"=100 \
+  --region=asia-south1 --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+Then verify: no `minScale` on the serving revision (the jq line from step 2 against `$REV`),
+`curl "$SERVICE_URL/readyz"` on the main URL is 200/`ready`, and logs have no permission errors for a
+few minutes of real traffic.
+
+#### 5. Rollback
+
+The previous revision (`00013-leh`, plus whichever revision was serving) runs as the compute SA and
+stays startable because **this PR and these steps do not remove anything from the compute SA**: its
+per-secret `secretAccessor` bindings and project `roles/editor` stay until the separate step 6. Roll
+back at any time by routing 100% to the previous revision *by name*:
+
+```bash
+gcloud run services update-traffic asa-stylist-api --to-revisions=<PREVIOUS_REVISION>=100 \
+  --region=asia-south1 --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+Caveat: this only moves traffic. The service **template** still names the new SA, so the next CI deploy
+creates a revision as the new SA and then fails the parity check against the (compute-SA) serving
+revision, fail-closed with no traffic shifted. If you roll back and want CI to work again, also reset
+the template: `gcloud run services update asa-stylist-api --service-account=<compute SA> --no-traffic
+--region=asia-south1 --project=stylemaitri-prod-260813` (a no-traffic update; do it only after the cause
+is understood).
+
+#### 6. Later and separately approved: drop the compute SA's access
+
+Only after (a) a CI deploy has succeeded with the new SA as the serving revision and (b) the rollback
+revision that runs as the compute SA has been replaced by newer revisions (so nothing you may roll back to
+still depends on the compute SA):
+
+```bash
+REMOVE_COMPUTE_ACTAS=1 bash scripts/ops/setup_deploy_iam.sh   # refuses unless the service already runs as the new SA
+
+COMPUTE=631709154646-compute@developer.gserviceaccount.com
+for s in asa-database-url asa-demo-jwt-secret asa-groq-api-key asa-supabase-url CANARY_TOKEN; do
+  gcloud secrets remove-iam-policy-binding "$s" --member="serviceAccount:$COMPUTE" \
+    --role=roles/secretmanager.secretAccessor --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+done
+gcloud projects remove-iam-policy-binding stylemaitri-prod-260813 --member="serviceAccount:$COMPUTE" \
+  --role=roles/editor --account=gaurav.gandhi1129@gmail.com
+```
+
+Before the last command, check nothing else on the project relies on the compute SA's Editor (Cloud
+Build default builds, other services, the old `run-sources-*` deploy path); images are built on the
+GitHub runner, but confirm.
+
+#### Interaction with `deploy.yml` (read from the workflow, not assumed)
+
+`deploy.yml` step "Assert new revision kept prod config" builds `cfg-prev.json` from the **serving**
+revision and `cfg-new.json` from the new revision with the same jq view, including
+`serviceAccount: .spec.serviceAccountName`, and runs `diff -u`; any difference (SA included) fails the
+step before any traffic shift. It never names an SA itself and `gcloud run deploy` there passes no
+`--service-account`, so the new revision inherits the **service template's** SA.
+
+- After steps 2 and 4 (template = new SA, serving = new SA) the next deploy inherits the new SA, the
+  two views match, and parity passes. No `deploy.yml` change is needed for the switch.
+- The deployer needs `roles/iam.serviceAccountUser` on the SA the template names, otherwise the deploy
+  is rejected for lack of `iam.serviceAccounts.actAs`. The script grants it on the new SA (step 4f) and
+  keeps it on the compute SA until `REMOVE_COMPUTE_ACTAS=1`.
+- Window to avoid: between step 2 (template flipped) and step 4 (traffic shifted), a CI deploy would
+  inherit the new SA while the serving revision still runs as the compute SA, so parity would fail
+  closed. Do not merge to `master` (which triggers a deploy) while the switch is in progress.
 
 ### Not done by this pipeline
 
