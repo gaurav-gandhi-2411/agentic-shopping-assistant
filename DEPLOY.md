@@ -106,9 +106,14 @@ Operator flow for a PR that adds a migration (production DB changes need explici
    `alembic upgrade <current>:head --sql` (or `python scripts/run_migrations.py --dry-run`, which
    prints base to head).
 2. After approval, apply with the repo's redacting runner on a **session-mode** connection
-   (port 5432 per the architect decision; do not use the transaction pooler for DDL). NOTE: this
-   repo's `.env.example`/`SUPABASE_SETUP.md` call 5432 the "Transaction pooler", which contradicts
-   that; confirm the mode of the URL you use in the Supabase dashboard before running:
+   (port 5432; do not use the transaction pooler, port 6543, for DDL). MEASURED 2026-11-13
+   against the real Supabase pooler host (Supavisor, user `postgres.<project-ref>`): port 5432
+   is SESSION mode (two concurrent idle client connections shared a backend in 0/8 trials; a
+   session `SET` persisted) and port 6543 is TRANSACTION mode (shared a backend in 8/8 trials).
+   These are measurements, not dashboard quotes (the dashboard strings were not read); confirm
+   in the Supabase dashboard under Project Settings -> Database -> Connection pooling. The app
+   runtime URL is the 6543 transaction-mode one (`create_db_engine` forces
+   `prepare_threshold=None`); only migrations use 5432:
    `DATABASE_URL=<session-url> python scripts/run_migrations.py`. Never paste the URL into logs
    or chat.
 3. Verify: `DATABASE_URL=<url> alembic current` must print the same revision(s) as

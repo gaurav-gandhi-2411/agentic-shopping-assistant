@@ -99,9 +99,9 @@ def normalize_database_url(raw: str) -> str:
 
 
 def pooler_connect_args(connect_args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """connect_args safe for the Supabase transaction pooler (pgbouncer, port 6543).
+    """connect_args safe for the Supabase transaction pooler (Supavisor, port 6543).
 
-    psycopg3 auto-prepares statements after 5 executions; pgbouncer in transaction mode hands
+    psycopg3 auto-prepares statements after 5 executions; a transaction-mode pooler hands
     out different server connections, so the next PREPARE collides
     (``DuplicatePreparedStatement: prepared statement "_pg3_N" already exists``).
     ``prepare_threshold=None`` disables auto-prepare.  Caller-supplied keys win.

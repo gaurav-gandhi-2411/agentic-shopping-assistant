@@ -49,8 +49,9 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations against a live database connection."""
-    # prepare_threshold=None: DATABASE_URL may point at the pgbouncer transaction pooler (6543),
-    # which breaks psycopg3 auto-prepared statements.
+    # prepare_threshold=None: DATABASE_URL may point at the Supabase transaction pooler (6543),
+    # which breaks psycopg3 auto-prepared statements. Migrations themselves belong on 5432
+    # (session mode).
     connectable = create_engine(
         _database_url(),
         poolclass=pool.NullPool,
