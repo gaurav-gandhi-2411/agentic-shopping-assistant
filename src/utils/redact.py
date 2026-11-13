@@ -2,8 +2,9 @@
 
 Masks (1) ``scheme://user:password@`` userinfo, (2) the literal values of
 configured secrets read from the environment (plus their percent-encoded forms
-and, for the DB password, its long segments), and (3) Bearer / JWT-looking
-tokens.  Secret values are never logged by this module.
+and, for the DB password, its long segments), (3) Bearer / JWT-looking
+tokens, and (4) the values of credential-bearing query parameters (``?ticket=``,
+``?token=``, ``?code=`` ...).  Secret values are never logged by this module.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import re
 import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote, quote_plus, unquote_plus
 
 MASK = "***"
 
@@ -39,6 +40,50 @@ _SEGMENT_SPLIT_RE = re.compile(r"[@:/?#\[\]\s%]+")
 _USERINFO_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*://[^\s:/@'\"]*:)[^\s'\"]*@")
 _BEARER_RE = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=\-]{8,}")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}(?:\.[A-Za-z0-9_\-]*)?")
+
+
+# Query-string parameters whose VALUES are credentials (WS tickets, OAuth codes, API keys...).
+# Matched case-insensitively and after percent-decoding the name (Starlette decodes names, so
+# ``?%74icket=x`` still authenticates).
+SENSITIVE_QUERY_PARAMS = frozenset(
+    {
+        "ticket",
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "jwt",
+        "api_key",
+        "apikey",
+        "key",
+        "secret",
+        "signature",
+        "sig",
+        "code",
+        "password",
+    }
+)
+REDACTED = "[REDACTED]"
+# ``?name=value`` / ``&name=value`` (``=`` may itself be encoded as %3D).  The value runs to the
+# next ``&``, whitespace, quote or fragment, so it also stops correctly in an access-log line
+# such as ``"WebSocket /chat/stream?ticket=abc [accepted]"``.  A percent-encoded ``&`` (%26)
+# is not a separator, so it stays inside the value and is masked with it.
+_QUERY_PARAM_RE = re.compile(
+    r"(?P<sep>[?&])(?P<name>[^=&\s\"'#?]*?)(?P<eq>=|%3[dD])(?P<val>[^&\s\"'#]*)"
+)
+
+
+def _mask_query_param(match: re.Match[str]) -> str:
+    if unquote_plus(match["name"]).lower() not in SENSITIVE_QUERY_PARAMS:
+        return match[0]
+    return f"{match['sep']}{match['name']}={REDACTED}"
+
+
+def redact_query_params(text: str) -> str:
+    """Replace the value of every sensitive query parameter in ``text`` with ``[REDACTED]``."""
+    if "?" not in text and "&" not in text:
+        return text
+    return _QUERY_PARAM_RE.sub(_mask_query_param, text)
 
 
 def _variants(value: str) -> set[str]:
@@ -86,6 +131,7 @@ class Redactor:
         for secret in self._secrets:
             text = text.replace(secret, MASK)
         text = _USERINFO_RE.sub(r"\1" + MASK + "@", text)
+        text = redact_query_params(text)
         text = _BEARER_RE.sub(r"\1" + MASK, text)
         return _JWT_RE.sub(MASK, text)
 
