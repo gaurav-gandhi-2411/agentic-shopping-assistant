@@ -76,11 +76,46 @@ class FallbackLimiter:
             window.append(now)
             return True, 0
 
+    def admit_ip(self, client_ip: str, other_count: int = 0) -> tuple[bool, int]:
+        """Atomically admit one request iff max(own window count, other_count) < limit.
+
+        ``other_count`` is the DB limiter's count for the same IP (0 when the DB is unusable).
+        Always counts in memory, so a DB flap can never reset or hide this window.  A denied
+        request is not counted.  Returns (allowed, retry_after_seconds); retry_after is the
+        in-memory window's, or 1 when only the DB count blocked (caller supplies its own).
+        """
+        limit = self._per_ip_limit()
+        now = self._clock()
+        cutoff = now - _WINDOW_S
+        with self._lock:
+            window = self._windows.get(client_ip)
+            if window is None:
+                window = collections.deque()
+                self._windows[client_ip] = window
+                max_ips = self._max_ips()
+                while len(self._windows) > max_ips:
+                    self._windows.popitem(last=False)
+            else:
+                self._windows.move_to_end(client_ip)
+            while window and window[0] <= cutoff:
+                window.popleft()
+            if len(window) >= limit or other_count >= limit:
+                retry = int(window[0] + _WINDOW_S - now) + 1 if len(window) >= limit else 1
+                return False, max(1, retry)
+            window.append(now)
+            return True, 0
+
     def _roll_day(self) -> None:
         today = datetime.datetime.fromtimestamp(self._clock(), tz=datetime.UTC).date().isoformat()
         if today != self._day:
             self._day = today
             self._day_count = 0
+
+    def daily_count(self) -> int:
+        """Requests recorded by this instance today (UTC)."""
+        with self._lock:
+            self._roll_day()
+            return self._day_count
 
     def daily_allowed(self) -> bool:
         """True while this instance's served-request count is below the daily cap."""
