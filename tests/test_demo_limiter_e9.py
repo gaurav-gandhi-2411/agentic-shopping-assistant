@@ -8,6 +8,9 @@ No network, no real DB: a fake engine models demo_rate_limits / demo_daily_stats
 
 from __future__ import annotations
 
+import logging
+import sys
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -133,3 +136,73 @@ def test_restart_with_healthy_db_still_enforces_from_db_count() -> None:
     db.daily = 1000
     guards.reset_fallback_state()
     assert guards.check_daily_cap("b", db) is False
+
+
+def test_concurrent_requests_same_ip_never_exceed_limit() -> None:
+    """8 threads released together at limit 5: the memory admit is atomic, so <= LIMIT admits."""
+    # Tiny switch interval forces thread interleaving inside the check-then-append, so a
+    # missing lock in FallbackLimiter.admit_ip shows up as > LIMIT admits (mutation-checked).
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    n_threads, trials = 8, 150
+    try:
+        for trial in range(trials):
+            guards.reset_fallback_state()
+            db = FakeDb()
+            barrier = threading.Barrier(n_threads)
+            results: list[bool] = []
+
+            def worker(db: FakeDb = db, barrier: threading.Barrier = barrier) -> None:
+                barrier.wait()
+                results.append(guards.check_ip_rate_limit("203.0.113.9", "b", db)[0])
+
+            threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert len(results) == n_threads
+            assert sum(results) <= LIMIT, f"trial {trial}: {sum(results)} admits > {LIMIT}"
+            assert len(guards._fallback._windows["203.0.113.9"]) <= LIMIT
+    finally:
+        sys.setswitchinterval(old)
+
+
+class UpsertFailsDb(FakeDb):
+    """Peek (SELECT) succeeds, but the INSERT ... ON CONFLICT upsert raises."""
+
+    fail_upsert = True
+
+    def execute(self, stmt: Any, params: dict[str, Any] | None = None) -> Any:
+        if self.fail_upsert and "INTO demo_rate_limits" in str(stmt):
+            raise ConnectionError("prepared statement already exists")
+        return super().execute(stmt, params)
+
+
+def test_db_upsert_failure_after_memory_admit_counts_once_and_recovers_with_max(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ip = "203.0.113.9"
+    db = UpsertFailsDb()
+    caplog.set_level(logging.INFO, logger="api.demo.guards")
+
+    # Memory admitted, then the DB upsert raised: stays admitted, exactly once.
+    assert guards.check_ip_rate_limit(ip, "b", db) == (True, 0)
+    assert len(guards._fallback._windows[ip]) == 1
+    assert db.ip_counts.get(guards._ip_hash(ip), 0) == 0  # the DB never counted it
+    assert guards._health.degraded is True
+    transitions = [r for r in caplog.records if "demo_limiter_transition state=memory" in r.message]
+    assert len(transitions) == 1
+
+    # DB recovers; another instance already counted 3 for this IP. max(DB=3, memory=1) < 5.
+    db.fail_upsert = False
+    db.ip_counts[guards._ip_hash(ip)] = 3
+    later = [guards.check_ip_rate_limit(ip, "b", db)[0] for _ in range(4)]
+    # DB count 3 -> admit (DB 4), 4 -> admit (DB 5), then DB 5 >= limit blocks: no reset, no
+    # double count of the first request (memory window holds exactly the 3 admitted so far).
+    assert later == [True, True, False, False]
+    assert len(guards._fallback._windows[ip]) == 3
+    assert guards._health.degraded is False
+    recovered = [r for r in caplog.records if "reason=recovered" in r.message]
+    assert len(recovered) == 1
+    assert len([r for r in caplog.records if "state=memory" in r.message]) == 1
