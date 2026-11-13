@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { getWsUrl } from "@/lib/api/client"
+import { getWsFallbackTarget, getWsTarget } from "@/lib/api/client"
+import { openChatSocket, type WsTarget } from "@/lib/api/wsConnect"
 import type {
   ChatMessage,
   ItemSummary,
@@ -142,9 +143,9 @@ export function useChatStream({
       // exhaustion can distinguish "partial content received" from "nothing received".
       let receivedAnyToken = false
 
-      let url: string
+      let target: WsTarget
       try {
-        url = await getWsUrl()
+        target = await getWsTarget()
       } catch {
         setMessages((prev) => [
           ...prev,
@@ -164,20 +165,7 @@ export function useChatStream({
       let retryCount = 0
 
       function openConnection() {
-        const ws = new WebSocket(url)
-        wsRef.current = ws
-
-        ws.onopen = () => {
-          ws.send(
-            JSON.stringify({
-              type: "user_message",
-              conversation_id: cid,
-              message: text,
-            })
-          )
-        }
-
-        ws.onmessage = (event: MessageEvent) => {
+        const onMessage = (event: MessageEvent) => {
           const frame: WsFrame = JSON.parse(event.data as string)
 
           switch (frame.type) {
@@ -301,7 +289,7 @@ export function useChatStream({
                 return updated
               })
               setIsSending(false)
-              ws.close()
+              wsRef.current?.close()
               onDone?.()
               break
             }
@@ -342,11 +330,9 @@ export function useChatStream({
           }
         }
 
-        ws.onerror = () => {
-          // onclose always fires after onerror; let onclose drive the retry logic.
-        }
-
-        ws.onclose = (event: CloseEvent) => {
+        // onerror is a no-op inside openChatSocket: onclose always fires after it and drives
+        // the retry logic.
+        const onClose = (event: CloseEvent) => {
           if (finished) return
 
           // Code 1000 = clean close (should not happen unless server initiated).
@@ -399,6 +385,29 @@ export function useChatStream({
             setIsSending(false)
           }
         }
+
+        // The subprotocol attempt falls back once to a ?ticket= URL inside openChatSocket
+        // (a pre-open failure means a backend that predates the subprotocol path).
+        openChatSocket(target, getWsFallbackTarget, {
+          onSocket: (ws) => {
+            wsRef.current = ws
+          },
+          onTarget: (next) => {
+            target = next
+          },
+          isCurrent: (ws) => wsRef.current === ws,
+          onopen: (ws) => {
+            ws.send(
+              JSON.stringify({
+                type: "user_message",
+                conversation_id: cid,
+                message: text,
+              })
+            )
+          },
+          onmessage: onMessage,
+          onclose: onClose,
+        })
       }
 
       openConnection()
