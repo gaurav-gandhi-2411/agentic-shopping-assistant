@@ -92,6 +92,9 @@ def _closes_1008(client: TestClient, url: str, subprotocols: list[str] | None) -
     """Connect, expect a server close with 1008; return the close reason."""
     with pytest.raises(WebSocketDisconnect) as exc_info:
         with client.websocket_connect(url, subprotocols=subprotocols) as ws:
+            # A wrongly admitted connection answers this bad frame (so a regression fails the
+            # assertion instead of blocking forever on receive); a rejected one is already closed.
+            ws.send_text("{}")
             ws.receive_text()
     assert exc_info.value.code == 1008
     return exc_info.value.reason
