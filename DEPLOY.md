@@ -734,7 +734,7 @@ jsonPayload.ws_auth_path="url_ticket"
 
 ```bash
 gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="asa-stylist-api" AND jsonPayload.ws_auth_path="url_ticket"' \
-  --account=gaurav.gandhi1129@gmail.com --project=iconic-reactor-496423-m4 \
+  --account=gaurav.gandhi1129@gmail.com --project=stylemaitri-prod-260813 \
   --freshness=48h --format='value(timestamp)' | wc -l
 ```
 
