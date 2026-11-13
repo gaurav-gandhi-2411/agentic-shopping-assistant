@@ -6,6 +6,7 @@ stub earlier on PATH that prints canned output. Nothing here can reach a real pr
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -123,6 +124,37 @@ def test_not_deleted_passes(stub_env, state: str) -> None:
     env = {**stub_env, "STUB_STATE": state}
     r = _call(env, 'guard_not_deleted "pool p" "gcloud undelete p" gcloud describe p')
     assert r.returncode == 0, r.stderr
+
+
+def _display_names() -> dict[str, str]:
+    """Map the gcloud sub-command that carries each --display-name to its value."""
+    found: dict[str, str] = {}
+    command = ""
+    for line in SCRIPT.read_text(encoding="utf-8").splitlines():
+        if "gcloud iam" in line and "create" in line:
+            command = line.strip()
+        m = re.search(r'--display-name="([^"]*)"', line)
+        if m:
+            found[command] = m.group(1)
+    return found
+
+
+def test_display_names_respect_gcp_length_limits() -> None:
+    """GCP rejects WIF pool/provider display names > 32 chars (the 33-char provider name failed
+    the first real apply); service-account display names may be up to 100."""
+    names = _display_names()
+    by_kind = {
+        kind: value
+        for cmd, value in names.items()
+        for kind in ("service-accounts create", "pools create", "providers create-oidc")
+        if kind in cmd
+    }
+    kinds = {"service-accounts create", "pools create", "providers create-oidc"}
+    assert set(by_kind) == kinds, names
+    assert len(by_kind["pools create"]) <= 32, by_kind["pools create"]
+    assert len(by_kind["providers create-oidc"]) <= 32, by_kind["providers create-oidc"]
+    assert len(by_kind["service-accounts create"]) <= 100, by_kind["service-accounts create"]
+    assert by_kind["providers create-oidc"] == "GitHub OIDC (deploy, master)"
 
 
 def test_deleted_pool_prints_undelete_and_fails(stub_env) -> None:

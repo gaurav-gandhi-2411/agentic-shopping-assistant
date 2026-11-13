@@ -345,9 +345,10 @@ def test_cap_counts_prior_runs_excluding_current_and_skipped() -> None:
 
 
 def test_cap_boundary() -> None:
-    assert not canary.would_exceed_cap(147)  # 147 + 3 == 150 allowed
-    assert canary.would_exceed_cap(148)
-    assert canary.would_exceed_cap(150)
+    cap = canary.DAILY_QUERY_CAP
+    assert not canary.would_exceed_cap(cap - 3)  # cap - 3 + 3 == cap allowed
+    assert canary.would_exceed_cap(cap - 2)
+    assert canary.would_exceed_cap(cap)
 
 
 def _args(tmp_path: Path, **kw: Any):
@@ -358,7 +359,8 @@ def _args(tmp_path: Path, **kw: Any):
 
 
 def test_run_skips_without_querying_when_over_cap(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(50) + CURRENT)  # 150 spent
+    n = canary.DAILY_QUERY_CAP // 3  # runs that exactly spend the cap
+    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n) + CURRENT)
     called = []
     monkeypatch.setattr(canary, "http_post_json", lambda *a, **k: called.append(a) or {})
     assert canary.run_canary(_args(tmp_path)) == 0  # skip is not a failure
@@ -723,17 +725,19 @@ def test_issue_actions_only_touch_the_canarys_own_title() -> None:
 
 
 def test_forced_run_may_exceed_cap_by_one_run() -> None:
-    assert not canary.would_exceed_cap(150, forced=True)
-    assert canary.would_exceed_cap(151, forced=True)
-    assert canary.would_exceed_cap(150, forced=False)
+    cap = canary.DAILY_QUERY_CAP
+    assert not canary.would_exceed_cap(cap, forced=True)
+    assert canary.would_exceed_cap(cap + 1, forced=True)
+    assert canary.would_exceed_cap(cap, forced=False)
 
 
 def test_forced_run_at_cap_proceeds_and_beyond_cap_errors(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(50) + CURRENT)  # 150 spent
+    n = canary.DAILY_QUERY_CAP // 3  # runs that exactly spend the cap
+    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n) + CURRENT)
     with _Server({"frames": good_frames()}) as srv:
         rc = canary.run_canary(_args(tmp_path, base_url=srv.url, force_fail=True))
     assert rc == 1 and len(srv.seen_user_messages) == 3  # ran (and failed on purpose)
-    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(51) + CURRENT)  # 153 spent
+    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n + 1) + CURRENT)  # cap+3
     assert canary.run_canary(_args(tmp_path, force_fail=True)) == 1
     out = json.loads((tmp_path / "r.json").read_text())
     assert out["status"] == "skip" and "::error::" in capsys.readouterr().out

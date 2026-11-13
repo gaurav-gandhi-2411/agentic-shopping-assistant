@@ -113,7 +113,9 @@ def test_transition_logged_once_and_recovery_returns_to_db(
 
     engine.begin.side_effect = None
     engine.begin.return_value = ctx
-    assert guards.check_ip_rate_limit("1.1.1.1", "b", engine) == (True, 0)
+    # E9: 1.1.1.1 keeps its in-memory count across recovery (a flap must not reset the window),
+    # so probe recovery with an IP that has no memory history.
+    assert guards.check_ip_rate_limit("3.3.3.3", "b", engine) == (True, 0)
     assert sum("state=db" in r.getMessage() for r in caplog.records) == 1
     # DB limiter is authoritative again: a DB row at the limit now blocks, memory is not used.
     healthy_conn.execute.return_value.fetchone.return_value = (3,)

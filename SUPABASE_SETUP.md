@@ -17,7 +17,7 @@ In the Supabase dashboard:
 2. Scroll to **Connection string** and select the **URI** tab
 3. Copy the string — it looks like:
    ```
-   postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+   postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
    ```
 4. Add it to your `.env` file (create from template if needed):
    ```bash
@@ -25,8 +25,14 @@ In the Supabase dashboard:
    # open .env and set DATABASE_URL
    ```
 
-> **Use the Transaction pooler (port 5432), not the Session pooler (port 6543).**
-> psycopg3 uses extended query protocol, which conflicts with PgBouncer in session mode.
+> **One host and user, two ports (MEASURED 2026-11-13 against the real pooler; the
+> dashboard was not read, confirm under Project Settings -> Database -> Connection
+> pooling):**
+> - **Runtime (the API's `DATABASE_URL`): port 6543 = TRANSACTION mode.** Backends are
+>   shared between clients per transaction, so psycopg3 must not auto-prepare statements;
+>   `create_db_engine` enforces `prepare_threshold=None`.
+> - **Migrations / alembic / DDL, and anything using session state, prepared statements
+>   or LISTEN: port 5432 = SESSION mode.** Use the 5432 URL for `scripts/run_migrations.py`.
 
 ---
 
@@ -95,7 +101,8 @@ auth shim is not needed.
 Once you are satisfied with the local dry-run:
 
 ```bash
-# Load environment variables from .env (must contain your Supabase DATABASE_URL)
+# Load environment variables from .env. For migrations DATABASE_URL must be the port 5432
+# (session mode) URL, not the port 6543 runtime URL.
 export $(grep -v '^#' .env | xargs)
 
 # Apply — no shim flag: Supabase already has auth.users
@@ -173,7 +180,7 @@ Supabase Auth will call this automatically on every new user registration — no
 Set `DATABASE_URL` in your environment (or `.env`) before starting the API:
 
 ```bash
-export DATABASE_URL=postgresql://postgres.<ref>:<pass>@<host>:5432/postgres
+export DATABASE_URL=postgresql://postgres.<ref>:<pass>@<host>:6543/postgres
 uvicorn api.main:app --reload --port 8000
 ```
 
@@ -187,7 +194,7 @@ Without `DATABASE_URL`, the API falls back to an in-memory session store (sessio
 ### Fly.io
 
 ```bash
-fly secrets set DATABASE_URL="postgresql://postgres.<ref>:<pass>@<host>:5432/postgres"
+fly secrets set DATABASE_URL="postgresql://postgres.<ref>:<pass>@<host>:6543/postgres"
 ```
 
 ---

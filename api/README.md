@@ -39,7 +39,7 @@ The lifespan loads `data/processed/catalogue.parquet`, `dense.faiss`, and `bm25.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | *(unset — in-memory store)* | Postgres connection string. When set, conversations are persisted via `PostgresSessionStore`. Use the Supabase Transaction pooler URI (port 5432). See `SUPABASE_SETUP.md`. |
+| `DATABASE_URL` | *(unset — in-memory store)* | Postgres connection string. When set, conversations are persisted via `PostgresSessionStore`. Use the Supabase pooler URI on port 6543 (transaction mode); run migrations on port 5432 (session mode). See `SUPABASE_SETUP.md`. |
 | `SUPABASE_JWT_AUD` | `authenticated` | Expected JWT `aud` claim. Supabase issues `"authenticated"` for all logged-in users. |
 | `JWT_VERIFICATION_DISABLED` | `false` | Set to `true` to skip all JWT verification (local dev without Supabase). **Never set in production** — a `WARNING` is logged at startup and `/readyz` returns `auth_enabled: false` if true. |
 | `LLM_PROVIDER` | *(from config.yaml)* | Override LLM provider at runtime (`groq`, `ollama`, `openrouter`; `openrouter` is local-dev only, never set in prod) |

@@ -186,7 +186,7 @@ if exists gcloud iam workload-identity-pools providers describe "$PROVIDER" \
 else
   run gcloud iam workload-identity-pools providers create-oidc "$PROVIDER" \
     --workload-identity-pool="$POOL" --location=global \
-    --display-name="GitHub OIDC (deploy, master only)" \
+    --display-name="GitHub OIDC (deploy, master)" \
     --issuer-uri="https://token.actions.githubusercontent.com" \
     --attribute-mapping="$MAPPING" --attribute-condition="$CONDITION" \
     --account="$ACCOUNT" --project="$PROJECT"

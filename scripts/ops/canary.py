@@ -45,11 +45,14 @@ run on ``crosschecked == 0`` is deliberately NOT done (a stronger check against 
 is left to W10/W11). Owned items (``is_owned``: the user's own garment) are not for sale and are
 exempt from (a).
 
-BUDGET. Hard cap 150 chat queries/day (UTC). 3 queries x 48 runs = 144 nominal. Before sending
+BUDGET. The workflow runs ONCE a day (cron) = 3 queries nominal; the continuous 5-minute check is
+the public ``GET /canary/status`` (one rotating query per fresh run, see docs/ops/canary-budget.md).
+Hard cap 12 chat queries/day (UTC) = 4 runs: the scheduled run plus manual dispatches/re-runs.
+Before sending
 anything, ``run`` counts today's runs of this workflow via ``gh api`` (every run except the
 current one and ``skipped`` ones, x 3 queries - an over-count when a run died before querying,
 which errs on the side of the cap) and SKIPS (exit 0, not a failure) if this run would exceed
-150. A ``force_fail`` dispatch may exceed the cap by one run (allowed when spent + 3 <= 150 + 3,
+12. A ``force_fail`` dispatch may exceed the cap by one run (allowed when spent + 3 <= 12 + 3,
 i.e. 3 extra queries); if even that is exceeded it prints ``::error::`` and exits 1 so the
 alert-path proof can never silently not happen.
 Cap lookup: the listing must contain the current run id (empty/partial output is a lookup
@@ -58,12 +61,13 @@ spend). The consecutive-failure count lives in ``--state-file`` persisted by act
 secrets); the 3rd consecutive failure turns the run into ``fail`` (goes through the issue path),
 so a canary that cannot check its budget is not silently green forever. If the cache is lost the
 count restarts at 0 (alert delayed, never a false pass of the queries themselves). Each query costs
-about 2 Groq LLM calls (measured for "black kurta set for haldi" in PR #79) -> roughly 290 of
-the free tier's 1,000 requests/day. Note: anonymous demo sessions also consume the shared demo
+about 2 Groq LLM calls (measured for "black kurta set for haldi" in PR #79) -> ~6 calls/day at
+the nominal once-a-day cadence, ~24 at the 12-query cap (free tier: 1,000 requests/day per
+model). Note: anonymous demo sessions also consume the shared demo
 daily cap (api/demo/guards.py), once per WS connection.
 
-CAVEAT: GitHub's scheduled cron is unreliable for this repo (the */15 uptime cron's median gap
-was 246 min), so */30 here does not guarantee 30-minute coverage.
+CAVEAT: GitHub's scheduled cron is best-effort (the */15 uptime cron's median gap was 246 min),
+so the daily run may fire late or be skipped; the 5-minute coverage comes from /canary/status.
 
 Demo caps: an ``error`` frame with code ``demo_limit``/``rate_limited`` (api/routes/chat.py) or
 HTTP 429 from /demo/session is not an outage: the query is ``capped``, the run is ``capped`` (a
@@ -115,7 +119,7 @@ QUERIES: tuple[str, ...] = (
 LATENCY_BUDGET_MS = 15_000
 WS_HARD_TIMEOUT_S = 30.0  # bound CI time/cost; the 15 s latency assertion fires well before
 HTTP_TIMEOUT_S = 75.0  # generous: Cloud Run cold starts measured at 45-60 s+ (uptime-alert.yml)
-DAILY_QUERY_CAP = 150
+DAILY_QUERY_CAP = 12  # once-a-day cron (3 queries) + manual dispatches; was 150 for */30
 SNIPPET_CHARS = 500
 ALERT_LABEL = "prod-alert"
 ALERT_TITLE = "StyleMaitri prod canary is failing"
