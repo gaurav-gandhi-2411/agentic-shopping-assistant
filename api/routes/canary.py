@@ -1,12 +1,17 @@
-"""GET /canary: production canary for an external 5-minute pinger (UptimeRobot keyword monitor).
+"""GET /canary and GET /canary/status: production canary for an external 5-minute pinger.
 
-Runs the 3 fixed canary queries (same list and assertion semantics as scripts/ops/canary.py,
-PR #80) through ``api.routes.chat.run_chat_turn`` -- the exact function the WebSocket handler
-uses for a turn -- but without a socket, so the cards/prices/latency a real user would get are
-what is asserted.
+Each run sends ONE query, rotating over the 3 fixed canary queries (same list and assertion
+semantics as scripts/ops/canary.py, PR #80), through ``api.routes.chat.run_chat_turn`` -- the
+exact function the WebSocket handler uses for a turn -- but without a socket, so the
+cards/prices/latency a real user would get are what is asserted. The rotation is a pure function
+of wall-clock time (``_query_for``), so it survives cold starts and agrees across instances.
 
-Response: 200 ``{"status":"pass",...}`` or 500 ``{"status":"fail","failing_assertion":...}``.
-The monitor keyword is ``"status":"pass"`` (compact JSON, no spaces). Bodies never contain
+``GET /canary`` (token): 200 ``{"status":"pass",...}`` or 500 ``{"status":"fail",
+"failing_assertion":...}``; the detailed body, used by the deploy smoke.
+``GET /canary/status`` (public, no token): 200 ``{"status":"pass"}``, 503
+``{"status":"fail","assertion":<name>,"detail":<fixed string>}`` or 503 ``{"status":"unknown"}``.
+It shares the cache, single-flight lock and daily run counter with ``/canary``. The monitor
+keyword is ``"status":"pass"`` (compact JSON, no spaces). Bodies never contain
 tokens, tickets, session ids, user text or exception messages.
 
 Auth: env ``CANARY_TOKEN`` (Secret Manager secret ``CANARY_TOKEN``). Unset, missing or wrong token
@@ -17,8 +22,11 @@ request URL including the query string; that cannot be masked from this code (se
 
 Budget (per instance; Cloud Run maxScale is low, so the fleet-wide bound is
 ``instances x`` these numbers): a pass is cached for 30 min (-> at most 48 runs/day in steady
-state; a failure only for FAIL_CACHE_TTL_S = 60 s so recovery shows quickly) and a UTC-day counter caps real runs at 60/day so restarts (which empty the cache) cannot
-cause unbounded runs. A run bypasses the per-IP and daily-request demo limits (it uses a
+state, 1 LLM-backed query each; a failure only for FAIL_CACHE_TTL_S = 300 s so recovery shows
+within one pinger window) and a UTC-day counter caps real runs at 60/day so restarts (which
+empty the cache) cannot cause unbounded runs. When the cap is exhausted ``/canary/status``
+serves the LAST KNOWN result flagged ``X-Canary-Stale: true`` (never a pass it did not observe).
+See docs/ops/canary-budget.md. A run bypasses the per-IP and daily-request demo limits (it uses a
 dedicated internal user, never touches ``demo_rate_limits``/``demo_daily_stats``), so it cannot
 block real users; the global daily cost guard still applies and its exhaustion is reported as
 ``cost_guard``. LLM spend of canary runs is still recorded by the cost reporter like any turn.
@@ -62,15 +70,28 @@ QUERIES: tuple[tuple[str, str], ...] = (
     ("q3", "formal shirts for office under 1500"),
 )
 LATENCY_BUDGET_S = 15.0  # send -> done, strictly less (scripts/ops/canary.py LATENCY_BUDGET_MS)
-DEADLINE_S = 25.0  # all queries; the pinger is assumed to time out at 30 s
+DEADLINE_S = 25.0  # the one query; the pinger is assumed to time out at 30 s
 CACHE_TTL_S = 30 * 60  # a PASS is reused this long (bounds spend: <= 48 runs/day)
-# A FAIL is reused only briefly: after recovery the monitor must go green within about a minute,
-# not stay red for up to 30 min. The 60/day run cap and the cost guard still bound spend.
-FAIL_CACHE_TTL_S = 60
+# A FAIL is reused only briefly: after recovery the monitor must go green within one pinger
+# window, not stay red for up to 30 min. 300 s (not 60) because a failing run costs one LLM
+# query and a 5-min pinger would otherwise re-run on nearly every hit; the 60/day run cap and
+# the cost guard still bound spend.
+FAIL_CACHE_TTL_S = 300
 MAX_RUNS_PER_DAY = 60  # hard per-instance cap; 30 min cache alone gives <= 48
+ROTATION_SLOT_S = 30 * 60  # one query per wall-clock slot; matches the pass TTL
 _CANARY_USER_ID = "anon:canary-internal"  # anon: -> in-memory session path, no Postgres user row
 
 _monotonic = time.monotonic  # patched in tests
+_wall = time.time  # patched in tests; epoch seconds drive the query rotation
+
+
+def _query_for(epoch_s: float) -> tuple[str, str]:
+    """The query for the wall-clock slot containing ``epoch_s``.
+
+    Pure function of time, not a per-process counter: a cold start (or a second instance)
+    lands on the same query for the same slot instead of restarting at q1.
+    """
+    return QUERIES[int(epoch_s // ROTATION_SLOT_S) % len(QUERIES)]
 
 
 def _utcnow() -> datetime:
@@ -170,7 +191,7 @@ class _CountingExecutor(ThreadPoolExecutor):
 
 
 # Dedicated pool: canary agent calls never touch the default executor real chat turns share.
-WORKERS = len(QUERIES)
+WORKERS = 1  # one query per run
 _executor = _CountingExecutor(max_workers=WORKERS, thread_name_prefix="canary")
 
 
@@ -295,8 +316,9 @@ async def _run_query(query_id: str, text: str) -> dict[str, Any]:
 
 
 async def _run_all() -> tuple[int, dict[str, Any]]:
-    """Run all queries concurrently under DEADLINE_S; return (http_status, body)."""
-    tasks = {qid: asyncio.create_task(_run_query(qid, text)) for qid, text in QUERIES}
+    """Run the current slot's query under DEADLINE_S; return (http_status, body)."""
+    qid, text = _query_for(_wall())
+    tasks = {qid: asyncio.create_task(_run_query(qid, text))}
     done, pending = await asyncio.wait(tasks.values(), timeout=DEADLINE_S)
     for t in pending:
         t.cancel()  # agent worker threads can't be killed; we just stop waiting
@@ -344,38 +366,35 @@ def _fresh() -> bool:
     )
 
 
-@router.get("/canary")
-async def canary(
-    request: Request,
-    x_canary_token: str | None = Header(default=None),
-) -> JSONResponse:
-    """Run (or return the cached result of) the production canary. See module docstring."""
-    token = _plain_query_token(request.scope.get("query_string", b""))
-    if not _authorised(x_canary_token, token):
-        raise HTTPException(status_code=404, detail="Not Found")
+async def _result() -> tuple[str, int, dict[str, Any]]:
+    """Single-flight refresh shared by /canary and /canary/status.
 
+    Returns ``(kind, status, body)``: ``"cached"`` (fresh cache hit), ``"ran"`` (this call did
+    the one run) or ``"blocked"`` (no run could start: daily cap, cost guard or busy pool; the
+    body is the explanatory failure, NOT stored as a result).
+    """
     if _fresh():
-        return _respond(_state.cached_status, _state.cached_body or {}, cached=True)
+        return "cached", _state.cached_status, _state.cached_body or {}
 
     async with _get_lock():
         if _fresh():  # a concurrent caller finished the run while we waited
-            return _respond(_state.cached_status, _state.cached_body or {}, cached=True)
+            return "cached", _state.cached_status, _state.cached_body or {}
 
         today = _utcnow().strftime("%Y-%m-%d")
         if _state.day != today:
             _state.day, _state.runs_today = today, 0
         if _state.runs_today >= MAX_RUNS_PER_DAY:
             logger.error("canary daily cap reached (%d runs)", MAX_RUNS_PER_DAY)
-            return _respond(500, _fail_body("daily_cap", "canary daily run cap reached"), False)
+            return "blocked", 500, _fail_body("daily_cap", "canary daily run cap reached")
         if not check_daily_cost(_resolve_brand()):
             logger.error("canary not run: global daily cost guard exhausted")
-            return _respond(500, _fail_body("cost_guard", "daily cost guard exhausted"), False)
+            return "blocked", 500, _fail_body("cost_guard", "daily cost guard exhausted")
 
-        if _executor.inflight + len(QUERIES) > WORKERS:
-            # Earlier timed-out turns are still holding the dedicated pool's threads (a stalled
+        if _executor.inflight + 1 > WORKERS:
+            # Earlier timed-out turns are still holding the dedicated pool's thread (a stalled
             # provider call). Fail fast rather than queue behind them; not cached, not counted.
             logger.error("canary not run: dedicated executor busy (%d stuck)", _executor.inflight)
-            return _respond(500, _fail_body("executor_busy", "canary workers still busy"), False)
+            return "blocked", 500, _fail_body("executor_busy", "canary workers still busy")
 
         _state.runs_today += 1
         _state.runs_total += 1
@@ -385,4 +404,65 @@ async def canary(
             logger.error(
                 "canary FAIL assertion=%s query=%s", body["failing_assertion"], body["query_id"]
             )
-        return _respond(status, body, cached=False)
+        return "ran", status, body
+
+
+@router.get("/canary")
+async def canary(
+    request: Request,
+    x_canary_token: str | None = Header(default=None),
+) -> JSONResponse:
+    """Run (or return the cached result of) the production canary. See module docstring."""
+    token = _plain_query_token(request.scope.get("query_string", b""))
+    if not _authorised(x_canary_token, token):
+        raise HTTPException(status_code=404, detail="Not Found")
+    kind, status, body = await _result()
+    return _respond(status, body, cached=kind == "cached")
+
+
+# Public status body: the detail text is a FIXED string chosen by assertion name, never the
+# stored detail, so nothing from a result (answers, errors, ids) can ever reach this endpoint.
+_PUBLIC_DETAIL: dict[str, str] = {
+    "transport": "turn did not complete",
+    "answer": "empty answer",
+    "llm_degraded": "reply not from the model",
+    "cards": "no product cards",
+    "price": "card with invalid price",
+    "latency": "latency over budget",
+    "timeout": "no result within the deadline",
+}
+
+
+def _public_status(status: int, body: dict[str, Any]) -> tuple[int, dict[str, str]]:
+    """Reduce a stored result to the public body. Unknown assertion names collapse to
+    ``unknown`` so a malformed result can never put free text on a public endpoint."""
+    if status == 200 and body.get("status") == "pass":
+        return 200, {"status": "pass"}
+    name = body.get("failing_assertion")
+    if not isinstance(name, str) or name not in _PUBLIC_DETAIL:
+        return 503, {"status": "fail", "assertion": "unknown", "detail": "unrecognised failure"}
+    return 503, {"status": "fail", "assertion": name, "detail": _PUBLIC_DETAIL[name]}
+
+
+@router.get("/canary/status")
+async def canary_status() -> JSONResponse:
+    """Public pass/fail for the external monitor (no token). See module docstring.
+
+    Fresh cache -> it; stale and a run can start -> one coalesced run; stale and no run can
+    start -> the LAST KNOWN result flagged ``X-Canary-Stale: true`` (never a fabricated pass),
+    or ``503 {"status":"unknown"}`` when nothing has ever been observed.
+    """
+    kind, status, body = await _result()
+    if kind != "blocked":
+        code, public = _public_status(status, body)
+        return JSONResponse(status_code=code, content=public)
+    if _state.cached_body is None or _state.cached_at is None:
+        return JSONResponse(status_code=503, content={"status": "unknown"})
+    code, public = _public_status(_state.cached_status, _state.cached_body)
+    headers: dict[str, str] = {}
+    if not _fresh():
+        headers = {
+            "X-Canary-Stale": "true",
+            "X-Canary-Age-Seconds": str(int(_monotonic() - _state.cached_at)),
+        }
+    return JSONResponse(status_code=code, content=public, headers=headers)
