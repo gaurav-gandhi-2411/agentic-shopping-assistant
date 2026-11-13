@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import logging
 import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Response
 
@@ -15,9 +18,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
 # W4: /readyz makes a real minimal LLM call (max_tokens=1) through the whole chain.
-# Cached so a burst of probes costs one call: the uptime cron (every 15 min) and the
-# keep-warm cron (every 10 min) each trigger roughly one real call, ~240 calls/day
-# at most, against Groq's free 1K requests/day per model. Failures are cached too.
+# Cached so a burst of probes costs one call. The only scheduled caller is the uptime-alert
+# workflow (cron */15 -> at most 96 calls/day, ~6 at the measured GitHub cadence), plus 2 per
+# deploy smoke; the external canary monitor uses /canary/status and must NOT hit this path.
+# Budget vs Groq's free 1K requests/day per model: docs/ops/canary-budget.md. Failures are
+# cached too.
 _llm_probe_cache = ProbeCache(
     ttl_s=float(os.environ.get("READYZ_LLM_CACHE_SECONDS", "60")), timeout_s=20.0
 )
@@ -30,6 +35,51 @@ _llm_probe_cache = ProbeCache(
 # inactivity auto-pause going unnoticed on the one product with a confirmed
 # real user. A trivial `SELECT 1` costs nothing and definitively answers "is
 # the database actually reachable," not just "is the app process alive."
+
+# Schema-head gate: the Dockerfile copies alembic.ini + alembic/ next to api/, so the image
+# knows which revision(s) it was built for. /readyz compares that with the database's
+# alembic_version and fails closed on ANY difference (behind, ahead, unreadable), so the
+# tag-URL deploy smoke stops a rollout BEFORE the traffic shift when migrations were not
+# applied. The gate only reads: one SELECT, no DDL, no migration is ever run from here.
+_ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
+
+
+@lru_cache(maxsize=1)
+def _image_heads() -> tuple[str, ...]:
+    """Head revision id(s) shipped in this image (sorted; static for the process lifetime)."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    heads = ScriptDirectory.from_config(Config(str(_ALEMBIC_INI))).get_heads()
+    if not heads:
+        raise RuntimeError("no alembic head found")
+    return tuple(sorted(heads))
+
+
+def check_schema_head(engine: Any) -> tuple[bool, str]:
+    """Compare the DB's ``alembic_version`` with the image's head(s) -> (ok, check string).
+
+    Messages carry revision ids and exception type names only, never the exception text (a
+    driver error can echo the connect string). The ``error:`` prefix on failure matches the
+    other /readyz checks, which uptime-alert.yml uses to name the failing check.
+    """
+    try:
+        heads = _image_heads()
+    except Exception as exc:
+        return False, f"error: cannot read image migration heads ({type(exc).__name__})"
+    expected = ", ".join(heads)
+    try:
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            rows = conn.execute(text("SELECT version_num FROM alembic_version")).fetchall()
+    except Exception as exc:  # missing table, permission, connection: all fail closed
+        name = type(exc).__name__
+        return False, f"error: db schema unreadable ({name}), image expects {expected}"
+    current = tuple(sorted(str(r[0]) for r in rows))
+    if current == heads:
+        return True, f"ok ({expected})"
+    return False, f"error: db at {', '.join(current) or 'none'}, image expects {expected}"
 
 
 @router.get("/healthz")
@@ -81,12 +131,16 @@ def readiness(response: Response) -> dict:
             with db_engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             checks["database"] = "ok"
+            schema_ok, checks["schema"] = check_schema_head(db_engine)
+            ok = ok and schema_ok
         except Exception as exc:
             # Driver errors echo the connect string; mask before it reaches the response body.
             checks["database"] = f"error: {Redactor.from_env().redact(str(exc))}"
+            checks["schema"] = "skipped (database unreachable)"
             ok = False
     else:
         checks["database"] = "not configured"
+        checks["schema"] = "not configured"  # no engine: unchanged behaviour, nothing to gate
 
     if not ok:
         response.status_code = 503

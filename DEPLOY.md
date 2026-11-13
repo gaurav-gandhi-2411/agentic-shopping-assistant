@@ -78,14 +78,58 @@ rate-limiting middleware.
 **Migration CI vs. production drift.** CI (`.github/workflows/migration-integrity.yml`) only
 proves the migration chain is sound on an ephemeral Postgres (one head, applies from empty,
 downgrade round trips, RLS/revoke sanity). It holds no production credentials and does NOT
-detect whether production is behind master. That will be covered by migrations-on-deploy once
-PR #55 merges (still open; `scripts/deploy_demo.sh` currently only prints the alembic command).
-Until then the only control is this manual post-deploy step, documented here and implemented in
-NO script:
+detect whether production is behind master. That is what the schema-head gate below is for.
 
-```bash
-DATABASE_URL=<prod-url> alembic current   # must print the same revision as: alembic heads
-```
+### Schema-head gate (fail-closed; migrations are NOT auto-applied by `deploy.yml`)
+
+Decision: `deploy.yml` does not run migrations. Reasons: (1) the deployer service account has
+no access to the DB secret and granting it is a new IAM privilege that needs architect approval;
+(2) the first auto-deploy after this gate merges would otherwise fail closed on a missing
+privilege and block the E9 fix; (3) production migrations require explicit approval per this
+runbook. Instead the image carries its expected schema and refuses to be promoted without it.
+
+How it works: the Dockerfile copies `alembic.ini` and `alembic/` into the image; `/readyz`
+(`api/routes/health.py`, check name `schema`) reads the image's head revision(s) from those scripts
+and compares them with `SELECT version_num FROM alembic_version` (one read-only SELECT on the
+app's pooler-safe engine, no DDL, nothing is migrated). Any difference (DB behind, DB ahead,
+empty table, missing table, unreadable, several heads not all applied) returns **503** with
+`checks.schema = "error: db at <rev>, image expects <head>"` (revision ids only; no URL, no
+driver text). With no `DATABASE_URL` the check reads `not configured` and readiness is unchanged.
+`scripts/ops/deploy_smoke.py` requires `/readyz` 200 on the **tag URL before the traffic shift**, so
+a deploy whose migrations are not applied fails there and production keeps serving the old revision.
+`uptime-alert.yml` (`*/15`, probes `/readyz`) will also name `schema` as the failing check.
+
+Operator flow for a PR that adds a migration (production DB changes need explicit approval):
+
+1. Review the SQL offline, no connection made (needs `DATABASE_URL` set only because `env.py`
+   builds a URL; any value works offline):
+   `alembic upgrade <current>:head --sql` (or `python scripts/run_migrations.py --dry-run`, which
+   prints base to head).
+2. After approval, apply with the repo's redacting runner on a **session-mode** connection
+   (port 5432; do not use the transaction pooler, port 6543, for DDL). MEASURED 2026-11-13
+   against the real Supabase pooler host (Supavisor, user `postgres.<project-ref>`): port 5432
+   is SESSION mode (two concurrent idle client connections shared a backend in 0/8 trials; a
+   session `SET` persisted) and port 6543 is TRANSACTION mode (shared a backend in 8/8 trials).
+   These are measurements, not dashboard quotes (the dashboard strings were not read); confirm
+   in the Supabase dashboard under Project Settings -> Database -> Connection pooling. The app
+   runtime URL is the 6543 transaction-mode one (`create_db_engine` forces
+   `prepare_threshold=None`); only migrations use 5432:
+   `DATABASE_URL=<session-url> python scripts/run_migrations.py`. Never paste the URL into logs
+   or chat.
+3. Verify: `DATABASE_URL=<url> alembic current` must print the same revision(s) as
+   `alembic heads` (run from the repo at the SHA being deployed).
+4. Then run/re-run the deploy; the tag-URL smoke now passes the `schema` check.
+
+When the gate trips (`/readyz` 503, `schema: error: ...`): do not shift traffic. `db at X, image
+expects Y` with X older: the migration was not applied, do steps 1-4. X newer than Y: the DB was
+migrated by a newer image than the one answering (e.g. a rollback target); either roll forward
+or accept that `/readyz` stays 503 on the old revision (liveness and chat are unaffected, only the
+readiness probe and `uptime-alert.yml` go red); migrations must stay backward compatible with the
+previous image. `unreadable`/`none`: DB unreachable or never migrated, check the secret and the
+database. `cannot read image migration heads`: the image was built without `alembic/`, rebuild.
+Before merging the PR that introduces this gate, confirm production reports the current head
+(`alembic current` = `alembic heads` = 0008 at the time of writing), otherwise the first deploy
+fails closed by design.
 
 ---
 
@@ -162,20 +206,20 @@ outcome:
 
 `GET /canary` (api/routes/canary.py) is guarded by env `CANARY_TOKEN`. While it is unset the
 endpoint returns 404 by design, so merging the code changes nothing live. To enable it, once
-the Secret Manager secret `asa-canary-token` exists (it is created by hand, never by code), run
+the Secret Manager secret `CANARY_TOKEN` exists (it is created by hand, never by code), run
 as its own step (`--update-secrets` merges; never use `--set-secrets` on a live service, see the
 gotcha under "LLM provider secrets"):
 
 ```bash
 gcloud run services update asa-stylist-api --region=asia-south1 \
-  --update-secrets="CANARY_TOKEN=asa-canary-token:latest"
+  --update-secrets="CANARY_TOKEN=CANARY_TOKEN:latest"
 ```
 
 `scripts/deploy_backend.ps1` and the `chore/w8-deploy-pipeline` deploy.yml (#79) both deploy
 with `--image` only, so they inherit this secret from the running revision and need no change.
 `scripts/deploy_unified.sh` (legacy, full replace via `--set-secrets="${SECRETS}"`, line 79) would
 DROP it: if that script is ever used again, append
-`,CANARY_TOKEN=asa-canary-token:latest` to its `SECRETS` string first. `deploy/service.yaml`
+`,CANARY_TOKEN=CANARY_TOKEN:latest` to its `SECRETS` string first. `deploy/service.yaml`
 is deliberately not edited: a secretKeyRef to a not-yet-created secret would break an
 emergency `services replace`.
 
@@ -773,12 +817,23 @@ gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVI
   --region asia-south1 --project stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
 ```
 
-### Keep-warm
+### Keep-warm and the canary monitor
 
-`.github/workflows/keep-warm.yml` GETs `/api/brand` on a 10-minute cron. GitHub does not honour
-sub-hourly crons reliably (the 15-minute Uptime Alert actually ran with a median gap of 246 min),
-so this lowers the cold-start rate but cannot guarantee a warm instance. `/readyz` is never
-pinged on a timer. Details and numbers: `reports/w8-inventory-2026-11-03.md`.
+The GitHub `keep-warm.yml` workflow was removed: GitHub does not honour sub-hourly crons reliably
+(the 15-minute Uptime Alert actually ran with a median gap of 246 min), so it could not guarantee a
+warm instance. An external 5-minute pinger replaces it, pointed at the public
+`GET /canary/status` (200 `{"status":"pass"}` / 503; keyword `"status":"pass"`). One fresh run is
+one rotating query, reused 60 min after a pass and 5 min after a fail, at most 60 runs/day per
+instance. Staleness: when the cached result is older than its TTL a refresh is tried first (under
+the cap, single-flight). If none can run, the last known result is served with
+`X-Canary-Stale: true` and `X-Canary-Age-Seconds` only while it is at most 2 x its TTL old (a
+last-known fail stays 503); older than that, or on a fresh instance with no result and no run
+possible, the body is `503 {"status":"stale"}` (this replaced the earlier `{"status":"unknown"}`).
+A pass older than 2 x TTL is never served as a pass, and a fresh instance runs the check instead of
+answering (`api/routes/canary.py`). The monitor must not hit `/readyz` (one real LLM call per hit).
+LLM budget against the Groq limits: `docs/ops/canary-budget.md`. The WS-path
+`.github/workflows/canary.yml` now runs once a day. Background numbers:
+`reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
 ### Follow-up (separate PR, NOT done here): dedicated runtime service account
 

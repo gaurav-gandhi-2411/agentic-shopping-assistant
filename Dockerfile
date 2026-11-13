@@ -98,6 +98,10 @@ COPY src/ ./src/
 COPY api/ ./api/
 COPY config.yaml .
 COPY brands/ ./brands/
+# Migration scripts ship in the image only so /readyz can compare the DB's alembic_version
+# with this image's head (api/routes/health.py check "schema"). Nothing runs them at startup.
+COPY alembic.ini .
+COPY alembic/ ./alembic/
 
 # Indices are loaded from GCS at startup via INDEX_STORE_URI.
 # Create the empty directory so ensure_index_dir can write into it.

@@ -178,12 +178,16 @@ def _ip_hash(client_ip: str) -> str:
 def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, int]:
     """Check and increment the per-IP hourly rate limit.
 
-    Returns (allowed, retry_after_seconds).  Fails CLOSED: on a missing engine or any DB
-    error the in-process per-IP limiter (same limit) decides instead.
+    Returns (allowed, retry_after_seconds).  Counts in the in-process window ALWAYS, in
+    parallel with the DB, and denies when max(DB count, in-process count) >= limit, so a DB
+    outage or flap can never reset or hide a window (E9).  Fails CLOSED: on a missing engine or
+    any DB error the in-process count alone decides.
     """
-    if not _health.usable(engine, "check_ip_rate_limit"):
-        return _fallback.check_ip(client_ip)
+    limit = _get_per_ip_limit()
     ip_hash = _ip_hash(client_ip)
+    if not _health.usable(engine, "check_ip_rate_limit"):
+        return _fallback.admit_ip(client_ip)
+    decision: tuple[bool, int] | None = None
     try:
         with engine.begin() as conn:
             row = conn.execute(
@@ -196,10 +200,13 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
             ).fetchone()
             current_count = int(row[0]) if row else 0
 
-            result = (True, 0)
-            if current_count >= _get_per_ip_limit():
-                # Seconds until the current UTC hour rolls over.
-                result = (False, 3600 - int(time.time()) % 3600)
+            allowed, retry = _fallback.admit_ip(client_ip, current_count)
+            result = decision = (allowed, retry)
+            if not allowed:
+                if current_count >= limit:
+                    # Seconds until the current UTC hour rolls over.
+                    retry = max(retry, 3600 - int(time.time()) % 3600)
+                result = decision = (False, retry)
             else:
                 # Upsert: insert a fresh row or bump the counter.
                 conn.execute(
@@ -217,7 +224,9 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
                 )
     except Exception as exc:
         _health.failed("check_ip_rate_limit", exc)
-        return _fallback.check_ip(client_ip)
+        # If the memory window already decided before the DB error (e.g. the upsert failed),
+        # keep that decision: re-admitting would double-count.
+        return decision if decision is not None else _fallback.admit_ip(client_ip)
 
     _health.ok()
     return result
@@ -226,8 +235,9 @@ def check_ip_rate_limit(client_ip: str, brand: str, engine: Any) -> tuple[bool, 
 def check_daily_cap(brand: str, engine: Any) -> bool:
     """Return True if today's request_count is below the daily request cap.
 
-    Fails CLOSED: on a missing engine or DB error the per-instance in-process daily count
-    (same cap) decides instead.
+    Denies when max(DB count, in-process count) >= cap, so a DB flap never resets the day's
+    count.  Fails CLOSED: on a missing engine or DB error the per-instance in-process daily
+    count (same cap) decides alone.
     """
     import datetime
 
@@ -248,7 +258,7 @@ def check_daily_cap(brand: str, engine: Any) -> bool:
         _health.failed("check_daily_cap", exc)
         return _fallback.daily_allowed()
     _health.ok()
-    return count < _get_daily_request_cap()
+    return max(count, _fallback.daily_count()) < _get_daily_request_cap()
 
 
 def check_daily_cost(brand: str) -> bool:
