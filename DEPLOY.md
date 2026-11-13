@@ -773,12 +773,18 @@ gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVI
   --region asia-south1 --project stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
 ```
 
-### Keep-warm
+### Keep-warm and the canary monitor
 
-`.github/workflows/keep-warm.yml` GETs `/api/brand` on a 10-minute cron. GitHub does not honour
-sub-hourly crons reliably (the 15-minute Uptime Alert actually ran with a median gap of 246 min),
-so this lowers the cold-start rate but cannot guarantee a warm instance. `/readyz` is never
-pinged on a timer. Details and numbers: `reports/w8-inventory-2026-11-03.md`.
+The GitHub `keep-warm.yml` workflow was removed: GitHub does not honour sub-hourly crons reliably
+(the 15-minute Uptime Alert actually ran with a median gap of 246 min), so it could not guarantee a
+warm instance. An external 5-minute pinger replaces it, pointed at the public
+`GET /canary/status` (200 `{"status":"pass"}` / 503; keyword `"status":"pass"`). One fresh run is
+one rotating query, reused 30 min after a pass and 5 min after a fail, at most 60 runs/day per
+instance; past the cap it serves the last known result with `X-Canary-Stale: true`
+(`api/routes/canary.py`). The monitor must not hit `/readyz` (one real LLM call per hit). LLM
+budget against the Groq free tier: `docs/ops/canary-budget.md`. The WS-path
+`.github/workflows/canary.yml` now runs once a day. Background numbers:
+`reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
 ### Follow-up (separate PR, NOT done here): dedicated runtime service account
 
