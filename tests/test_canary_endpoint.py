@@ -120,7 +120,8 @@ def b(monkeypatch: pytest.MonkeyPatch) -> _Behaviour:
     get_rate_limiter().reset()
     monkeypatch.setattr(canary, "_state", canary._State())
     # fresh dedicated pool per test: a timed-out test leaves abandoned threads behind
-    monkeypatch.setattr(canary, "_executor", canary._CountingExecutor(max_workers=3, thread_name_prefix="canary"))
+    monkeypatch.setattr(canary, "_executor", canary._CountingExecutor(max_workers=1, thread_name_prefix="canary"))
+    monkeypatch.setattr(canary, "_wall", lambda: 0.0)  # slot 0 -> q1 (rotation tested separately)
     return beh
 
 
@@ -147,12 +148,12 @@ def test_pass_returns_200_and_keyword(client: TestClient, b: _Behaviour) -> None
     assert '"status":"pass"' in r.text  # the UptimeRobot keyword, compact JSON
     body = r.json()
     assert body["cached"] is False
-    assert [q["id"] for q in body["queries"]] == ["q1", "q2", "q3"]
+    assert [q["id"] for q in body["queries"]] == ["q1"]
     for q in body["queries"]:
         assert q["cards"] == 1 and q["answer_chars"] > 0 and 0 <= q["latency_s"] < 15
     assert body["checked_at"] and "commit" in body
     assert not _has_token(r.text), "token leaked into response"
-    assert b.invocations == 3
+    assert b.invocations == 1
 
 
 def test_header_token_also_accepted(client: TestClient, b: _Behaviour) -> None:
@@ -341,7 +342,7 @@ def test_second_call_is_served_from_cache(client: TestClient, b: _Behaviour) -> 
     first, second = _get(client), _get(client)
     assert first.json()["cached"] is False and second.json()["cached"] is True
     assert second.json()["checked_at"] == first.json()["checked_at"]
-    assert b.invocations == 3 and canary._state.runs_total == 1
+    assert b.invocations == 1 and canary._state.runs_total == 1
 
 
 def test_cached_failure_is_also_served_without_rerun(client: TestClient, b: _Behaviour) -> None:
@@ -349,7 +350,7 @@ def test_cached_failure_is_also_served_without_rerun(client: TestClient, b: _Beh
     assert _get(client).status_code == 500
     r = _get(client)
     assert r.status_code == 500 and r.json()["cached"] is True
-    assert b.invocations == 3
+    assert b.invocations == 1
 
 
 def test_expiry_reruns(
@@ -362,7 +363,7 @@ def test_expiry_reruns(
     assert _get(client).json()["cached"] is True
     now[0] += 2
     assert _get(client).json()["cached"] is False
-    assert b.invocations == 6
+    assert b.invocations == 2
 
 
 def test_failure_is_cached_only_for_the_short_ttl_then_recovery_shows(
@@ -376,32 +377,32 @@ def test_failure_is_cached_only_for_the_short_ttl_then_recovery_shows(
     now[0] += canary.FAIL_CACHE_TTL_S - 1
     still = _get(client)  # inside the window: the cached failure, no re-run (bounds spend)
     assert still.status_code == 500 and still.json()["cached"] is True
-    assert b.invocations == 3
-    now[0] += 2  # past 60 s, far short of 30 min
+    assert b.invocations == 1
+    now[0] += 2  # past 300 s, far short of 60 min
     ok = _get(client)
     assert ok.status_code == 200 and ok.json()["cached"] is False
-    assert b.invocations == 6
+    assert b.invocations == 2
 
 
-def test_fail_ttl_is_short_and_pass_still_cached_for_30_minutes(
+def test_fail_ttl_is_short_and_pass_still_cached_for_60_minutes(
     client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert canary.FAIL_CACHE_TTL_S == 60 and canary.CACHE_TTL_S == 30 * 60
+    assert canary.FAIL_CACHE_TTL_S == 300 and canary.CACHE_TTL_S == 60 * 60
     now = [1000.0]
     monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
     assert _get(client).status_code == 200
-    now[0] += 29 * 60  # well past the failure TTL: a pass is still served from cache
+    now[0] += 59 * 60  # well past the failure TTL: a pass is still served from cache
     cached = _get(client)
     assert cached.status_code == 200 and cached.json()["cached"] is True
-    assert b.invocations == 3
-    now[0] += 2 * 60  # 31 min after the run
+    assert b.invocations == 1
+    now[0] += 2 * 60  # 61 min after the run
     assert _get(client).json()["cached"] is False
 
 
 def test_pass_cached_before_outage_hides_it_only_until_ttl_but_failure_is_not_sticky(
     client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A fresh failure after an expired pass is cached for 60 s only, not 30 min."""
+    """A fresh failure after an expired pass is cached for 5 min only, not 60 min."""
     now = [1000.0]
     monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
     assert _get(client).status_code == 200
@@ -424,7 +425,7 @@ def test_concurrent_calls_run_once(b: _Behaviour) -> None:
     responses = asyncio.run(go())
     assert all(r.status_code == 200 for r in responses)
     assert sorted(r.json()["cached"] for r in responses) == [False] + [True] * 5
-    assert b.invocations == 3 and canary._state.runs_total == 1
+    assert b.invocations == 1 and canary._state.runs_total == 1
 
 
 def test_daily_cap_and_utc_rollover(
@@ -440,10 +441,10 @@ def test_daily_cap_and_utc_rollover(
     assert _get(client).status_code == 200
     capped = _get(client)
     assert capped.status_code == 500 and capped.json()["failing_assertion"] == "daily_cap"
-    assert b.invocations == 6  # the capped call ran nothing
+    assert b.invocations == 2  # the capped call ran nothing
     day[0] = datetime(2026, 11, 4, 0, 1, tzinfo=timezone.utc)
     assert _get(client).status_code == 200
-    assert b.invocations == 9
+    assert b.invocations == 3
 
 
 # ----------------------------------------------------------------------------- auth / logs
@@ -520,9 +521,7 @@ def test_ws_and_canary_use_the_same_turn_function(
     assert calls == ["ws-hello"]
 
     assert _get(client).status_code == 200
-    assert sorted(calls[1:]) == sorted(
-        text for _, text in canary.QUERIES
-    )
+    assert calls[1:] == [canary.QUERIES[0][1]]  # one rotating query per run (slot 0 -> q1)
 
 
 # ----------------------------------------------------------------------------- round 2
@@ -530,7 +529,7 @@ def test_ws_and_canary_use_the_same_turn_function(
 
 def test_canary_runs_on_dedicated_pool_not_default(client: TestClient, b: _Behaviour) -> None:
     assert _get(client).status_code == 200
-    assert len(b.thread_names) == 3
+    assert len(b.thread_names) == 1
     assert all(n.startswith("canary") for n in b.thread_names)
 
 
@@ -547,7 +546,7 @@ def test_ws_turn_still_uses_default_pool(
 
 def test_executor_busy_fails_fast_then_recovers(client: TestClient, b: _Behaviour) -> None:
     release = threading.Event()
-    stuck = [canary._executor.submit(release.wait) for _ in range(3)]  # simulated stalled calls
+    stuck = [canary._executor.submit(release.wait) for _ in range(1)]  # simulated stalled calls
     try:
         t0 = time.monotonic()
         r = _get(client)

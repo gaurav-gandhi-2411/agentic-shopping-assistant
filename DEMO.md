@@ -28,7 +28,7 @@ Set these at GitHub → Settings → Secrets and variables → Actions → Repos
 | `WIF_SERVICE_ACCOUNT` | Email of the deploy service account (e.g. `deploy-sa@my-project-123.iam.gserviceaccount.com`) |
 | `GROQ_API_KEY` | Groq API key |
 | `DEMO_JWT_SECRET` | Random 32-byte hex string; generate with: `openssl rand -hex 32` |
-| `DATABASE_URL` | Supabase Postgres connection string (`postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres`) |
+| `DATABASE_URL` | Supabase Postgres connection string (`postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`) |
 | `SUPABASE_URL` | `https://<ref>.supabase.co` |
 | `GCS_BUCKET` | GCS bucket name used for index storage (no `gs://` prefix) |
 | `DEMO_CORS_ORIGINS` | Single comma-free allowed origin — the canonical Vercel URL. **Must not contain commas**: gcloud `--set-env-vars` treats every comma as an env-var separator, which silently corrupts a multi-origin value. Set to `https://stylemaitri.vercel.app`. |
@@ -40,6 +40,8 @@ Set these at GitHub → Settings → Secrets and variables → Actions → Repos
 ### 1. Run database migration (one-time)
 
 ```bash
+# <url> = the SESSION-mode connection string (same pooler host, port 5432), not the
+# 6543 transaction-mode runtime URL above. Migrations/DDL belong on 5432.
 DATABASE_URL=<url> alembic upgrade head
 ```
 

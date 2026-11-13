@@ -129,6 +129,15 @@ jobs:
       - name: Test
         run: pytest -m "not requires_ollama" -v
 
+      # Grounding smoke (#81): 10 prompts x REST+WS, mock LLM, stub agent over the committed
+      # fixture catalogue. Offline: no index, no network, no LLM, no GCP. Exits 1 if any injected
+      # ungrounded answer is missed or any grounded one is flagged. Lives in `backend` (not
+      # `eval`) because `eval` steps are WIF-gated and skip on Dependabot/fork PRs, while this
+      # needs no secrets and so is enforced on every run. The report goes to the runner temp
+      # dir so the checkout stays clean.
+      - name: Grounding smoke (mock LLM, offline)
+        run: python -m evals.grounding.run --llm mock --agent stub --smoke --out-dir "${{ runner.temp }}/grounding-eval"
+
       - name: Validate advisory allow-list
         run: python scripts/check_advisory_allowlist.py check
 
@@ -163,6 +172,9 @@ jobs:
 
       - name: Lint
         run: cd frontend && npm run lint
+
+      - name: Unit tests (vitest)
+        run: cd frontend && npm test
 
       - name: Build
         run: cd frontend && npm run build
