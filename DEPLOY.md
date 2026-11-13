@@ -743,6 +743,45 @@ Also check `legacy_token` the same way before Release 2: it is the other path be
 
 ---
 
+## Events endpoint (`POST /events`)
+
+Append-only look-interaction telemetry (the analytics funnel's write path). Code:
+`api/routes/events.py`, `src/flywheel/events.py`.
+
+**Contract.** `Authorization: Bearer <demo session token or Supabase JWT>` (same dependency as chat).
+The stored `user_id` is the authenticated identity; a client-sent `user_id` is ignored. Unknown
+top-level fields are ignored, not stored (the frontend sends `variant_id`/`variant_label` on
+`variant_selected`; they are dropped today). Responses: `200 {"ok": true}`, `401`, `413` (body >
+16 KB), `422` (loc/msg/type only, never the submitted value), `429` + `Retry-After`, `503
+{"detail": "Event logging unavailable"}` when the insert fails (the frontend ignores the response).
+With no DB engine configured the event is dropped and `ok: true` is returned (dev only).
+
+**Limits.** `event_type` must be in `EVENT_TYPES`; `session_id`/`look_id`/`anchor_item_id` <= 128
+chars; `anchor_category`/`occasion`/`brand` <= 64; `look_total_inr` 0..10,000,000; `filled_slots`
+<= 20 flat dicts of <= 16 scalar keys (strings <= 128); `metadata` <= 16 scalar keys, <= 2 KB JSON;
+validated payload <= 8 KB; raw body <= 16 KB (counted as it streams, so a missing or lying
+`Content-Length` cannot bypass it).
+
+**Rate limits** (in memory, per instance, 60 s sliding window, LRU-bounded, independent of the chat
+limiters): `EVENTS_RATE_LIMIT_PER_IDENTITY_PER_MIN` (default 120), `EVENTS_RATE_LIMIT_PER_IP_PER_MIN`
+(default 300), `EVENTS_RATE_LIMIT_MAX_KEYS` (default 10000). The IP limit runs before auth.
+
+**Adding an event type** (Wave 2 funnel): append the name to `EVENT_TYPES` in
+`src/flywheel/events.py`. Nothing else: the route validates against it and
+`styling_events.event_type` is free TEXT, so no migration. Every `EVENT_TYPES` entry is already
+parametrised in `tests/test_events_endpoint.py`. To carry new fields, add them to `EventRequest`
+with explicit bounds; scalar-only `metadata` (<= 2 KB) is available without a schema change.
+
+**What is stored** (`styling_events`, migration 0005): `event_type`, `session_id`, `user_id`,
+`look_id`, `anchor_item_id`, `anchor_category`, `filled_slots` (JSONB), `occasion`, `price_band`
+(derived server-side), `brand`, `look_total_inr`, `metadata` (JSONB), `created_at`.
+
+**Rollout.** No frontend change: `OutfitBoard.tsx` already sends the bearer token on every event
+(only when a demo session token exists). A client without a valid or unexpired token now gets
+`401` (telemetry loss only; `postEvent` swallows errors).
+
+---
+
 ## CI/CD
 
 Prod deploys now run from CI: `.github/workflows/deploy.yml` (added in W8; supersedes the
