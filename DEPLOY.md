@@ -851,3 +851,18 @@ that every secret and the index download still work.
 
 Frontend (Vercel) deploys, Secret Manager changes, index uploads to GCS and DB migrations are
 unchanged and remain manual (see the sections above).
+
+## 0.x-minor-is-breaking dependencies on sensitive paths
+
+Under semver a 0.x library may break in any MINOR release, so a Dependabot minor bump is not a
+routine update when the library sits on a sensitive path. These are excluded from minor-update
+PRs in `.github/dependabot.yml` (patch updates are still proposed):
+
+| Package | Why sensitive | Excluded updates |
+|---|---|---|
+| `@supabase/ssr` (frontend) | auth path: session cookies for magic-link sign-in; the 0.6.1 -> 0.12.7 jump in PR #90 is the motivating case | minor |
+
+To update one deliberately: bump it by hand on a branch, let Vercel build a preview, and complete
+a real magic-link sign-in on that preview (request the link, follow it, confirm a signed-in
+session, reload and confirm it persists, sign out) before merging. Add new entries here and to
+the Dependabot ignore list together.
