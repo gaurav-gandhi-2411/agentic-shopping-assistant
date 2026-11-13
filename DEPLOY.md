@@ -78,14 +78,53 @@ rate-limiting middleware.
 **Migration CI vs. production drift.** CI (`.github/workflows/migration-integrity.yml`) only
 proves the migration chain is sound on an ephemeral Postgres (one head, applies from empty,
 downgrade round trips, RLS/revoke sanity). It holds no production credentials and does NOT
-detect whether production is behind master. That will be covered by migrations-on-deploy once
-PR #55 merges (still open; `scripts/deploy_demo.sh` currently only prints the alembic command).
-Until then the only control is this manual post-deploy step, documented here and implemented in
-NO script:
+detect whether production is behind master. That is what the schema-head gate below is for.
 
-```bash
-DATABASE_URL=<prod-url> alembic current   # must print the same revision as: alembic heads
-```
+### Schema-head gate (fail-closed; migrations are NOT auto-applied by `deploy.yml`)
+
+Decision: `deploy.yml` does not run migrations. Reasons: (1) the deployer service account has
+no access to the DB secret and granting it is a new IAM privilege that needs architect approval;
+(2) the first auto-deploy after this gate merges would otherwise fail closed on a missing
+privilege and block the E9 fix; (3) production migrations require explicit approval per this
+runbook. Instead the image carries its expected schema and refuses to be promoted without it.
+
+How it works: the Dockerfile copies `alembic.ini` and `alembic/` into the image; `/readyz`
+(`api/routes/health.py`, check name `schema`) reads the image's head revision(s) from those scripts
+and compares them with `SELECT version_num FROM alembic_version` (one read-only SELECT on the
+app's pooler-safe engine, no DDL, nothing is migrated). Any difference (DB behind, DB ahead,
+empty table, missing table, unreadable, several heads not all applied) returns **503** with
+`checks.schema = "error: db at <rev>, image expects <head>"` (revision ids only; no URL, no
+driver text). With no `DATABASE_URL` the check reads `not configured` and readiness is unchanged.
+`scripts/ops/deploy_smoke.py` requires `/readyz` 200 on the **tag URL before the traffic shift**, so
+a deploy whose migrations are not applied fails there and production keeps serving the old revision.
+`uptime-alert.yml` (`*/15`, probes `/readyz`) will also name `schema` as the failing check.
+
+Operator flow for a PR that adds a migration (production DB changes need explicit approval):
+
+1. Review the SQL offline, no connection made (needs `DATABASE_URL` set only because `env.py`
+   builds a URL; any value works offline):
+   `alembic upgrade <current>:head --sql` (or `python scripts/run_migrations.py --dry-run`, which
+   prints base to head).
+2. After approval, apply with the repo's redacting runner on a **session-mode** connection
+   (port 5432 per the architect decision; do not use the transaction pooler for DDL). NOTE: this
+   repo's `.env.example`/`SUPABASE_SETUP.md` call 5432 the "Transaction pooler", which contradicts
+   that; confirm the mode of the URL you use in the Supabase dashboard before running:
+   `DATABASE_URL=<session-url> python scripts/run_migrations.py`. Never paste the URL into logs
+   or chat.
+3. Verify: `DATABASE_URL=<url> alembic current` must print the same revision(s) as
+   `alembic heads` (run from the repo at the SHA being deployed).
+4. Then run/re-run the deploy; the tag-URL smoke now passes the `schema` check.
+
+When the gate trips (`/readyz` 503, `schema: error: ...`): do not shift traffic. `db at X, image
+expects Y` with X older: the migration was not applied, do steps 1-4. X newer than Y: the DB was
+migrated by a newer image than the one answering (e.g. a rollback target); either roll forward
+or accept that `/readyz` stays 503 on the old revision (liveness and chat are unaffected, only the
+readiness probe and `uptime-alert.yml` go red); migrations must stay backward compatible with the
+previous image. `unreadable`/`none`: DB unreachable or never migrated, check the secret and the
+database. `cannot read image migration heads`: the image was built without `alembic/`, rebuild.
+Before merging the PR that introduces this gate, confirm production reports the current head
+(`alembic current` = `alembic heads` = 0008 at the time of writing), otherwise the first deploy
+fails closed by design.
 
 ---
 
