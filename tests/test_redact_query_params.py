@@ -65,7 +65,57 @@ def test_param_list_matches_the_documented_set() -> None:
         "sig",
         "code",
         "password",
+        "x_api_key",
+        "client_secret",
     }
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "access-token",
+        "refresh-token",
+        "id-token",
+        "api-key",
+        "x-api-key",
+        "X-API-Key",
+        "x_api_key",
+        "client_secret",
+        "client-secret",
+        "Client-Secret",
+    ],
+)
+def test_hyphenated_and_header_style_names_are_masked(name: str) -> None:
+    assert redact_query_params(f"/x?q=1&{name}={VAL}&z=2") == f"/x?q=1&{name}=[REDACTED]&z=2"
+
+
+@pytest.mark.parametrize(
+    "masked", ["[Filtered]", "[REDACTED]", "***", "%5BFiltered%5D", "%5BREDACTED%5D", "%2A%2A%2A"]
+)
+def test_already_masked_value_is_left_byte_for_byte(masked: str) -> None:
+    raw = f"/x?q=1&token={masked}&ticket={masked}"
+    assert redact_query_params(raw) == raw
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        f"/canary?token={VAL}&x=1",
+        f"ws /s?ticket={VAL} [accepted]",
+        "/x?token=[Filtered]&code=abc",
+        f"/x?%74oken%3D{VAL}",
+    ],
+)
+def test_redaction_is_idempotent(raw: str) -> None:
+    once = Redactor().redact(raw)
+    assert Redactor().redact(once) == once
+    assert redact_query_params(redact_query_params(raw)) == redact_query_params(raw)
+
+
+def test_sentry_placeholder_is_not_overwritten_by_our_mask() -> None:
+    assert (
+        Redactor().redact("GET /canary?token=[Filtered]&x=1") == "GET /canary?token=[Filtered]&x=1"
+    )
 
 
 def test_redactor_applies_it_to_message_and_args() -> None:

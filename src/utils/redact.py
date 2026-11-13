@@ -61,9 +61,19 @@ SENSITIVE_QUERY_PARAMS = frozenset(
         "sig",
         "code",
         "password",
+        "x_api_key",
+        "client_secret",
     }
 )
+# Names are compared lower-cased with "-" folded to "_", so access-token / x-api-key /
+# client-secret are covered by the underscore entries above.
+# Exact ``key`` and ``code`` are masked even when innocuous (e.g. ``?key=2``): deliberately
+# fail-safe, a harmless value lost from a log line beats a leaked credential.
 REDACTED = "[REDACTED]"
+# Values that are already masks (ours, Sentry's, userinfo's) must be left byte-for-byte alone,
+# so redaction is idempotent and an earlier scrubber's placeholder (Sentry's ``[Filtered]``) is
+# not overwritten by ours.
+_ALREADY_MASKED = frozenset({"[Filtered]", "[REDACTED]", "***"})
 # ``?name=value`` / ``&name=value`` (``=`` may itself be encoded as %3D).  The value runs to the
 # next ``&``, whitespace, quote or fragment, so it also stops correctly in an access-log line
 # such as ``"WebSocket /chat/stream?ticket=abc [accepted]"``.  A percent-encoded ``&`` (%26)
@@ -74,7 +84,8 @@ _QUERY_PARAM_RE = re.compile(
 
 
 def _mask_query_param(match: re.Match[str]) -> str:
-    if unquote_plus(match["name"]).lower() not in SENSITIVE_QUERY_PARAMS:
+    name = unquote_plus(match["name"]).lower().replace("-", "_")
+    if name not in SENSITIVE_QUERY_PARAMS or unquote_plus(match["val"]) in _ALREADY_MASKED:
         return match[0]
     return f"{match['sep']}{match['name']}={REDACTED}"
 
