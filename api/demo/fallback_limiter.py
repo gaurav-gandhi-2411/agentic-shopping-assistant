@@ -41,7 +41,12 @@ class FallbackLimiter:
         daily_cap: Callable[[], int],
         max_ips: Callable[[], int] = _get_max_ips,
         clock: Callable[[], float] = time.time,
+        window_s: float = _WINDOW_S,
     ) -> None:
+        # window_s lets other per-key limiters (e.g. POST /events, per minute) reuse this
+        # LRU-bounded sliding window instead of copying it; the default keeps the hourly
+        # demo behaviour byte-identical.
+        self._window_s = window_s
         self._per_ip_limit = per_ip_limit
         self._daily_cap = daily_cap
         self._max_ips = max_ips
@@ -58,7 +63,7 @@ class FallbackLimiter:
         """Record-and-check one request. Returns (allowed, retry_after_seconds)."""
         limit = self._per_ip_limit()
         now = self._clock()
-        cutoff = now - _WINDOW_S
+        cutoff = now - self._window_s
         with self._lock:
             window = self._windows.get(client_ip)
             if window is None:
@@ -72,7 +77,7 @@ class FallbackLimiter:
             while window and window[0] <= cutoff:
                 window.popleft()
             if len(window) >= limit:
-                return False, max(1, int(window[0] + _WINDOW_S - now) + 1)
+                return False, max(1, int(window[0] + self._window_s - now) + 1)
             window.append(now)
             return True, 0
 
@@ -86,7 +91,7 @@ class FallbackLimiter:
         """
         limit = self._per_ip_limit()
         now = self._clock()
-        cutoff = now - _WINDOW_S
+        cutoff = now - self._window_s
         with self._lock:
             window = self._windows.get(client_ip)
             if window is None:
@@ -100,7 +105,7 @@ class FallbackLimiter:
             while window and window[0] <= cutoff:
                 window.popleft()
             if len(window) >= limit or other_count >= limit:
-                retry = int(window[0] + _WINDOW_S - now) + 1 if len(window) >= limit else 1
+                retry = int(window[0] + self._window_s - now) + 1 if len(window) >= limit else 1
                 return False, max(1, retry)
             window.append(now)
             return True, 0
