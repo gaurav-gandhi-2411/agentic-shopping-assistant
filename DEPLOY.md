@@ -818,10 +818,15 @@ The GitHub `keep-warm.yml` workflow was removed: GitHub does not honour sub-hour
 (the 15-minute Uptime Alert actually ran with a median gap of 246 min), so it could not guarantee a
 warm instance. An external 5-minute pinger replaces it, pointed at the public
 `GET /canary/status` (200 `{"status":"pass"}` / 503; keyword `"status":"pass"`). One fresh run is
-one rotating query, reused 30 min after a pass and 5 min after a fail, at most 60 runs/day per
-instance; past the cap it serves the last known result with `X-Canary-Stale: true`
-(`api/routes/canary.py`). The monitor must not hit `/readyz` (one real LLM call per hit). LLM
-budget against the Groq free tier: `docs/ops/canary-budget.md`. The WS-path
+one rotating query, reused 60 min after a pass and 5 min after a fail, at most 60 runs/day per
+instance. Staleness: when the cached result is older than its TTL a refresh is tried first (under
+the cap, single-flight). If none can run, the last known result is served with
+`X-Canary-Stale: true` and `X-Canary-Age-Seconds` only while it is at most 2 x its TTL old (a
+last-known fail stays 503); older than that, or on a fresh instance with no result and no run
+possible, the body is `503 {"status":"stale"}` (this replaced the earlier `{"status":"unknown"}`).
+A pass older than 2 x TTL is never served as a pass, and a fresh instance runs the check instead of
+answering (`api/routes/canary.py`). The monitor must not hit `/readyz` (one real LLM call per hit).
+LLM budget against the Groq limits: `docs/ops/canary-budget.md`. The WS-path
 `.github/workflows/canary.yml` now runs once a day. Background numbers:
 `reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
