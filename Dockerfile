@@ -58,8 +58,43 @@ WORKDIR /app
 # changes needed.
 COPY --from=builder /install /usr/local
 
-# Baked model cache location — kept under /app so it survives layer caching
-# and is owned by the non-root user we switch to at runtime.
+# ---------------------------------------------------------------------------
+# Non-root runtime user. Fixed uid/gid 10001 (stable across rebuilds, so a mounted volume's
+# ownership does not drift), no login shell, no home directory.
+#
+# Write-path audit (every place the running app writes; nothing else under /app is writable):
+#   path                               when     writer                          owner needed
+#   /app/data/processed/unified/       runtime  index_store.ensure_index_dir    app (GCS index download)
+#   /app/data/processed/clip/<brand>/  runtime  download_supplementary_assets   app (CLIP index)
+#   /app/data/processed/shopify_variants/ runtime  download_supplementary_assets app (variant maps)
+#   /app/.cache/huggingface/           build    SentenceTransformer bake RUN    app (baked as app, so no
+#                                                                               chown layer duplicating ~450MB;
+#                                                                               runtime is offline, read-only use)
+#   /tmp (HOME, MPLCONFIGDIR, XDG_*)   runtime  library caches (matplotlib via   any (always writable)
+#                                               colour-science, numba, etc.)
+#   /app/src, api, alembic, brands, config.yaml, alembic.ini: root-owned and read-only to
+#   the app (only .pyc writes fail, silently). No log files, no sqlite, no tempfile use in
+#   api/ or src/; scripts/ is not in the image (.dockerignore).
+# ---------------------------------------------------------------------------
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home \
+        --home-dir /nonexistent --shell /usr/sbin/nologin app \
+    && mkdir -p /app/.cache /app/data/processed \
+    && chown app:app /app/.cache /app/data /app/data/processed
+
+# Home does not exist for the app user; point every library that derives a cache dir from it
+# at /tmp (always writable on Cloud Run and in a read-only-rootfs container with a tmpfs).
+ENV HOME=/tmp \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    XDG_CACHE_HOME=/tmp/.cache \
+    NUMBA_CACHE_DIR=/tmp/numba
+
+# Everything from here runs as the app user: the model bake below creates its files owned by
+# app directly, which avoids a recursive chown that would duplicate the weights in a layer.
+USER app
+
+# Baked model cache location, under /app so it survives layer caching and is owned by the
+# non-root user (the bake RUN below executes as that user).
 # Both HF_HOME and SENTENCE_TRANSFORMERS_HOME point here so every path
 # sentence-transformers and HuggingFace Hub resolves at runtime hits the
 # pre-baked directory without any network calls.
@@ -104,9 +139,9 @@ COPY alembic.ini .
 COPY alembic/ ./alembic/
 
 # Indices are loaded from GCS at startup via INDEX_STORE_URI.
-# Create the empty directory so ensure_index_dir can write into it.
-RUN mkdir -p data/processed
+# data/processed is created and chowned to the app user earlier (writable download target).
 
+# Unprivileged port (>1024); Cloud Run overrides via $PORT.
 EXPOSE 8080
 
 # Give the index-loading lifespan ~60 s before health checks start failing.
