@@ -40,6 +40,8 @@ Set these at GitHub → Settings → Secrets and variables → Actions → Repos
 ### 1. Run database migration (one-time)
 
 ```bash
+# <url> = the SESSION-mode connection string (same pooler host, port 5432), not the
+# 6543 transaction-mode runtime URL above. Migrations/DDL belong on 5432.
 DATABASE_URL=<url> alembic upgrade head
 ```
 
