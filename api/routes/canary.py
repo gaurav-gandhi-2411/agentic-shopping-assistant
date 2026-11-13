@@ -9,7 +9,8 @@ of wall-clock time (``_query_for``), so it survives cold starts and agrees acros
 ``GET /canary`` (token): 200 ``{"status":"pass",...}`` or 500 ``{"status":"fail",
 "failing_assertion":...}``; the detailed body, used by the deploy smoke.
 ``GET /canary/status`` (public, no token): 200 ``{"status":"pass"}``, 503
-``{"status":"fail","assertion":<name>,"detail":<fixed string>}`` or 503 ``{"status":"unknown"}``.
+``{"status":"fail","assertion":<name>,"detail":<fixed string>}`` or 503 ``{"status":"stale"}``
+(no result observed and no run could start, or the last result is older than 2 x its TTL).
 It shares the cache, single-flight lock and daily run counter with ``/canary``. The monitor
 keyword is ``"status":"pass"`` (compact JSON, no spaces). Bodies never contain
 tokens, tickets, session ids, user text or exception messages.
@@ -21,11 +22,12 @@ rejected; if the header is present it alone decides). Cloud Run's own request lo
 request URL including the query string; that cannot be masked from this code (see DEPLOY.md).
 
 Budget (per instance; Cloud Run maxScale is low, so the fleet-wide bound is
-``instances x`` these numbers): a pass is cached for 30 min (-> at most 48 runs/day in steady
+``instances x`` these numbers): a pass is cached for 60 min (-> at most 24 runs/day in steady
 state, 1 LLM-backed query each; a failure only for FAIL_CACHE_TTL_S = 300 s so recovery shows
 within one pinger window) and a UTC-day counter caps real runs at 60/day so restarts (which
-empty the cache) cannot cause unbounded runs. When the cap is exhausted ``/canary/status``
-serves the LAST KNOWN result flagged ``X-Canary-Stale: true`` (never a pass it did not observe).
+empty the cache) cannot cause unbounded runs. When no run can start ``/canary/status`` serves
+the LAST KNOWN result flagged ``X-Canary-Stale: true`` only while it is at most 2 x its TTL old;
+older (or none) is ``503 {"status":"stale"}``, never a pass it did not recently observe.
 See docs/ops/canary-budget.md. A run bypasses the per-IP and daily-request demo limits (it uses a
 dedicated internal user, never touches ``demo_rate_limits``/``demo_daily_stats``), so it cannot
 block real users; the global daily cost guard still applies and its exhaustion is reported as
@@ -71,14 +73,15 @@ QUERIES: tuple[tuple[str, str], ...] = (
 )
 LATENCY_BUDGET_S = 15.0  # send -> done, strictly less (scripts/ops/canary.py LATENCY_BUDGET_MS)
 DEADLINE_S = 25.0  # the one query; the pinger is assumed to time out at 30 s
-CACHE_TTL_S = 30 * 60  # a PASS is reused this long (bounds spend: <= 48 runs/day)
+CACHE_TTL_S = 60 * 60  # a PASS is reused this long (bounds spend: <= 24 runs/day)
 # A FAIL is reused only briefly: after recovery the monitor must go green within one pinger
-# window, not stay red for up to 30 min. 300 s (not 60) because a failing run costs one LLM
+# window, not stay red for up to an hour. 300 s (not 60) because a failing run costs one LLM
 # query and a 5-min pinger would otherwise re-run on nearly every hit; the 60/day run cap and
 # the cost guard still bound spend.
 FAIL_CACHE_TTL_S = 300
-MAX_RUNS_PER_DAY = 60  # hard per-instance cap; 30 min cache alone gives <= 48
-ROTATION_SLOT_S = 30 * 60  # one query per wall-clock slot; matches the pass TTL
+STALE_WINDOW_FACTOR = 2  # a last-known result older than this many TTLs is never served
+MAX_RUNS_PER_DAY = 60  # hard per-instance cap; the 60 min pass cache alone gives <= 24
+ROTATION_SLOT_S = 30 * 60  # one query per wall-clock slot (runs 60 min apart still cover all 3)
 _CANARY_USER_ID = "anon:canary-internal"  # anon: -> in-memory session path, no Postgres user row
 
 _monotonic = time.monotonic  # patched in tests
@@ -357,12 +360,16 @@ def _respond(status: int, body: dict[str, Any], cached: bool) -> JSONResponse:
     return JSONResponse(status_code=status, content={**body, "cached": cached})
 
 
+def _ttl() -> int:
+    """TTL of the cached result: long for a pass, short for a fail."""
+    return CACHE_TTL_S if _state.cached_status == 200 else FAIL_CACHE_TTL_S
+
+
 def _fresh() -> bool:
-    ttl = CACHE_TTL_S if _state.cached_status == 200 else FAIL_CACHE_TTL_S
     return (
         _state.cached_body is not None
         and _state.cached_at is not None
-        and _monotonic() - _state.cached_at < ttl
+        and _monotonic() - _state.cached_at <= _ttl()
     )
 
 
@@ -448,21 +455,30 @@ def _public_status(status: int, body: dict[str, Any]) -> tuple[int, dict[str, st
 async def canary_status() -> JSONResponse:
     """Public pass/fail for the external monitor (no token). See module docstring.
 
-    Fresh cache -> it; stale and a run can start -> one coalesced run; stale and no run can
-    start -> the LAST KNOWN result flagged ``X-Canary-Stale: true`` (never a fabricated pass),
-    or ``503 {"status":"unknown"}`` when nothing has ever been observed.
+    age = now - last result time; ttl = 3600 after a pass, 300 after a fail.
+    - age <= ttl: the cached result.
+    - older, or nothing observed yet: try one refresh (daily cap + single-flight apply).
+      If it runs, its real result is returned.
+    - refresh could not run or did not complete: within ``STALE_WINDOW_FACTOR`` x ttl the LAST
+      KNOWN result flagged ``X-Canary-Stale: true`` + ``X-Canary-Age-Seconds`` (a fail stays
+      503); beyond it, or with no result at all, ``503 {"status":"stale"}``. A pass older than
+      2 x ttl is never reported as a pass, whatever the reason the refresh failed.
     """
-    kind, status, body = await _result()
+    try:
+        kind, status, body = await _result()
+    except Exception as exc:  # a refresh that raises must not let an old pass through
+        logger.error("canary status refresh raised %s", type(exc).__name__)
+        kind, status, body = "blocked", 500, {}
     if kind != "blocked":
         code, public = _public_status(status, body)
         return JSONResponse(status_code=code, content=public)
     if _state.cached_body is None or _state.cached_at is None:
-        return JSONResponse(status_code=503, content={"status": "unknown"})
+        return JSONResponse(status_code=503, content={"status": "stale"})
+    age = _monotonic() - _state.cached_at
+    if age > STALE_WINDOW_FACTOR * _ttl():
+        return JSONResponse(status_code=503, content={"status": "stale"})
     code, public = _public_status(_state.cached_status, _state.cached_body)
     headers: dict[str, str] = {}
     if not _fresh():
-        headers = {
-            "X-Canary-Stale": "true",
-            "X-Canary-Age-Seconds": str(int(_monotonic() - _state.cached_at)),
-        }
+        headers = {"X-Canary-Stale": "true", "X-Canary-Age-Seconds": str(int(age))}
     return JSONResponse(status_code=code, content=public, headers=headers)

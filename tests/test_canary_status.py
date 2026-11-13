@@ -140,15 +140,15 @@ def test_daily_counter_decrements_budget_per_real_run_only(
 # ----------------------------------------------------------------------------- TTLs
 
 
-def test_pass_ttl_is_30_minutes(
+def test_pass_ttl_is_60_minutes(
     client: TestClient,
     b: _Behaviour,
     monkeypatch: pytest.MonkeyPatch,  # noqa: F811
 ) -> None:
-    assert canary.CACHE_TTL_S == 30 * 60
+    assert canary.CACHE_TTL_S == 3600
     now = _clock(monkeypatch)
     assert _status(client).status_code == 200
-    now[0] += 30 * 60 - 1
+    now[0] += 3600 - 1
     _status(client)
     assert b.invocations == 1  # still inside the window
     now[0] += 2
@@ -222,7 +222,7 @@ def test_cap_exhausted_with_fresh_cache_is_not_flagged_stale(
 
 
 @pytest.mark.parametrize("reason", ["cap", "cost_guard", "executor_busy"])
-def test_unknown_when_nothing_observed_and_no_run_can_start(
+def test_fresh_instance_no_result_and_no_run_can_start_is_503_stale(
     client: TestClient,
     b: _Behaviour,
     monkeypatch: pytest.MonkeyPatch,
@@ -235,8 +235,145 @@ def test_unknown_when_nothing_observed_and_no_run_can_start(
     else:
         monkeypatch.setattr(canary, "WORKERS", 0)  # pool "full" before any run
     r = _status(client)
-    assert r.status_code == 503 and r.json() == {"status": "unknown"}
+    assert r.status_code == 503 and r.json() == {"status": "stale"}
     assert "x-canary-stale" not in r.headers and b.invocations == 0
+
+
+def test_fresh_instance_no_result_runs_the_check_and_returns_its_result(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    assert canary._state.cached_body is None  # nothing observed yet
+    calls: list[int] = []
+    real = canary._run_all
+
+    async def spy() -> Any:
+        calls.append(1)
+        return await real()
+
+    monkeypatch.setattr(canary, "_run_all", spy)
+    r = _status(client)
+    assert r.status_code == 200 and r.text == PASS_BODY and "x-canary-stale" not in r.headers
+    assert len(calls) == 1 and canary._state.runs_total == 1
+
+
+# ----------------------------------------------------------------------------- staleness windows
+
+
+def _block_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(canary, "check_daily_cost", lambda brand: False)
+
+
+def test_pass_between_1x_and_2x_ttl_refreshes_when_it_can(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    now = _clock(monkeypatch)
+    assert _status(client).text == PASS_BODY
+    now[0] += canary.CACHE_TTL_S + 600
+    r = _status(client)
+    assert r.status_code == 200 and "x-canary-stale" not in r.headers  # a real, new run
+    assert b.invocations == 2
+
+
+def test_pass_between_1x_and_2x_ttl_refresh_blocked_serves_200_with_stale_headers(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    now = _clock(monkeypatch)
+    assert _status(client).text == PASS_BODY
+    _block_runs(monkeypatch)
+    now[0] += 2 * canary.CACHE_TTL_S  # exactly 2x: still inside the window
+    r = _status(client)
+    assert r.status_code == 200 and r.text == PASS_BODY
+    assert r.headers["x-canary-stale"] == "true"
+    assert r.headers["x-canary-age-seconds"] == str(2 * canary.CACHE_TTL_S)
+
+
+def test_fail_between_1x_and_2x_ttl_refresh_blocked_stays_503_with_stale_headers(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    now = _clock(monkeypatch)
+    b.new_items = False
+    assert _status(client).status_code == 503
+    _block_runs(monkeypatch)
+    now[0] += canary.FAIL_CACHE_TTL_S + 100
+    r = _status(client)
+    assert r.status_code == 503 and r.json()["assertion"] == "cards"
+    assert r.headers["x-canary-stale"] == "true"
+    assert r.headers["x-canary-age-seconds"] == str(canary.FAIL_CACHE_TTL_S + 100)
+
+
+def test_pass_older_than_2x_ttl_with_refresh_blocked_is_503_stale(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    now = _clock(monkeypatch)
+    assert _status(client).text == PASS_BODY
+    _block_runs(monkeypatch)
+    now[0] += 2 * canary.CACHE_TTL_S + 1
+    r = _status(client)
+    assert r.status_code == 503 and r.json() == {"status": "stale"}
+    assert '"status":"pass"' not in r.text
+
+
+def test_pass_older_than_2x_ttl_with_cap_exhausted_is_503_stale(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    monkeypatch.setattr(canary, "MAX_RUNS_PER_DAY", 1)
+    now = _clock(monkeypatch)
+    assert _status(client).text == PASS_BODY
+    now[0] += 2 * canary.CACHE_TTL_S + 1
+    r = _status(client)
+    assert r.status_code == 503 and r.json() == {"status": "stale"} and b.invocations == 1
+
+
+def test_pass_older_than_2x_ttl_with_refresh_raising_is_not_200(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    now = _clock(monkeypatch)
+    assert _status(client).text == PASS_BODY
+
+    async def boom() -> Any:
+        raise RuntimeError("refresh exploded")
+
+    monkeypatch.setattr(canary, "_run_all", boom)
+    now[0] += 2 * canary.CACHE_TTL_S + 1
+    r = _status(client)
+    assert r.status_code == 503 and r.json() == {"status": "stale"}
+    assert "exploded" not in r.text
+
+
+def test_pass_between_1x_and_2x_ttl_with_refresh_raising_serves_stale_pass(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    now = _clock(monkeypatch)
+    assert _status(client).text == PASS_BODY
+
+    async def boom() -> Any:
+        raise RuntimeError("refresh exploded")
+
+    monkeypatch.setattr(canary, "_run_all", boom)
+    now[0] += canary.CACHE_TTL_S + 5
+    r = _status(client)
+    assert r.status_code == 200 and r.headers["x-canary-stale"] == "true"
+
+
+def test_ttl_constants_are_exact() -> None:
+    assert canary.CACHE_TTL_S == 3600 and canary.FAIL_CACHE_TTL_S == 300
+    assert canary.STALE_WINDOW_FACTOR == 2
 
 
 def test_stale_when_cost_guard_blocks_returns_last_known(

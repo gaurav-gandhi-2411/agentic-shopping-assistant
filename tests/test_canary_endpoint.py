@@ -378,31 +378,31 @@ def test_failure_is_cached_only_for_the_short_ttl_then_recovery_shows(
     still = _get(client)  # inside the window: the cached failure, no re-run (bounds spend)
     assert still.status_code == 500 and still.json()["cached"] is True
     assert b.invocations == 1
-    now[0] += 2  # past 300 s, far short of 30 min
+    now[0] += 2  # past 300 s, far short of 60 min
     ok = _get(client)
     assert ok.status_code == 200 and ok.json()["cached"] is False
     assert b.invocations == 2
 
 
-def test_fail_ttl_is_short_and_pass_still_cached_for_30_minutes(
+def test_fail_ttl_is_short_and_pass_still_cached_for_60_minutes(
     client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert canary.FAIL_CACHE_TTL_S == 300 and canary.CACHE_TTL_S == 30 * 60
+    assert canary.FAIL_CACHE_TTL_S == 300 and canary.CACHE_TTL_S == 60 * 60
     now = [1000.0]
     monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
     assert _get(client).status_code == 200
-    now[0] += 29 * 60  # well past the failure TTL: a pass is still served from cache
+    now[0] += 59 * 60  # well past the failure TTL: a pass is still served from cache
     cached = _get(client)
     assert cached.status_code == 200 and cached.json()["cached"] is True
     assert b.invocations == 1
-    now[0] += 2 * 60  # 31 min after the run
+    now[0] += 2 * 60  # 61 min after the run
     assert _get(client).json()["cached"] is False
 
 
 def test_pass_cached_before_outage_hides_it_only_until_ttl_but_failure_is_not_sticky(
     client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A fresh failure after an expired pass is cached for 5 min only, not 30 min."""
+    """A fresh failure after an expired pass is cached for 5 min only, not 60 min."""
     now = [1000.0]
     monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
     assert _get(client).status_code == 200
