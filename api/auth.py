@@ -27,8 +27,9 @@ Env vars (read at call time so monkeypatching works in tests):
 WS ticket store:
   Short-lived (60 s) nonces for WebSocket auth.  The frontend calls
   POST /auth/ws-ticket (Bearer JWT required) and receives a nonce, then
-  opens the WS with ?ticket=<nonce> instead of ?token=<jwt>.  This
-  prevents the full JWT from appearing in server access logs.
+  opens the WS offering the subprotocols ["stylemaitri.ticket.v1", "<nonce>"]
+  (the nonce stays out of the URL, so Cloud Run's request log never records it).
+  ?ticket=<nonce> and ?token=<jwt> remain accepted for one release only.
   The ticket is consumed on first use (one-use) and cleaned up on expiry.
 """
 from __future__ import annotations
@@ -69,6 +70,18 @@ _ticket_store: dict[str, tuple[str, float]] = {}
 _ticket_lock: threading.Lock = threading.Lock()
 
 _TICKET_TTL_SECONDS: int = 60  # short enough to prevent log-scraping abuse
+
+# The client offers ["stylemaitri.ticket.v1", "<ticket>"] as WebSocket subprotocols; the
+# server selects ONLY the marker. Tickets are secrets.token_urlsafe output (A-Za-z0-9_-),
+# all valid RFC 7230 token characters, so they are legal subprotocol values as-is.
+WS_TICKET_SUBPROTOCOL: str = "stylemaitri.ticket.v1"
+
+# Values of the structured ``ws_auth_path`` log field (one INFO line per WS connection).
+WS_AUTH_SUBPROTOCOL: str = "subprotocol"
+WS_AUTH_URL_TICKET: str = "url_ticket"
+WS_AUTH_LEGACY_TOKEN: str = "legacy_token"
+WS_AUTH_NONE: str = "none"  # no credential presented
+WS_AUTH_DISABLED: str = "disabled"  # JWT_VERIFICATION_DISABLED dev mode
 
 
 def _cleanup_tickets() -> None:
@@ -239,11 +252,33 @@ def get_current_user_id(authorization: str = Header(default="")) -> str:
     return sub
 
 
-def get_current_user_id_ws(websocket: WebSocket) -> str:
-    """Extract user_id from a WebSocket connection's query parameters.
+def ws_subprotocols(websocket: WebSocket) -> list[str]:
+    """Return the Sec-WebSocket-Protocol values the client offered, in order."""
+    return list(websocket.scope.get("subprotocols") or [])
 
-    Checks for ``?ticket=<nonce>`` first (preferred — nonce is short-lived and
-    single-use, so it is safe to appear in access logs).  Falls back to
+
+def ws_offers_ticket_subprotocol(websocket: WebSocket) -> bool:
+    """True when the client offered the ticket marker subprotocol."""
+    return WS_TICKET_SUBPROTOCOL in ws_subprotocols(websocket)
+
+
+def ws_subprotocol_ticket(websocket: WebSocket) -> str:
+    """Return the entry immediately after the marker, or "" when there is none."""
+    offered = ws_subprotocols(websocket)
+    idx = offered.index(WS_TICKET_SUBPROTOCOL)
+    return offered[idx + 1] if idx + 1 < len(offered) else ""
+
+
+def get_current_user_id_ws(websocket: WebSocket) -> str:
+    """Extract user_id from a WebSocket connection's credentials.
+
+    Records which credential was presented in ``websocket.state.ws_auth_path`` (a
+    ``WS_AUTH_*`` value) so the handler can log it.
+
+    Checks the ``stylemaitri.ticket.v1`` subprotocol first (preferred: the ticket is
+    carried in the Sec-WebSocket-Protocol header, never in the URL), then
+    ``?ticket=<nonce>`` (deprecated: nonce is short-lived and single-use but is
+    recorded by Cloud Run's request log).  Falls back to
     ``?token=<jwt>`` for backward compatibility with the Streamlit Spaces app
     and any other client that has not yet migrated.
 
@@ -255,13 +290,27 @@ def get_current_user_id_ws(websocket: WebSocket) -> str:
     Raises:
         HTTPException(401) — missing/invalid/expired credential.
     """
+    websocket.state.ws_auth_path = WS_AUTH_NONE
     if _is_verification_disabled():
         from api.deps import DEV_USER_ID
+        websocket.state.ws_auth_path = WS_AUTH_DISABLED
         return DEV_USER_ID
 
-    # --- ticket path (preferred) ---
+    # Precedence (first credential present wins, with no fall-through on failure):
+    # Sec-WebSocket-Protocol marker > ?ticket= > ?token=.
+    # --- subprotocol ticket path (preferred: the ticket never appears in the URL) ---
+    if ws_offers_ticket_subprotocol(websocket):
+        websocket.state.ws_auth_path = WS_AUTH_SUBPROTOCOL
+        user_id = exchange_ws_ticket(ws_subprotocol_ticket(websocket))
+        if user_id is None:
+            # Same detail for malformed, unknown, expired and reused tickets.
+            raise HTTPException(status_code=401, detail="WS ticket invalid or expired")
+        return user_id
+
+    # --- URL ticket path (deprecated; the ticket lands in Cloud Run's request log) ---
     nonce = websocket.query_params.get("ticket", "")
     if nonce:
+        websocket.state.ws_auth_path = WS_AUTH_URL_TICKET
         user_id = exchange_ws_ticket(nonce)
         if user_id is None:
             raise HTTPException(status_code=401, detail="WS ticket invalid or expired")
@@ -270,6 +319,7 @@ def get_current_user_id_ws(websocket: WebSocket) -> str:
     # --- legacy JWT path (deprecated; kept for backward compatibility) ---
     token = websocket.query_params.get("token", "")
     if token:
+        websocket.state.ws_auth_path = WS_AUTH_LEGACY_TOKEN
         logger.warning(
             "WS auth via ?token= is deprecated; clients should use POST /auth/ws-ticket "
             "and pass ?ticket= instead to avoid JWT exposure in server logs"
