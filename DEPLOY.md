@@ -696,6 +696,53 @@ each Cloud Run service via the `update-env-vars` command above.
 
 ---
 
+## WebSocket auth ticket: out of the URL (two-release plan)
+
+Cloud Run's platform request log records the full request URL (`httpRequest.requestUrl`), so a
+`wss://.../chat/stream?ticket=<nonce>` connect persists the ticket there (the app-level
+redaction only covers our own log lines). The ticket is single-use and expires after 60 s, but
+it is still a credential in a log. The browser now offers it as a `Sec-WebSocket-Protocol`
+entry instead (`new WebSocket(url, ["stylemaitri.ticket.v1", "<ticket>"])`); the server
+selects only the marker and never echoes the ticket.
+
+- **Release 1 (this PR).** Backend accepts the subprotocol path AND the old `?ticket=` and
+  `?token=` paths (precedence: subprotocol, then `?ticket=`, then `?token=`; first present wins,
+  no fall-through). The frontend connects with the subprotocol first; if the socket closes before
+  it ever opened (an old backend that ignores subprotocols, so the browser aborts the handshake),
+  it retries once with `?ticket=<fresh ticket>`. Vercel goes live minutes before Cloud Run
+  finishes, so this window is expected, and during it clients use the URL path.
+- **Release 2 (a LATER PR).** Remove the `?ticket=` and `?token=` paths from the backend and the
+  `?ticket=` retry from the frontend, once the query below shows **zero** `url_ticket` connects
+  for 48 consecutive hours after both services run Release 1. Do not remove the paths before
+  that: a cached or not-yet-reloaded frontend still uses them.
+- **Caveat.** While the old URL path exists, Cloud Run's platform request log still records any
+  URL ticket. Release 1 stops new frontends from sending one but does not purge what is logged.
+
+Every WS connection emits one INFO line carrying `ws_auth_path` (`subprotocol`, `url_ticket`,
+`legacy_token`, `none` for no credential, `disabled` for dev verification-off) and `ws_auth_ok`.
+`ws_auth_path` is the credential that was presented even when it was rejected, so a client still
+on a deprecated path is counted whether or not its ticket was valid. No credential is logged.
+
+Count URL-ticket connects over the last 48 h (Logs Explorer, or `gcloud logging read` with
+`--freshness=48h`; the app logs JSON to stdout so fields land under `jsonPayload`):
+
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="asa-stylist-api"
+jsonPayload.ws_auth_path="url_ticket"
+```
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="asa-stylist-api" AND jsonPayload.ws_auth_path="url_ticket"' \
+  --account=gaurav.gandhi1129@gmail.com --project=iconic-reactor-496423-m4 \
+  --freshness=48h --format='value(timestamp)' | wc -l
+```
+
+Expect a non-zero count right after Release 1 (cached frontends, the rollout window) falling to 0.
+Also check `legacy_token` the same way before Release 2: it is the other path being removed.
+
+---
+
 ## CI/CD
 
 Prod deploys now run from CI: `.github/workflows/deploy.yml` (added in W8; supersedes the
