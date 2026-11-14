@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-import pandas as pd
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -156,9 +155,6 @@ async def lifespan(app: FastAPI):
 
     from src.catalogue.loader import load_config
     from src.llm.client import get_llm_client
-    from src.retrieval.dense_search import DenseRetriever
-    from src.retrieval.hybrid_search import HybridRetriever
-    from src.retrieval.sparse_search import SparseRetriever
 
     config = load_config(_CONFIG_PATH)
     # Allow env var to override LLM provider (e.g. groq on Fly, ollama locally).
@@ -176,20 +172,49 @@ async def lifespan(app: FastAPI):
     _brand = resolve_brand()
 
     _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
-    index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
 
-    # Download CLIP index and Shopify variant map from GCS (same bucket, active brand only).
-    # Failures are non-fatal — each feature degrades gracefully when its assets are absent.
-    if _index_store_uri:
-        download_supplementary_assets(_index_store_uri, _brand, _REPO_ROOT)
+    # V3(b), OPT-IN (INDEX_HOT_RELOAD=1; default OFF because a second snapshot does not fit the
+    # 4 GiB limit, see DEPLOY.md): a published build (builds/<ts>/ named by the newest
+    # pointers/<ts>.json) wins over the flat layout; no pointer, or any failure loading it, falls
+    # back to the flat layout. With the switch unset _index_source is None: flat layout only.
+    from api import index_runtime
 
-    logger.info("Loading retrieval indices from %s (mode=%s)", index_dir, _brand)
-    df = pd.read_parquet(index_dir / "catalogue.parquet")
-    dense = DenseRetriever.load(config, index_dir)
-    sparse = SparseRetriever.load(config, index_dir)
-    retriever = HybridRetriever(dense, sparse, df, config)
-    n_vectors = dense.index.ntotal if dense.index is not None else 0
-    logger.info("Retrieval ready: %d items, %d dense vectors (mode=%s)", len(df), n_vectors, _brand)
+    _index_source = (
+        index_runtime.make_index_source(_index_store_uri) if _brand == "unified" else None
+    )
+    _build = (
+        index_runtime.load_newest_build(_index_source, config) if _index_source is not None else None
+    )
+    _manifest = None
+    _clip = None
+    _source = "flat"
+    if _build is not None:
+        retriever, df = _build.retriever, _build.catalogue_df
+        _manifest, _clip, _source = _build.manifest, _build.clip, "build"
+        n_vectors = retriever.dense.index.ntotal
+    else:
+        from src.retrieval.build_manifest import try_load_manifest
+        from src.retrieval.snapshot import load_index_parts
+
+        index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
+
+        # Download CLIP index and Shopify variant map from GCS (same bucket, active brand only).
+        # Failures are non-fatal — each feature degrades gracefully when its assets are absent.
+        if _index_store_uri:
+            download_supplementary_assets(_index_store_uri, _brand, _REPO_ROOT)
+
+        logger.info("Loading retrieval indices from %s (mode=%s)", index_dir, _brand)
+        retriever, df = load_index_parts(index_dir, config)
+        _manifest = try_load_manifest(index_dir)  # None for the legacy layout
+        n_vectors = retriever.dense.index.ntotal if retriever.dense.index is not None else 0
+    logger.info(
+        "Retrieval ready: %d items, %d dense vectors (mode=%s, layout=%s, build_id=%s)",
+        len(df),
+        n_vectors,
+        _brand,
+        _source,
+        _manifest.build_id if _manifest is not None else "legacy",
+    )
 
     logger.info("Initialising LLM client (provider=%s)", config["llm"]["provider"])
     llm = get_llm_client(config)
@@ -211,7 +236,25 @@ async def lifespan(app: FastAPI):
     logger.info("LangSmith tracing %s", "enabled" if tracing else "disabled")
 
     session_store, db_engine = _build_session_store(llm, config)
-    deps._init(retriever, df, llm, config, session_store=session_store, db_engine=db_engine)
+    deps._init(
+        retriever,
+        df,
+        llm,
+        config,
+        session_store=session_store,
+        db_engine=db_engine,
+        manifest=_manifest,
+        clip=_clip,
+        source=_source,
+    )
+
+    # V3(b) hot reload: a daemon thread checks pointers/ every INDEX_RELOAD_INTERVAL_S and swaps
+    # the whole snapshot atomically (see src/retrieval/index_reload.py). Default OFF; enable only with INDEX_HOT_RELOAD=1.
+    _reloader = (
+        index_runtime.start_hot_reload(_index_source, config, llm)
+        if _index_source is not None
+        else None
+    )
 
     # Wire defense-in-depth allow-list checker when a DB is available.
     if db_engine is not None:
@@ -298,6 +341,8 @@ async def lifespan(app: FastAPI):
     # ------------------------------------------------------------------
     # Shutdown
     # ------------------------------------------------------------------
+    if _reloader is not None:
+        _reloader.stop()
     logger.info("Shutting down")
 
 

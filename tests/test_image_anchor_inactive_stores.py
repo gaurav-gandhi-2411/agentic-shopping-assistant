@@ -82,7 +82,7 @@ def test_active_brand_with_missing_index_still_returns_empty(tmp_path: Path) -> 
 
 def test_unified_brand_excludes_inactive_store_candidates(tmp_path: Path) -> None:
     """Unified brand results must drop candidates whose catalogue store is inactive."""
-    article_ids = ["art_berrylush", "art_myntra", "art_snitch"]
+    article_ids = ["art_berrylush", "art_fashor", "art_snitch"]
     _build_faiss_index(tmp_path, UNIFIED_BRAND, article_ids)
 
     catalogue_base = tmp_path / "catalogue"
@@ -91,7 +91,7 @@ def test_unified_brand_excludes_inactive_store_candidates(tmp_path: Path) -> Non
     pd.DataFrame(
         {
             "article_id": article_ids,
-            "store": ["berrylush", "myntra", "snitch"],
+            "store": ["berrylush", "fashor", "snitch"],
         }
     ).to_parquet(unified_dir / "catalogue.parquet")
 
@@ -113,7 +113,7 @@ def test_unified_brand_excludes_inactive_store_candidates(tmp_path: Path) -> Non
         )
 
     assert "art_berrylush" not in results
-    assert set(results) == {"art_myntra", "art_snitch"}
+    assert set(results) == {"art_fashor", "art_snitch"}
 
 
 def test_unified_brand_no_catalogue_degrades_to_no_filtering(tmp_path: Path) -> None:

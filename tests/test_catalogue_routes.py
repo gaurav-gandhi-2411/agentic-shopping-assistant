@@ -107,6 +107,7 @@ class _MockRetriever:
 def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     """Inject minimal deps so the FastAPI app starts without real indices."""
     monkeypatch.setattr(deps, "_config", _MINIMAL_CONFIG)
+    monkeypatch.setattr(deps, "_snapshot", None)  # the legacy fall-backs below apply only then
     monkeypatch.setattr(deps, "_catalogue_df", _catalogue_df())
     monkeypatch.setattr(deps, "_retriever", _MockRetriever([("222", 0.87)]))
     # Verification must run for real so we exercise the 401 path honestly —
