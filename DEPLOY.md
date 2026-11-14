@@ -717,6 +717,9 @@ selects only the marker and never echoes the ticket.
   that: a cached or not-yet-reloaded frontend still uses them.
 - **Caveat.** While the old URL path exists, Cloud Run's platform request log still records any
   URL ticket. Release 1 stops new frontends from sending one but does not purge what is logged.
+  In particular, a pre-open network failure on the first (subprotocol) attempt makes the frontend
+  retry once with a freshly minted single-use 60 s ticket in the URL, so a URL ticket can still
+  appear in Cloud Run's platform request log until the URL path is removed.
 
 Every WS connection emits one INFO line carrying `ws_auth_path` (`subprotocol`, `url_ticket`,
 `legacy_token`, `none` for no credential, `disabled` for dev verification-off) and `ws_auth_ok`.
@@ -765,6 +768,15 @@ validated payload <= 8 KB; raw body <= 16 KB (counted as it streams, so a missin
 **Rate limits** (in memory, per instance, 60 s sliding window, LRU-bounded, independent of the chat
 limiters): `EVENTS_RATE_LIMIT_PER_IDENTITY_PER_MIN` (default 120), `EVENTS_RATE_LIMIT_PER_IP_PER_MIN`
 (default 300), `EVENTS_RATE_LIMIT_MAX_KEYS` (default 10000). The IP limit runs before auth.
+
+**Known trade-offs.**
+
+- The per-IP events limiter runs before auth, so one abusive client can make its own NAT/IP's
+  events 429 for 60 s. This is telemetry only, per instance, and the IP is the right-most
+  `X-Forwarded-For` entry, so it cannot be aimed at another IP.
+- Limits are per Cloud Run instance, not shared across instances.
+- `variant_id`/`variant_label` sent by the frontend on `variant_selected` are not stored. Add them
+  to `metadata` or to bounded fields when the Wave 2 funnel needs them.
 
 **Adding an event type** (Wave 2 funnel): append the name to `EVENT_TYPES` in
 `src/flywheel/events.py`. Nothing else: the route validates against it and
@@ -994,9 +1006,10 @@ REV=$(gcloud run services describe asa-stylist-api --region=asia-south1 --projec
   | jq -r '[.status.traffic[] | select(.tag == "sa-switch")][0].revisionName // empty')   # same query deploy.yml uses
 test -n "$REV" && echo "$REV"
 gcloud run revisions describe "$REV" --region=asia-south1 --project=stylemaitri-prod-260813 \
-  --account=gaurav.gandhi1129@gmail.com --format=json > rev-sa.json
+  --account=gaurav.gandhi1129@gmail.com --format=json > "${TMPDIR:-/tmp}/rev-sa.json"
 # assert: serviceAccountName == $NEWSA and minScale absent or "0"
-jq -r '.spec.serviceAccountName, (.metadata.annotations["autoscaling.knative.dev/minScale"] // "0")' rev-sa.json
+jq -r '.spec.serviceAccountName, (.metadata.annotations["autoscaling.knative.dev/minScale"] // "0")' "${TMPDIR:-/tmp}/rev-sa.json"
+rm -f "${TMPDIR:-/tmp}/rev-sa.json"   # temp copy only; do not leave revision JSON in the working directory
 ```
 
 #### 3. Smoke the tag URL (read-only)
