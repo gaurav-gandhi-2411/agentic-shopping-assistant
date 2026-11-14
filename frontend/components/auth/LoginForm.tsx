@@ -4,6 +4,7 @@ import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { COPY } from "@/lib/copy"
 import {
   Card,
   CardContent,
@@ -15,6 +16,10 @@ import {
 interface Props {
   authError?: string
 }
+
+// The Google provider is not configured in Supabase yet, so its button is hidden unless
+// the deploy explicitly opts in (NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=true). Default: hidden.
+const GOOGLE_AUTH_ENABLED = process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === "true"
 
 export function LoginForm({ authError }: Props) {
   const [email, setEmail] = useState("")
@@ -95,7 +100,9 @@ export function LoginForm({ authError }: Props) {
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
         <CardDescription>
-          Enter your email for a magic link, or continue with Google.
+          {GOOGLE_AUTH_ENABLED
+            ? "Enter your email for a magic link, or continue with Google."
+            : COPY.login.descriptionEmailOnly}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -120,25 +127,29 @@ export function LoginForm({ authError }: Props) {
           </Button>
         </form>
 
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">or</span>
-          </div>
-        </div>
+        {GOOGLE_AUTH_ENABLED && (
+          <>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">or</span>
+              </div>
+            </div>
 
-        <Button
-          variant="outline"
-          onClick={handleGoogle}
-          disabled={loading}
-          className="w-full"
-          type="button"
-        >
-          <GoogleIcon />
-          Continue with Google
-        </Button>
+            <Button
+              variant="outline"
+              onClick={handleGoogle}
+              disabled={loading}
+              className="w-full"
+              type="button"
+            >
+              <GoogleIcon />
+              Continue with Google
+            </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   )
