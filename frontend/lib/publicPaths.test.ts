@@ -33,4 +33,25 @@ describe("isPublicPath", () => {
   it("treats `/` as an exact match only (not a prefix of everything)", () => {
     expect(isPublicPath("/private")).toBe(false)
   })
+
+  it.each([
+    "/login",
+    "/auth",
+    "/demo",
+    "/embed",
+    "/pdp-demo",
+    "/look",
+    "/saved-looks",
+    "/opengraph-image",
+  ])("every pre-existing public prefix stays public: %s", (prefix) => {
+    expect(isPublicPath(prefix)).toBe(true)
+    expect(isPublicPath(`${prefix}/x`)).toBe(true)
+  })
+
+  it.each(["/chat", "/dashboard", "/Chat", "/%2e%2e/chat", "//chat", "/chat/", "/./chat"])(
+    "protected or hostile path stays protected: %s",
+    (path) => {
+      expect(isPublicPath(path)).toBe(false)
+    },
+  )
 })
