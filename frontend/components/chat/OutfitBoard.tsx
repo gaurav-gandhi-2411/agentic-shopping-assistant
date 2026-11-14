@@ -730,8 +730,10 @@ export function OutfitBoard({
               {/* Sign-in is optional and offered only here, after a save succeeded. A link in a
                   new tab so it never interrupts the conversation. */}
               {signInNudge && (
-                <p className="text-xs text-muted-foreground">
-                  {COPY.save.signInNudge}{" "}
+                // Flex row: text and the 44 px link sit on one line (an inline-flex link inside
+                // a paragraph made its own blank line).
+                <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                  <span>{COPY.save.signInNudge}</span>
                   <a
                     href="/login"
                     target="_blank"

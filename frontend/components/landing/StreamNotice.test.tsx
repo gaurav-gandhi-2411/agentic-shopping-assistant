@@ -46,4 +46,14 @@ describe("WakingSkeleton", () => {
     expect(region.textContent).toContain("waking up")
     expect(region.textContent).toContain("about a minute")
   })
+
+  it("blocks use a visible token fill and respect prefers-reduced-motion", () => {
+    render(<WakingSkeleton />)
+    const blocks = screen.getByTestId("waking-skeleton").querySelectorAll(".animate-pulse")
+    expect(blocks).toHaveLength(3)
+    for (const b of blocks) {
+      expect(b.className).toContain("bg-blush-200")
+      expect(b.className).toContain("motion-reduce:animate-none")
+    }
+  })
 })

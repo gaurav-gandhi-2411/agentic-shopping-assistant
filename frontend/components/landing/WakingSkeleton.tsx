@@ -21,7 +21,12 @@ export function WakingSkeleton() {
       </p>
       <div aria-hidden className="flex gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-28 flex-1 animate-pulse rounded-xl bg-muted" />
+          // blush-200 + hairline border (existing tokens): visible on cream, unlike the
+          // near-invisible bg-muted wash. Not text, so the champagne rule does not apply.
+          <div
+            key={i}
+            className="h-28 flex-1 animate-pulse rounded-xl border border-border bg-blush-200/70 motion-reduce:animate-none"
+          />
         ))}
       </div>
       <span className="sr-only">{COPY.slowStart.skeletonLabel}</span>
