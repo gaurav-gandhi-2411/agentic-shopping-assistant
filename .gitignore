@@ -69,6 +69,9 @@ Thumbs.db
 frontend/.next/
 frontend/node_modules/
 frontend/.turbo/
+# TypeScript incremental-build cache: rewritten by every `next build`/`tsc`, so it must never be
+# tracked (it was, and showed up as a modified file after every local build).
+*.tsbuildinfo
 # Playwright run artifacts (failure traces/screenshots only; browsers are never committed)
 frontend/test-results/
 frontend/playwright-report/
