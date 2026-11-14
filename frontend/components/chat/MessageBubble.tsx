@@ -21,6 +21,8 @@ interface Props {
    * refinement against a look that has since moved on.
    */
   isLatestAssistant?: boolean
+  /** Passed to OutfitBoard: show the optional sign-in link after a look is saved. */
+  signInNudge?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ function FeedbackButtons({ messageId }: FeedbackButtonsProps) {
 // MessageBubble
 // ---------------------------------------------------------------------------
 
-export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Props) {
+export function MessageBubble({ message, onSend, brand, isLatestAssistant, signInNudge }: Props) {
   const isUser = message.role === "user"
 
   // While the assistant placeholder exists (inserted on the WS "session" frame,
@@ -192,6 +194,7 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant }: Pro
                 anchorCategory={seed?.product_type ?? ""}
                 brand={brand}
                 onSend={onSend}
+                signInNudge={signInNudge}
               />
             </div>
           )

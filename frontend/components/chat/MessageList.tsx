@@ -14,9 +14,18 @@ interface Props {
   brand?: string
   /** Sends a suggestion chip's text as if the user typed it. Empty-state chips render only when this is provided. */
   onSendSuggestion?: (text: string) => void
+  /** Offer an optional sign-in link after a look is saved (anonymous landing page only). */
+  signInNudge?: boolean
 }
 
-export function MessageList({ messages, isSending, onSend, brand, onSendSuggestion }: Props) {
+export function MessageList({
+  messages,
+  isSending,
+  onSend,
+  brand,
+  onSendSuggestion,
+  signInNudge,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const isStreamingRef = useRef(false)
   const { data: brandConfig } = useBrandConfig()
@@ -85,6 +94,7 @@ export function MessageList({ messages, isSending, onSend, brand, onSendSuggesti
           onSend={onSend}
           brand={brand}
           isLatestAssistant={index === lastAssistantIndex}
+          signInNudge={signInNudge}
         />
       ))}
       {/* Typing indicator while the agent is running but no token yet. Keep showing
