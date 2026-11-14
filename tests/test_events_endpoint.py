@@ -294,6 +294,23 @@ def test_boundary_values_accepted(client: TestClient, rec: _Recorder) -> None:
     assert _post(client, payload).status_code == 200
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_look_total_inr_rejects_json_booleans(
+    client: TestClient, rec: _Recorder, value: bool
+) -> None:
+    """Lax int mode coerced `true` to 1 and stored it; the field must be a real integer."""
+    assert _post(client, _bad(look_total_inr=value)).status_code == 422
+    assert rec.events == []
+
+
+@pytest.mark.parametrize("value", [0, 10_000_000, None])
+def test_look_total_inr_accepts_real_ints_and_null(
+    client: TestClient, rec: _Recorder, value: int | None
+) -> None:
+    assert _post(client, _bad(look_total_inr=value)).status_code == 200
+    assert len(rec.events) == 1
+
+
 def test_total_payload_cap(client: TestClient, rec: _Recorder) -> None:
     # Every per-field bound holds, raw body (~8.8 KB) is under the 16 KB cap, but the validated
     # payload exceeds the 8 KB whole-request cap.

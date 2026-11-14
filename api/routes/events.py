@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 from starlette.requests import Request as StarletteRequest
 
 from api.auth import get_current_user_id_or_demo
@@ -122,7 +122,8 @@ class EventRequest(BaseModel):
     filled_slots: list[dict[str, Scalar]] | None = Field(default=None, max_length=MAX_SLOTS)
     occasion: str | None = Field(default=None, max_length=MAX_LABEL_CHARS)
     brand: str | None = Field(default=None, max_length=MAX_LABEL_CHARS)
-    look_total_inr: int | None = Field(default=None, ge=0, le=MAX_LOOK_TOTAL_INR)
+    # StrictInt: lax int mode coerces JSON `true` to 1 and would store it.
+    look_total_inr: StrictInt | None = Field(default=None, ge=0, le=MAX_LOOK_TOTAL_INR)
     metadata: dict[str, Scalar] | None = None
 
     @field_validator("event_type")
