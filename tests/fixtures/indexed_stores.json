@@ -1,0 +1,215 @@
+{
+  "_comment": "Stores in the live unified index (112,425 items, V3a inventory 2026-11-14, reports/wave1b/v3a/store_inventory_full.csv). Update when the index store set changes.",
+  "stores": [
+    {
+      "slug": "libas",
+      "items": 14703,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "myntra",
+      "items": 13009,
+      "source": "static_dump"
+    },
+    {
+      "slug": "theamethyststore",
+      "items": 10085,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "flipkart",
+      "items": 9081,
+      "source": "static_dump"
+    },
+    {
+      "slug": "ishhaara",
+      "items": 8742,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "jadeblue",
+      "items": 8023,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "snitch",
+      "items": 7040,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "mortantra",
+      "items": 5213,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "globalrepublic",
+      "items": 3740,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "vastramay",
+      "items": 2978,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "voylla",
+      "items": 2835,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "jompers",
+      "items": 2758,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "tjori",
+      "items": 2714,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "kisah",
+      "items": 2709,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "fashor",
+      "items": 2343,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "campusshoes",
+      "items": 2067,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "mohanlalsons",
+      "items": 1733,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "virgio",
+      "items": 1615,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "5-elements",
+      "items": 1530,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "rathore",
+      "items": 1464,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "daivik",
+      "items": 1188,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "sukkhi",
+      "items": 1073,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "powerlook",
+      "items": 963,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "kalpraag",
+      "items": 637,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "bhasinbrothers",
+      "items": 577,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "southtemplejewellery",
+      "items": 431,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "houseofvian",
+      "items": 380,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "kalapuri",
+      "items": 352,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "priyaasi",
+      "items": 351,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "fizzygoblet",
+      "items": 338,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "silvertraq",
+      "items": 309,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "coralhaze",
+      "items": 266,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "irasoles",
+      "items": 254,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "taurjuttis",
+      "items": 209,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "blissclub",
+      "items": 178,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "korakari",
+      "items": 129,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "kraftojodhpur",
+      "items": 96,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "thejewelbox",
+      "items": 95,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "vhaan",
+      "items": 92,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "chappers",
+      "items": 55,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "juttichooindia",
+      "items": 38,
+      "source": "live_shopify"
+    },
+    {
+      "slug": "shopkop",
+      "items": 32,
+      "source": "live_shopify"
+    }
+  ]
+}

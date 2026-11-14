@@ -8,7 +8,7 @@ locale: "en-IN"
 sizing_system: "IN"
 gender_default: "men"
 catalogue_path: "data/raw/shopify/rathore/products.csv"
-pdp_url_template: "https://rathore.com/products/{handle}"
+pdp_url_template: "https://www.rathore.com/products/{handle}"
 suggestion_chips:
   - "Bandhgala jacket for wedding"
   - "Sherwani for groom"

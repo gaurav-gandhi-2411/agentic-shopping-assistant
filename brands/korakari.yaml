@@ -13,7 +13,7 @@ sizing_system: "IN"
 # unlabeled remainder as "unknown" rather than forcing a majority gender.
 gender_default: "mixed"
 catalogue_path: "data/raw/shopify/korakari/products.csv"
-pdp_url_template: "https://korakari.com/products/{handle}"
+pdp_url_template: "https://www.korakari.com/products/{handle}"
 suggestion_chips:
   - "Men's Kolhapuri sandals under 2000"
   - "Women's embroidered jutti for festive wear"
