@@ -7,7 +7,11 @@
 //  - HTTP 429 from POST /demo/session when the daily cap is hit
 //  - LLM chain exhausted: LLM_BUSY_MESSAGE streamed as ordinary assistant text.
 
-export type NoticeKind = "rate_limited" | "demo_limit" | "busy"
+/**
+ * "session_expired" is not a limit: the demo token was rejected (it lasts 1 h). The landing
+ * recovers from it once by creating a fresh session; it is never shown as a rate limit.
+ */
+export type NoticeKind = "rate_limited" | "demo_limit" | "busy" | "session_expired"
 
 export interface LimitNotice {
   kind: NoticeKind
@@ -51,4 +55,19 @@ export function noticeFromErrorFrame(code: string, message: string): LimitNotice
   }
   if (code === "demo_limit") return { kind: "demo_limit", retryAfterSeconds: null }
   return null
+}
+
+/**
+ * Classify a bare 1008 close (no error frame) by its reason text. The backend closes with
+ * "Policy violation: invalid or missing token" for a bad/expired demo token, "Demo limit
+ * reached" for the daily cap, and "Rate limit exceeded" for the per-IP limiter. Anything
+ * unrecognised is treated as a rate limit, the pre-existing behaviour.
+ */
+export function noticeFromCloseReason(reason: string | undefined): LimitNotice {
+  const r = reason ?? ""
+  if (/invalid or missing token|policy violation/i.test(r)) {
+    return { kind: "session_expired", retryAfterSeconds: null }
+  }
+  if (/demo limit/i.test(r)) return { kind: "demo_limit", retryAfterSeconds: null }
+  return { kind: "rate_limited", retryAfterSeconds: null }
 }

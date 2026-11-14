@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getWsFallbackTarget, getWsTarget } from "@/lib/api/client"
 import { openChatSocket, type WsTarget } from "@/lib/api/wsConnect"
-import { noticeFromErrorFrame, type LimitNotice } from "@/lib/limits"
+import { noticeFromCloseReason, noticeFromErrorFrame, type LimitNotice } from "@/lib/limits"
 import type {
   ChatMessage,
   ItemSummary,
@@ -352,10 +352,7 @@ export function useChatStream({
           if (event.code === 1008) {
             finished = true
             // Closed without a preceding error frame: the close reason carries the cause.
-            setLimitNotice({
-              kind: /demo limit/i.test(event.reason ?? "") ? "demo_limit" : "rate_limited",
-              retryAfterSeconds: null,
-            })
+            setLimitNotice(noticeFromCloseReason(event.reason))
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId && m.isStreaming

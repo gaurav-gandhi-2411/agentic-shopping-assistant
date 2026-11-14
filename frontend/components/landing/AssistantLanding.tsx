@@ -37,6 +37,7 @@ export function AssistantLanding() {
   const session = useDemoSession()
   const chat = useChatStream()
   const [pending, setPending] = useState<PendingAction | null>(null)
+  const [recovered, setRecovered] = useState(false)
   const nextId = useRef(1)
   const flushedId = useRef(0)
 
@@ -52,6 +53,7 @@ export function AssistantLanding() {
   }, [session.status, pending, sendMessage, sendImage])
 
   function handleSend(text: string): void {
+    setRecovered(false)
     if (session.status === "ready") {
       void sendMessage(text)
     } else {
@@ -60,6 +62,7 @@ export function AssistantLanding() {
   }
 
   function handleSendImage(file: File, text?: string): void {
+    setRecovered(false)
     if (session.status === "ready") {
       void sendImage(file, text)
     } else {
@@ -86,9 +89,33 @@ export function AssistantLanding() {
     }
     if (lastUser === -1) return
     const text = messages[lastUser].content
+    setRecovered(false) // a user-initiated retry earns a fresh automatic recovery
     resetMessages(messages.slice(0, lastUser))
     void sendMessage(text)
   }
+
+  // Expired/invalid demo token (the backend closes with 1008 "invalid or missing token"):
+  // discard the stored session, create a fresh one and resend the failed turn through the
+  // normal queue, so it goes out once the new session is ready. At most ONE automatic
+  // recovery per user action: `recovered` stays true until the user acts again.
+  const sessionExpired = chat.limitNotice?.kind === "session_expired"
+  const { recreate } = session
+  useEffect(() => {
+    if (!sessionExpired || recovered) return
+    let lastUser = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUser = i
+        break
+      }
+    }
+    if (lastUser === -1) return
+    setRecovered(true)
+    const text = messages[lastUser].content
+    resetMessages(messages.slice(0, lastUser))
+    recreate()
+    setPending({ id: nextId.current++, kind: "text", text })
+  }, [sessionExpired, recovered, messages, resetMessages, recreate])
 
   const hasAssistantReply = messages.some((m) => m.role === "assistant")
   // "Waiting" = the session is not ready yet, a query is queued, or a query was sent and the
@@ -107,12 +134,17 @@ export function AssistantLanding() {
         <StreamNotice kind="session_error" onRetry={session.retry} />
       )}
       {session.status === "limit" && <StreamNotice kind="demo_limit" />}
-      {chat.limitNotice && (
+      {chat.limitNotice && chat.limitNotice.kind !== "session_expired" && (
         <StreamNotice
           kind={chat.limitNotice.kind}
           retryAfterSeconds={chat.limitNotice.retryAfterSeconds}
           onRetry={retryLastTurn}
         />
+      )}
+      {/* An expired session is recovered once automatically (effect above); only when that
+          already happened and the turn failed again do we show the generic retry notice. */}
+      {chat.limitNotice?.kind === "session_expired" && recovered && (
+        <StreamNotice kind="session_error" onRetry={retryLastTurn} />
       )}
       {busy && <StreamNotice kind="busy" onRetry={retryLastTurn} />}
     </>
@@ -132,7 +164,8 @@ export function AssistantLanding() {
       </header>
 
       {started ? (
-        <div className="flex min-h-0 flex-1 flex-col">
+        // The two branches are exclusive, so the page always has exactly one <main> landmark.
+        <main className="flex min-h-0 flex-1 flex-col">
           {pending && shownMessages.length === 0 ? (
             <div className="flex-1 overflow-y-auto px-4 py-6">
               <div className="flex justify-end">
@@ -159,7 +192,7 @@ export function AssistantLanding() {
               {notices}
             </>
           )}
-        </div>
+        </main>
       ) : (
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-6">
           <h1 className="text-balance font-serif text-2xl font-semibold tracking-tight text-foreground">

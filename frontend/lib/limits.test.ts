@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   formatRetryAfter,
   isBusyReply,
+  noticeFromCloseReason,
   noticeFromErrorFrame,
   parseRetryAfterSeconds,
 } from "./limits"
@@ -52,5 +53,24 @@ describe("isBusyReply", () => {
       ),
     ).toBe(true)
     expect(isBusyReply("Here are some sangeet outfits.")).toBe(false)
+  })
+})
+
+describe("noticeFromCloseReason (bare 1008 close)", () => {
+  it("an invalid/expired token is session_expired, never a rate limit", () => {
+    expect(noticeFromCloseReason("Policy violation: invalid or missing token").kind).toBe(
+      "session_expired",
+    )
+    expect(noticeFromCloseReason("Policy violation").kind).toBe("session_expired")
+  })
+
+  it("keeps the daily-cap and rate-limit reasons", () => {
+    expect(noticeFromCloseReason("Demo limit reached").kind).toBe("demo_limit")
+    expect(noticeFromCloseReason("Rate limit exceeded").kind).toBe("rate_limited")
+  })
+
+  it("unknown or missing reasons stay a rate limit (pre-existing behaviour)", () => {
+    expect(noticeFromCloseReason("").kind).toBe("rate_limited")
+    expect(noticeFromCloseReason(undefined).kind).toBe("rate_limited")
   })
 })

@@ -10,6 +10,7 @@ const sendMessage = vi.fn()
 const sendImage = vi.fn()
 const resetMessages = vi.fn()
 const sessionRetry = vi.fn()
+const sessionRecreate = vi.fn()
 
 let sessionStatus: DemoSessionStatus = "ready"
 let chatState: {
@@ -20,7 +21,7 @@ let chatState: {
 }
 
 vi.mock("@/hooks/useDemoSession", () => ({
-  useDemoSession: () => ({ status: sessionStatus, retry: sessionRetry }),
+  useDemoSession: () => ({ status: sessionStatus, retry: sessionRetry, recreate: sessionRecreate }),
 }))
 vi.mock("@/hooks/useChatStream", () => ({
   useChatStream: () => ({
@@ -40,10 +41,21 @@ vi.mock("@/components/chat/MessageList", () => ({
 }))
 // ChatInput imports the on-device pose model; a one-button stand-in is enough here.
 vi.mock("@/components/chat/ChatInput", () => ({
-  ChatInput: (props: { onSend: (t: string) => void }) => (
-    <button type="button" onClick={() => props.onSend("typed query")}>
-      send typed
-    </button>
+  ChatInput: (props: {
+    onSend: (t: string) => void
+    onSendImage?: (f: File, t?: string) => void
+  }) => (
+    <>
+      <button type="button" onClick={() => props.onSend("typed query")}>
+        send typed
+      </button>
+      <button
+        type="button"
+        onClick={() => props.onSendImage?.(new File(["x"], "look.jpg", { type: "image/jpeg" }), "my note")}
+      >
+        send photo
+      </button>
+    </>
   ),
 }))
 
@@ -61,6 +73,11 @@ beforeEach(() => {
   sendImage.mockReset()
   resetMessages.mockReset()
   sessionRetry.mockReset()
+  // The real recreate() flips the session back to "creating" synchronously.
+  sessionRecreate.mockReset()
+  sessionRecreate.mockImplementation(() => {
+    sessionStatus = "creating"
+  })
 })
 afterEach(() => {
   cleanup()
@@ -187,5 +204,79 @@ describe("landing: limit and busy states", () => {
     expect(screen.getByTestId("message-list").textContent).toBe("Haldi kurta set")
     fireEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(sendMessage).toHaveBeenCalledWith("Haldi kurta set")
+  })
+})
+
+describe("landing: queued photo during the cold start", () => {
+  it("sends a photo chosen while the session is being created once, when it is ready", () => {
+    sessionStatus = "creating"
+    const { rerender } = render(<AssistantLanding />)
+    fireEvent.click(screen.getByRole("button", { name: "send photo" }))
+    expect(sendImage).not.toHaveBeenCalled()
+    expect(screen.getByText("my note")).toBeTruthy() // the queued request is visible
+
+    sessionStatus = "ready"
+    rerender(<AssistantLanding />)
+    expect(sendImage).toHaveBeenCalledTimes(1)
+    const [file, note] = sendImage.mock.calls[0]
+    expect((file as File).name).toBe("look.jpg")
+    expect(note).toBe("my note")
+    rerender(<AssistantLanding />)
+    expect(sendImage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("landing: expired demo session (1008 invalid or missing token)", () => {
+  const expired: LimitNotice = { kind: "session_expired", retryAfterSeconds: null }
+
+  it("shows no rate-limit copy, recreates the session once and resends the turn once", () => {
+    chatState.messages = [msg("user", "Haldi kurta set")]
+    chatState.limitNotice = expired
+    const { rerender } = render(<AssistantLanding />)
+
+    expect(sessionRecreate).toHaveBeenCalledTimes(1)
+    expect(resetMessages).toHaveBeenCalledWith([]) // failed turn dropped: no duplicate bubble
+    expect(screen.queryByText(/sent a lot of requests/i)).toBeNull()
+    expect(sendMessage).not.toHaveBeenCalled() // waits for the fresh session
+
+    // The real hook clears the notice on reset; the new session then becomes ready.
+    chatState = { ...chatState, messages: [], limitNotice: null }
+    sessionStatus = "ready"
+    rerender(<AssistantLanding />)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledWith("Haldi kurta set")
+    expect(sessionRecreate).toHaveBeenCalledTimes(1)
+  })
+
+  it("a second failure shows the generic retry notice and does not loop", () => {
+    chatState.messages = [msg("user", "Haldi kurta set")]
+    chatState.limitNotice = expired
+    const { rerender } = render(<AssistantLanding />)
+    expect(sessionRecreate).toHaveBeenCalledTimes(1)
+
+    chatState = { ...chatState, messages: [msg("user", "Haldi kurta set")], limitNotice: expired }
+    sessionStatus = "ready"
+    rerender(<AssistantLanding />)
+    rerender(<AssistantLanding />)
+    expect(sessionRecreate).toHaveBeenCalledTimes(1) // no second automatic recovery
+    expect(screen.getByRole("alert").textContent).toMatch(/couldn't reach the stylist/i)
+    expect(screen.getByRole("alert").textContent).not.toMatch(/sent a lot of requests/i)
+  })
+
+  it("a real rate_limited notice still shows the rate-limit copy and never recreates", () => {
+    chatState.messages = [msg("user", "Haldi kurta set")]
+    chatState.limitNotice = { kind: "rate_limited", retryAfterSeconds: 90 }
+    render(<AssistantLanding />)
+    expect(screen.getByRole("alert").textContent).toContain("try again in about 2 minutes")
+    expect(sessionRecreate).not.toHaveBeenCalled()
+  })
+
+  it("keeps a single <main> landmark in both the hero and the chat state", () => {
+    const { container, unmount } = render(<AssistantLanding />)
+    expect(container.querySelectorAll("main")).toHaveLength(1)
+    unmount()
+    chatState.messages = [msg("user", "Haldi kurta set")]
+    const second = render(<AssistantLanding />)
+    expect(second.container.querySelectorAll("main")).toHaveLength(1)
   })
 })

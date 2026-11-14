@@ -14,8 +14,8 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:800
  */
 export const SESSION_TIMEOUT_MS = 150_000
 
-/** Demo tokens last 1 h (expires_in); reuse a stored one only while it is comfortably fresh. */
-const SESSION_REUSE_MAX_AGE_MS = 50 * 60 * 1000
+/** Demo tokens last 1 h (expires_in 3600 s); reuse a stored one only while under 45 min old. */
+const SESSION_REUSE_MAX_AGE_MS = 45 * 60 * 1000
 
 export type DemoSessionStatus = "creating" | "ready" | "error" | "limit"
 
@@ -34,7 +34,27 @@ function storedSessionIsFresh(): boolean {
   }
 }
 
-export function useDemoSession(): { status: DemoSessionStatus; retry: () => void } {
+const SESSION_KEYS = [
+  "demo_session_token",
+  "demo_session_at",
+  "demo_backend_url",
+  "demo_brand_id",
+  "demo_brand_name",
+] as const
+
+function clearStoredSession(): void {
+  try {
+    for (const key of SESSION_KEYS) sessionStorage.removeItem(key)
+  } catch {
+    // storage unavailable: nothing stored to discard
+  }
+}
+
+export function useDemoSession(): {
+  status: DemoSessionStatus
+  retry: () => void
+  recreate: () => void
+} {
   const [status, setStatus] = useState<DemoSessionStatus>("creating")
   // One request at a time, and none at all on a StrictMode double-mount.
   const inFlight = useRef(false)
@@ -79,5 +99,11 @@ export function useDemoSession(): { status: DemoSessionStatus; retry: () => void
     void create()
   }, [create])
 
-  return { status, retry: () => void create() }
+  // The backend rejected the stored token (expired or invalid): forget it and start over.
+  const recreate = useCallback((): void => {
+    clearStoredSession()
+    void create()
+  }, [create])
+
+  return { status, retry: () => void create(), recreate }
 }

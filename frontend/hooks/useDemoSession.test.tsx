@@ -92,6 +92,40 @@ describe("useDemoSession", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it("reuses a stored session only while it is younger than 45 minutes", async () => {
+    sessionStorage.setItem("demo_session_token", "old")
+    sessionStorage.setItem("demo_session_at", String(Date.now() - 46 * 60 * 1000))
+    renderHook(() => useDemoSession())
+    await act(async () => {})
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("recreate() discards every stored demo key and starts exactly one new session", async () => {
+    sessionStorage.setItem("demo_session_token", "stale")
+    sessionStorage.setItem("demo_session_at", String(Date.now()))
+    sessionStorage.setItem("demo_backend_url", "http://old")
+    sessionStorage.setItem("demo_brand_id", "unified")
+    sessionStorage.setItem("demo_brand_name", "Style Maitri")
+    const { result } = renderHook(() => useDemoSession())
+    await act(async () => {})
+    expect(result.current.status).toBe("ready")
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await act(async () => {
+      result.current.recreate()
+    })
+    expect(result.current.status).toBe("creating")
+    expect(sessionStorage.getItem("demo_session_token")).toBeNull()
+    expect(sessionStorage.getItem("demo_backend_url")).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      pending[0].resolve(json({ session_token: "fresh" }))
+    })
+    expect(result.current.status).toBe("ready")
+    expect(sessionStorage.getItem("demo_session_token")).toBe("fresh")
+  })
+
   it("does not trust a stored token with no timestamp", async () => {
     sessionStorage.setItem("demo_session_token", "unknown-age")
     renderHook(() => useDemoSession())

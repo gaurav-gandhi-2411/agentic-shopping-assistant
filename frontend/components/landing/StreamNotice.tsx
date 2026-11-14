@@ -23,6 +23,7 @@ function messageFor(kind: StreamNoticeKind, retryAfterSeconds: number | null | u
       return COPY.notices.demoLimit
     case "busy":
       return COPY.notices.busy
+    case "session_expired": // only reached if automatic recovery already failed once
     case "session_error":
       return COPY.notices.sessionError
   }
