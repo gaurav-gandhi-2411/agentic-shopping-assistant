@@ -264,9 +264,22 @@ def verify_build_dir(
     if bool(clip_listed) != (manifest.clip_dim is not None):
         raise BuildValidationError("clip_mismatch", "clip_dim and the CLIP file list disagree")
 
-    for name, entry in listed.items():
-        if "/" in name or "\\" in name or name in ("", ".", ".."):
+    # Every listed name must be a plain file name inside the build dir. Checked for ALL entries
+    # BEFORE any file is opened or hashed, so a hostile manifest can never make the verifier
+    # read outside the build directory (separators, drive letters, dot names, control
+    # characters, over-long names).
+    for name in listed:
+        if (
+            "/" in name
+            or "\\" in name
+            or ":" in name
+            or name in ("", ".", "..")
+            or len(name) > 255
+            or any(ord(c) < 32 for c in name)
+        ):
             raise BuildValidationError("file_missing", "manifest lists a non-flat file name")
+
+    for name, entry in listed.items():
         path = build_dir / name
         if not path.is_file():
             raise BuildValidationError("file_missing", f"{name} not found")

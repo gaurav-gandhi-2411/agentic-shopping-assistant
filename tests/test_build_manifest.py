@@ -236,3 +236,59 @@ def test_checked_in_json_schema_matches_the_model() -> None:
     assert path.read_text(encoding="utf-8").replace("\r\n", "\n") == schema_text(), (
         "regenerate docs/build_manifest.schema.json from src.retrieval.build_manifest.schema_text()"
     )
+
+
+_HOSTILE_NAMES = [
+    "../sentinel.bin",
+    "..\\sentinel.bin",
+    "SENTINEL_ABS",  # replaced by the absolute path of the sentinel file
+    "C:\\sentinel.bin",
+    "C:sentinel.bin",
+    "sub/dir.bin",
+    "",
+    ".",
+    "..",
+    "bad\x00name.bin",
+    "bad\nname.bin",
+    "x" * 300,
+]
+
+
+@pytest.mark.parametrize("hostile", range(len(_HOSTILE_NAMES)))
+def test_hostile_manifest_file_names_are_rejected_before_anything_is_read_outside(
+    build: tuple[Path, BuildManifest], monkeypatch: pytest.MonkeyPatch, hostile: int
+) -> None:
+    """A manifest entry naming a file outside the build dir must be refused BEFORE any file is
+    opened or hashed. A sentinel beside the build dir has a matching hash and size, so a
+    verifier without the guard would accept the entry (and the test fail)."""
+    import hashlib
+
+    from src.retrieval import build_manifest as bm
+
+    bdir, m = build
+    sentinel = bdir.parent / "sentinel.bin"
+    payload = b"outside the build dir"
+    sentinel.write_bytes(payload)
+    (bdir / "sub").mkdir()
+    (bdir / "sub" / "dir.bin").write_bytes(payload)
+    name = str(sentinel) if _HOSTILE_NAMES[hostile] == "SENTINEL_ABS" else _HOSTILE_NAMES[hostile]
+    evil = m.files[0].model_copy(
+        update={
+            "name": name,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+        }
+    )
+    m.files = [*m.files, evil]
+    write_manifest(bdir, m)
+
+    hashed: list[Path] = []
+    real = bm.sha256_file
+    monkeypatch.setattr(
+        bm, "sha256_file", lambda path, *a, **k: (hashed.append(path), real(path))[1]
+    )
+
+    with pytest.raises(BuildValidationError) as exc:
+        verify_build_dir(bdir)
+    assert _reason(exc) == "file_missing"
+    assert hashed == [], f"files were hashed before the name was rejected: {hashed}"
