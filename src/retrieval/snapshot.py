@@ -24,6 +24,7 @@ over an unfiltered DataFrame (evals) the same method applies the registry mask i
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from dataclasses import dataclass, field
@@ -58,6 +59,19 @@ class IndexSnapshot:
     agent_streaming: Any = None
     source: str = "flat"  # "flat" (legacy layout) | "build" (builds/<id>/)
     loaded_at: float = field(default_factory=time.time)
+
+    @functools.cached_property
+    def public_article_ids(self) -> frozenset[str]:
+        """Ids of the snapshot's (public) catalogue; the allow-list for the image-anchor path.
+
+        Computed once on first use (a few ms for 90k ids) and stored in the instance dict, which
+        works on a frozen dataclass because cached_property bypasses ``__setattr__``.
+        """
+        if "article_id" in self.catalogue_df.columns:
+            ids = self.catalogue_df["article_id"]
+        else:
+            ids = self.catalogue_df.index.to_series()
+        return frozenset(ids.astype(str))
 
 
 def public_catalogue(df: pd.DataFrame) -> pd.DataFrame:

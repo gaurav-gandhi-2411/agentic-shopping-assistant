@@ -44,6 +44,7 @@ import difflib
 import math
 import re
 import unicodedata
+import weakref
 from typing import Any
 
 import pandas as pd
@@ -415,37 +416,40 @@ def build_brand_index(catalogue_df: pd.DataFrame) -> dict[str, list[int]]:
 
 
 # We can't lru_cache a DataFrame directly (unhashable), so we use module-level
-# variables instead.
+# variables instead.  The cache key is the DataFrame OBJECT (a weak reference, so the cache
+# never keeps a replaced catalogue alive): the index hot reload swaps in a new DataFrame, and
+# the previous row-count key served a stale map whenever the new build had the same length.
 _brand_stores_cache: dict[str, set[str]] | None = None
 _brand_index_cache: dict[str, list[int]] | None = None
-_brand_stores_cache_size: int = -1
+_brand_stores_cache_df: weakref.ref[pd.DataFrame] | None = None
+_brand_index_cache_df: weakref.ref[pd.DataFrame] | None = None
 
 
 def get_cached_brand_stores_map(catalogue_df: pd.DataFrame) -> dict[str, set[str]]:
-    """Return a cached brand-to-stores map, rebuilding only when catalogue changes.
-
-    Uses catalogue row count as a lightweight cache key.  Good enough for the
-    read-only hot path where the catalogue is loaded once at startup.
-    """
-    global _brand_stores_cache, _brand_stores_cache_size  # noqa: PLW0603
-    current_len = len(catalogue_df)
-    if _brand_stores_cache is None or _brand_stores_cache_size != current_len:
+    """Return a cached brand-to-stores map, rebuilding only when the catalogue object changes."""
+    global _brand_stores_cache, _brand_stores_cache_df  # noqa: PLW0603
+    if (
+        _brand_stores_cache is None
+        or _brand_stores_cache_df is None
+        or _brand_stores_cache_df() is not catalogue_df
+    ):
         _brand_stores_cache = build_brand_stores_map(catalogue_df)
-        _brand_stores_cache_size = current_len
+        _brand_stores_cache_df = weakref.ref(catalogue_df)
     return _brand_stores_cache
 
 
 def get_cached_brand_index(catalogue_df: pd.DataFrame) -> dict[str, list[int]]:
-    """Return a cached brand-to-row-positions index, rebuilding only when catalogue changes.
+    """Return a cached brand-to-row-positions index, rebuilding only when the catalogue changes.
 
     Pair with get_cached_brand_stores_map() and pass both to find_cross_store_matches()
     for maximum performance on the hot path.
     """
-    global _brand_index_cache, _brand_stores_cache_size  # noqa: PLW0603
-    current_len = len(catalogue_df)
-    if _brand_index_cache is None or _brand_stores_cache_size != current_len:
+    global _brand_index_cache, _brand_index_cache_df  # noqa: PLW0603
+    if (
+        _brand_index_cache is None
+        or _brand_index_cache_df is None
+        or _brand_index_cache_df() is not catalogue_df
+    ):
         _brand_index_cache = build_brand_index(catalogue_df)
-        # Note: _brand_stores_cache_size is shared as the cache invalidation key.
-        # get_cached_brand_stores_map() must be called first (or alongside) to
-        # set the correct size.
+        _brand_index_cache_df = weakref.ref(catalogue_df)
     return _brand_index_cache
