@@ -80,7 +80,7 @@ class TestInactiveStoreExclusion:
         cat_df = _make_catalogue(
             [
                 {"article_id": "a1", "store": "berrylush", "gender": "women"},
-                {"article_id": "a2", "store": "myntra", "gender": "women"},
+                {"article_id": "a2", "store": "fashor", "gender": "women"},
                 {"article_id": "a3", "store": "berrylush", "gender": "women"},
             ]
         )
@@ -88,7 +88,7 @@ class TestInactiveStoreExclusion:
         results = retriever.search("shirt", top_k=10)
         stores = {r["store"] for r in results}
         assert "berrylush" not in stores
-        assert stores == {"myntra"}
+        assert stores == {"fashor"}
 
     def test_hm_excluded_from_results(self) -> None:
         """hm is flagged inactive (dormant) in STORE_CONFIG; it must never surface."""
@@ -120,14 +120,14 @@ class TestInactiveStoreExclusion:
         """Active stores must pass through unfiltered by the inactive-store guard."""
         cat_df = _make_catalogue(
             [
-                {"article_id": "a1", "store": "myntra", "gender": "women"},
+                {"article_id": "a1", "store": "fashor", "gender": "women"},
                 {"article_id": "a2", "store": "snitch", "gender": "men"},
                 {"article_id": "a3", "store": "libas", "gender": "women"},
             ]
         )
         retriever = _make_retriever(cat_df)
         results = retriever.search("shirt", top_k=10)
-        assert {r["store"] for r in results} == {"myntra", "snitch", "libas"}
+        assert {r["store"] for r in results} == {"fashor", "snitch", "libas"}
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +167,8 @@ class TestStrictGenderFilter:
         """Rows with a missing/null gender column value must also be excluded."""
         cat_df = _make_catalogue(
             [
-                {"article_id": "a1", "store": "myntra", "gender": "men"},
-                {"article_id": "a2", "store": "myntra", "gender": None},
+                {"article_id": "a1", "store": "fashor", "gender": "men"},
+                {"article_id": "a2", "store": "fashor", "gender": None},
             ]
         )
         retriever = _make_retriever(cat_df)
@@ -193,8 +193,8 @@ class TestStrictGenderFilter:
         """index_group_name='menswear' → gender='men' translation must also apply strictly."""
         cat_df = _make_catalogue(
             [
-                {"article_id": "a1", "store": "myntra", "gender": "men"},
-                {"article_id": "a2", "store": "myntra", "gender": "unknown"},
+                {"article_id": "a1", "store": "fashor", "gender": "men"},
+                {"article_id": "a2", "store": "fashor", "gender": "unknown"},
             ]
         )
         retriever = _make_retriever(cat_df)
