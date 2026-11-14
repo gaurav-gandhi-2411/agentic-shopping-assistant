@@ -28,6 +28,7 @@ import functools
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -72,6 +73,32 @@ class IndexSnapshot:
         else:
             ids = self.catalogue_df.index.to_series()
         return frozenset(ids.astype(str))
+
+
+def index_age_hours(snapshot: IndexSnapshot, now: datetime | None = None) -> float | None:
+    """Hours since the build in ``snapshot`` was built; None for a legacy index (no manifest)."""
+    if snapshot.manifest is None:
+        return None
+    built = snapshot.manifest.built_at
+    if built.tzinfo is None:  # a manifest without a UTC offset is read as UTC
+        built = built.replace(tzinfo=timezone.utc)
+    return ((now or datetime.now(timezone.utc)) - built).total_seconds() / 3600.0
+
+
+def describe_index(snapshot: IndexSnapshot, now: datetime | None = None) -> dict[str, Any]:
+    """What /readyz reports about the served index (no paths, no secrets)."""
+    m = snapshot.manifest
+    if m is None:
+        return {"build_id": snapshot.build_id, "layout": "legacy (no manifest)"}
+    age = index_age_hours(snapshot, now)
+    return {
+        "build_id": m.build_id,
+        "layout": "build" if snapshot.source == "build" else "flat+manifest",
+        "built_at": m.built_at.isoformat(timespec="seconds"),
+        "age_hours": round(age, 2) if age is not None else None,
+        "stores": len(m.stores),
+        "items": m.total_items,
+    }
 
 
 def public_catalogue(df: pd.DataFrame) -> pd.DataFrame:

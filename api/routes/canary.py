@@ -53,6 +53,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import api.deps as deps
 from api.demo.guards import check_daily_cost
 from api.logging_config import conversation_id_var
 from api.routes import chat as chat_routes
@@ -61,6 +62,7 @@ from src.agents.grounding import GROUNDED_FALLBACK_EMPTY, GROUNDED_FALLBACK_PREF
 from src.llm.context import llm_user_id_var
 from src.llm.resilience import LLM_BUSY_MESSAGE
 from src.retrieval.index_store import resolve_brand as _resolve_brand
+from src.retrieval.snapshot import index_age_hours
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["canary"], include_in_schema=False)
@@ -84,6 +86,11 @@ MAX_RUNS_PER_DAY = 60  # hard per-instance cap; the 60 min pass cache alone give
 ROTATION_SLOT_S = 30 * 60  # one query per wall-clock slot (runs 60 min apart still cover all 3)
 _CANARY_USER_ID = "anon:canary-internal"  # anon: -> in-memory session path, no Postgres user row
 
+# V3d: an index older than this fails the canary. 36 h = one missed daily refresh (24 h) plus
+# 12 h of slack before it pages.
+INDEX_MAX_AGE_HOURS = 36.0
+INDEX_STRICT_ENV = "INDEX_FRESHNESS_STRICT"
+
 _monotonic = time.monotonic  # patched in tests
 _wall = time.time  # patched in tests; epoch seconds drive the query rotation
 
@@ -100,6 +107,26 @@ def _query_for(epoch_s: float) -> tuple[str, str]:
 def _utcnow() -> datetime:
     """Current UTC time (patched in tests)."""
     return datetime.now(timezone.utc)
+
+
+def _index_stale() -> bool:
+    """True when the served index must fail the canary (``index_stale`` assertion).
+
+    ENFORCED ONLY WHEN A MANIFEST EXISTS: the legacy flat index has no build time, so the
+    transition to manifest-bearing builds must not page on the index we serve today. Once the
+    first build is published and loaded the age is checked from then on. INDEX_FRESHNESS_STRICT=1
+    additionally treats a missing manifest as stale (flip it after the first publish).
+    Evaluated on every call, independent of the cached query result: a pass cached for 60 min
+    must not hide an index that went stale in the meantime. No snapshot yet -> not this
+    assertion's business (readiness and the query itself fail in that case).
+    """
+    snap = deps.get_snapshot_or_none()
+    if snap is None:
+        return False
+    age = index_age_hours(snap, _utcnow())
+    if age is None:
+        return os.environ.get(INDEX_STRICT_ENV, "").strip().lower() in ("1", "true", "yes")
+    return age > INDEX_MAX_AGE_HOURS
 
 
 @dataclass
@@ -423,6 +450,8 @@ async def canary(
     token = _plain_query_token(request.scope.get("query_string", b""))
     if not _authorised(x_canary_token, token):
         raise HTTPException(status_code=404, detail="Not Found")
+    if _index_stale():
+        return _respond(500, _fail_body("index_stale", _PUBLIC_DETAIL["index_stale"]), cached=False)
     try:
         kind, status, body = await _result()
     except Exception:
@@ -445,6 +474,7 @@ _PUBLIC_DETAIL: dict[str, str] = {
     "price": "card with invalid price",
     "latency": "latency over budget",
     "timeout": "no result within the deadline",
+    "index_stale": "index older than 36 h",
 }
 
 
@@ -472,6 +502,15 @@ async def canary_status() -> JSONResponse:
       503); beyond it, or with no result at all, ``503 {"status":"stale"}``. A pass older than
       2 x ttl is never reported as a pass, whatever the reason the refresh failed.
     """
+    if _index_stale():  # before the cache: a cached pass must not mask a stale index
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "fail",
+                "assertion": "index_stale",
+                "detail": _PUBLIC_DETAIL["index_stale"],
+            },
+        )
     try:
         kind, status, body = await _result()
     except Exception as exc:  # a refresh that raises must not let an old pass through
