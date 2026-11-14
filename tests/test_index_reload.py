@@ -407,22 +407,32 @@ def test_reloads_are_single_flight(env: Env) -> None:
 @pytest.mark.parametrize(
     ("environ", "expected"),
     [
-        ({}, False),  # local dev / tests
-        ({"INDEX_STORE_URI": "gs://bucket"}, True),  # bucket-backed: default ON
-        ({"INDEX_STORE_URI": "gs://bucket", "INDEX_HOT_RELOAD": "0"}, False),
+        ({}, False),  # default: OFF
+        ({"INDEX_STORE_URI": "gs://bucket"}, False),  # a bucket alone does NOT enable it
+        ({"INDEX_STORE_URI": "gs://bucket", "INDEX_HOT_RELOAD": "0"}, False),  # explicit off
         ({"INDEX_STORE_URI": "gs://bucket", "INDEX_HOT_RELOAD": "false"}, False),
-        ({"INDEX_HOT_RELOAD": "1"}, True),
-        ({"INDEX_STORE_URI": "/local/dir"}, False),
+        ({"INDEX_HOT_RELOAD": "banana"}, False),  # anything but an explicit yes is off
+        ({"INDEX_HOT_RELOAD": ""}, False),
+        ({"INDEX_HOT_RELOAD": "1"}, True),  # explicit on
+        ({"INDEX_STORE_URI": "gs://bucket", "INDEX_HOT_RELOAD": "true"}, True),
     ],
 )
 def test_hot_reload_switch(environ: dict[str, str], expected: bool) -> None:
     assert hot_reload_enabled(environ) is expected
 
 
-def test_disabled_switch_means_no_source_and_no_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_is_off_no_source_no_thread_even_with_a_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INDEX_HOT_RELOAD", raising=False)
+    monkeypatch.setenv("INDEX_STORE_URI", "gs://bucket")
+    assert index_runtime.make_index_source("gs://bucket") is None  # flat layout as before V3b
+
+
+def test_explicit_off_and_explicit_on_switch_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INDEX_HOT_RELOAD", "0")
     assert index_runtime.make_index_source("gs://bucket") is None
-    monkeypatch.delenv("INDEX_HOT_RELOAD")
+    monkeypatch.setenv("INDEX_HOT_RELOAD", "1")
     assert index_runtime.make_index_source("gs://bucket") is not None
     assert index_runtime.make_index_source(None) is None
     assert index_runtime.make_index_source("file:///x") is None

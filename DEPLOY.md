@@ -643,7 +643,13 @@ Code is in; **nothing in this section has been published or created in the cloud
 need the NOT-YET-APPROVED cloud work are marked **[needs cloud]**. Everything else works today:
 with no `pointers/` objects the service loads the flat layout exactly as before.
 
-### Memory: read this before anyone publishes a pointer
+**Hot reload is DISABLED BY DEFAULT** (opt-in: it runs only when `INDEX_HOT_RELOAD=1` is set
+explicitly, for both the background thread and the startup pointer lookup). Reason: a second
+in-memory snapshot does not fit the 4 GiB Cloud Run limit (numbers below). **Do not enable it
+until the architect decides.** `/readyz` reports `index.reload.hot_reload: disabled
+(INDEX_HOT_RELOAD not set)` while it is off.
+
+### Memory: why hot reload is off (read before anyone publishes a pointer)
 
 Measured with `scripts/ops/measure_index_swap_memory.py` on read-only copies of the live
 `unified` index (112,425 items; public view 89,407) plus its CLIP index, real faiss/numpy/pandas,
@@ -664,9 +670,26 @@ real service is already at 0.68 to 0.79 of its 4 GiB (hourly p99 of
 read-only query). **Adding a second snapshot (+1.35 GiB measured) to that puts the swap at about
 4.1 to 4.5 GiB, over the limit, before counting the temp download.** The in-process swap as
 designed does NOT fit in 4 GiB. Per-snapshot cost by component (second run, `measure_index_parts_memory.py`): catalogue frame 0.75
-GiB, BM25 0.59 GiB, dense 0.18 GiB, CLIP 0.23 GiB. Until the owner decides (more memory, smaller
-snapshots, or replacing the instance instead of swapping in place), do not publish a pointer to
-production, or set `INDEX_HOT_RELOAD=0`.
+GiB, BM25 0.59 GiB, dense 0.18 GiB, CLIP 0.23 GiB. Until the architect decides, leave
+`INDEX_HOT_RELOAD` unset.
+
+#### Options, NOT IMPLEMENTED (for the architect)
+
+None of these exists in code; peaks are ESTIMATES, not measurements.
+
+1. **Drop-then-load.** Download and validate to `/tmp` while serving the old snapshot; then drop
+   the old snapshot (release); load the new one from `/tmp`; delete `/tmp`; swap; hold new
+   requests on a lock for the few seconds the load takes (about 4.5 s measured for load plus graph
+   compile). ESTIMATE of peak: steady + the build resident on `/tmp`, about 0.53 GiB. On the
+   live service (2.7 to 3.2 GiB steady) that is about 3.25 to 3.73 GiB (81 to 93 % of 4 GiB),
+   under the limit but with only about 0.27 to 0.75 GiB margin; requests wait during the load.
+2. **Replace the instance** instead of swapping in place (the earlier proposal): no second
+   snapshot in one process, at the cost of a cold start per refresh.
+3. **More memory** on the Cloud Run service (cost NOT MEASURED).
+4. **Smaller snapshots:** drop unused catalogue columns or use categorical/arrow dtypes (frame is
+   0.75 GiB), replace the BM25 pickle with a compact sparse structure (0.59 GiB), mmap the FAISS
+   indexes, publish public-only builds (about 0.795 times the items, linear ESTIMATE).
+5. **Memory guard:** refuse to start a reload when projected memory exceeds a threshold.
 
 ### Store registry (`src/config/store_registry.py`)
 
@@ -726,7 +749,8 @@ it after the first build is live.
 
 ### Hot reload (`src/retrieval/index_reload.py`)
 
-A daemon thread checks `pointers/` every `INDEX_RELOAD_INTERVAL_S` (default 900, minimum 60). On
+When enabled (`INDEX_HOT_RELOAD=1`; off by default), a daemon thread checks `pointers/` every
+`INDEX_RELOAD_INTERVAL_S` (default 900, minimum 60). On
 a new newest pointer it downloads the build to a fresh temp dir under `/tmp` (not `/app/data`;
 deleted in `finally`), verifies it, loads a new snapshot (agent graphs compiled around the new
 retriever, embedding model reused), re-checks vector count and dimension, runs a smoke search,
@@ -736,7 +760,7 @@ no pointer, or any load failure, falls back to the flat layout.
 
 | Switch | Meaning |
 |---|---|
-| `INDEX_HOT_RELOAD` | `0` disables BOTH the thread and the startup pointer lookup (behaves as before V3b); `1` forces on; unset = on only when `INDEX_STORE_URI` is `gs://` (off for local dev and tests) |
+| `INDEX_HOT_RELOAD` | **opt-in, default OFF.** `1` enables BOTH the thread and the startup pointer lookup; unset, `0` or anything else = off (flat layout, behaves as before V3b). Do not enable until the architect decides (memory, see above) |
 | `INDEX_RELOAD_INTERVAL_S` | check interval, default 900, floor 60 |
 | `INDEX_FRESHNESS_STRICT` | see above |
 | `INCLUDE_NON_PUBLIC_STORES` | see above |
@@ -763,8 +787,8 @@ for image search when the build has one.
 ### Rollback **[needs cloud]**
 
 The owner deletes the newest `pointers/<ts>.json`; every instance picks the previous pointer at
-its next check (at most one interval, 15 min by default) and swaps back. To stop reloads
-altogether set `INDEX_HOT_RELOAD=0` on the service.
+its next check (at most one interval, 15 min by default) and swaps back. This applies only when
+hot reload is enabled (`INDEX_HOT_RELOAD=1`); it is off by default.
 
 ---
 

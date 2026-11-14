@@ -173,8 +173,10 @@ async def lifespan(app: FastAPI):
 
     _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
 
-    # V3(b): a published build (builds/<ts>/ named by the newest pointers/<ts>.json) wins over
-    # the flat layout; no pointer, or any failure loading it, falls back to the flat layout.
+    # V3(b), OPT-IN (INDEX_HOT_RELOAD=1; default OFF because a second snapshot does not fit the
+    # 4 GiB limit, see DEPLOY.md): a published build (builds/<ts>/ named by the newest
+    # pointers/<ts>.json) wins over the flat layout; no pointer, or any failure loading it, falls
+    # back to the flat layout. With the switch unset _index_source is None: flat layout only.
     from api import index_runtime
 
     _index_source = (
@@ -247,7 +249,7 @@ async def lifespan(app: FastAPI):
     )
 
     # V3(b) hot reload: a daemon thread checks pointers/ every INDEX_RELOAD_INTERVAL_S and swaps
-    # the whole snapshot atomically (see src/retrieval/index_reload.py). Off for local dev.
+    # the whole snapshot atomically (see src/retrieval/index_reload.py). Default OFF; enable only with INDEX_HOT_RELOAD=1.
     _reloader = (
         index_runtime.start_hot_reload(_index_source, config, llm)
         if _index_source is not None

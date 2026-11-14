@@ -1,5 +1,8 @@
 """In-process hot reload of the retrieval index (Wave 1b V3(b)).
 
+OPT-IN, default OFF (``INDEX_HOT_RELOAD=1``): the measured swap peak does not fit the 4 GiB
+limit; see DEPLOY.md before enabling.
+
 A background daemon thread checks the bucket's ``pointers/`` listing every
 ``INDEX_RELOAD_INTERVAL_S`` (default 900 s, minimum 60 s). When the newest pointer names a build
 other than the one being served it:
@@ -261,15 +264,15 @@ def sanitize(text: str, limit: int = 200) -> str:
 
 
 def hot_reload_enabled(environ: Mapping[str, str] | None = None) -> bool:
-    """INDEX_HOT_RELOAD: ``0``/``false`` off, ``1``/``true`` on; unset: on only when a bucket
-    store (``INDEX_STORE_URI=gs://...``) is configured, so local dev and tests are OFF."""
+    """INDEX_HOT_RELOAD: OPT-IN. On only when explicitly ``1``/``true``/``yes``/``on``; unset,
+    ``0`` or anything else is OFF.
+
+    Default OFF because the measured swap peak does not fit the 4 GiB Cloud Run limit (a second
+    snapshot is +1.35 GiB on a service already at 0.68-0.79 of 4 GiB; see DEPLOY.md). Do not
+    enable until the architect decides how to handle memory.
+    """
     env = os.environ if environ is None else environ
-    raw = (env.get(SWITCH_ENV) or "").strip().lower()
-    if raw in ("0", "false", "no", "off"):
-        return False
-    if raw in ("1", "true", "yes", "on"):
-        return True
-    return (env.get("INDEX_STORE_URI") or "").startswith("gs://")
+    return (env.get(SWITCH_ENV) or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def reload_interval_s(environ: Mapping[str, str] | None = None) -> float:

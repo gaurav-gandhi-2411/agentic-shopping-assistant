@@ -36,9 +36,10 @@ logger = logging.getLogger(__name__)
 def make_index_source(uri: str | None, environ: dict[str, str] | None = None) -> IndexSource | None:
     """The pointer/build store for ``uri``, or None when builds are not in play.
 
-    Only ``gs://`` URIs are supported, and ``INDEX_HOT_RELOAD=0`` returns None (it is the
-    one kill-switch for BOTH the startup pointer lookup and the background reload: the service
-    then behaves exactly as before V3(b)).
+    Only ``gs://`` URIs are supported, and ``INDEX_HOT_RELOAD=1`` must be set explicitly: it is
+    the one opt-in for BOTH the startup pointer lookup and the background reload. Unset (the
+    default) returns None and the service loads the flat layout exactly as before V3(b); the
+    swap is off by default because it does not fit the 4 GiB limit (see DEPLOY.md).
     """
     if not uri or not uri.startswith("gs://"):
         return None

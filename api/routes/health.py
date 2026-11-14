@@ -123,7 +123,11 @@ def readiness(response: Response) -> dict:
     if snap is not None:
         index_info = describe_index(snap, _now())
         reloader = deps.get_reloader()
-        index_info["reload"] = reloader.status() if reloader is not None else {"hot_reload": "off"}
+        index_info["reload"] = (
+            reloader.status()
+            if reloader is not None
+            else {"hot_reload": "disabled (INDEX_HOT_RELOAD not set)"}
+        )
         if snap.manifest is None:
             checks["index"] = "legacy (no manifest)"
         else:

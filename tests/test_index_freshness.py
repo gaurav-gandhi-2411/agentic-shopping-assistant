@@ -169,7 +169,7 @@ def test_readyz_reports_build_age_stores_and_items(
     assert body["index"]["age_hours"] == 3.5
     assert body["index"]["stores"] == 2 and body["index"]["items"] == 5
     assert body["index"]["built_at"].startswith("2026-11-20T08:30:00")
-    assert body["index"]["reload"] == {"hot_reload": "off"}
+    assert body["index"]["reload"] == {"hot_reload": "disabled (INDEX_HOT_RELOAD not set)"}
     assert body["checks"]["index"].startswith("ok (build_id=20261119T000000Z, age_hours=3.5")
 
 
