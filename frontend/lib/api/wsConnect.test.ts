@@ -160,4 +160,54 @@ describe("openChatSocket", () => {
     expect(FakeSocket.instances).toHaveLength(1)
     expect(h.onclose).toHaveBeenCalledTimes(1)
   })
+
+  it("treats a throw while opening the retry socket as a failed retry (no unhandled rejection)", async () => {
+    FakeSocket.instances = []
+    const d = deps()
+    const target = await resolveSubprotocolTarget(d)
+    class ThrowOnRetry extends FakeSocket {
+      constructor(url: string, protocols?: string | string[]) {
+        if (FakeSocket.instances.length >= 1) throw new SyntaxError("bad url")
+        super(url, protocols)
+      }
+    }
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    const h = handlers()
+    openChatSocket(
+      target,
+      () => resolveUrlTicketTarget(d),
+      h,
+      ThrowOnRetry as unknown as new (u: string, p?: string | string[]) => WebSocket
+    )
+
+    FakeSocket.instances[0].close(1006)
+    await flush()
+    await flush()
+    process.off("unhandledRejection", unhandled)
+    expect(unhandled).not.toHaveBeenCalled()
+    expect(h.onclose).toHaveBeenCalledTimes(1)
+    expect(FakeSocket.instances).toHaveLength(1)
+  })
+
+  it("opens no retry socket when the socket was replaced while the ticket was being minted", async () => {
+    FakeSocket.instances = []
+    const d = deps()
+    const target = await resolveSubprotocolTarget(d)
+    let current = true
+    let release: (t: { url: string }) => void = () => {}
+    const pending = new Promise<{ url: string }>((resolve) => {
+      release = resolve
+    })
+    const h = handlers({ isCurrent: () => current })
+    openChatSocket(target, () => pending, h, Ctor)
+
+    FakeSocket.instances[0].close(1006) // still current: the fallback starts minting
+    current = false // the caller starts a new send during the await
+    release({ url: "wss://api.example.test/chat/stream?ticket=late" })
+    await flush()
+    expect(FakeSocket.instances).toHaveLength(1) // no orphan socket
+    expect(h.onTarget).not.toHaveBeenCalled()
+    expect(h.onclose).not.toHaveBeenCalled()
+  })
 })

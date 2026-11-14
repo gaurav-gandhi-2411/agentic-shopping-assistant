@@ -103,13 +103,17 @@ export function openChatSocket(
       const isCurrent = handlers.isCurrent ? handlers.isCurrent(ws) : true
       if (!opened && t.protocols && !fellBack && isCurrent) {
         fellBack = true
-        getFallbackTarget().then(
-          (fallback) => {
+        getFallbackTarget()
+          .then((fallback) => {
+            // The caller may have started a new send while the ticket was being minted;
+            // opening a socket now would orphan it and overwrite the caller's socket ref.
+            if (handlers.isCurrent && !handlers.isCurrent(ws)) return
             handlers.onTarget(fallback)
             start(fallback)
-          },
-          () => handlers.onclose(event)
-        )
+          })
+          // A throw above (e.g. the WebSocket constructor rejecting the URL) is a failed
+          // retry: surface the original close, exactly like a failed ticket mint.
+          .catch(() => handlers.onclose(event))
         return
       }
       handlers.onclose(event)
