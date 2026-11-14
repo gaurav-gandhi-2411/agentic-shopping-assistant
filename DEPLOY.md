@@ -637,6 +637,137 @@ If shorts, sweatshirts, or jackets appear, the index is stale — re-upload and 
 
 ---
 
+## Store registry, index builds and hot reload (Wave 1b V3b)
+
+Code is in; **nothing in this section has been published or created in the cloud.** Pieces that
+need the NOT-YET-APPROVED cloud work are marked **[needs cloud]**. Everything else works today:
+with no `pointers/` objects the service loads the flat layout exactly as before.
+
+### Memory: read this before anyone publishes a pointer
+
+Measured with `scripts/ops/measure_index_swap_memory.py` on read-only copies of the live
+`unified` index (112,425 items; public view 89,407) plus its CLIP index, real faiss/numpy/pandas,
+embedding models stubbed (no torch). Windows working set, so absolute values on Linux differ a
+little; the shape does not.
+
+| Step | RSS | vs 4 GiB limit |
+|---|---|---|
+| baseline after imports (no index) | 0.136 GiB | |
+| A only (index + public catalogue + CLIP + both graphs) | 1.872 GiB | 46.8 % |
+| A held while B loads and compiles (peak of the swap) | 3.226 GiB | 80.7 % |
+| same, plus the 0.531 GiB download resident on the memory-backed `/tmp` (worst case) | 3.757 GiB | 93.9 % |
+| after dropping A and `gc.collect()` | 2.047 GiB | 51.2 % |
+
+These numbers EXCLUDE the MiniLM and CLIP model weights, torch and the rest of the service. The
+real service is already at 0.68 to 0.79 of its 4 GiB (hourly p99 of
+`run.googleapis.com/container/memory/utilizations`, `asa-stylist-api`, 7 days to 2026-11-14,
+read-only query). **Adding a second snapshot (+1.35 GiB measured) to that puts the swap at about
+4.1 to 4.5 GiB, over the limit, before counting the temp download.** The in-process swap as
+designed does NOT fit in 4 GiB. Per-snapshot cost by component (second run, `measure_index_parts_memory.py`): catalogue frame 0.75
+GiB, BM25 0.59 GiB, dense 0.18 GiB, CLIP 0.23 GiB. Until the owner decides (more memory, smaller
+snapshots, or replacing the instance instead of swapping in place), do not publish a pointer to
+production, or set `INDEX_HOT_RELOAD=0`.
+
+### Store registry (`src/config/store_registry.py`)
+
+One record per store: `slug`, `display_name`, `domain`, `source_type` (`shopify` or
+`static_dump`), `public`, `refresh_enabled`, and the feed URL pattern
+(`https://<domain>/products.json?limit=250&page={page}`). `tests/test_store_registry.py` fails if
+it disagrees with `STORE_CONFIG` or if a store of the live index (`tests/fixtures/indexed_stores.json`)
+is missing.
+
+- `public`: true for exactly the 38 refreshable Shopify stores. Myntra and Flipkart (static
+  dumps), bhasinbrothers (feed 404) and priyaasi (feed unverified) are `public=False`: they stay
+  in the index for local development and evals but never reach a user (search, outfit, compare,
+  image anchor, item lookup, store counts). Unknown stores fail closed (hidden).
+- `refresh_enabled`: the per-store OPT-OUT. Set it to `False` (one-line PR) to stop the refresh job
+  fetching a store, for example at the store's request. It does not hide the store; set
+  `public=False` as well to remove it from users immediately.
+- `INCLUDE_NON_PUBLIC_STORES=1` disables the public filter for local development and evals.
+  Default (unset) is public only. **Deploying this change alone removes the four non-public
+  stores (23,018 of 112,425 items, 20.5 %) from users even on the legacy flat index.**
+- Feed etiquette for the refresh job (V3c): at most 1 request per second per domain,
+  `User-Agent: StyleMaitriFeedFetcher/1.0 (+<contact>)` via `feed_user_agent()` (a contact address
+  is a required argument: **GG to supply one**), robots.txt honoured, HTTP 429 and `Retry-After`
+  honoured, opt-out via `refresh_enabled`.
+
+### Layout and manifest
+
+```
+gs://asa-demo-indices-stylemaitri-prod/
+  unified/...                      legacy flat layout (fallback; unchanged)
+  builds/<UTC timestamp>/          dense.faiss bm25.pkl bm25_article_ids.npy
+                                   dense_article_ids.npy catalogue.parquet
+                                   [clip.faiss clip_article_ids.npy] build_manifest.json
+  pointers/<UTC timestamp>.json    {"build_id": "<UTC timestamp>"}   create-only
+```
+
+"Latest" is the lexicographically largest well-formed pointer name. `build_manifest.json`
+(schema: `docs/build_manifest.schema.json`, model: `src/retrieval/build_manifest.py`) carries
+`build_id`, `built_at` (UTC), `git_sha`, `schema_version`, per-store counts and source-feed
+timestamps, `total_items`, `vector_count`, `dense_dim` (384) and `clip_dim` (512), every file with
+`sha256` and size, a `validation` block (count delta, schema ok, Buy-link sample) and
+`previous_build_id`. The loader refuses a build unless: every file exists with the listed size and
+hash, `total_items == vector_count == sum(store counts) ==` catalogue rows `==` id-file lengths,
+per-store counts match the catalogue, every store is in the registry, items are within +-30 % of
+the build being served, and after loading the FAISS index holds `total_items` vectors of the
+manifest's dimension. **[needs cloud]** the publisher identity and the `pointers/` objects do not
+exist yet; the pointer is meant to be created last, after the build directory is complete.
+
+### Index age: `/readyz` and `/canary/status`
+
+`/readyz` returns `index` (`build_id`, `layout`, `built_at`, `age_hours`, `stores`, `items`,
+`reload`) and `checks.index`. A flat index with no manifest reports `legacy (no manifest)`.
+Readiness never fails on index age. `/canary/status` (and `/canary`) fail with assertion
+`index_stale` ("index older than 36 h") when the age exceeds 36 h; the check runs before the
+canary result cache. It is **enforced only when a manifest exists**, so the transition does not
+alert on today's legacy index. `INDEX_FRESHNESS_STRICT=1` makes a missing manifest fail too: set
+it after the first build is live.
+
+### Hot reload (`src/retrieval/index_reload.py`)
+
+A daemon thread checks `pointers/` every `INDEX_RELOAD_INTERVAL_S` (default 900, minimum 60). On
+a new newest pointer it downloads the build to a fresh temp dir under `/tmp` (not `/app/data`;
+deleted in `finally`), verifies it, loads a new snapshot (agent graphs compiled around the new
+retriever, embedding model reused), re-checks vector count and dimension, runs a smoke search,
+swaps the single snapshot reference atomically and drops the old one. In-flight turns finish on
+the snapshot they started with. At startup the newest build is loaded instead of the flat layout;
+no pointer, or any load failure, falls back to the flat layout.
+
+| Switch | Meaning |
+|---|---|
+| `INDEX_HOT_RELOAD` | `0` disables BOTH the thread and the startup pointer lookup (behaves as before V3b); `1` forces on; unset = on only when `INDEX_STORE_URI` is `gs://` (off for local dev and tests) |
+| `INDEX_RELOAD_INTERVAL_S` | check interval, default 900, floor 60 |
+| `INDEX_FRESHNESS_STRICT` | see above |
+| `INCLUDE_NON_PUBLIC_STORES` | see above |
+
+Failure modes: ANY failure (download, hash, size, counts, dimension, registry, count gate, load,
+smoke, exception) keeps the current snapshot, logs ONE warning and backs off to 2x, 4x, ... the
+interval, capped at 1 h. Reloads are single-flight. Log lines to search (Cloud Logging, text
+payload):
+
+- `index_reload_swapped build_id=... previous_build_id=... items=...`
+- `index_reload_failed reason=<code|ExceptionType> build_id=... attempt=<n> next_check_s=<s> detail=...`
+- `index_startup loaded build_id=...`, `index_startup_fallback reason=...`, `index_hot_reload started`
+
+`reason` codes: `file_hash`, `file_size`, `file_missing`, `unlisted_file`, `manifest_missing`,
+`manifest_invalid`, `manifest_schema`, `count_mismatch`, `count_gate`, `store_unknown`,
+`vector_count`, `dim_mismatch`, `clip_mismatch`, `build_id_invalid`, `build_id_mismatch`, `smoke`,
+`source`. `/readyz` `index.reload` shows the last outcome, last check and swap times and the
+consecutive failure count.
+
+Not covered by the snapshot yet: the Shopify variant maps (`data/processed/shopify_variants`,
+process-lifetime cache in `cart_links.py`) stay on the flat layout; a build's CLIP index is used
+for image search when the build has one.
+
+### Rollback **[needs cloud]**
+
+The owner deletes the newest `pointers/<ts>.json`; every instance picks the previous pointer at
+its next check (at most one interval, 15 min by default) and swaps back. To stop reloads
+altogether set `INDEX_HOT_RELOAD=0` on the service.
+
+---
+
 ## Deploy Vercel frontend
 
 **Recommended: `scripts/deploy-frontend.ps1`.** A manual `vercel --prod` leaves no record
