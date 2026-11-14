@@ -133,7 +133,8 @@ def readiness(response: Response) -> dict:
         else:
             checks["index"] = (
                 f"ok (build_id={index_info['build_id']}, age_hours={index_info['age_hours']}, "
-                f"stores={index_info['stores']}, items={index_info['items']})"
+                f"stores={index_info['stores']}, items_built={index_info['items_built']}, "
+                f"items_served={index_info['items_served']})"
             )
 
     try:

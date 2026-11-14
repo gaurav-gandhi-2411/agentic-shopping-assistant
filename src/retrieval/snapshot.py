@@ -88,8 +88,13 @@ def index_age_hours(snapshot: IndexSnapshot, now: datetime | None = None) -> flo
 def describe_index(snapshot: IndexSnapshot, now: datetime | None = None) -> dict[str, Any]:
     """What /readyz reports about the served index (no paths, no secrets)."""
     m = snapshot.manifest
+    served = len(snapshot.catalogue_df)  # the PUBLIC rows actually served
     if m is None:
-        return {"build_id": snapshot.build_id, "layout": "legacy (no manifest)"}
+        return {
+            "build_id": snapshot.build_id,
+            "layout": "legacy (no manifest)",
+            "items_served": served,
+        }
     age = index_age_hours(snapshot, now)
     return {
         "build_id": m.build_id,
@@ -97,7 +102,11 @@ def describe_index(snapshot: IndexSnapshot, now: datetime | None = None) -> dict
         "built_at": m.built_at.isoformat(timespec="seconds"),
         "age_hours": round(age, 2) if age is not None else None,
         "stores": len(m.stores),
+        # items_built = manifest total (includes non-public stores); items_served = public rows
+        # in the served catalogue. `items` is kept (= items_built) for existing readers.
         "items": m.total_items,
+        "items_built": m.total_items,
+        "items_served": served,
     }
 
 

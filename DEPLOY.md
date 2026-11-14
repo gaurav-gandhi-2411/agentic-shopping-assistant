@@ -739,8 +739,10 @@ exist yet; the pointer is meant to be created last, after the build directory is
 
 ### Index age: `/readyz` and `/canary/status`
 
-`/readyz` returns `index` (`build_id`, `layout`, `built_at`, `age_hours`, `stores`, `items`,
-`reload`) and `checks.index`. A flat index with no manifest reports `legacy (no manifest)`.
+`/readyz` returns `index` (`build_id`, `layout`, `built_at`, `age_hours`, `stores`, `items_built`,
+`items_served`, `items`, `reload`) and `checks.index`. `items_built` is the manifest total
+(includes non-public stores; `items` is kept as an alias); `items_served` is the public rows
+actually served. A flat index with no manifest reports `legacy (no manifest)`.
 Readiness never fails on index age. `/canary/status` (and `/canary`) fail with assertion
 `index_stale` ("index older than 36 h") when the age exceeds 36 h; the check runs before the
 canary result cache. It is **enforced only when a manifest exists**, so the transition does not

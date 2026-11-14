@@ -196,3 +196,34 @@ def test_index_age_helper_treats_a_naive_timestamp_as_utc() -> None:
     m.built_at = (NOW - timedelta(hours=2)).replace(tzinfo=None)
     assert index_age_hours(_snapshot(m), NOW) == pytest.approx(2.0)
     assert index_age_hours(_snapshot(None), NOW) is None
+
+
+def test_readyz_reports_items_built_and_items_served_separately(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The manifest total includes non-public stores; the served catalogue is the public subset."""
+    m = BuildManifest(
+        build_id="20261119T000000Z",
+        built_at=NOW - timedelta(hours=1),
+        git_sha="abc123",
+        stores=[StoreEntry(slug="libas", items=3), StoreEntry(slug="myntra", items=2)],
+        total_items=5,
+        vector_count=5,
+        files=[],
+    )
+    snap = _snapshot(m)
+    object.__setattr__(snap, "catalogue_df", pd.DataFrame({"article_id": ["a", "b", "c"]}))
+    _install(monkeypatch, snap)
+    body = client.get("/readyz").json()
+    assert body["index"]["items_built"] == 5  # manifest total, myntra included
+    assert body["index"]["items_served"] == 3  # public rows actually served
+    assert body["index"]["items"] == 5  # kept for existing readers (= items_built)
+    assert "items_built=5, items_served=3" in body["checks"]["index"]
+    assert body["checks"]["catalogue"].startswith("ok (3 items")
+
+
+def test_readyz_legacy_index_reports_items_served(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install(monkeypatch, _snapshot(None, source="flat"))
+    assert client.get("/readyz").json()["index"]["items_served"] == 5
