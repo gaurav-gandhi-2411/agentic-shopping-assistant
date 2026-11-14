@@ -18,8 +18,9 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   // Same "@/..." alias as tsconfig.json so tests import app modules the way app code does.
   resolve: { alias: { "@": path.resolve(__dirname) } },
-  // tsconfig has "jsx": "preserve" (Next compiles JSX itself); vitest's esbuild needs it transformed.
-  esbuild: { jsx: "automatic" },
+  // tsconfig has "jsx": "preserve" (Next compiles JSX itself); vitest must transform it.
+  // Vitest 4 transforms with oxc (esbuild options are ignored), hence `oxc`, not `esbuild`.
+  oxc: { jsx: { runtime: "automatic" } },
   test: {
     include: [
       "lib/**/*.test.ts",

@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { isPublicPath } from "@/lib/publicPaths"
 
 export async function middleware(request: NextRequest) {
   // Create a mutable response we can attach refreshed cookies to.
@@ -40,34 +41,19 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Unauthenticated users may only access /login, /auth/*, /demo/*, /embed/*, /pdp-demo/*, /look/*, /saved-looks*.
-  // /embed and /pdp-demo are public-facing widget routes — they bootstrap their
-  // own anonymous demo session via POST /demo/session (same as /demo).
-  // /look/[id] is a capability URL (unguessable UUID) for sharing saved looks —
-  // it must be publicly viewable without login, like a shared link.
-  // /saved-looks reads only localStorage (no backend session needed) and is the
-  // retrieval surface for looks saved during an anonymous demo session.
-  if (
-    !user &&
-    !pathname.startsWith("/login") &&
-    !pathname.startsWith("/auth") &&
-    !pathname.startsWith("/demo") &&
-    !pathname.startsWith("/embed") &&
-    !pathname.startsWith("/pdp-demo") &&
-    !pathname.startsWith("/look") &&
-    !pathname.startsWith("/saved-looks") &&
-    // Site-wide OG card (app/opengraph-image.tsx): fetched by link-preview
-    // crawlers (WhatsApp/Twitter) with no session — gating it behind auth
-    // serves them the login page instead of the image.
-    !pathname.startsWith("/opengraph-image")
-  ) {
+  // Unauthenticated users may only open the public paths: `/` (the assistant itself,
+  // Wave 1b V2: sign-in is optional), /robots.txt, /sitemap.xml, /login, /auth/*,
+  // /demo/*, /embed/*, /pdp-demo/*, /look/*, /saved-looks*, /opengraph-image.
+  // The allow-list and the reason for each entry live in lib/publicPaths.ts.
+  if (!user && !isPublicPath(pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     return NextResponse.redirect(url)
   }
 
-  // Authenticated users landing on /login go straight to /chat.
-  if (user && pathname === "/login") {
+  // Authenticated users landing on / or /login go straight to /chat (signed-in
+  // behaviour is unchanged: `/` used to redirect them there from app/page.tsx).
+  if (user && (pathname === "/" || pathname === "/login")) {
     const url = request.nextUrl.clone()
     url.pathname = "/chat"
     return NextResponse.redirect(url)
