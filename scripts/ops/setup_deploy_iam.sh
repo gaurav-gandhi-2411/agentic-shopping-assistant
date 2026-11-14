@@ -187,6 +187,35 @@ verify_runtime_sa_no_project_roles() {
   fi
 }
 
+# Prints the AR repo's cleanup-policy state, one of: none (no policies), dryrun (policies, dry-run
+# mode), live (policies, deletion ACTIVE). Fails closed (return 1, message on stderr) if the repo
+# cannot be read or the answer is not a JSON object: an unreadable state must never be treated as
+# "no policies", because step 7 would then re-apply --dry-run over a live policy.
+# Whitespace is stripped so the match does not depend on gcloud's pretty-printing or CRLF output.
+ar_cleanup_policy_state() {
+  local json
+  if ! json="$(gcloud artifacts repositories describe "$AR_REPO" --location="$REGION" \
+      --account="$ACCOUNT" --project="$PROJECT" --format=json)"; then
+    echo "ERROR: could not read AR repo ${AR_REPO}; refusing to touch its cleanup policy" >&2
+    return 1
+  fi
+  json="$(printf '%s' "$json" | tr -d '[:space:]')"
+  case "$json" in
+    "{"*"}") ;;
+    *)
+      echo "ERROR: AR repo ${AR_REPO} describe output is empty or not a JSON object; refusing to touch its cleanup policy" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$json" != *'"cleanupPolicies":{"'* ]]; then
+    echo none
+  elif [[ "$json" == *'"cleanupPolicyDryRun":true'* ]]; then
+    echo dryrun
+  else
+    echo live
+  fi
+}
+
 # Test hook: `SETUP_DEPLOY_IAM_SOURCE_ONLY=1 source scripts/ops/setup_deploy_iam.sh` loads the
 # functions above without running any step (used by tests/ with a stub gcloud).
 if [ "${SETUP_DEPLOY_IAM_SOURCE_ONLY:-0}" = "1" ]; then
@@ -378,9 +407,24 @@ echo "== 7. Artifact Registry cleanup policy: DRY RUN (deletes nothing)"
 # images after each fully successful deploy. Older than 1 day and not in either keep set is
 # deleted. Docker images referenced by a parent manifest are never deleted by a policy
 # (https://cloud.google.com/artifact-registry/docs/repositories/cleanup-policy).
-run gcloud artifacts repositories set-cleanup-policies "$AR_REPO" \
-  --location="$REGION" --policy="${HERE}/ar_cleanup_policy.json" --dry-run \
-  --account="$ACCOUNT" --project="$PROJECT"
+# GUARD: set-cleanup-policies --dry-run REPLACES the repo's mode, so re-running this script after
+# step 8 was done by hand would silently switch a LIVE policy back to dry-run (happened once,
+# caught by hand). Apply only when there is no policy yet or the existing one is already dry-run.
+# FORCE_AR_POLICY_DRYRUN=1 is the explicit override (deliberately re-arm dry-run on a live repo).
+if ! AR_POLICY_STATE="$(ar_cleanup_policy_state)"; then
+  exit 1
+fi
+if [ "$AR_POLICY_STATE" = "live" ] && [ "${FORCE_AR_POLICY_DRYRUN:-0}" != "1" ]; then
+  echo "SKIPPED step 7: ${AR_REPO} already has a LIVE (non-dry-run) cleanup policy; not switching it back to dry-run."
+  echo "  To deliberately re-arm dry-run, re-run with FORCE_AR_POLICY_DRYRUN=1."
+else
+  if [ "$AR_POLICY_STATE" = "live" ]; then
+    echo "WARNING: FORCE_AR_POLICY_DRYRUN=1: switching the LIVE cleanup policy on ${AR_REPO} back to dry-run."
+  fi
+  run gcloud artifacts repositories set-cleanup-policies "$AR_REPO" \
+    --location="$REGION" --policy="${HERE}/ar_cleanup_policy.json" --dry-run \
+    --account="$ACCOUNT" --project="$PROJECT"
+fi
 
 echo "== 8. to ACTIVATE deletion (run by hand after reviewing the dry-run log):"
 echo "gcloud artifacts repositories set-cleanup-policies ${AR_REPO} --location=${REGION} \\"

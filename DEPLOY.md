@@ -888,6 +888,17 @@ The script is idempotent. It activates nothing destructive: the Artifact Registr
 delete the rest older than 1 day) is applied with `--dry-run`; the command to switch it on is
 printed at the end.
 
+**Step 7 never downgrades a live policy.** `set-cleanup-policies --dry-run` replaces the repo's mode,
+so re-running the script after step 8 would silently put a live policy back into dry-run. Step 7
+therefore first reads the repo (`gcloud artifacts repositories describe --format=json`) and applies
+the dry-run policy only when there is no cleanup policy yet or the existing one is already dry-run.
+With a live (non-dry-run) policy it prints `SKIPPED step 7` and changes nothing. If the repo cannot
+be read (or the answer is not JSON) it fails closed: error and non-zero exit, no policy call. To
+deliberately re-arm dry-run on a live repo, run with `FORCE_AR_POLICY_DRYRUN=1` (it still refuses
+when the repo state is unreadable). The `cleanupPolicies` / `cleanupPolicyDryRun` field names are the
+Artifact Registry API's; the script's parsing is covered by stub-gcloud tests only and has not been run
+against the real repo.
+
 Why the tag pin: a count-based keep cannot protect the serving image if a deploy pushes an image
 that then fails a pre-shift gate and a later run pushes another (newest two = the two non-serving
 images). The final deploy.yml step "Pin live and prev image tags" moves `live` to the new image and

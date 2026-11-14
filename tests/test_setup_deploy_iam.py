@@ -221,6 +221,9 @@ case "$*" in
   *"projects get-iam-policy"*) printf '%s' "$STUB_PROJECT_ROWS" ;;
   *"get-iam-policy"*) printf '%s' "$STUB_POLICY_ROWS" ;;
   *"--format=value(state)"*) printf '%s\\n' "${STUB_STATE:-}" ;;
+  *"repositories describe"*)
+    [ "${STUB_REPO_RC:-0}" = "0" ] || exit "$STUB_REPO_RC"
+    printf '%s' "$STUB_REPO_JSON" ;;
   *" describe "*) [ "${STUB_EXISTS:-none}" = "all" ] ;;
   *create*|*update*|*add-iam-policy-binding*|*remove-iam-policy-binding*|*set-cleanup-policies*)
     exit 0 ;;
@@ -233,6 +236,21 @@ REPO_OK = _rows(
     (TAG_ROLE, f"serviceAccount:{DEPLOYER}"),
 )
 PROJECT_OK = _rows(("roles/editor", f"serviceAccount:{COMPUTE}"))
+
+# `gcloud artifacts repositories describe --format=json` shapes (pretty-printed like gcloud).
+_POLICIES = (
+    '"cleanupPolicies": {\n    "keep-recent": {"id": "keep-recent", "action": "KEEP",'
+    ' "mostRecentVersions": {"keepCount": 2}}\n  }'
+)
+REPO_JSON_NO_POLICY = (
+    '{\n  "format": "DOCKER",\n  "name": "projects/p/locations/l/repositories/r"\n}\n'
+)
+REPO_JSON_EMPTY_POLICIES = '{\n  "cleanupPolicies": {},\n  "format": "DOCKER"\n}\n'
+REPO_JSON_DRYRUN = f'{{\n  {_POLICIES},\n  "cleanupPolicyDryRun": true,\n  "format": "DOCKER"\n}}\n'
+REPO_JSON_LIVE = f'{{\n  {_POLICIES},\n  "format": "DOCKER"\n}}\n'
+REPO_JSON_LIVE_EXPLICIT_FALSE = (
+    f'{{\n  {_POLICIES},\n  "cleanupPolicyDryRun": false,\n  "format": "DOCKER"\n}}\n'
+)
 
 
 @pytest.fixture()
@@ -250,6 +268,9 @@ def full_env(tmp_path: Path) -> dict[str, str]:
     env["STUB_PROJECT_ROWS"] = PROJECT_OK
     env["STUB_ROLE_PERMS"] = FIVE_PERMS_GCLOUD
     env["SA_PROPAGATION_WAIT"] = "0"
+    env["STUB_REPO_JSON"] = REPO_JSON_NO_POLICY
+    env.pop("STUB_REPO_RC", None)
+    env.pop("FORCE_AR_POLICY_DRYRUN", None)
     env.pop("DRY_RUN", None)
     env.pop("REMOVE_COMPUTE_ACTAS", None)
     return env
@@ -462,3 +483,98 @@ def test_verify_runtime_sa_has_no_project_roles(stub_env, name: str, rows: str, 
     env = {**stub_env, "STUB_POLICY_ROWS": rows, "STUB_POLICY_RC": "0"}
     r = _call(env, "verify_runtime_sa_no_project_roles")
     assert (r.returncode == 0) is ok, f"{name}: {r.stderr!r}"
+
+
+# ---------------------------------------------------------------------------------------------
+# Step 7 guard: never switch a LIVE Artifact Registry cleanup policy back to --dry-run.
+# ---------------------------------------------------------------------------------------------
+def _set_policy_calls(calls: list[str]) -> list[str]:
+    return [c for c in calls if "set-cleanup-policies" in c]
+
+
+@pytest.mark.parametrize(
+    ("name", "repo_json", "state"),
+    [
+        ("no_policies_key", REPO_JSON_NO_POLICY, "none"),
+        ("empty_policies", REPO_JSON_EMPTY_POLICIES, "none"),
+        ("dry_run_policy", REPO_JSON_DRYRUN, "dryrun"),
+        ("live_policy_flag_absent", REPO_JSON_LIVE, "live"),
+        ("live_policy_flag_false", REPO_JSON_LIVE_EXPLICIT_FALSE, "live"),
+        ("live_policy_crlf", REPO_JSON_LIVE.replace("\n", "\r\n"), "live"),
+    ],
+)
+def test_ar_cleanup_policy_state(stub_env, name: str, repo_json: str, state: str) -> None:
+    stub = Path(stub_env["PATH"].split(os.pathsep)[0]) / "gcloud"
+    stub.write_text("#!/usr/bin/env bash\nprintf '%s' \"$STUB_REPO_JSON\"\n", newline="\n")
+    r = _call({**stub_env, "STUB_REPO_JSON": repo_json}, "ar_cleanup_policy_state")
+    assert r.returncode == 0, f"{name}: {r.stderr!r}"
+    assert r.stdout.strip() == state, name
+
+
+def test_step7_applies_dry_run_when_no_policies(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_REPO_JSON=REPO_JSON_NO_POLICY)
+    assert r.returncode == 0, r.stderr
+    applied = _set_policy_calls(calls)
+    assert len(applied) == 1 and "--dry-run" in applied[0], calls
+    assert "SKIPPED step 7" not in r.stdout
+
+
+def test_step7_reapplies_when_existing_policy_is_already_dry_run(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_REPO_JSON=REPO_JSON_DRYRUN)
+    assert r.returncode == 0, r.stderr
+    applied = _set_policy_calls(calls)
+    assert len(applied) == 1 and "--dry-run" in applied[0], calls
+
+
+@pytest.mark.parametrize(
+    "live_json",
+    [REPO_JSON_LIVE, REPO_JSON_LIVE_EXPLICIT_FALSE],
+    ids=["flag_absent", "flag_false"],
+)
+def test_step7_skips_live_policy_with_message(full_env, live_json: str) -> None:
+    r, calls = _run_script(full_env, STUB_REPO_JSON=live_json)
+    assert r.returncode == 0, r.stderr
+    assert _set_policy_calls(calls) == [], calls
+    assert "SKIPPED step 7" in r.stdout and "LIVE" in r.stdout
+    assert "FORCE_AR_POLICY_DRYRUN=1" in r.stdout
+
+
+def test_step7_force_flag_applies_dry_run_over_live_policy(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_REPO_JSON=REPO_JSON_LIVE, FORCE_AR_POLICY_DRYRUN="1")
+    assert r.returncode == 0, r.stderr
+    applied = _set_policy_calls(calls)
+    assert len(applied) == 1 and "--dry-run" in applied[0], calls
+    assert "WARNING" in r.stdout
+
+
+def test_step7_force_flag_other_values_do_not_override(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_REPO_JSON=REPO_JSON_LIVE, FORCE_AR_POLICY_DRYRUN="0")
+    assert r.returncode == 0, r.stderr
+    assert _set_policy_calls(calls) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "extra"),
+    [
+        ("describe_fails", {"STUB_REPO_RC": "1", "STUB_REPO_JSON": REPO_JSON_NO_POLICY}),
+        ("empty_output", {"STUB_REPO_JSON": ""}),
+        ("not_json", {"STUB_REPO_JSON": "ERROR: (gcloud) boom"}),
+    ],
+)
+def test_step7_fails_closed_when_repo_state_unreadable(full_env, name: str, extra: dict) -> None:
+    r, calls = _run_script(full_env, **extra)
+    assert r.returncode != 0, name
+    assert "ERROR" in r.stderr and "cleanup policy" in r.stderr, r.stderr
+    assert _set_policy_calls(calls) == [], calls
+
+
+def test_step7_unreadable_state_not_overridden_by_force_flag(full_env) -> None:
+    r, calls = _run_script(full_env, STUB_REPO_RC="1", FORCE_AR_POLICY_DRYRUN="1")
+    assert r.returncode != 0 and _set_policy_calls(calls) == []
+
+
+def test_step7_dry_run_mode_prints_instead_of_applying(full_env) -> None:
+    r, calls = _run_script(full_env, DRY_RUN="1", STUB_REPO_JSON=REPO_JSON_LIVE)
+    assert r.returncode == 0, r.stderr
+    assert _set_policy_calls(calls) == []
+    assert "DRY_RUN: gcloud artifacts repositories set-cleanup-policies" not in r.stdout

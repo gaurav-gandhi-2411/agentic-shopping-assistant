@@ -1,0 +1,467 @@
+{
+  "_comment": "<=3 real pdp_handle values per indexed store (V3a buylinks.csv); handle only.",
+  "samples": {
+    "5-elements": [
+      {
+        "pdp_handle": "evander-handbag-5emt-pt-182"
+      },
+      {
+        "pdp_handle": "helios-lumba-rakhi-5elmt-kt-058"
+      },
+      {
+        "pdp_handle": "aqua-petal-5e-jw-024"
+      }
+    ],
+    "bhasinbrothers": [
+      {
+        "pdp_handle": "floral-blue-crepe-saree"
+      },
+      {
+        "pdp_handle": "green-4-pocket-sadri-set"
+      },
+      {
+        "pdp_handle": "peach-orange-printed-saree-with-mustard-yellow-blouse"
+      }
+    ],
+    "blissclub": [
+      {
+        "pdp_handle": "everflow-cape"
+      },
+      {
+        "pdp_handle": "ultimate-top"
+      },
+      {
+        "pdp_handle": "work-to-wine-twill-straight-pants"
+      }
+    ],
+    "campusshoes": [
+      {
+        "pdp_handle": "flitta-ivory-l-gry-womens-running-shoes"
+      },
+      {
+        "pdp_handle": "krivo-navy-r-slate-mens-running-shoes"
+      },
+      {
+        "pdp_handle": "pod-blk-d-gry-mens-sneakers"
+      }
+    ],
+    "chappers": [
+      {
+        "pdp_handle": "bravo-x"
+      },
+      {
+        "pdp_handle": "corkies-raja-suede-beige"
+      },
+      {
+        "pdp_handle": "emperor-burgundy-black"
+      }
+    ],
+    "coralhaze": [
+      {
+        "pdp_handle": "arabella"
+      },
+      {
+        "pdp_handle": "tiramisu"
+      },
+      {
+        "pdp_handle": "zaria"
+      }
+    ],
+    "daivik": [
+      {
+        "pdp_handle": "peacock-green-bangles-price-for-both-hands"
+      },
+      {
+        "pdp_handle": "ruby-green-peacock-kemp-jhumkas"
+      },
+      {
+        "pdp_handle": "matte-finish-lakshmi-long-haram-with-studs"
+      }
+    ],
+    "fashor": [
+      {
+        "pdp_handle": "solid-pin-tuck-kantha-sequin-straight-kurta-with-palazzo-dupatta-mustard"
+      },
+      {
+        "pdp_handle": "ethnic-printed-hand-embroidered-flared-maxi-dress-multi-1"
+      },
+      {
+        "pdp_handle": "floral-foil-printed-embroidered-straight-fit-kurta-cream"
+      }
+    ],
+    "fizzygoblet": [
+      {
+        "pdp_handle": "pearlfect-chaos-mule-heels"
+      },
+      {
+        "pdp_handle": "the-butterfly-effect-loafer"
+      },
+      {
+        "pdp_handle": "bourbon-bliss-kolhas"
+      }
+    ],
+    "flipkart": [
+      {
+        "pdp_handle": "https://www.flipkart.com/ecko-unltd-super-skinny-men-blue-jeans/p/itm4a6038d1717e4?pid=JEAFUZXSJVQXTHDC&lid=LSTJEAFUZXSJ"
+      },
+      {
+        "pdp_handle": "https://www.flipkart.com/puma-full-sleeve-printed-men-sweatshirt/p/itmfdgytcxyqbygd?pid=SWSFDGRHZKMJ6YGY&lid=LSTSWSFDGRH"
+      },
+      {
+        "pdp_handle": "https://www.flipkart.com/mylifestylebazzar-typography-men-round-neck-black-t-shirt/p/itmc5a99a7f56aa4?pid=TSHFZHU7MKF2AZ"
+      }
+    ],
+    "globalrepublic": [
+      {
+        "pdp_handle": "blue-denim-cotton-pleated-skirt"
+      },
+      {
+        "pdp_handle": "pink-floral-cotton-afghani-kurta-set-grws25jv9118pnk"
+      },
+      {
+        "pdp_handle": "sky-blue-leaf-print-cotton-top-grws26640426blu"
+      }
+    ],
+    "houseofvian": [
+      {
+        "pdp_handle": "zahra-juttis"
+      },
+      {
+        "pdp_handle": "hiva-juttis"
+      },
+      {
+        "pdp_handle": "anaya-juttis"
+      }
+    ],
+    "irasoles": [
+      {
+        "pdp_handle": "lime-crime-suede-leather-mules"
+      },
+      {
+        "pdp_handle": "majestic-brown-sandal"
+      },
+      {
+        "pdp_handle": "jade-black-block-heels"
+      }
+    ],
+    "ishhaara": [
+      {
+        "pdp_handle": "wedding-jaimala-for-bride-and-groom"
+      },
+      {
+        "pdp_handle": "lakshmi-and-peacock-intricated-bridal-necklace-set"
+      },
+      {
+        "pdp_handle": "sparkling-elegant-blue-teardrop-faux-necklace"
+      }
+    ],
+    "jadeblue": [
+      {
+        "pdp_handle": "dark-purple-striped-slim-fit-formal-shirt-jadeblue-super-luxe-76tf"
+      },
+      {
+        "pdp_handle": "brown-striped-slim-fit-formal-trouser-jadeblue-viga"
+      },
+      {
+        "pdp_handle": "navy-blue-solid-regular-fit-track-pant-jadeblue-hy1o"
+      }
+    ],
+    "jompers": [
+      {
+        "pdp_handle": "embroidered-nehru-jacket-with-kurta-pyjama-set-65kpwcs_592w_4153white"
+      },
+      {
+        "pdp_handle": "black-silk-blend-kurta-set-with-off-white-geometric-embroidery-65kp_p_5385black"
+      },
+      {
+        "pdp_handle": "sequins-embroidered-kurtas-for-men-ko_5128pista"
+      }
+    ],
+    "juttichooindia": [
+      {
+        "pdp_handle": "cosmo"
+      },
+      {
+        "pdp_handle": "golden-heritage"
+      },
+      {
+        "pdp_handle": "copy-of-blush"
+      }
+    ],
+    "kalapuri": [
+      {
+        "pdp_handle": "chand-pipe-thushi-necklace-1"
+      },
+      {
+        "pdp_handle": "dodge-heritage-classic-brown-kolhapuri-chappal-for-men"
+      },
+      {
+        "pdp_handle": "antique-patti-vajra-tik-necklace-set"
+      }
+    ],
+    "kalpraag": [
+      {
+        "pdp_handle": "keshav-sadhna-in-azan-pichwai-zari-bottle-green-kurta-jacket-set"
+      },
+      {
+        "pdp_handle": "aayush-keshri-in-forest-bottel-green-kurta-jacket-set"
+      },
+      {
+        "pdp_handle": "tarak-navy-blue-pathani-set"
+      }
+    ],
+    "kisah": [
+      {
+        "pdp_handle": "ka-0128-5410-d133"
+      },
+      {
+        "pdp_handle": "kisah-mens-maroon-kurta-trouser-set-ka-0853-t301"
+      },
+      {
+        "pdp_handle": "maroon-printed-kurta-trouser-set-ka-1033-t105"
+      }
+    ],
+    "korakari": [
+      {
+        "pdp_handle": "zendaya-jutti-for-women"
+      },
+      {
+        "pdp_handle": "brandy-kolhapuri-shoes-bantu-for-men"
+      },
+      {
+        "pdp_handle": "jari-chic-kolhapuri-chappal-for-women"
+      }
+    ],
+    "kraftojodhpur": [
+      {
+        "pdp_handle": "royalgold-silk-mens-sherwani-jutti"
+      },
+      {
+        "pdp_handle": "krafto-mens-red-gold-sherwani-jutti"
+      },
+      {
+        "pdp_handle": "krafto-mens-blue-velvet-jutti"
+      }
+    ],
+    "libas": [
+      {
+        "pdp_handle": "purple-embellished-silk-blend-saree-with-unstitched-blouse-piece-94844pr"
+      },
+      {
+        "pdp_handle": "brown-floral-printed-silk-blend-ombre-tassel-saree-with-unstitched-blouse-piece-52331p"
+      },
+      {
+        "pdp_handle": "off-white-floral-printed-cotton-blend-shirt-dress-with-waistbelt-98385"
+      }
+    ],
+    "mohanlalsons": [
+      {
+        "pdp_handle": "reew-kpgk-mls-8888"
+      },
+      {
+        "pdp_handle": "chao-kjst-tw-14174"
+      },
+      {
+        "pdp_handle": "swat-jps3-mls-11162"
+      }
+    ],
+    "mortantra": [
+      {
+        "pdp_handle": "multicolor-gold-plated-jadau-kundan-necklace-mn442"
+      },
+      {
+        "pdp_handle": "firoza-color-gold-plated-jadau-kundan-necklace-mn566wf"
+      },
+      {
+        "pdp_handle": "mr-n71m-multicolor-dual-tone-mishr-tribal-necklace"
+      }
+    ],
+    "myntra": [
+      {
+        "pdp_handle": "jeans/flying-machine/flying-machine-women-blue-veronica-skinny-fit-light-fade-stretchable-jeans/14030730/buy"
+      },
+      {
+        "pdp_handle": "tunics/akkriti-by-pantaloons/akkriti-by-pantaloons-mustard-black-viscose-rayon-mandarin-collar-printed-tunic/16750004/bu"
+      },
+      {
+        "pdp_handle": "jackets/reebok/reebok-unisex-blue-rxp-brand-logo-printed-back-sporty-jacket/15634382/buy"
+      }
+    ],
+    "powerlook": [
+      {
+        "pdp_handle": "blue-stripe-abstract-print-shirt"
+      },
+      {
+        "pdp_handle": "blue-embroidered-shirt"
+      },
+      {
+        "pdp_handle": "mauve-cotton-checks-shirt"
+      }
+    ],
+    "priyaasi": [
+      {
+        "pdp_handle": "priyaasi-white-pearls-and-floral-kundan-hathphool"
+      },
+      {
+        "pdp_handle": "american-diamond-silver-plated-ethnic-jewellery-set-nl-pr-10418"
+      },
+      {
+        "pdp_handle": "white-gold-toned-kundan-studded-pearl-choker-jewellery-set-nl-pr-10050-wht"
+      }
+    ],
+    "rathore": [
+      {
+        "pdp_handle": "black-silk-kurta-5"
+      },
+      {
+        "pdp_handle": "midnight-mosaic-shirt"
+      },
+      {
+        "pdp_handle": "the-casual-refined-lightweight-kurta"
+      }
+    ],
+    "shopkop": [
+      {
+        "pdp_handle": "dual-stitched-aamdar-kapashi-kolhapuri-chappal"
+      },
+      {
+        "pdp_handle": "four-veni-ladies-kolhapuri-chappal"
+      },
+      {
+        "pdp_handle": "sarkar-kapashi-kolhapuri-chappal"
+      }
+    ],
+    "silvertraq": [
+      {
+        "pdp_handle": "modal-lounge-culottes-black"
+      },
+      {
+        "pdp_handle": "traqpace-cargo-pants-ballet-pink"
+      },
+      {
+        "pdp_handle": "flowfit-oversized-tee-rosewood"
+      }
+    ],
+    "snitch": [
+      {
+        "pdp_handle": "minimal-black-rectangular-pendant-stainless-steel-necklace-4mac0064-01"
+      },
+      {
+        "pdp_handle": "regular-fit-100-cotton-checks-shirt-4mss4668-03"
+      },
+      {
+        "pdp_handle": "regular-fit-100-cotton-polo-shirt-4shs008-01"
+      }
+    ],
+    "southtemplejewellery": [
+      {
+        "pdp_handle": "antique-necklace-set-v-751"
+      },
+      {
+        "pdp_handle": "minimal-temple-jewellery-baju-band-ethnic-gold-plated-armlet-v-1476"
+      },
+      {
+        "pdp_handle": "antique-chandbali-r-1053"
+      }
+    ],
+    "sukkhi": [
+      {
+        "pdp_handle": "studio-sukkhi-latest-bollywood-inspired-traditional-multicolor-ad-stones-studded-jhumka-jhumki-earrings-for-women-and-gi"
+      },
+      {
+        "pdp_handle": "sukkhi-sporty-gold-plated-rani-pink-kundan-beads-choker-necklace-set-with-jhumki-earring-and-maangtika-jewellery-set-for"
+      },
+      {
+        "pdp_handle": "sukkhi-casual-fashion-style-oxidised-silver-plated-with-multicolor-beaded-mini-jhumka-jhumki-earring-combo-jewellery-for"
+      }
+    ],
+    "taurjuttis": [
+      {
+        "pdp_handle": "sitara-e-jashan-jutti"
+      },
+      {
+        "pdp_handle": "multi-wooden-beads-jutti"
+      },
+      {
+        "pdp_handle": "kashmiri-embroidered-jutti"
+      }
+    ],
+    "theamethyststore": [
+      {
+        "pdp_handle": "captivating-stone-pair-bangles"
+      },
+      {
+        "pdp_handle": "hassel-nod-long-necklace"
+      },
+      {
+        "pdp_handle": "afroza-long-necklace"
+      }
+    ],
+    "thejewelbox": [
+      {
+        "pdp_handle": "simple-heart-shaped-rose-gold-diamond-ring"
+      },
+      {
+        "pdp_handle": "sky-blue-and-pink-stone-german-silver-oxidised-chandbali-earrings"
+      },
+      {
+        "pdp_handle": "blue-stone-studded-big-oxidised-silver-finger-ring"
+      }
+    ],
+    "tjori": [
+      {
+        "pdp_handle": "traditional-maharashtrian-peacock-nath-cm-171-06"
+      },
+      {
+        "pdp_handle": "silver-and-brown-cruelty-free-leather-inspired-kolhapuri"
+      },
+      {
+        "pdp_handle": "yellow-color-women-pant-mk319"
+      }
+    ],
+    "vastramay": [
+      {
+        "pdp_handle": "men-white-viscose-kurta-with-white-pant-set"
+      },
+      {
+        "pdp_handle": "copy-of-mens-black-cotton-blend-pathani-suit-set"
+      },
+      {
+        "pdp_handle": "shrestha-by-vastramay-mens-maroon-color-embroidered-mirror-work-kurta-with-maroon-patiala-set"
+      }
+    ],
+    "vhaan": [
+      {
+        "pdp_handle": "1722-olive-green-soft-leather"
+      },
+      {
+        "pdp_handle": "2118-single-wadi-dark-black-pure-leather-kapashi-kolhapuri-chappal-for-men-vhaan"
+      },
+      {
+        "pdp_handle": "blue-color-soft-leather-kolhapuri-chappal-for-men"
+      }
+    ],
+    "virgio": [
+      {
+        "pdp_handle": "m1-basy-cotton-tiered-lace-up-maxi-dress"
+      },
+      {
+        "pdp_handle": "soft-romance-bell-sleeve-regular-shirt"
+      },
+      {
+        "pdp_handle": "amodira-raya-long-lasting-luxury-aromatic-floral-perfumes-for-women-online-20ml-edp"
+      }
+    ],
+    "voylla": [
+      {
+        "pdp_handle": "abharan-green-and-white-stones-stud-earrings-vmjai45021"
+      },
+      {
+        "pdp_handle": "aham-brahmasmi-shiva-s-third-eye-ringy"
+      },
+      {
+        "pdp_handle": "twilight-trio-lab-grown-diamond-necklace-sslgd20017"
+      }
+    ]
+  }
+}
