@@ -39,6 +39,14 @@ updates:
       - dependency-name: "@types/node"
         update-types:
           - version-update:semver-major
+      # @supabase/ssr is 0.x, where a MINOR bump is a breaking change, and it sits on the auth
+      # path (cookie/session handling for magic-link sign-in). Patch updates are still proposed.
+      # To update deliberately: bump it by hand on a branch, open a Vercel preview, and complete
+      # a real magic-link sign-in (email link -> callback -> signed-in session -> refresh the
+      # page and confirm it persists) before merging. See DEPLOY.md "0.x-minor-is-breaking".
+      - dependency-name: "@supabase/ssr"
+        update-types:
+          - version-update:semver-minor
     assignees:
       - gaurav-gandhi-2411
     labels:

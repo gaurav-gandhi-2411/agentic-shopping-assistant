@@ -85,7 +85,7 @@ class _JsonFormatter(logging.Formatter):
         elif record.exc_info:
             data["exc"] = self.formatException(record.exc_info)
         # Include any extra fields attached via logging.getLogger().info(..., extra={...})
-        for key in ("latency_ms", "tool", "action", "n_items", "provider"):
+        for key in ("latency_ms", "tool", "action", "n_items", "provider", "ws_auth_path", "ws_auth_ok"):
             val = record.__dict__.get(key)
             if val is not None:
                 data[key] = val

@@ -696,6 +696,104 @@ each Cloud Run service via the `update-env-vars` command above.
 
 ---
 
+## WebSocket auth ticket: out of the URL (two-release plan)
+
+Cloud Run's platform request log records the full request URL (`httpRequest.requestUrl`), so a
+`wss://.../chat/stream?ticket=<nonce>` connect persists the ticket there (the app-level
+redaction only covers our own log lines). The ticket is single-use and expires after 60 s, but
+it is still a credential in a log. The browser now offers it as a `Sec-WebSocket-Protocol`
+entry instead (`new WebSocket(url, ["stylemaitri.ticket.v1", "<ticket>"])`); the server
+selects only the marker and never echoes the ticket.
+
+- **Release 1 (this PR).** Backend accepts the subprotocol path AND the old `?ticket=` and
+  `?token=` paths (precedence: subprotocol, then `?ticket=`, then `?token=`; first present wins,
+  no fall-through). The frontend connects with the subprotocol first; if the socket closes before
+  it ever opened (an old backend that ignores subprotocols, so the browser aborts the handshake),
+  it retries once with `?ticket=<fresh ticket>`. Vercel goes live minutes before Cloud Run
+  finishes, so this window is expected, and during it clients use the URL path.
+- **Release 2 (a LATER PR).** Remove the `?ticket=` and `?token=` paths from the backend and the
+  `?ticket=` retry from the frontend, once the query below shows **zero** `url_ticket` connects
+  for 48 consecutive hours after both services run Release 1. Do not remove the paths before
+  that: a cached or not-yet-reloaded frontend still uses them.
+- **Caveat.** While the old URL path exists, Cloud Run's platform request log still records any
+  URL ticket. Release 1 stops new frontends from sending one but does not purge what is logged.
+  In particular, a pre-open network failure on the first (subprotocol) attempt makes the frontend
+  retry once with a freshly minted single-use 60 s ticket in the URL, so a URL ticket can still
+  appear in Cloud Run's platform request log until the URL path is removed.
+
+Every WS connection emits one INFO line carrying `ws_auth_path` (`subprotocol`, `url_ticket`,
+`legacy_token`, `none` for no credential, `disabled` for dev verification-off) and `ws_auth_ok`.
+`ws_auth_path` is the credential that was presented even when it was rejected, so a client still
+on a deprecated path is counted whether or not its ticket was valid. No credential is logged.
+
+Count URL-ticket connects over the last 48 h (Logs Explorer, or `gcloud logging read` with
+`--freshness=48h`; the app logs JSON to stdout so fields land under `jsonPayload`):
+
+```
+resource.type="cloud_run_revision"
+resource.labels.service_name="asa-stylist-api"
+jsonPayload.ws_auth_path="url_ticket"
+```
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="asa-stylist-api" AND jsonPayload.ws_auth_path="url_ticket"' \
+  --account=gaurav.gandhi1129@gmail.com --project=stylemaitri-prod-260813 \
+  --freshness=48h --format='value(timestamp)' | wc -l
+```
+
+Expect a non-zero count right after Release 1 (cached frontends, the rollout window) falling to 0.
+Also check `legacy_token` the same way before Release 2: it is the other path being removed.
+
+---
+
+## Events endpoint (`POST /events`)
+
+Append-only look-interaction telemetry (the analytics funnel's write path). Code:
+`api/routes/events.py`, `src/flywheel/events.py`.
+
+**Contract.** `Authorization: Bearer <demo session token or Supabase JWT>` (same dependency as chat).
+The stored `user_id` is the authenticated identity; a client-sent `user_id` is ignored. Unknown
+top-level fields are ignored, not stored (the frontend sends `variant_id`/`variant_label` on
+`variant_selected`; they are dropped today). Responses: `200 {"ok": true}`, `401`, `413` (body >
+16 KB), `422` (loc/msg/type only, never the submitted value), `429` + `Retry-After`, `503
+{"detail": "Event logging unavailable"}` when the insert fails (the frontend ignores the response).
+With no DB engine configured the event is dropped and `ok: true` is returned (dev only).
+
+**Limits.** `event_type` must be in `EVENT_TYPES`; `session_id`/`look_id`/`anchor_item_id` <= 128
+chars; `anchor_category`/`occasion`/`brand` <= 64; `look_total_inr` 0..10,000,000; `filled_slots`
+<= 20 flat dicts of <= 16 scalar keys (strings <= 128); `metadata` <= 16 scalar keys, <= 2 KB JSON;
+validated payload <= 8 KB; raw body <= 16 KB (counted as it streams, so a missing or lying
+`Content-Length` cannot bypass it).
+
+**Rate limits** (in memory, per instance, 60 s sliding window, LRU-bounded, independent of the chat
+limiters): `EVENTS_RATE_LIMIT_PER_IDENTITY_PER_MIN` (default 120), `EVENTS_RATE_LIMIT_PER_IP_PER_MIN`
+(default 300), `EVENTS_RATE_LIMIT_MAX_KEYS` (default 10000). The IP limit runs before auth.
+
+**Known trade-offs.**
+
+- The per-IP events limiter runs before auth, so one abusive client can make its own NAT/IP's
+  events 429 for 60 s. This is telemetry only, per instance, and the IP is the right-most
+  `X-Forwarded-For` entry, so it cannot be aimed at another IP.
+- Limits are per Cloud Run instance, not shared across instances.
+- `variant_id`/`variant_label` sent by the frontend on `variant_selected` are not stored. Add them
+  to `metadata` or to bounded fields when the Wave 2 funnel needs them.
+
+**Adding an event type** (Wave 2 funnel): append the name to `EVENT_TYPES` in
+`src/flywheel/events.py`. Nothing else: the route validates against it and
+`styling_events.event_type` is free TEXT, so no migration. Every `EVENT_TYPES` entry is already
+parametrised in `tests/test_events_endpoint.py`. To carry new fields, add them to `EventRequest`
+with explicit bounds; scalar-only `metadata` (<= 2 KB) is available without a schema change.
+
+**What is stored** (`styling_events`, migration 0005): `event_type`, `session_id`, `user_id`,
+`look_id`, `anchor_item_id`, `anchor_category`, `filled_slots` (JSONB), `occasion`, `price_band`
+(derived server-side), `brand`, `look_total_inr`, `metadata` (JSONB), `created_at`.
+
+**Rollout.** No frontend change: `OutfitBoard.tsx` already sends the bearer token on every event
+(only when a demo session token exists). A client without a valid or unexpired token now gets
+`401` (telemetry loss only; `postEvent` swallows errors).
+
+---
+
 ## CI/CD
 
 Prod deploys now run from CI: `.github/workflows/deploy.yml` (added in W8; supersedes the
@@ -835,19 +933,200 @@ LLM budget against the Groq limits: `docs/ops/canary-budget.md`. The WS-path
 `.github/workflows/canary.yml` now runs once a day. Background numbers:
 `reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
-### Follow-up (separate PR, NOT done here): dedicated runtime service account
+### Switch Cloud Run to the dedicated runtime service account
 
-The Cloud Run service runs as the **default compute service account**
-(`631709154646-compute@developer.gserviceaccount.com`), which holds project-level `roles/editor`.
-Any code execution inside the container therefore has Editor on the project, and the deployer's
-`iam.serviceAccountUser` on it is effectively an Editor-reachable grant. Recommended: create a dedicated
-runtime SA (for example `asa-stylist-runtime`) with only what the service uses (Secret Manager
-accessor on the six `asa-*` secrets, `storage.objectViewer` on `asa-demo-indices-stylemaitri-prod`,
-log writer), switch the service to it, re-point the deployer's `serviceAccountUser` binding at it,
-and remove `roles/editor` from the compute SA. Needs its own PR, a rollback plan and a live check
-that every secret and the index download still work.
+Status: the SA and its bindings are defined in `scripts/ops/setup_deploy_iam.sh`; **nothing below has
+been run**. Every command here that writes to production needs GG's explicit approval at run time.
+
+The service (`asa-stylist-api`, revisions `00016-wev` serving and `00013-leh` rollback at the time of
+writing) runs as the **default compute service account**
+`631709154646-compute@developer.gserviceaccount.com`, which holds project-level `roles/editor`. Any code
+execution inside the container therefore has Editor on the project, and the deployer's
+`iam.serviceAccountUser` on it is an Editor-reachable grant. The target is
+`stylemaitri-runtime@stylemaitri-prod-260813.iam.gserviceaccount.com`, which the script gives only:
+
+| Role | Scope | Why |
+|---|---|---|
+| `roles/secretmanager.secretAccessor` | each of `asa-database-url`, `asa-demo-jwt-secret`, `asa-groq-api-key`, `asa-supabase-url`, `CANARY_TOKEN` (secret-level) | the service reads exactly these 5, all as env-var secret refs at `:latest` |
+| `roles/storage.objectViewer` | bucket `gs://asa-demo-indices-stylemaitri-prod` only | the app only lists and downloads (`src/retrieval/index_store.py`); it never writes to GCS |
+
+No project-level role, no `roles/logging.logWriter` (Cloud Run ships container stdout/stderr to Cloud
+Logging by itself, and the app never calls the Logging API), no `roles/editor`, no Cloud SQL, no `run.*`.
+The deployer additionally gets `roles/iam.serviceAccountUser` on the new SA (SA-level) so CI can deploy
+revisions that run as it.
+
+#### Pre-flight checklist
+
+1. `bash scripts/ops/setup_deploy_iam.sh` has been run for real (step 1 below) and its step 6c printed
+   both `OK:` lines (deployer holds exactly writer + tag mover on the repo; runtime SA holds no
+   project-level role).
+2. `gcloud run services describe asa-stylist-api --region asia-south1 --project stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com --format=json`:
+   confirm traffic is pinned by revision name (100% to one named revision, so a new revision is
+   unrouted until `update-traffic`), note the serving and rollback revision names, and that
+   `autoscaling.knative.dev/minScale` is absent or `0`.
+3. No CI deploy is running or about to run (see "Interaction with `deploy.yml`" below).
+4. We cannot read the secrets *as the new SA* from here (`gcloud secrets versions access` would run as
+   our own identity and prove nothing). The proof that the new SA can read them, download the index and
+   reach the database is the tag-URL `/readyz` in step 3: the container fails to start (or `/readyz` is
+   503) if any of that is missing.
+
+#### 1. Create the SA and bindings (writes IAM; approval needed)
+
+```bash
+DRY_RUN=1 bash scripts/ops/setup_deploy_iam.sh   # review every mutation first
+bash scripts/ops/setup_deploy_iam.sh             # idempotent; ends with the 6c verification
+```
+
+This does not touch the compute SA, the service, or any revision.
+
+#### 2. Create a no-traffic tagged revision as the new SA (prod write; approval needed)
+
+```bash
+NEWSA=stylemaitri-runtime@stylemaitri-prod-260813.iam.gserviceaccount.com
+gcloud run services update asa-stylist-api --region=asia-south1 --project=stylemaitri-prod-260813 \
+  --account=gaurav.gandhi1129@gmail.com \
+  --service-account="$NEWSA" --no-traffic --tag=sa-switch
+```
+
+Known traps:
+
+- The service template carries `minScale`/`maxScale`/startup-CPU-boost. `--min-instances` is **not**
+  passed here, so check afterwards that the new revision has no `minScale` above 0 (assert below). Do not
+  add `--min-instances=1`.
+- Traffic is pinned by revision name, so this update is unrouted until step 4. `--no-traffic` plus the
+  tag gives a private URL `https://sa-switch---asa-stylist-api-ec3mwppesa-el.a.run.app`.
+- The update also becomes the **service template**: later `gcloud run deploy` calls (CI) inherit the new
+  SA. That is the point, but it means rollback (step 5) must also be considered against CI (see below).
+- If the bucket or a secret is not readable by the new SA, the new revision fails its startup probe and
+  the command exits non-zero: no traffic was routed, nothing to undo except the tag.
+
+```bash
+REV=$(gcloud run services describe asa-stylist-api --region=asia-south1 --project=stylemaitri-prod-260813 \
+  --account=gaurav.gandhi1129@gmail.com --format=json \
+  | jq -r '[.status.traffic[] | select(.tag == "sa-switch")][0].revisionName // empty')   # same query deploy.yml uses
+test -n "$REV" && echo "$REV"
+gcloud run revisions describe "$REV" --region=asia-south1 --project=stylemaitri-prod-260813 \
+  --account=gaurav.gandhi1129@gmail.com --format=json > "${TMPDIR:-/tmp}/rev-sa.json"
+# assert: serviceAccountName == $NEWSA and minScale absent or "0"
+jq -r '.spec.serviceAccountName, (.metadata.annotations["autoscaling.knative.dev/minScale"] // "0")' "${TMPDIR:-/tmp}/rev-sa.json"
+rm -f "${TMPDIR:-/tmp}/rev-sa.json"   # temp copy only; do not leave revision JSON in the working directory
+```
+
+#### 3. Smoke the tag URL (read-only)
+
+The non-root `app` user (uid 10001) owns `/app/data/processed`, where the index lands. The index
+download authenticates through the metadata server for the attached SA (Application Default
+Credentials; there are no key files in the image), so a green `/readyz` on the tag URL proves the whole
+chain as the new SA and as the non-root user.
+
+```bash
+TAG_URL=https://sa-switch---asa-stylist-api-ec3mwppesa-el.a.run.app
+curl -sS -w '\n%{http_code}\n' "$TAG_URL/readyz"
+curl -sS -w '\n%{http_code}\n' "$TAG_URL/canary/status"
+python scripts/ops/deploy_smoke.py --base-url "$TAG_URL" --live-path /api/brand   # liveness, /readyz, /demo/session, 1 REST /chat (2 LLM calls)
+```
+
+Required: `/readyz` is HTTP 200 with `"status":"ready"` and `retriever`, `catalogue`, `llm`, `database`
+and `schema` all starting with `ok` (retriever and catalogue prove the index was downloaded from the
+bucket as the new SA; llm proves `asa-groq-api-key` was readable; database and schema prove
+`asa-database-url`). `/canary/status` is a cheap secondary check (the canary reads `CANARY_TOKEN`; it may
+answer 503 `stale` on a fresh instance with no result, which is not an SA problem). One WebSocket chat
+via the tag URL is optional when the smoke's REST `/chat` is deemed enough. Then read the new revision's logs and expect no `PermissionDenied`/`403`:
+
+```bash
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.revision_name=$REV AND severity>=WARNING" \
+  --freshness=15m --limit=50 --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+If anything is not green, stop. Production is unaffected; remove the tag later with
+`gcloud run services update-traffic asa-stylist-api --remove-tags=sa-switch ...` (see step 5 for the
+template caveat).
+
+#### 4. Shift 100% only if step 3 was fully green (prod write; approval needed)
+
+```bash
+gcloud run services update-traffic asa-stylist-api --to-revisions="$REV"=100 \
+  --region=asia-south1 --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+Then verify: no `minScale` on the serving revision (the jq line from step 2 against `$REV`),
+`curl "$SERVICE_URL/readyz"` on the main URL is 200/`ready`, and logs have no permission errors for a
+few minutes of real traffic.
+
+#### 5. Rollback
+
+The previous revision (`00013-leh`, plus whichever revision was serving) runs as the compute SA and
+stays startable because **this PR and these steps do not remove anything from the compute SA**: its
+per-secret `secretAccessor` bindings and project `roles/editor` stay until the separate step 6. Roll
+back at any time by routing 100% to the previous revision *by name*:
+
+```bash
+gcloud run services update-traffic asa-stylist-api --to-revisions=<PREVIOUS_REVISION>=100 \
+  --region=asia-south1 --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+```
+
+Caveat: this only moves traffic. The service **template** still names the new SA, so the next CI deploy
+creates a revision as the new SA and then fails the parity check against the (compute-SA) serving
+revision, fail-closed with no traffic shifted. If you roll back and want CI to work again, also reset
+the template: `gcloud run services update asa-stylist-api --service-account=<compute SA> --no-traffic
+--region=asia-south1 --project=stylemaitri-prod-260813` (a no-traffic update; do it only after the cause
+is understood).
+
+#### 6. Later and separately approved: drop the compute SA's access
+
+Only after (a) a CI deploy has succeeded with the new SA as the serving revision and (b) the rollback
+revision that runs as the compute SA has been replaced by newer revisions (so nothing you may roll back to
+still depends on the compute SA):
+
+```bash
+REMOVE_COMPUTE_ACTAS=1 bash scripts/ops/setup_deploy_iam.sh   # refuses unless the service already runs as the new SA
+
+COMPUTE=631709154646-compute@developer.gserviceaccount.com
+for s in asa-database-url asa-demo-jwt-secret asa-groq-api-key asa-supabase-url CANARY_TOKEN; do
+  gcloud secrets remove-iam-policy-binding "$s" --member="serviceAccount:$COMPUTE" \
+    --role=roles/secretmanager.secretAccessor --project=stylemaitri-prod-260813 --account=gaurav.gandhi1129@gmail.com
+done
+gcloud projects remove-iam-policy-binding stylemaitri-prod-260813 --member="serviceAccount:$COMPUTE" \
+  --role=roles/editor --account=gaurav.gandhi1129@gmail.com
+```
+
+Before the last command, check nothing else on the project relies on the compute SA's Editor (Cloud
+Build default builds, other services, the old `run-sources-*` deploy path); images are built on the
+GitHub runner, but confirm.
+
+#### Interaction with `deploy.yml` (read from the workflow, not assumed)
+
+`deploy.yml` step "Assert new revision kept prod config" builds `cfg-prev.json` from the **serving**
+revision and `cfg-new.json` from the new revision with the same jq view, including
+`serviceAccount: .spec.serviceAccountName`, and runs `diff -u`; any difference (SA included) fails the
+step before any traffic shift. It never names an SA itself and `gcloud run deploy` there passes no
+`--service-account`, so the new revision inherits the **service template's** SA.
+
+- After steps 2 and 4 (template = new SA, serving = new SA) the next deploy inherits the new SA, the
+  two views match, and parity passes. No `deploy.yml` change is needed for the switch.
+- The deployer needs `roles/iam.serviceAccountUser` on the SA the template names, otherwise the deploy
+  is rejected for lack of `iam.serviceAccounts.actAs`. The script grants it on the new SA (step 4f) and
+  keeps it on the compute SA until `REMOVE_COMPUTE_ACTAS=1`.
+- Window to avoid: between step 2 (template flipped) and step 4 (traffic shifted), a CI deploy would
+  inherit the new SA while the serving revision still runs as the compute SA, so parity would fail
+  closed. Do not merge to `master` (which triggers a deploy) while the switch is in progress.
 
 ### Not done by this pipeline
 
 Frontend (Vercel) deploys, Secret Manager changes, index uploads to GCS and DB migrations are
 unchanged and remain manual (see the sections above).
+
+## 0.x-minor-is-breaking dependencies on sensitive paths
+
+Under semver a 0.x library may break in any MINOR release, so a Dependabot minor bump is not a
+routine update when the library sits on a sensitive path. These are excluded from minor-update
+PRs in `.github/dependabot.yml` (patch updates are still proposed):
+
+| Package | Why sensitive | Excluded updates |
+|---|---|---|
+| `@supabase/ssr` (frontend) | auth path: session cookies for magic-link sign-in; the 0.6.1 -> 0.12.7 jump in PR #90 is the motivating case | minor |
+
+To update one deliberately: bump it by hand on a branch, let Vercel build a preview, and complete
+a real magic-link sign-in on that preview (request the link, follow it, confirm a signed-in
+session, reload and confirm it persists, sign out) before merging. Add new entries here and to
+the Dependabot ignore list together.

@@ -7,11 +7,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-VALID_EVENT_TYPES: frozenset[str] = frozenset({
+# The ONE place event names live. To add an event type (e.g. for the analytics funnel), append
+# it here: POST /events (api/routes/events.py) and StylingEvent both validate against it, and no
+# DB migration is needed (styling_events.event_type is free TEXT).
+EVENT_TYPES: tuple[str, ...] = (
     "look_shown", "item_view", "add_single", "add_the_look",
     "swap_slot", "thumbs_up", "thumbs_down", "variant_selected",
     "save_look",
-})
+)
+VALID_EVENT_TYPES: frozenset[str] = frozenset(EVENT_TYPES)
 
 # (upper_bound_exclusive, band_label) — checked in order; first match wins.
 PRICE_BANDS: list[tuple[float, str]] = [
@@ -65,7 +69,7 @@ class StylingEvent:
             raise ValueError(f"Unknown event_type: {self.event_type!r}")
 
 
-def log_event(engine: Any, event: StylingEvent) -> None:
+def log_event(engine: Any, event: StylingEvent) -> bool:
     """Insert one StylingEvent into styling_events. Append-only — never UPDATE.
 
     Swallows all DB exceptions so a telemetry failure never crashes the
@@ -74,6 +78,9 @@ def log_event(engine: Any, event: StylingEvent) -> None:
     Args:
         engine: SQLAlchemy engine with an active pool.
         event:  A validated StylingEvent dataclass instance.
+
+    Returns:
+        True when the row was inserted, False when the insert failed (and was logged).
     """
     import sqlalchemy as sa
 
@@ -115,3 +122,5 @@ def log_event(engine: Any, event: StylingEvent) -> None:
             event.event_type,
             event.look_id,
         )
+        return False
+    return True

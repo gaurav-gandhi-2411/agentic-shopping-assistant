@@ -113,6 +113,41 @@ def reset_fallback_state() -> None:
 _daily_cost_accumulated: float = 0.0
 _cost_lock: threading.Lock = threading.Lock()
 _current_day: str = ""  # YYYY-MM-DD UTC; used to detect day rollover
+# Set when a rollover reset the accumulator; the next record_cost (which has an engine)
+# reloads today's DB total so spend by other instances earlier today is not forgotten.
+_reload_pending: bool = False
+
+
+def _today_utc() -> str:
+    """The day key (YYYY-MM-DD) in UTC. Single seam so tests can fake the clock; the day key
+    must be UTC (Postgres rows and the cap are per UTC day), never the host's local date."""
+    import datetime
+
+    return datetime.datetime.now(datetime.UTC).date().isoformat()
+
+
+def _roll_day_locked(today: str) -> bool:
+    """Reset the accumulator on the first call of a new UTC day. Caller MUST hold _cost_lock.
+
+    Returns True if a rollover happened. The first-ever call (empty ``_current_day``) just
+    adopts the day without resetting, as before.
+    """
+    global _daily_cost_accumulated, _current_day, _reload_pending
+    if _current_day == today:
+        return False
+    previous = _current_day
+    _current_day = today
+    if not previous:
+        return False
+    logger.info(
+        "demo cost accumulator rolled over (stored=%s, today=%s); reset from %.6f to 0.0",
+        previous,
+        today,
+        _daily_cost_accumulated,
+    )
+    _daily_cost_accumulated = 0.0
+    _reload_pending = True
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -126,11 +161,9 @@ def init_demo_guards(engine: Any, brand: str) -> None:
     Called once at startup when DEMO_MODE=true.  Failures are non-fatal: the
     accumulator starts from 0 and the Postgres cap remains the source of truth.
     """
-    global _daily_cost_accumulated, _current_day
+    global _daily_cost_accumulated, _current_day, _reload_pending
 
-    import datetime
-
-    today = datetime.date.today().isoformat()
+    today = _today_utc()
     try:
         with engine.begin() as conn:
             row = conn.execute(
@@ -151,6 +184,7 @@ def init_demo_guards(engine: Any, brand: str) -> None:
     with _cost_lock:
         _daily_cost_accumulated = loaded
         _current_day = today
+        _reload_pending = False
 
     logger.info(
         "init_demo_guards: loaded cost_usd=%.6f for brand=%s date=%s",
@@ -239,11 +273,9 @@ def check_daily_cap(brand: str, engine: Any) -> bool:
     count.  Fails CLOSED: on a missing engine or DB error the per-instance in-process daily
     count (same cap) decides alone.
     """
-    import datetime
-
     if not _health.usable(engine, "check_daily_cap"):
         return _fallback.daily_allowed()
-    today = datetime.date.today().isoformat()
+    today = _today_utc()
     try:
         with engine.begin() as conn:
             row = conn.execute(
@@ -265,22 +297,13 @@ def check_daily_cost(brand: str) -> bool:
     """Return True if the in-memory accumulated cost is below _DAILY_COST_CAP_USD.
 
     Pure in-memory check — no DB round-trip.  If the process has been running
-    across a UTC day boundary the accumulator is stale; we log and return True
-    because the Postgres daily cap is still active.
+    across a UTC day boundary the accumulator is yesterday's: it is reset to 0
+    (atomically, under the lock) at the first call of the new UTC day and today's
+    total is reloaded from the DB by the next record_cost.
     """
-    import datetime
-
-    today = datetime.date.today().isoformat()
+    today = _today_utc()
     with _cost_lock:
-        if _current_day and _current_day != today:
-            # Day rolled over since last startup; accumulator no longer valid.
-            logger.info(
-                "check_daily_cost: day boundary detected (stored=%s, today=%s);"
-                " returning True (cost cap delegated to DB)",
-                _current_day,
-                today,
-            )
-            return True
+        _roll_day_locked(today)
         return _daily_cost_accumulated < _DAILY_COST_CAP_USD
 
 
@@ -295,12 +318,10 @@ def record_request(brand: str, engine: Any) -> None:
     Always also counts in the in-process fallback so its daily cap is accurate if the DB
     goes away mid-day.
     """
-    import datetime
-
     _fallback.record_request()
     if not _health.usable(engine, "record_request"):
         return
-    today = datetime.date.today().isoformat()
+    today = _today_utc()
     try:
         with engine.begin() as conn:
             conn.execute(
@@ -320,12 +341,12 @@ def record_request(brand: str, engine: Any) -> None:
 
 def record_cost(brand: str, usd_cost: float, engine: Any) -> None:
     """Add usd_cost to the in-memory accumulator and persist to Postgres."""
-    import datetime
+    global _daily_cost_accumulated, _reload_pending
 
-    today = datetime.date.today().isoformat()
+    today = _today_utc()
 
     with _cost_lock:
-        global _daily_cost_accumulated
+        _roll_day_locked(today)
         _daily_cost_accumulated += usd_cost
 
     try:
@@ -348,3 +369,29 @@ def record_cost(brand: str, usd_cost: float, engine: Any) -> None:
             usd_cost,
             exc_info=True,
         )
+        return
+
+    # After a rollover, pick up what other instances already spent today. The DB read is done
+    # outside the lock; max() keeps this race-safe against concurrent record_cost calls.
+    with _cost_lock:
+        pending = _reload_pending and _current_day == today
+        if pending:
+            _reload_pending = False
+    if not pending:
+        return
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT cost_usd FROM demo_daily_stats"
+                    " WHERE brand = :brand AND date = :date"
+                ),
+                {"brand": brand, "date": today},
+            ).fetchone()
+        db_total = float(row[0]) if row else 0.0
+    except Exception:
+        logger.warning("record_cost: rollover reload failed; keeping accumulator", exc_info=True)
+        return
+    with _cost_lock:
+        if _current_day == today:
+            _daily_cost_accumulated = max(_daily_cost_accumulated, db_total)

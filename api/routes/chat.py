@@ -18,7 +18,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSo
 from pydantic import BaseModel
 
 import api.deps as deps
-from api.auth import get_current_user_id_or_demo, get_current_user_id_ws
+from api.auth import (
+    WS_TICKET_SUBPROTOCOL,
+    get_current_user_id_or_demo,
+    get_current_user_id_ws,
+    ws_offers_ticket_subprotocol,
+)
 from api.demo.client_ip import get_client_ip
 from api.logging_config import conversation_id_var
 from api.rate_limit import get_rate_limiter
@@ -824,6 +829,16 @@ async def run_chat_turn(
 # WS /chat/stream
 # ---------------------------------------------------------------------------
 
+def _log_ws_auth(websocket: WebSocket, *, ok: bool) -> None:
+    """Emit the single per-connection auth-path log line (never carries a credential).
+
+    ``ws_auth_path`` is the credential that was PRESENTED, even when it was rejected, so a
+    client still using a deprecated path is counted whether or not its ticket was valid.
+    """
+    path = getattr(websocket.state, "ws_auth_path", "unknown")
+    logger.info("ws_connect auth_ok=%s", ok, extra={"ws_auth_path": path, "ws_auth_ok": ok})
+
+
 @router.websocket("/chat/stream")
 async def ws_chat(websocket: WebSocket) -> None:
     """Streaming chat over WebSocket.
@@ -849,16 +864,23 @@ async def ws_chat(websocket: WebSocket) -> None:
     bridged through an asyncio.Queue (_iter_tokens).  This avoids the quirks
     of astream_events with custom LangGraph node functions.
     """
-    await websocket.accept()
+    # A browser aborts the handshake when it offered subprotocols and the server selects
+    # none, so select the marker whenever it was offered (even if auth then fails). Only
+    # the marker is ever selected: the ticket that follows it is never echoed back.
+    await websocket.accept(
+        subprotocol=WS_TICKET_SUBPROTOCOL if ws_offers_ticket_subprotocol(websocket) else None
+    )
 
-    # Authenticate: preferred path uses ?ticket=<nonce> (minted by POST /auth/ws-ticket).
-    # Legacy ?token=<jwt> is still accepted for backward compatibility (Streamlit Spaces).
-    # Close immediately with 1008 (policy violation) on any auth failure.
+    # Authenticate: preferred path carries the ticket (minted by POST /auth/ws-ticket) in the
+    # Sec-WebSocket-Protocol header; ?ticket=<nonce> and legacy ?token=<jwt> are still accepted
+    # for one release. Close immediately with 1008 (policy violation) on any auth failure.
     try:
         user_id: str = get_current_user_id_ws(websocket)
     except HTTPException:
+        _log_ws_auth(websocket, ok=False)
         await websocket.close(code=1008, reason="Policy violation: invalid or missing token")
         return
+    _log_ws_auth(websocket, ok=True)
 
     # Rate limit: anonymous demo sessions use Postgres-backed per-IP + daily guards;
     # authenticated users use the existing in-memory sliding-window limiter.

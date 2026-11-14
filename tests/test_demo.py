@@ -128,7 +128,7 @@ def test_check_ip_rate_limit_db_error() -> None:
 
 
 def test_check_daily_cost_under_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    today = datetime.date.today().isoformat()
+    today = datetime.datetime.now(datetime.UTC).date().isoformat()
     monkeypatch.setattr(guards_module, "_daily_cost_accumulated", 0.20)
     monkeypatch.setattr(guards_module, "_current_day", today)
     result = guards_module.check_daily_cost("snitch")
@@ -136,7 +136,7 @@ def test_check_daily_cost_under_budget(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_check_daily_cost_over_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    today = datetime.date.today().isoformat()
+    today = datetime.datetime.now(datetime.UTC).date().isoformat()
     monkeypatch.setattr(guards_module, "_daily_cost_accumulated", 0.55)
     monkeypatch.setattr(guards_module, "_current_day", today)
     result = guards_module.check_daily_cost("snitch")

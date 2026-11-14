@@ -423,7 +423,15 @@ async def canary(
     token = _plain_query_token(request.scope.get("query_string", b""))
     if not _authorised(x_canary_token, token):
         raise HTTPException(status_code=404, detail="Not Found")
-    kind, status, body = await _result()
+    try:
+        kind, status, body = await _result()
+    except Exception:
+        # Handled 503 with a FIXED body: exception text never reaches the caller (it can carry
+        # URLs/keys from a provider error); the detail goes to the server log only.
+        logger.error("canary run raised", exc_info=True)
+        return _respond(
+            503, _fail_body("internal_error", "canary run failed unexpectedly"), cached=False
+        )
     return _respond(status, body, cached=kind == "cached")
 
 
