@@ -6,6 +6,7 @@ import { Bookmark, Check, Copy, ExternalLink, ShoppingBag, Sparkles, Store } fro
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
 import { cn } from "@/lib/utils"
+import { COPY } from "@/lib/copy"
 import { formatSlotLabel } from "@/lib/displayFormat"
 import type {
   ItemLink,
@@ -87,6 +88,8 @@ interface OutfitBoardProps {
   anchorCategory: string
   brand: string | undefined
   onSend?: (text: string) => void
+  /** Offer an optional, non-blocking sign-in link once the look is saved (landing page only). */
+  signInNudge?: boolean
 }
 
 /**
@@ -188,6 +191,7 @@ export function OutfitBoard({
   anchorCategory,
   brand,
   onSend,
+  signInNudge,
 }: OutfitBoardProps) {
   const { data: brandConfig } = useBrandConfig()
   const loggedRef = useRef(false)
@@ -723,6 +727,21 @@ export function OutfitBoard({
                   {copied ? "Copied!" : "Copy"}
                 </button>
               </div>
+              {/* Sign-in is optional and offered only here, after a save succeeded. A link in a
+                  new tab so it never interrupts the conversation. */}
+              {signInNudge && (
+                <p className="text-xs text-muted-foreground">
+                  {COPY.save.signInNudge}{" "}
+                  <a
+                    href="/login"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-2"
+                  >
+                    {COPY.save.signInLink}
+                  </a>
+                </p>
+              )}
             </div>
           )}
         </div>
