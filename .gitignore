@@ -69,3 +69,6 @@ Thumbs.db
 frontend/.next/
 frontend/node_modules/
 frontend/.turbo/
+# Playwright run artifacts (failure traces/screenshots only; browsers are never committed)
+frontend/test-results/
+frontend/playwright-report/
