@@ -178,6 +178,21 @@ jobs:
 
       - name: Build
         run: cd frontend && npm run build
+        env:
+          # Stub origins baked into this CI-only bundle (never deployed; Vercel builds its
+          # own) so the e2e step below can serve THIS build. Nothing listens on these
+          # addresses: the e2e test intercepts every API request and mocks the WebSocket.
+          NEXT_PUBLIC_BACKEND_URL: http://127.0.0.1:8099
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: e2e-anon-key
+
+      # Wave 1b V2: one anonymous mobile (390x844) query end to end, backend stubbed, no live
+      # LLM or production call. Chromium is installed per run and never committed.
+      - name: Install Playwright browser
+        run: cd frontend && npx playwright install --with-deps chromium
+
+      - name: E2E (mobile landing, stubbed backend)
+        run: cd frontend && npm run test:e2e
 
       - name: Security audit (npm audit)
         run: python scripts/check_advisory_allowlist.py npm-audit
