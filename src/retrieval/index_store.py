@@ -238,8 +238,8 @@ def download_variant_maps(uri: str, repo_root: Path) -> None:
     try:
         import importlib
 
-        # importlib (-> Any): lazy import, only when a bucket is configured, without a new
-        # `type: ignore` for the untyped google package.
+        # importlib (-> Any): lazy import, only when a bucket is configured, without needing a
+        # mypy suppression for the untyped google package.
         storage = importlib.import_module("google.cloud.storage")
         variants_local_dir.mkdir(parents=True, exist_ok=True)
         bucket = storage.Client().bucket(parsed.netloc)
