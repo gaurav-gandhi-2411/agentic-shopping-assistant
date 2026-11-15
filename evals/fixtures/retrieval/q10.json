@@ -1,0 +1,17 @@
+{
+  "id": "q10",
+  "text": "Can you suggest outfit for someone to wear to date night? I want it to look elegant but stay comfortable.",
+  "language_style": "stylist_descriptive",
+  "occasion": "date_night",
+  "gender": "either",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": null,
+    "category": "outfit",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

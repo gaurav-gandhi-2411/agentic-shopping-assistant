@@ -1,0 +1,17 @@
+{
+  "id": "q48",
+  "text": "Can you suggest juttis for a woman to wear to a wedding? I want it to look elegant but stay comfortable. Please keep it under ₹5000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "accessory_footwear",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "juttis",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

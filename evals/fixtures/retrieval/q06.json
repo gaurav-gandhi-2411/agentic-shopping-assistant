@@ -1,0 +1,17 @@
+{
+  "id": "q06",
+  "text": "women's shirt for office under ₹1000",
+  "language_style": "plain_en",
+  "occasion": "office_formal",
+  "gender": "women",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "shirt",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q33",
+  "text": "Can you suggest white kurti for a woman to wear to college? I want it to look elegant but stay comfortable. Please keep it under ₹3000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "college",
+  "gender": "women",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "white",
+    "category": "kurti",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

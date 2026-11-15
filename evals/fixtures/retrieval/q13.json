@@ -1,0 +1,17 @@
+{
+  "id": "q13",
+  "text": "Need women's blue fusion lehenga for sangeet night yaar, budget 5000 max",
+  "language_style": "en_hinglish",
+  "occasion": "sangeet",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": true,
+  "constraints": {
+    "gender": "women",
+    "colour": "blue",
+    "category": "lehenga",
+    "max_price": 5000,
+    "style_term": "fusion"
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget + style term 'fusion')"
+}

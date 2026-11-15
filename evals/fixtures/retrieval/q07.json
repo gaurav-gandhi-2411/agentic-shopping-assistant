@@ -1,0 +1,17 @@
+{
+  "id": "q07",
+  "text": "men's white kurta for diwali under ₹3000",
+  "language_style": "plain_en",
+  "occasion": "festive_diwali",
+  "gender": "men",
+  "budget_inr": 3000,
+  "hard": true,
+  "constraints": {
+    "gender": "men",
+    "colour": "white",
+    "category": "kurta",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget)"
+}

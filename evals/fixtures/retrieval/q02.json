@@ -1,0 +1,17 @@
+{
+  "id": "q02",
+  "text": "kuta haldi men",
+  "language_style": "keyword_typo",
+  "occasion": "haldi",
+  "gender": "men",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "kurta",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

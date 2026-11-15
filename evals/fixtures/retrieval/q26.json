@@ -1,0 +1,17 @@
+{
+  "id": "q26",
+  "text": "Can you suggest orange kurta set for a woman to wear to a haldi ceremony? I want it to look elegant but stay comfortable. Please keep it under ₹5000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "haldi",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": true,
+  "constraints": {
+    "gender": "women",
+    "colour": "orange",
+    "category": "kurta set",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget)"
+}

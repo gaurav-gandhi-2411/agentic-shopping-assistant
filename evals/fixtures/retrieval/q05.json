@@ -1,0 +1,17 @@
+{
+  "id": "q05",
+  "text": "Need navy outfit for reception party yaar, budget 3000 max",
+  "language_style": "en_hinglish",
+  "occasion": "reception_cocktail",
+  "gender": "either",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": "navy",
+    "category": "outfit",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

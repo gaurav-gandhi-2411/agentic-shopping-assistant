@@ -1,0 +1,17 @@
+{
+  "id": "q39",
+  "text": "mehendi ke liye pink nehru jacket set chahiye ladkon ke liye",
+  "language_style": "romanised_hinglish",
+  "occasion": "mehendi",
+  "gender": "men",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "pink",
+    "category": "nehru jacket set",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

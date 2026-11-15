@@ -1,0 +1,17 @@
+{
+  "id": "q29",
+  "text": "men's grey blazer for a reception under ₹1500",
+  "language_style": "plain_en",
+  "occasion": "reception_cocktail",
+  "gender": "men",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "grey",
+    "category": "blazer",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

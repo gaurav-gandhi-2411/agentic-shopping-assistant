@@ -1,0 +1,17 @@
+{
+  "id": "q11",
+  "text": "Can you suggest black jumpsuit for a woman to wear to a party? I want it to look elegant but stay comfortable.",
+  "language_style": "stylist_descriptive",
+  "occasion": "travel_party",
+  "gender": "women",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "black",
+    "category": "jumpsuit",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

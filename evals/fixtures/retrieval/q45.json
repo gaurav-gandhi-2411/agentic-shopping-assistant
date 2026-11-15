@@ -1,0 +1,17 @@
+{
+  "id": "q45",
+  "text": "college ke liye grey sneakers chahiye, 1500 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "college",
+  "gender": "either",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": "grey",
+    "category": "sneakers",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

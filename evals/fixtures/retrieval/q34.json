@@ -1,0 +1,17 @@
+{
+  "id": "q34",
+  "text": "Need men's shirt for date night yaar, kuch accha dikhao",
+  "language_style": "en_hinglish",
+  "occasion": "date_night",
+  "gender": "men",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "shirt",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

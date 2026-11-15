@@ -1,0 +1,17 @@
+{
+  "id": "q38",
+  "text": "haldi ke liye yellow kurta set chahiye ladkiyon ke liye, 1500 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "haldi",
+  "gender": "women",
+  "budget_inr": 1500,
+  "hard": true,
+  "constraints": {
+    "gender": "women",
+    "colour": "yellow",
+    "category": "kurta set",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget)"
+}

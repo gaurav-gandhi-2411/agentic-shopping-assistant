@@ -1,0 +1,17 @@
+{
+  "id": "q55",
+  "text": "white ethnic wear for diwali under ₹3000",
+  "language_style": "plain_en",
+  "occasion": "festive_diwali",
+  "gender": "either",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": "white",
+    "category": "ethnic wear",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

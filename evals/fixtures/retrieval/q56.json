@@ -1,0 +1,17 @@
+{
+  "id": "q56",
+  "text": "roz pehenne ke liye cotton kurta chahiye ladkiyon ke liye",
+  "language_style": "romanised_hinglish",
+  "occasion": "casual_daily",
+  "gender": "women",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "cotton kurta",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q22",
+  "text": "men's blazer for date night under ₹1500",
+  "language_style": "plain_en",
+  "occasion": "date_night",
+  "gender": "men",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "blazer",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

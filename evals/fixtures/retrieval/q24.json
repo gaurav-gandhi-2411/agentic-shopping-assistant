@@ -1,0 +1,17 @@
+{
+  "id": "q24",
+  "text": "shaadi ke liye loafers chahiye ladkon ke liye, 1500 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "accessory_footwear",
+  "gender": "men",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "loafers",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

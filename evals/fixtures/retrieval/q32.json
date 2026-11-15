@@ -1,0 +1,17 @@
+{
+  "id": "q32",
+  "text": "blue fuson t-shirt casual daily men <1000",
+  "language_style": "keyword_typo",
+  "occasion": "casual_daily",
+  "gender": "men",
+  "budget_inr": 1000,
+  "hard": true,
+  "constraints": {
+    "gender": "men",
+    "colour": "blue",
+    "category": "t-shirt",
+    "max_price": 1000,
+    "style_term": "fusion"
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget + style term 'fusion')"
+}
