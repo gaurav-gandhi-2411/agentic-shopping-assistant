@@ -28,6 +28,7 @@ from evals.retrieval.common import (
     CANDIDATE_DIR,
     JUDGE_DAILY_TOKEN_BUDGET,
     JUDGE_MODELS,
+    MIN_REQUEST_INTERVAL_S,
     REPO,
     RERANKER_DAILY_TOKEN_BUDGET,
     RERANKER_MODEL,
@@ -58,7 +59,6 @@ from evals.retrieval.judge import (
 from evals.retrieval.mock import mock_transport
 from evals.retrieval.packets import export_packets, import_results
 from evals.retrieval.variants import (
-    C_MAX_TOKENS,
     build_compact_prompt,
     run_variant_a,
     run_variant_b,
@@ -147,6 +147,17 @@ class MockRerankLLM:
         return out
 
 
+def usable_cases(limit: int | None, cand_dir: Path) -> list[dict[str, Any]]:
+    """Cases that have at least one candidate (queries the agent sends to clarify have none)."""
+    out = []
+    for c in load_cases(limit):
+        if load_candidates(c["id"], cand_dir)["items"]:
+            out.append(c)
+        else:
+            print(f"  skipping {c['id']}: no candidates (production routes it to clarify)")
+    return out
+
+
 def _runner(
     mock: bool, live: bool, out_dir: Path, mock_responder: Callable[..., Any] | None
 ) -> GroqRunner:
@@ -206,7 +217,7 @@ def calibration_ok(labels: dict[str, dict[str, int]]) -> tuple[bool, list[str]]:
 
 def stage_judge(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
-    cases = load_cases(args.limit)
+    cases = usable_cases(args.limit, Path(args.cand))
     rubric = load_rubric()
     if args.export_packets:
         prompts = [
@@ -274,7 +285,7 @@ def stage_judge(args: argparse.Namespace) -> int:
 
 def stage_variants(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
-    cases = load_cases(args.limit)
+    cases = usable_cases(args.limit, Path(args.cand))
     spec = reranker_spec(args.rerank_budget)
     if args.mock:
         llm_a: Any = MockRerankLLM()
@@ -370,7 +381,7 @@ def stage_report(args: argparse.Namespace) -> int:
     if not agg:
         print("no judge labels found; run --stage judge first")
         return 2
-    rep = build_report(load_cases(args.limit), variants, agg)
+    rep = build_report(usable_cases(args.limit, Path(args.cand)), variants, agg)
     rep["agreement"] = ag.pairwise_report(labels)
     (out_dir / "report.json").write_text(json.dumps(rep, indent=1))
     print(json.dumps({k: rep[k] for k in ("n_queries", "metrics", "paired", "usage")}, indent=1))
@@ -378,39 +389,101 @@ def stage_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# Completion-token assumptions for the plan (visible output + hidden reasoning at low effort).
+# Judges: ~120 visible + reasoning; A: observed prod p50 144 of the 150 cap (v4 log analysis);
+# C: ~30 visible + reasoning. Stage 2 replaces these with ledger medians after the first calls.
+EST_COMPLETION = {"judge": 400, "calibration": 400, "A": 150, "C": 100}
+TPM_LIMIT = 8_000  # Groq free tier per model (architect brief)
+
+
+def build_plan(
+    jt: list[int],
+    cal: list[int],
+    a_prompt: list[int],
+    c_prompt: list[int],
+    judge_budget: int = JUDGE_DAILY_TOKEN_BUDGET,
+    rerank_budget: int = RERANKER_DAILY_TOKEN_BUDGET,
+) -> dict[str, Any]:
+    """Per-model token totals, days needed under the daily budget, and TPM-bound minutes."""
+    import math
+
+    def mean(x: list[int]) -> float:
+        return sum(x) / len(x)
+
+    n = len(jt)
+    judge_cal = len(cal) * (mean(cal) + EST_COMPLETION["calibration"])
+    judge_main = n * (mean(jt) + EST_COMPLETION["judge"])
+    judge_worst = n * (mean(jt) + JUDGE_MAX_TOKENS)
+    selfcons = 10 * (mean(jt) + EST_COMPLETION["judge"])
+    a_tok = n * (mean(a_prompt) + EST_COMPLETION["A"])
+    c_tok = n * (mean(c_prompt) + EST_COMPLETION["C"])
+    probe = 3 * (mean(a_prompt) + EST_COMPLETION["A"])
+    per_judge = judge_cal + judge_main
+    plan = {
+        "n_queries_with_candidates": n,
+        "mean_prompt_tokens": {
+            "judge": mean(jt),
+            "calibration": mean(cal),
+            "A": mean(a_prompt),
+            "C": mean(c_prompt),
+        },
+        "tokens": {
+            "per_judge_calibration": judge_cal,
+            "per_judge_main_expected": judge_main,
+            "per_judge_main_worst_case_cap_hit_every_call": judge_worst,
+            "per_judge_selfconsistency_10q_optional": selfcons,
+            "A_all_queries": a_tok,
+            "C_all_queries": c_tok,
+            "caching_probe_per_model": probe,
+        },
+        "per_model": {
+            "gpt-oss-120b (judge+probe)": per_judge + probe,
+            "qwen3.8-27b (judge)": per_judge,
+            "gpt-oss-20b (A+C)": a_tok + c_tok + probe,
+        },
+        "budgets": {"judge": judge_budget, "rerank_model": rerank_budget},
+    }
+    plan["days"] = {
+        "gpt-oss-120b": math.ceil(plan["per_model"]["gpt-oss-120b (judge+probe)"] / judge_budget),
+        "qwen3.8-27b": math.ceil(plan["per_model"]["qwen3.8-27b (judge)"] / judge_budget),
+        "gpt-oss-120b_worst_case": math.ceil((judge_worst + judge_cal + probe) / judge_budget),
+        "gpt-oss-20b": math.ceil(plan["per_model"]["gpt-oss-20b (A+C)"] / rerank_budget),
+    }
+    call_tok = mean(jt) + EST_COMPLETION["judge"]
+    plan["tpm_bound_minutes_per_judge_main"] = n * call_tok / TPM_LIMIT
+    plan["rpm_bound_minutes_per_judge_main"] = n * MIN_REQUEST_INTERVAL_S / 60
+    return plan
+
+
 def stage_plan(args: argparse.Namespace) -> int:
-    """Token estimates from the real built prompts (tiktoken o200k_base proxy, or heuristic)."""
-    cases = load_cases(args.limit)
+    """Token/day plan from the REAL built prompts (tiktoken o200k_base proxy, or heuristic)."""
+    from src.agents.reranker import _SYSTEM, _format_candidates
+
+    cases = usable_cases(args.limit, Path(args.cand))
+    pools = [load_candidates(c["id"], Path(args.cand))["items"] for c in cases]
     jt = [
         count_tokens(p.system + p.user)
-        for p in (
-            build_judge_prompt(c, load_candidates(c["id"], Path(args.cand))["items"], SEED)
-            for c in cases
-        )
+        for p in (build_judge_prompt(c, it, SEED) for c, it in zip(cases, pools, strict=True))
     ]
     ct = [
-        sum(
-            count_tokens(x)
-            for x in build_compact_prompt(
-                c["text"], load_candidates(c["id"], Path(args.cand))["items"]
-            )
+        sum(count_tokens(x) for x in build_compact_prompt(c["text"], it))
+        for c, it in zip(cases, pools, strict=True)
+    ]
+    at = [
+        count_tokens(_SYSTEM)
+        + count_tokens(
+            f'Query: "{c["text"]}"\n\nProducts:\n{_format_candidates(it)}\n\nSelect the best 5 products.'
         )
-        for c in cases
+        for c, it in zip(cases, pools, strict=True)
     ]
     cal = [
         count_tokens(p.system + p.user)
         for p in (build_judge_prompt(x["case"], x["candidates"], SEED) for x in calibration_cases())
     ]
-    est = {
-        "judge_prompt_mean": sum(jt) / len(jt),
-        "judge_prompt_max": max(jt),
-        "compact_prompt_mean": sum(ct) / len(ct),
-        "calibration_prompt_mean": sum(cal) / len(cal),
-        "n_cases": len(cases),
-        "judge_max_tokens": JUDGE_MAX_TOKENS,
-        "c_max_tokens": C_MAX_TOKENS,
-    }
-    print(json.dumps(est, indent=1))
+    plan = build_plan(jt, cal, at, ct, args.judge_budget, args.rerank_budget)
+    plan["tokenizer"] = "tiktoken o200k_base" if count_tokens("a b") == 2 else "heuristic"
+    (Path(args.out) / "plan.json").write_text(json.dumps(plan, indent=1))
+    print(json.dumps(plan, indent=1))
     return 0
 
 
