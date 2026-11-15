@@ -2291,6 +2291,17 @@ def build_graph(
         ]
         if col in catalogue_df.columns
     }
+    # index_group_name is not a catalogue-value filter: HybridRetriever.search translates
+    # "ladieswear"/"menswear" into the gender column, and search_node's own gender sync sets
+    # exactly these two values. Only the non-public H&M-style stores (myntra, flipkart,
+    # bhasinbrothers) carry them as real column values; every Shopify store has "N/A". On the
+    # public view (V3b) the catalogue no longer holds a single such row, so validate-before-
+    # trust would drop the synced index_group_name every turn, and the fallback branches that
+    # rebuild the gender filter from index_group_name alone ({product_type_name,
+    # index_group_name} candidate, gender-only retry) would then lose gender and surface the
+    # other gender's items. Keep the two translated values valid regardless of the data.
+    if "index_group_name" in _valid_facet_values:
+        _valid_facet_values["index_group_name"] |= {"ladieswear", "menswear"}
 
     # Router backend — created here if not injected so the graph is self-contained.
     if router_backend is None:
