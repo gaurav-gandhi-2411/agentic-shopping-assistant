@@ -174,7 +174,8 @@ async def lifespan(app: FastAPI):
 
     _index_store_uri = os.environ.get("INDEX_STORE_URI") or None
 
-    # V3(b), OPT-IN (INDEX_HOT_RELOAD=1; default OFF because a second snapshot does not fit the
+    # DEPRECATED (superseded by the pin below). V3(b), OPT-IN (INDEX_HOT_RELOAD=1; default OFF
+    # because a second snapshot does not fit the
     # 4 GiB limit, see DEPLOY.md): a published build (builds/<ts>/ named by the newest
     # pointers/<ts>.json) wins over the flat layout; no pointer, or any failure loading it, falls
     # back to the flat layout. With the switch unset _index_source is None: flat layout only.
