@@ -292,8 +292,12 @@ async def post_style_from_image(
     # ── Privacy: discard raw bytes immediately after PIL opened the stream ────
     del upload_bytes  # buffer freed; PIL holds no reference to it after open()
 
+    # One snapshot for the whole request (index build N stays consistent if a reload swaps N+1).
+    snap = deps.get_snapshot_or_none()
+    clip_entry = snap.clip if snap is not None else None
+
     # ── Feature: brand CLIP index must exist ──────────────────────────────────
-    if not _brand_index_exists(brand, config):
+    if clip_entry is None and not _brand_index_exists(brand, config):
         del pil_img
         raise HTTPException(
             status_code=404,
@@ -303,7 +307,15 @@ async def post_style_from_image(
     # ── CLIP encode + anchor retrieval ────────────────────────────────────────
     try:
         model_id = _clip_model_id(config)
-        candidate_ids = find_anchor_from_image(pil_img, brand, top_k=5, model_id=model_id)
+        candidate_ids = find_anchor_from_image(
+            pil_img,
+            brand,
+            top_k=5,
+            model_id=model_id,
+            clip_entry=clip_entry,
+            # The snapshot's DataFrame is the public catalogue: only its ids may anchor a look.
+            allowed_ids=snap.public_article_ids if snap is not None else None,
+        )
     except RuntimeError as exc:
         logger.error("CLIP encoder error: %s", exc)
         raise HTTPException(status_code=503, detail="Image encoder not available.") from exc
@@ -319,8 +331,8 @@ async def post_style_from_image(
     anchor_id = candidate_ids[0]
 
     # ── Compose outfit variants around the anchor ─────────────────────────────
-    catalogue_df = deps.get_catalogue_df()
-    retriever = deps.get_retriever()
+    catalogue_df = snap.catalogue_df if snap is not None else deps.get_catalogue_df()
+    retriever = snap.retriever if snap is not None else deps.get_retriever()
 
     from src.config.brand import get_brand_config
 

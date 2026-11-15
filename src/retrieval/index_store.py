@@ -225,6 +225,31 @@ def download_supplementary_assets(uri: str, brand: str, repo_root: Path) -> None
             )
 
 
+def download_variant_maps(uri: str, repo_root: Path) -> None:
+    """Download only the Shopify variant maps (unified mode) for a revision pinned to a build.
+
+    A build holds the index and CLIP files but not the per-store variant maps, so a pinned
+    revision still needs them for cart links. Non-fatal like the flat path: failures degrade
+    the cart-link feature, they never stop startup.
+    """
+    parsed = urlparse(uri)
+    path_prefix = parsed.path.strip("/")
+    variants_local_dir = repo_root / "data" / "processed" / "shopify_variants"
+    try:
+        import importlib
+
+        # importlib (-> Any): lazy import, only when a bucket is configured, without needing a
+        # mypy suppression for the untyped google package.
+        storage = importlib.import_module("google.cloud.storage")
+        variants_local_dir.mkdir(parents=True, exist_ok=True)
+        bucket = storage.Client().bucket(parsed.netloc)
+        _download_all_variant_maps(bucket, parsed.netloc, path_prefix, variants_local_dir)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Shopify variant maps unavailable — cart links degrade. error=%s", type(exc).__name__
+        )
+
+
 def _download_all_variant_maps(
     bucket: object,
     bucket_name: str,

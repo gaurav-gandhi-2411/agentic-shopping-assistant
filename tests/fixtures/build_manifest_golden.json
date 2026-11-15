@@ -1,0 +1,65 @@
+{
+  "build_id": "20261115T020000Z",
+  "built_at": "2026-11-15T02:00:00Z",
+  "clip_dim": 8,
+  "dense_dim": 16,
+  "files": [
+    {
+      "name": "dense.faiss",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    },
+    {
+      "name": "bm25.pkl",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    },
+    {
+      "name": "bm25_article_ids.npy",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    },
+    {
+      "name": "dense_article_ids.npy",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    },
+    {
+      "name": "catalogue.parquet",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    },
+    {
+      "name": "clip.faiss",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    },
+    {
+      "name": "clip_article_ids.npy",
+      "sha256": "<sha256>",
+      "size_bytes": "<size>"
+    }
+  ],
+  "git_sha": "deadbeef",
+  "previous_build_id": null,
+  "schema_version": 1,
+  "stores": [
+    {
+      "items": 2,
+      "slug": "fashor",
+      "source_updated_at": null
+    },
+    {
+      "items": 4,
+      "slug": "libas",
+      "source_updated_at": null
+    }
+  ],
+  "total_items": 6,
+  "validation": {
+    "buy_link_sample": null,
+    "count_delta_pct": null,
+    "schema_ok": true
+  },
+  "vector_count": 6
+}

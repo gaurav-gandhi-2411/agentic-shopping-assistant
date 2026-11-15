@@ -638,6 +638,394 @@ If shorts, sweatshirts, or jackets appear, the index is stale — re-upload and 
 
 ---
 
+## Store registry, index builds and revision-pinned rollout (Wave 1b V3b)
+
+Code is in; **nothing in this section has been published or created in the cloud.** Pieces that
+need the NOT-YET-APPROVED cloud work are marked **[needs cloud]**. Everything else works today:
+with `INDEX_BUILD_ID` unset the service loads the flat layout exactly as before.
+
+**Rollout design (architect decision, replaces hot reload).** Each Cloud Run revision is pinned
+to ONE index build through the env var `INDEX_BUILD_ID`. The new section "Revision-pinned
+rollout" below is the active path. **In-process hot reload and `pointers/` are DEPRECATED:
+DEPLOYED-OFF, default OFF (`INDEX_HOT_RELOAD`), no further work; the text about them below is
+kept for history only and is marked as such.**
+
+### Revision-pinned rollout (`INDEX_BUILD_ID`)
+
+Design: a revision is pinned to a build id; the API loads THAT build at startup and reports it in
+`/readyz`. Old and new instances run side by side during a rollout (Cloud Run revisions); no
+instance ever holds two builds, and nothing is swapped in a running process.
+
+```
+gs://asa-demo-indices-stylemaitri-prod/
+  unified/...                      legacy flat layout (fallback; unchanged)
+  builds/<UTC timestamp>/          dense.faiss bm25.pkl bm25_article_ids.npy
+                                   dense_article_ids.npy catalogue.parquet
+                                   [clip.faiss clip_article_ids.npy] build_manifest.json
+```
+
+No pointer objects are needed. The daily refresh job (V3(c), not part of this change) publishes
+`builds/<id>/` (create-only) and then starts a rollout of a new revision pinned to `<id>` through
+the deploy workflow: no-traffic tag, smoke on the tag URL (including the `/readyz` index id and
+age), shift 100 %, post-shift check, automatic rollback to the previous revision (which is still
+pinned to the previous build). A failed build or validation changes nothing in prod.
+
+**Startup (env, all optional):**
+
+| Variable | Meaning |
+|---|---|
+| `INDEX_BUILD_ID` | the build id (`^\d{8}T\d{6}Z$`, e.g. `20261115T020000Z`). Unset or blank: legacy flat layout, exactly as before. Malformed (`../x`, absolute, lower-case, too long): rejected, logged, legacy fallback; the raw value is never echoed |
+| `INDEX_STORE_URI` | `gs://<bucket>[/prefix]` (production). `file:///<dir>` (a directory laid out like the bucket) is a **dev/test-only** build store; with it the flat layout is read from the local data dir, never from a bucket |
+
+With a valid pin the lifespan downloads ONLY `builds/<id>/`: first `build_manifest.json`
+(8 MiB cap), then exactly the files it lists. Every listed name must pass the verifier's
+plain-file-name guard and be one of the seven known index files; each file is capped at 768 MiB
+and the build at 1.5 GiB (the live build is about 0.57 GiB) before anything is downloaded, and
+each file is fetched with its manifest size as the cap. **That cap is not a streaming cap**
+(google-cloud-storage does not enforce a byte limit while it downloads). For the GCS source it is
+three checks: the object's metadata size against the cap before the download; the download pinned
+to the exact object generation that was inspected (`if_generation_match`, verified to exist in
+the installed google-cloud-storage 3.17.1; `requirements.txt` only says `>=2.14.0`, so the
+parameter is not verified against 2.14), so an object swapped after the check cannot be fetched;
+and a comparison of the file size on disk with the inspected size afterwards, deleting the file on
+a mismatch. Missing size or generation metadata is refused. (The publisher can only create
+objects in the bucket, so a swap is not expected in the first place; the pin is defence in
+depth.) The copy lives in a scratch directory
+under the data dir and is deleted on EVERY outcome (success, failure, partial download): one build
+in RAM, none on disk afterwards. It is verified (sha256, sizes, `total_items == vector_count ==`
+catalogue rows `==` id-file lengths, per-store counts, every store in the registry, after loading
+the FAISS vector counts and dimensions) and loaded into the single `IndexSnapshot`. No pointer
+lookup, no listing, no background thread, never another build. A pin also switches the deprecated
+pointer/hot-reload path off even when `INDEX_HOT_RELOAD=1`. The Shopify variant maps (cart links)
+are not part of a build and are still fetched from the bucket, non-fatally, as on the flat path.
+
+**Failure semantics.** A missing, corrupt or mismatched pinned build does NOT crash the instance
+and does NOT serve a different build: it falls back to the flat legacy index (so it still serves),
+logs ONE error line and fails readiness:
+
+```
+index_pin_failed pinned_build_id=<id> code=<code> reason=<internal reason token> exc=<exception class name>
+```
+
+`code` comes from a fixed list (`src/retrieval/pinned_build.py: PIN_REASONS`): `id_invalid`,
+`no_source`, `not_found`, `source_error`, `too_large`, `manifest_invalid`, `integrity`
+(missing file, size or sha256), `inconsistent` (counts, stores, vector count, dimension, build id),
+`load_failed`, `build_mismatch`.
+
+**Readiness mapping (`/readyz`).** The `index` block carries `pinned_build_id`, `loaded_build_id`,
+`source` (`build`, `legacy` = nothing pinned, `legacy-fallback` = pinned build could not be
+loaded), `built_at`, `age_hours`, `items_built` (manifest total, includes non-public stores) and
+`items_served` (public rows served). `checks.index` is:
+
+| Situation | `checks.index` | HTTP |
+|---|---|---|
+| pinned and loaded | `ok (<build_id>, age Xh)` | 200 |
+| nothing pinned | `legacy (no manifest)` | 200 |
+| pinned, legacy served | `error: pinned build <id> not loaded, serving legacy (<code>)` | **503** |
+
+`/canary` and `/canary/status` fail with assertion `index_pin_unloaded` ("pinned index build not
+loaded") in the same situation, ahead of the result cache; `index_stale` (age over 36 h when a
+manifest exists) is unchanged.
+
+**What the smoke on the no-traffic tag URL must assert** (so a bad pin fails BEFORE the traffic
+shift): `GET /readyz` is 200 (a pin that is not honoured is already a 503, so today's
+`deploy_smoke.py` fails it), and additionally, once the smoke is extended (not part of this
+change): `index.source == "build"`, `index.loaded_build_id == <expected id>` (and equals
+`pinned_build_id`), `index.age_hours < 36`.
+
+**Verified locally** (2026-11-15; real FastAPI app and lifespan, real FAISS/BM25/parquet of the
+live `unified` index copied read-only, 112,425 items / 89,407 public; the LLM client, the MiniLM
+embedder and the CLIP warm-up are stubbed; build store = `file://` directory; Windows):
+
+| Case | `/readyz` | `checks.index` | RSS after boot |
+|---|---|---|---|
+| `INDEX_BUILD_ID` = the build | 200 | `ok (20261115T020000Z, age 0.05h)`, source `build` | 1.869 GiB |
+| pin names a missing build | 503 | `error: pinned build 20300101T000000Z not loaded, serving legacy (not_found)` | 1.646 GiB |
+| one byte flipped in a build file | 503 | `error: pinned build 20261115T020000Z not loaded, serving legacy (integrity)` | 1.713 GiB |
+| unset | 200 | `legacy (no manifest)`, source `legacy` | 1.651 GiB |
+
+`/canary/status` was 200 (no `index_stale`) on the fresh build and 503 `index_pin_unloaded` in
+both failure cases; the earlier flat+CLIP+graphs measurement was 1.872 GiB, so one build in RAM
+costs the same as before (no second copy). **Not verified:** a real GCS download of a build and
+Linux memory; both need the cloud.
+
+**Memory.** One build per instance: the steady state equals the flat layout plus the CLIP index,
+about 0.22 GiB (measured, see the PR table). The 3.75 GiB swap analysis below does not apply to
+this design (there is no swap and no second snapshot in one process); old and new instances are
+separate Cloud Run instances with their own 4 GiB.
+
+### Build-manifest tool
+
+```
+python scripts/ops/make_build_manifest.py --index-dir <dir with the index files> \
+    [--build-id 20261115T020000Z] [--previous <previous build dir or manifest>] \
+    [--git-sha <sha>] [--built-at <ISO 8601; no offset = UTC>] [--overwrite]
+```
+
+Writes `build_manifest.json` next to the files. Everything it asserts is derived from the files
+(per-store counts from the catalogue `store` column, vector counts and dimensions from the FAISS
+files, sha256 and size per file); `--git-sha` defaults to `GIT_SHA` or `GITHUB_SHA`; `--build-id`
+defaults to UTC now. With `--previous` it records the lineage and the +-30 % count-gate result in
+`validation.count_delta_pct`. It then re-verifies the result with the loader's own verifier and
+refuses (`REFUSED: ...`, exit 1, nothing written) on any inconsistency: missing or half a set of
+files, a store outside the registry, counts that disagree, a failed gate, a malformed build id, an
+existing manifest without `--overwrite`. Local only: no network, no cloud.
+
+### History: why in-process hot reload is off (DEPRECATED; the swap analysis no longer applies)
+
+Measured with `scripts/ops/measure_index_swap_memory.py` on read-only copies of the live
+`unified` index (112,425 items; public view 89,407) plus its CLIP index, real faiss/numpy/pandas,
+embedding models stubbed (no torch). Windows working set, so absolute values on Linux differ a
+little; the shape does not.
+
+| Step | RSS | vs 4 GiB limit |
+|---|---|---|
+| baseline after imports (no index) | 0.136 GiB | |
+| A only (index + public catalogue + CLIP + both graphs) | 1.872 GiB | 46.8 % |
+| A held while B loads and compiles (peak of the swap) | 3.226 GiB | 80.7 % |
+| same, plus the 0.531 GiB download resident on the memory-backed `/tmp` (worst case) | 3.757 GiB | 93.9 % |
+| after dropping A and `gc.collect()` | 2.047 GiB | 51.2 % |
+
+These numbers EXCLUDE the MiniLM and CLIP model weights, torch and the rest of the service. The
+real service is already at 0.68 to 0.79 of its 4 GiB (hourly p99 of
+`run.googleapis.com/container/memory/utilizations`, `asa-stylist-api`, 7 days to 2026-11-14,
+read-only query). **Adding a second snapshot (+1.35 GiB measured) to that puts the swap at about
+4.1 to 4.5 GiB, over the limit, before counting the temp download.** The in-process swap as
+designed does NOT fit in 4 GiB. Per-snapshot cost by component (second run, `measure_index_parts_memory.py`): catalogue frame 0.75
+GiB, BM25 0.59 GiB, dense 0.18 GiB, CLIP 0.23 GiB. Until the architect decides, leave
+`INDEX_HOT_RELOAD` unset.
+
+#### Options, NOT IMPLEMENTED (for the architect)
+
+None of these exists in code; peaks are ESTIMATES, not measurements.
+
+1. **Drop-then-load.** Download and validate to `/tmp` while serving the old snapshot; then drop
+   the old snapshot (release); load the new one from `/tmp`; delete `/tmp`; swap; hold new
+   requests on a lock for the few seconds the load takes (about 4.5 s measured for load plus graph
+   compile). ESTIMATE of peak: steady + the build resident on `/tmp`, about 0.53 GiB. On the
+   live service (2.7 to 3.2 GiB steady) that is about 3.25 to 3.73 GiB (81 to 93 % of 4 GiB),
+   under the limit but with only about 0.27 to 0.75 GiB margin; requests wait during the load.
+2. **Replace the instance** instead of swapping in place (the earlier proposal): no second
+   snapshot in one process, at the cost of a cold start per refresh.
+3. **More memory** on the Cloud Run service (cost NOT MEASURED).
+4. **Smaller snapshots:** drop unused catalogue columns or use categorical/arrow dtypes (frame is
+   0.75 GiB), replace the BM25 pickle with a compact sparse structure (0.59 GiB), mmap the FAISS
+   indexes, publish public-only builds (about 0.795 times the items, linear ESTIMATE).
+5. **Memory guard:** refuse to start a reload when projected memory exceeds a threshold.
+
+### Store registry (`src/config/store_registry.py`)
+
+One record per store: `slug`, `display_name`, `domain`, `source_type` (`shopify` or
+`static_dump`), `public`, `refresh_enabled`, and the feed URL pattern
+(`https://<domain>/products.json?limit=250&page={page}`). `tests/test_store_registry.py` fails if
+it disagrees with `STORE_CONFIG` or if a store of the live index (`tests/fixtures/indexed_stores.json`)
+is missing.
+
+- `public`: true for exactly the 38 refreshable Shopify stores. Myntra and Flipkart (static
+  dumps), bhasinbrothers (feed 404) and priyaasi (feed unverified) are `public=False`: they stay
+  in the index for local development and evals but never reach a user (search, outfit, compare,
+  image anchor, item lookup, store counts). Unknown stores fail closed (hidden).
+- `refresh_enabled`: the per-store OPT-OUT. Set it to `False` (one-line PR) to stop the refresh job
+  fetching a store, for example at the store's request. It does not hide the store; set
+  `public=False` as well to remove it from users immediately.
+- `INCLUDE_NON_PUBLIC_STORES=1` disables the public filter for local development and evals.
+  Default (unset) is public only. **Deploying this change alone removes the four non-public
+  stores (23,018 of 112,425 items, 20.5 %) from users even on the legacy flat index.**
+- Feed etiquette for the refresh job (V3c): at most 1 request per second per domain,
+  `User-Agent: StyleMaitriFeedFetcher/1.0 (+<contact>)` via `feed_user_agent()` (a contact address
+  is a required argument: **GG to supply one**), robots.txt honoured, HTTP 429 and `Retry-After`
+  honoured, opt-out via `refresh_enabled`.
+
+### Layout and manifest
+
+```
+gs://asa-demo-indices-stylemaitri-prod/
+  unified/...                      legacy flat layout (fallback; unchanged)
+  builds/<UTC timestamp>/          dense.faiss bm25.pkl bm25_article_ids.npy
+                                   dense_article_ids.npy catalogue.parquet
+                                   [clip.faiss clip_article_ids.npy] build_manifest.json
+  pointers/<UTC timestamp>.json    DEPRECATED (hot reload only; not needed, not read by a pin)
+```
+
+`build_manifest.json`
+(schema: `docs/build_manifest.schema.json`, model: `src/retrieval/build_manifest.py`) carries
+`build_id`, `built_at` (UTC), `git_sha`, `schema_version`, per-store counts and source-feed
+timestamps, `total_items`, `vector_count`, `dense_dim` (384) and `clip_dim` (512), every file with
+`sha256` and size, a `validation` block (count delta, schema ok, Buy-link sample) and
+`previous_build_id`. The loader refuses a build unless: every file exists with the listed size and
+hash, `total_items == vector_count == sum(store counts) ==` catalogue rows `==` id-file lengths,
+per-store counts match the catalogue, every store is in the registry, items are within +-30 % of
+the build being served (hot reload only; a pinned startup has no previous build to compare with:
+the gate runs in `make_build_manifest.py --previous` at publish time), and after loading the FAISS
+index holds `total_items` vectors of the manifest's dimension. **[needs cloud]** the publisher
+identity and the first `builds/<id>/` do not exist yet.
+
+### Index age: `/readyz` and `/canary/status`
+
+`/readyz` returns `index` (`pinned_build_id`, `loaded_build_id`, `source`, `build_id`, `layout`,
+`built_at`, `age_hours`, `stores`, `items_built`, `items_served`, `items`, `reload`) and
+`checks.index`. `items_built` is the manifest total
+(includes non-public stores; `items` is kept as an alias); `items_served` is the public rows
+actually served. A flat index with no manifest reports `legacy (no manifest)`.
+Readiness never fails on index AGE; it fails only when a pinned build is not the one being served
+(see "Readiness mapping" above). `/canary/status` (and `/canary`) fail with assertion
+`index_stale` ("index older than 36 h") when the age exceeds 36 h; the check runs before the
+canary result cache. It is **enforced only when a manifest exists**, so the transition does not
+alert on today's legacy index. `INDEX_FRESHNESS_STRICT=1` makes a missing manifest fail too: set
+it after the first build is live.
+
+### Hot reload (`src/retrieval/index_reload.py`) - DEPRECATED, DEPLOYED-OFF
+
+Superseded by the revision-pinned rollout above; kept in the code as-is, default OFF, no further
+work, never combined with a pin. Description kept for history. When enabled
+(`INDEX_HOT_RELOAD=1`; off by default), a daemon thread checks `pointers/` every
+`INDEX_RELOAD_INTERVAL_S` (default 900, minimum 60). On
+a new newest pointer it downloads the build to a fresh temp dir under `/tmp` (not `/app/data`;
+deleted in `finally`), verifies it, loads a new snapshot (agent graphs compiled around the new
+retriever, embedding model reused), re-checks vector count and dimension, runs a smoke search,
+swaps the single snapshot reference atomically and drops the old one. In-flight turns finish on
+the snapshot they started with. At startup the newest build is loaded instead of the flat layout;
+no pointer, or any load failure, falls back to the flat layout.
+
+| Switch | Meaning |
+|---|---|
+| `INDEX_HOT_RELOAD` | **opt-in, default OFF.** `1` enables BOTH the thread and the startup pointer lookup; unset, `0` or anything else = off (flat layout, behaves as before V3b). Do not enable until the architect decides (memory, see above) |
+| `INDEX_RELOAD_INTERVAL_S` | check interval, default 900, floor 60 |
+| `INDEX_FRESHNESS_STRICT` | see above |
+| `INCLUDE_NON_PUBLIC_STORES` | see above |
+
+Failure modes: ANY failure (download, hash, size, counts, dimension, registry, count gate, load,
+smoke, exception) keeps the current snapshot, logs ONE warning and backs off to 2x, 4x, ... the
+interval, capped at 1 h. Reloads are single-flight. Log lines to search (Cloud Logging, text
+payload):
+
+- `index_reload_swapped build_id=... previous_build_id=... items=...`
+- `index_reload_failed reason=<code|ExceptionType> build_id=... attempt=<n> next_check_s=<s> detail=...`
+- `index_startup loaded build_id=...`, `index_startup_fallback reason=...`, `index_hot_reload started`
+
+`reason` codes: `file_hash`, `file_size`, `file_missing`, `unlisted_file`, `manifest_missing`,
+`manifest_invalid`, `manifest_schema`, `count_mismatch`, `count_gate`, `store_unknown`,
+`vector_count`, `dim_mismatch`, `clip_mismatch`, `build_id_invalid`, `build_id_mismatch`, `smoke`,
+`source`. `/readyz` `index.reload` shows the last outcome, last check and swap times and the
+consecutive failure count.
+
+Not covered by the snapshot: the Shopify variant maps (`data/processed/shopify_variants`,
+process-lifetime cache in `cart_links.py`) stay on the bucket; a build's CLIP index is used
+for image search when the build has one.
+
+### Rollback **[needs cloud]**
+
+Rollout rollback is a traffic move to the previous revision, which is still pinned to the previous
+build (`gcloud run services update-traffic ... --to-revisions <PREVIOUS>=100`, see "Rollback" under
+CI/CD); `deploy.yml` does it automatically after a post-shift failure. The old pointer-deletion
+rollback applied only to the DEPRECATED hot reload.
+
+### Answers for the architect
+
+Read from `.github/workflows/deploy.yml` and `scripts/ops/*.py` at this branch; analysis only, NO
+change to `deploy.yml` in this change. Nothing here was run against the cloud.
+
+**(a) How the parity check treats the index env var.** The step "Assert new revision kept prod
+config" (`deploy.yml:203-229`) builds the same view of the serving revision (`rev-prev.json`) and
+the new one (`rev-new.json`) and diffs them:
+
+```
+view() {                                                          # deploy.yml:209-218
+  jq -S '{
+    env: (.spec.containers[0].env | sort_by(.name)),
+    limits: .spec.containers[0].resources.limits,
+    concurrency: .spec.containerConcurrency,
+    timeout: .spec.timeoutSeconds,
+    serviceAccount: .spec.serviceAccountName,
+    maxScale: .metadata.annotations["autoscaling.knative.dev/maxScale"]
+  }' "$1"
+}
+...
+if ! diff -u cfg-prev.json cfg-new.json; then                     # deploy.yml:221-224
+  echo "::error::new revision differs from the serving revision in env/secrets/cpu/memory/maxScale/SA ..."
+  exit 1
+fi
+```
+
+The whole `env` array (names, values, secret references) is compared, so **today a differing
+`INDEX_BUILD_ID` FAILS the step** (exit 1, nothing shifted). A rollout therefore needs a change
+(not made here): `INDEX_BUILD_ID` may differ only when the workflow was started with the expected
+new id, and must then equal that id on the new revision; on a code deploy it must be unchanged.
+Minimal shape:
+
+```
+# workflow_dispatch input `index_build_id` (empty = ordinary code deploy), exported as EXPECTED_ID
+# deploy step: add  ${EXPECTED_ID:+--update-env-vars INDEX_BUILD_ID=$EXPECTED_ID}
+view() { jq -S '{ env: (.spec.containers[0].env | map(select(.name != "INDEX_BUILD_ID")) | sort_by(.name)),
+                  limits: ..., concurrency: ..., timeout: ..., serviceAccount: ..., maxScale: ... }' "$1"; }
+pin() { jq -r '[.spec.containers[0].env[]? | select(.name == "INDEX_BUILD_ID") | .value][0] // ""' "$1"; }
+if [ -n "$EXPECTED_ID" ]; then
+  printf '%s' "$EXPECTED_ID" | grep -Eq '^[0-9]{8}T[0-9]{6}Z$' || exit 1
+  [ "$(pin rev-new.json)" = "$EXPECTED_ID" ] || exit 1      # must equal the id the run was started with
+else
+  [ "$(pin rev-new.json)" = "$(pin rev-prev.json)" ] || exit 1   # code deploy: pin inherited unchanged
+fi
+```
+
+All other env vars stay inside the strict diff. **Code deploys keep the pinned build:** the deploy
+step (`deploy.yml:191-196`) passes `--image`, `--region`, `--project`, `--no-traffic`, `--tag`,
+`--min-instances=0`, `--cpu-boost`, `--quiet` and NO `--set-env-vars`, `--update-env-vars`,
+`--remove-env-vars` or `--clear-env-vars` (grep over `.github/workflows` and `scripts/ops`: no
+occurrence), and the comment at `deploy.yml:179-183` states that env/secrets are deliberately not
+passed and are inherited from the template. A bare `gcloud run deploy --image` keeps the service
+template's env vars, so the new revision keeps the pinned id (the parity step, with the shape above,
+asserts it). UNVERIFIED against the cloud: inheritance is stated by the workflow's own comment and
+gcloud's documented behaviour, not observed in this session.
+
+**(b) Daily LLM calls added by the rollout smoke** (`scripts/ops/deploy_smoke.py`,
+`api/routes/health.py:160`). Tag-URL smoke (chat on): `GET /api/brand` 0 calls; `GET /readyz`
+(`deploy_smoke.py:120`) 1 LLM probe (`_llm_probe_cache`, 60 s TTL, failures cached, so the one
+retry of a failing GET at `deploy_smoke.py:90-100` adds none); `POST /demo/session` 0; `POST /chat`
+2 measured calls (`deploy_smoke.py:14-20`). That is 3 calls. Main-URL smoke (`--no-chat`):
+`/readyz` 1 probe. **Per rollout: 4 calls = 4 x 1,343 = 5,372 tokens** (1,343 = measured p50
+1,219 in + 124 out per call, `docs/ops/canary-budget.md:23`; the `/readyz` probe uses
+`max_tokens=1`, so this overstates it). **At 1 rollout/day: 4 requests/day = 0.40 % of the 1,000
+RPD and 5,372 tokens/day = 2.69 % of the 200,000 TPD** (TPD is UNVERIFIED per
+`canary-budget.md:12`). The tag-URL part alone is 3 calls, 4,029 tokens (2.01 % TPD). Ordinary
+code deploys run the same smoke and share this cost; the calls are on top of the canary stack in
+`canary-budget.md`.
+
+**(c) Revision cleanup today, and a "keep the last 5 revisions" step.** `deploy.yml` never deletes
+a revision: it removes only the `c-<sha7>` traffic TAG (`gcloud run services update-traffic
+--remove-tags`, `deploy.yml:243-250` after a pre-shift failure and `286-293` after success), and
+`scripts/ops/` has no revision command (grep for `revisions delete` and `revisions list`: none).
+The only cleanup is for IMAGES: the Artifact Registry policy `scripts/ops/ar_cleanup_policy.json`
+(keep newest 2, keep tags `live` and `prev`, delete the rest older than 1 day; currently dry-run),
+pinned by `deploy.yml:333-338`. A keep-5 step would: `gcloud run revisions list --service
+asa-stylist-api --region asia-south1 --project stylemaitri-prod-260813 --format=json` (needs
+`run.revisions.list`), exclude every revision in `status.traffic` (serving, tagged) and the
+rollback target, sort the rest by `metadata.creationTimestamp` descending, keep 5, and for each of
+the others run `gcloud run revisions delete <REV> --region ... --project ... --quiet` (needs
+`run.revisions.delete`). Role: the deployer holds `roles/run.developer` on the SERVICE
+(`scripts/ops/setup_deploy_iam.sh:234-245`); revisions are child resources of the service and I
+believe the role includes `run.revisions.delete` and `run.revisions.list`, but this was NOT
+verified (no cloud call allowed here). Check with `gcloud iam roles describe roles/run.developer
+--format="value(includedPermissions)" --account=<owner>` and look for `run.revisions.delete`.
+Interplay to decide first: the image policy keeps only the newest 2 images plus `live`/`prev`, so
+a revision kept by a keep-5 step can point at an image the registry has already deleted (it could
+no longer start new instances); index-only rollouts reuse the same image, code deploys do not.
+
+**(d) Rights needed to update the env var.** `gcloud run deploy --update-env-vars` and `gcloud run
+services update --update-env-vars` both read the service and write a new template through the Cloud
+Run Admin API, i.e. `run.services.get` plus `run.services.update` (the same call that already
+creates the tagged revision at `deploy.yml:191`; `--no-traffic --tag` is also a `services.update`),
+and `iam.serviceaccounts.actAs` on the revision's runtime SA, already granted as
+`roles/iam.serviceAccountUser` (`setup_deploy_iam.sh:249` and `317`). A plain-value env var touches
+no secret, so no Secret Manager right is involved. `run.services.get`/`run.services.update` belong
+to `roles/run.developer`; `run.services.setIamPolicy` (admin only) is NOT needed. The pipeline
+already depends on `run.services.update` for `gcloud run services update "$SERVICE" --min=0`
+(`deploy.yml:273`). So **no new right is needed**. UNVERIFIED: the role's permission list was not
+read from the cloud, and `DEPLOY.md` (Interaction with deploy.yml / "Unverified until the first real
+deploy") still records that a service-scoped `run.developer` has not been proven for `gcloud run
+deploy`; the same caveat covers this change.
+
+---
+
 ## Deploy Vercel frontend
 
 **Recommended: `scripts/deploy-frontend.ps1`.** A manual `vercel --prod` leaves no record

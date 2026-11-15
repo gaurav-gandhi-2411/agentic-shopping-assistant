@@ -16,7 +16,7 @@ from src.catalogue.entity_resolution import (
     get_cached_brand_stores_map,
 )
 from src.config.stores import build_pdp_url, get_store_display_name
-from src.retrieval.hybrid_search import store_diversity_rerank
+from src.retrieval.hybrid_search import HybridRetriever, store_diversity_rerank
 
 # Candidate-window multiplier for the /similar diversity re-rank.
 # We fetch this many times the requested k to give the MMR algorithm a
@@ -162,12 +162,15 @@ def get_similar(
     - Scores are inner-product cosine-similarity values (higher = more similar).
     """
     config = deps.get_config()
-    df = deps.get_catalogue_df()
+    # One snapshot for the whole request: df and retriever must come from the same index build
+    # even if a hot reload swaps the served snapshot between the two reads.
+    snap = deps.get_snapshot_or_none()
+    df = snap.catalogue_df if snap is not None else deps.get_catalogue_df()
     indexed = df.set_index("article_id") if "article_id" in df.columns else df
     if article_id not in indexed.index:
         raise HTTPException(status_code=404, detail=f"Item {article_id!r} not found")
 
-    retriever = deps.get_retriever()
+    retriever: HybridRetriever = snap.retriever if snap is not None else deps.get_retriever()
 
     # Fetch a wider window to give the diversity re-rank a meaningful pool.
     # The +1 is inside search_by_id (drops the seed itself), so fetch_k here

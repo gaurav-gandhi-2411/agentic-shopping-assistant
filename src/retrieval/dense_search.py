@@ -53,12 +53,16 @@ class DenseRetriever:
         logger.info("Dense index saved: %d vectors, dim=%d", self.index.ntotal, dim)
 
     @classmethod
-    def load(cls, config: dict, save_dir: Path) -> "DenseRetriever":
+    def load(cls, config: dict, save_dir: Path, model: object = None) -> "DenseRetriever":
+        """Load the index files; ``model`` reuses an already-loaded embedder (hot reload)
+        instead of instantiating a second SentenceTransformer."""
         save_dir = Path(save_dir)
         instance = cls.__new__(cls)
         instance.config = config
         model_name = config["retrieval"]["dense_model"]
-        instance.model = SentenceTransformer(model_name, device="cpu")
+        instance.model = (
+            model if model is not None else SentenceTransformer(model_name, device="cpu")
+        )
         instance.index = faiss.read_index(str(save_dir / "dense.faiss"))
         instance.article_ids = np.load(str(save_dir / "dense_article_ids.npy"), allow_pickle=True)
         return instance

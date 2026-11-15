@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Response
 import api.deps as deps
 from api.auth import _is_verification_disabled
 from src.llm.resilience import ProbeCache
+from src.retrieval.snapshot import describe_index, is_pinned, pin_error_code
 from src.utils.redact import Redactor
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,11 @@ def check_schema_head(engine: Any) -> tuple[bool, str]:
     return False, f"error: db at {', '.join(current) or 'none'}, image expects {expected}"
 
 
+def _now() -> datetime:
+    """Current UTC time (patched in tests)."""
+    return datetime.now(timezone.utc)
+
+
 @router.get("/healthz")
 def liveness() -> dict:
     """Liveness probe — returns immediately; no dependency checks."""
@@ -108,6 +115,41 @@ def readiness(response: Response) -> dict:
     except Exception as exc:
         checks["catalogue"] = f"error: {exc}"
         ok = False
+
+    # Index build info (V3b). Informational: a legacy index or an old build NEVER fails
+    # readiness (a stale index is /canary/status's job, not a reason to pull the instance).
+    # The one exception is a revision PINNED to a build (INDEX_BUILD_ID) that is not serving it.
+    index_info: dict[str, Any] | None = None
+    snap = deps.get_snapshot_or_none()
+    if snap is not None:
+        index_info = describe_index(snap, _now())
+        reloader = deps.get_reloader()
+        index_info["reload"] = (
+            reloader.status()
+            if reloader is not None
+            else {"hot_reload": "disabled (INDEX_HOT_RELOAD not set)"}
+        )
+        pin_code = pin_error_code(snap)
+        if pin_code is not None:
+            # A pinned revision that is not serving its pinned build must FAIL readiness: the
+            # tag-URL deploy smoke then stops the rollout before any traffic shifts. Fixed
+            # code list only; the pinned id is a validated build id or "<invalid>", never raw input.
+            pinned = snap.pinned_build_id or "<invalid>"
+            serving = f"build {snap.build_id}" if snap.source == "build" else "legacy"
+            checks["index"] = (
+                f"error: pinned build {pinned} not loaded, serving {serving} ({pin_code})"
+            )
+            ok = False
+        elif is_pinned(snap):
+            checks["index"] = f"ok ({index_info['build_id']}, age {index_info['age_hours']}h)"
+        elif snap.manifest is None:
+            checks["index"] = "legacy (no manifest)"
+        else:
+            checks["index"] = (
+                f"ok (build_id={index_info['build_id']}, age_hours={index_info['age_hours']}, "
+                f"stores={index_info['stores']}, items_built={index_info['items_built']}, "
+                f"items_served={index_info['items_served']})"
+            )
 
     try:
         llm = deps.get_llm()
@@ -142,8 +184,11 @@ def readiness(response: Response) -> dict:
         checks["database"] = "not configured"
         checks["schema"] = "not configured"  # no engine: unchanged behaviour, nothing to gate
 
+    body: dict[str, Any] = {"status": "ready", "checks": checks}
+    if index_info is not None:
+        body["index"] = index_info
+    body["auth_enabled"] = not _is_verification_disabled()
     if not ok:
         response.status_code = 503
-        return {"status": "not ready", "checks": checks, "auth_enabled": not _is_verification_disabled()}
-
-    return {"status": "ready", "checks": checks, "auth_enabled": not _is_verification_disabled()}
+        body["status"] = "not ready"
+    return body
