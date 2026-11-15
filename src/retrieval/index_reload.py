@@ -62,9 +62,10 @@ logger = logging.getLogger(__name__)
 POINTERS_PREFIX = "pointers/"
 BUILDS_PREFIX = "builds/"
 # Build ids are UTC timestamps; the strict pattern also keeps a hostile pointer from steering a
-# download or a temp path outside builds/<id>/ ("../x").
-BUILD_ID_RE = re.compile(r"^\d{8}T\d{6}Z$")
-POINTER_NAME_RE = re.compile(r"^\d{8}T\d{6}Z\.json$")
+# download or a temp path outside builds/<id>/ ("../x"). ALWAYS use ``.fullmatch``: ``$`` would
+# accept a trailing newline, and re.ASCII keeps ``\d`` to 0-9 (no Arabic-Indic digits).
+BUILD_ID_RE = re.compile(r"\d{8}T\d{6}Z", re.ASCII)
+POINTER_NAME_RE = re.compile(r"\d{8}T\d{6}Z\.json", re.ASCII)
 
 DEFAULT_INTERVAL_S = 900.0  # 15 min
 MIN_INTERVAL_S = 60.0
@@ -216,7 +217,7 @@ def latest_pointer(source: IndexSource) -> str | None:
     back to an older pointer: the owner's rollback is to DELETE the newest pointer, and silently
     skipping a broken one would hide it.
     """
-    names = sorted(n for n in source.list_pointer_names() if POINTER_NAME_RE.match(n))
+    names = sorted(n for n in source.list_pointer_names() if POINTER_NAME_RE.fullmatch(n))
     if not names:
         return None
     try:
@@ -224,7 +225,7 @@ def latest_pointer(source: IndexSource) -> str | None:
         build_id = body.get("build_id") if isinstance(body, Mapping) else None
     except Exception as exc:
         raise IndexSourceError(f"pointer unreadable ({type(exc).__name__})") from exc
-    if not isinstance(build_id, str) or not BUILD_ID_RE.match(build_id):
+    if not isinstance(build_id, str) or not BUILD_ID_RE.fullmatch(build_id):
         raise IndexSourceError("pointer has no valid build_id")
     return build_id
 
@@ -269,7 +270,7 @@ def fetch_and_load_build(
         BuildValidationError / IndexSourceError / any loader exception; callers treat every
         exception as "keep the current snapshot".
     """
-    if not BUILD_ID_RE.match(build_id):
+    if not BUILD_ID_RE.fullmatch(build_id):
         raise BuildValidationError("build_id_invalid", "build id is not a UTC timestamp")
     tmp = Path(tempfile.mkdtemp(prefix="asa-index-", dir=str(tmp_root) if tmp_root else None))
     try:

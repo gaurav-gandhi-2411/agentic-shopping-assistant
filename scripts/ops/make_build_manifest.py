@@ -91,7 +91,7 @@ def make_manifest(
     Raises:
         Refused: the files are incomplete, inconsistent, outside the registry or fail the gate.
     """
-    if not BUILD_ID_RE.match(build_id):
+    if not BUILD_ID_RE.fullmatch(build_id):
         raise Refused(f"build id {build_id!r} is not a UTC timestamp like 20261115T020000Z")
     if not git_sha.strip():
         raise Refused("git sha is empty (pass --git-sha or set GIT_SHA / GITHUB_SHA)")

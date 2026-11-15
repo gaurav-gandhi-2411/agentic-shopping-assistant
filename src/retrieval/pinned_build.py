@@ -94,7 +94,7 @@ def read_pin(environ: Mapping[str, str]) -> PinRequest:
     raw = (environ.get(PIN_ENV) or "").strip()
     if not raw:
         return PinRequest(False)
-    if not BUILD_ID_RE.match(raw):
+    if not BUILD_ID_RE.fullmatch(raw):
         return PinRequest(True, None, "id_invalid")
     return PinRequest(True, raw, None)
 
@@ -136,7 +136,7 @@ def download_pinned_build(
     (the verifier's guard) of a known index file; per-file and total sizes are capped before any
     data file is requested. ``dest`` must exist; the caller deletes it on any outcome.
     """
-    if not BUILD_ID_RE.match(build_id):
+    if not BUILD_ID_RE.fullmatch(build_id):
         raise PinnedBuildError("id_invalid")
     source.download_file(build_id, MANIFEST_NAME, dest / MANIFEST_NAME, MAX_MANIFEST_BYTES)
     manifest = load_manifest(dest)

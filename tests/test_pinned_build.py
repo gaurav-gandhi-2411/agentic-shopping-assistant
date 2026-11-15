@@ -532,3 +532,62 @@ def test_exception_text_reaches_neither_the_log_nor_readyz(
         "bucket.example",
     ):
         assert leak not in body
+
+
+# --------------------------------------------------------------------------- strict id matching
+
+STRICT_BAD_IDS = [
+    PINNED + "\n",  # "$" would have accepted a trailing newline
+    PINNED + " ",
+    " " + PINNED,
+    "\u0662\u0660\u0662\u0666\u0661\u0661\u0661\u0666T020000Z",  # Arabic-Indic digits
+    PINNED.lower(),
+    "20261116T020000z",
+    PINNED + "\x00",
+    "20261116T02\n0000Z",
+    "2" * 400 + "T020000Z",
+    "../x",
+    "..%2f",
+    "/20261116T020000Z",
+    PINNED + "\\..\\x",
+    "../" + PINNED,
+    "",
+]
+
+
+@pytest.mark.parametrize("bad", STRICT_BAD_IDS)
+def test_download_pinned_build_rejects_every_malformed_id_directly(
+    tmp_path: Path, bad: str
+) -> None:
+    spy = SpySource(LocalDirSource(tmp_path))
+    with pytest.raises(pinned_build.PinnedBuildError) as ei:
+        pinned_build.download_pinned_build(spy, bad, tmp_path)
+    assert ei.value.code == "id_invalid" and spy.calls == []  # nothing was requested
+
+
+@pytest.mark.parametrize("bad", STRICT_BAD_IDS)
+def test_fetch_and_load_build_rejects_every_malformed_id_directly(tmp_path: Path, bad: str) -> None:
+    from src.retrieval.build_manifest import BuildValidationError
+    from src.retrieval.index_reload import fetch_and_load_build
+
+    def never_called(*_: Any) -> Any:
+        raise AssertionError("an invalid id must be refused before any load")
+
+    with pytest.raises(BuildValidationError) as ei:
+        fetch_and_load_build(LocalDirSource(tmp_path), bad, never_called)
+    assert ei.value.reason == "build_id_invalid"
+
+
+@pytest.mark.parametrize(
+    "bad", [b for b in STRICT_BAD_IDS if b.strip() != PINNED and b.strip() != "20261116T020000Z"]
+)
+def test_read_pin_strips_once_at_the_edge_and_nothing_else_slips_through(bad: str) -> None:
+    assert read_pin({"INDEX_BUILD_ID": bad}).build_id is None
+
+
+def test_the_id_pattern_is_ascii_and_full_match_only() -> None:
+    from src.retrieval.index_reload import BUILD_ID_RE, POINTER_NAME_RE
+
+    assert BUILD_ID_RE.fullmatch(PINNED) and BUILD_ID_RE.fullmatch(PINNED + "\n") is None
+    assert POINTER_NAME_RE.fullmatch(PINNED + ".json")
+    assert POINTER_NAME_RE.fullmatch(PINNED + ".json\n") is None
