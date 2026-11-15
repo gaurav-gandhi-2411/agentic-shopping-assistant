@@ -186,12 +186,26 @@ class GcsIndexSource:
     def download_file(self, build_id: str, name: str, dest: Path, max_bytes: int) -> None:
         # get_blob reads the object's metadata (size) with one request and returns None when it
         # does not exist: no listing, so nothing but the named object of the pinned build is touched.
+        #
+        # The size cap is NOT a streaming cap (google-cloud-storage does not enforce one while
+        # downloading). It is three checks: (1) the metadata size against ``max_bytes`` BEFORE the
+        # download; (2) the download is pinned to the exact object generation inspected in (1)
+        # (``if_generation_match``; the blob's own download URL also carries ``generation``), so
+        # a swapped object cannot be fetched; (3) the file size on disk after the download must
+        # equal the inspected size, else the file is deleted. Missing size or generation
+        # metadata is refused (cannot be verified).
         blob = self._bkt().get_blob(f"{self._prefix}{BUILDS_PREFIX}{build_id}/{name}")
         if blob is None:
             raise BuildNotFoundError("build file not found")
-        if blob.size is not None and int(blob.size) > max_bytes:
+        if blob.size is None or blob.generation is None:
+            raise IndexSourceError("object metadata incomplete")
+        declared = int(blob.size)
+        if declared > max_bytes:
             raise BuildTooLargeError("build file exceeds the size cap")
-        blob.download_to_filename(str(dest))
+        blob.download_to_filename(str(dest), if_generation_match=int(blob.generation))
+        if dest.stat().st_size != declared:
+            dest.unlink(missing_ok=True)
+            raise IndexSourceError("downloaded size differs from the object metadata")
 
     def download_build(self, build_id: str, dest: Path) -> None:
         prefix = f"{self._prefix}{BUILDS_PREFIX}{build_id}/"

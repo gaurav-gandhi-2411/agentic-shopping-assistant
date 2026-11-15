@@ -681,7 +681,16 @@ With a valid pin the lifespan downloads ONLY `builds/<id>/`: first `build_manife
 (8 MiB cap), then exactly the files it lists. Every listed name must pass the verifier's
 plain-file-name guard and be one of the seven known index files; each file is capped at 768 MiB
 and the build at 1.5 GiB (the live build is about 0.57 GiB) before anything is downloaded, and
-each file is fetched with its manifest size as the cap. The copy lives in a scratch directory
+each file is fetched with its manifest size as the cap. **That cap is not a streaming cap**
+(google-cloud-storage does not enforce a byte limit while it downloads). For the GCS source it is
+three checks: the object's metadata size against the cap before the download; the download pinned
+to the exact object generation that was inspected (`if_generation_match`, verified to exist in
+the installed google-cloud-storage 3.17.1; `requirements.txt` only says `>=2.14.0`, so the
+parameter is not verified against 2.14), so an object swapped after the check cannot be fetched;
+and a comparison of the file size on disk with the inspected size afterwards, deleting the file on
+a mismatch. Missing size or generation metadata is refused. (The publisher can only create
+objects in the bucket, so a swap is not expected in the first place; the pin is defence in
+depth.) The copy lives in a scratch directory
 under the data dir and is deleted on EVERY outcome (success, failure, partial download): one build
 in RAM, none on disk afterwards. It is verified (sha256, sizes, `total_items == vector_count ==`
 catalogue rows `==` id-file lengths, per-store counts, every store in the registry, after loading

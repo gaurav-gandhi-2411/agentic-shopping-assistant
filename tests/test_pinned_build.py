@@ -293,37 +293,107 @@ def test_make_pinned_source_accepts_gs_and_dev_file_uris(tmp_path: Path) -> None
         assert index_runtime.make_pinned_source(bad) is None
 
 
-def test_gcs_download_file_reads_one_named_object_and_never_lists(tmp_path: Path) -> None:
-    class Blob:
-        def __init__(self, size: int | None) -> None:
-            self.size = size
-            self.downloaded: str | None = None
+class FakeGcsBlob:
+    """Blob stand-in: metadata (size, generation) plus the bytes a download would write.
 
-        def download_to_filename(self, path: str) -> None:
-            self.downloaded = path
+    ``served_generation`` models the object currently stored: a download pinned to a different
+    generation than the one stored fails like GCS's 412 precondition would.
+    """
 
-    class Bucket:
-        def __init__(self) -> None:
-            self.asked: list[str] = []
-            self.blobs = {"p/builds/B/a.npy": Blob(5), "p/builds/B/big": Blob(10**9)}
+    def __init__(
+        self,
+        size: int | None,
+        generation: int | None = 7,
+        payload: bytes | None = None,
+        served_generation: int | None = None,
+    ) -> None:
+        self.size = size
+        self.generation = generation
+        self.payload = payload if payload is not None else b"x" * (size or 0)
+        self.served_generation = generation if served_generation is None else served_generation
+        self.calls: list[dict[str, Any]] = []
 
-        def get_blob(self, name: str) -> Blob | None:
-            self.asked.append(name)
-            return self.blobs.get(name)
+    def download_to_filename(self, path: str, **kw: Any) -> None:
+        self.calls.append(kw)
+        pin = kw.get("if_generation_match")
+        if pin is not None and pin != self.served_generation:
+            raise OSError("412 precondition failed")  # the object was swapped after get_blob
+        Path(path).write_bytes(self.payload)
 
-        def list_blobs(self, **_: Any) -> Any:  # pragma: no cover
-            raise AssertionError("no listing")
 
+class FakeGcsBucket:
+    def __init__(self, blobs: dict[str, FakeGcsBlob]) -> None:
+        self.asked: list[str] = []
+        self.blobs = blobs
+
+    def get_blob(self, name: str) -> FakeGcsBlob | None:
+        self.asked.append(name)
+        return self.blobs.get(name)
+
+    def list_blobs(self, **_: Any) -> Any:  # pragma: no cover
+        raise AssertionError("no listing")
+
+
+def _gcs(blobs: dict[str, FakeGcsBlob]) -> tuple[GcsIndexSource, FakeGcsBucket]:
     src = GcsIndexSource("gs://bucket/p")
-    bucket = Bucket()
+    bucket = FakeGcsBucket(blobs)
     src._bucket = bucket
+    return src, bucket
+
+
+def test_gcs_download_file_reads_one_named_object_and_never_lists(tmp_path: Path) -> None:
+    src, bucket = _gcs({"p/builds/B/a.npy": FakeGcsBlob(5), "p/builds/B/big": FakeGcsBlob(10**9)})
     src.download_file("B", "a.npy", tmp_path / "a.npy", 100)
-    assert bucket.blobs["p/builds/B/a.npy"].downloaded == str(tmp_path / "a.npy")
+    assert (tmp_path / "a.npy").read_bytes() == b"x" * 5
     with pytest.raises(BuildTooLargeError):
         src.download_file("B", "big", tmp_path / "big", 100)
+    assert not (tmp_path / "big").exists()  # refused before any download
     with pytest.raises(BuildNotFoundError):
         src.download_file("B", "missing", tmp_path / "m", 100)
     assert bucket.asked == ["p/builds/B/a.npy", "p/builds/B/big", "p/builds/B/missing"]
+
+
+def test_gcs_download_is_pinned_to_the_inspected_generation(tmp_path: Path) -> None:
+    blob = FakeGcsBlob(5, generation=1234567890123456)
+    src, _ = _gcs({"p/builds/B/a.npy": blob})
+    src.download_file("B", "a.npy", tmp_path / "a.npy", 100)
+    assert blob.calls == [{"if_generation_match": 1234567890123456}]
+
+
+def test_gcs_a_swapped_object_cannot_be_downloaded(tmp_path: Path) -> None:
+    # metadata inspected at generation 7; by download time generation 8 is stored (and larger)
+    blob = FakeGcsBlob(5, generation=7, payload=b"y" * 5000, served_generation=8)
+    src, _ = _gcs({"p/builds/B/a.npy": blob})
+    with pytest.raises(OSError, match="412"):
+        src.download_file("B", "a.npy", tmp_path / "a.npy", 100)
+    assert not (tmp_path / "a.npy").exists()
+
+
+def test_gcs_a_post_download_size_mismatch_deletes_the_file(tmp_path: Path) -> None:
+    blob = FakeGcsBlob(5, payload=b"z" * 6)  # metadata says 5 bytes, 6 arrive
+    src, _ = _gcs({"p/builds/B/a.npy": blob})
+    with pytest.raises(IndexSourceError, match="size differs"):
+        src.download_file("B", "a.npy", tmp_path / "a.npy", 100)
+    assert not (tmp_path / "a.npy").exists()
+
+
+@pytest.mark.parametrize("blob", [FakeGcsBlob(None), FakeGcsBlob(5, generation=None)])
+def test_gcs_incomplete_metadata_is_refused(tmp_path: Path, blob: FakeGcsBlob) -> None:
+    src, _ = _gcs({"p/builds/B/a.npy": blob})
+    with pytest.raises(IndexSourceError, match="metadata"):
+        src.download_file("B", "a.npy", tmp_path / "a.npy", 100)
+    assert blob.calls == [] and not (tmp_path / "a.npy").exists()
+
+
+def test_a_gcs_size_mismatch_surfaces_as_source_error_and_cleans_the_scratch_dir(
+    tmp_path: Path, scratch: Path
+) -> None:
+    blob = FakeGcsBlob(5, payload=b"z" * 6)
+    src, _ = _gcs({"p/builds/20261116T020000Z/build_manifest.json": blob})
+    snap, code = index_runtime.load_pinned_snapshot(
+        PinRequest(True, PINNED, None), None, CONFIG, scratch, source=src
+    )
+    assert snap is None and code == "source_error" and _leftovers(scratch) == []
 
 
 def test_hot_reload_stays_off_by_default() -> None:
