@@ -695,7 +695,7 @@ and does NOT serve a different build: it falls back to the flat legacy index (so
 logs ONE error line and fails readiness:
 
 ```
-index_pin_failed pinned_build_id=<id> code=<code> reason=<internal reason> detail=<sanitised, no URLs>
+index_pin_failed pinned_build_id=<id> code=<code> reason=<internal reason token> exc=<exception class name>
 ```
 
 `code` comes from a fixed list (`src/retrieval/pinned_build.py: PIN_REASONS`): `id_invalid`,

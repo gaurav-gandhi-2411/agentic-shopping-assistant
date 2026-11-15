@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 from src.config.store_registry import STORE_REGISTRY
-from src.retrieval.build_manifest import BuildManifest
+from src.retrieval.build_manifest import BuildManifest, BuildValidationError
 from src.retrieval.index_reload import (
     GcsIndexSource,
     IndexReloader,
@@ -95,8 +95,8 @@ def load_pinned_snapshot(
     Downloads ONLY ``builds/<id>/`` (the manifest's files) into a scratch directory under
     ``tmp_root``, verifies, loads, checks vector counts, then deletes the scratch directory on
     EVERY outcome, so one build is on disk only while it is read and one in memory afterwards.
-    Never raises: any failure is ONE structured error line (fixed reason code, internal reason,
-    sanitised detail; no URLs) and a fixed code for /readyz; the caller then serves the legacy
+    Never raises: any failure is ONE structured error line (fixed reason code, internal reason
+    token, exception class name; never exception text) and a fixed code for /readyz; the caller then serves the legacy
     index. Never touches another build.
     """
     if pin.failure is not None or pin.build_id is None:
@@ -121,22 +121,29 @@ def load_pinned_snapshot(
         return snap, None
     except Exception as exc:  # noqa: BLE001 - ANY failure falls back to legacy, never a crash
         code = reason_code(exc)
-        internal = getattr(exc, "reason", type(exc).__name__)
-        _log_pin_failure(pin.build_id, code, str(internal), str(exc))
+        # Only fixed tokens reach the log: BuildValidationError.reason is a short machine code;
+        # for anything else just the exception CLASS NAME (never its text, which can carry
+        # paths, URLs or credentials).
+        internal = exc.reason if isinstance(exc, BuildValidationError) else type(exc).__name__
+        _log_pin_failure(pin.build_id, code, internal, type(exc).__name__)
         return None, code
     finally:
         if tmp is not None:
             remove_tmp_dir(tmp)
 
 
-def _log_pin_failure(build_id: str | None, code: str, reason: str, detail: str) -> None:
-    """The ONE structured error line for a pinned build that could not be loaded."""
+def _log_pin_failure(build_id: str | None, code: str, reason: str, exc_class: str) -> None:
+    """The ONE structured error line for a pinned build that could not be loaded.
+
+    Carries only fixed tokens: the reason code, the validated build id (or none), the internal
+    reason token and the exception class name. No exception text, no paths, no URLs.
+    """
     logger.error(
-        "index_pin_failed pinned_build_id=%s code=%s reason=%s detail=%s",
+        "index_pin_failed pinned_build_id=%s code=%s reason=%s exc=%s",
         build_id,
         code,
-        sanitize(reason, 60),
-        sanitize(detail),
+        reason,
+        exc_class,
     )
 
 

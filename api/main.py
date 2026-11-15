@@ -202,7 +202,7 @@ async def lifespan(app: FastAPI):
                 _pin, _index_store_uri, config, _DATA_DIR / "pinned"
             )
         else:
-            index_runtime._log_pin_failure(_pin.build_id, _pin_failure, _pin_failure, "")
+            index_runtime._log_pin_failure(_pin.build_id, _pin_failure, _pin_failure, "-")
     else:
         _index_source = (
             index_runtime.make_index_source(_index_store_uri) if _brand == "unified" else None

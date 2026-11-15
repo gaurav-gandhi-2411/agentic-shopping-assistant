@@ -465,3 +465,70 @@ def test_lifespan_pin_on_a_non_unified_brand_is_no_source(
     write_index_files(make_rows({"libas": 5}), boot.data / "snitch")
     kw = boot.run()
     assert kw["pin_failure"] == "no_source" and kw["source"] == "flat"
+
+
+# --------------------------------------------------------------------------- log/readyz hygiene
+
+
+def test_exception_text_reaches_neither_the_log_nor_readyz(
+    store: Path, scratch: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pandas as pd
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    from src.retrieval.snapshot import IndexSnapshot
+
+    secret_path = r"C:\Users\victim\secret-dir\leak.bin"
+    secret_url = "https://admin:hunter2-pw@bucket.example/o?token=abc123"
+
+    class Boom(SpySource):
+        def download_file(self, build_id: str, name: str, dest: Path, max_bytes: int) -> None:
+            raise OSError(f"cannot write {secret_path} via {secret_url}")
+
+    caplog.set_level(logging.DEBUG)
+    snap, code = _load(store, scratch, source=Boom(LocalDirSource(store)))
+    assert snap is None and code == "source_error"
+    records = [r for r in caplog.records if "index_pin_failed" in r.getMessage()]
+    assert len(records) == 1
+    line = records[0].getMessage()
+    assert line == (
+        f"index_pin_failed pinned_build_id={PINNED} code=source_error reason=OSError exc=OSError"
+    )
+    everything = " ".join(r.getMessage() + str(r.args) + str(r.exc_info) for r in caplog.records)
+    for leak in (
+        "victim",
+        "secret-dir",
+        "leak.bin",
+        "hunter2",
+        "admin",
+        "abc123",
+        "bucket.example",
+    ):
+        assert leak not in everything
+
+    retriever = SimpleNamespace(dense=SimpleNamespace(index=SimpleNamespace(ntotal=1)))
+    monkeypatch.setattr(
+        deps,
+        "_snapshot",
+        IndexSnapshot(
+            retriever=retriever,
+            catalogue_df=pd.DataFrame({"article_id": ["a"]}),
+            pinned_build_id=PINNED,
+            pin_failure=code,
+        ),
+    )
+    monkeypatch.setattr(deps, "_llm", SimpleNamespace())
+    monkeypatch.setattr(deps, "_db_engine", None)
+    body = TestClient(app).get("/readyz").text
+    assert code in body
+    for leak in (
+        "victim",
+        "secret-dir",
+        "leak.bin",
+        "hunter2",
+        "admin",
+        "abc123",
+        "bucket.example",
+    ):
+        assert leak not in body
