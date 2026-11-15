@@ -251,3 +251,96 @@ def test_write_manifest_roundtrip_is_stable(tmp_path: Path) -> None:
     m = load_manifest(d)
     write_manifest(d, m)
     assert load_manifest(d) == m
+
+
+# --------------------------------------------------------------------------- bad arguments
+
+
+@pytest.mark.parametrize("bad", ["garbage", "2026-13-45T00:00:00", "yesterday", "2026-11-15T25:00"])
+def test_a_bad_built_at_is_refused_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], bad: str
+) -> None:
+    d = _index(tmp_path)
+    code = tool.main(
+        ["--index-dir", str(d), "--build-id", BUILD, "--git-sha", "a", "--built-at", bad]
+    )
+    err = capsys.readouterr().err
+    assert code == 1 and err.startswith("REFUSED: --built-at") and "Traceback" not in err
+    assert not (d / MANIFEST_NAME).exists()
+
+
+def test_a_naive_built_at_is_read_as_utc_explicitly(tmp_path: Path) -> None:
+    d = _index(tmp_path)
+    assert tool.main(["--index-dir", str(d), "--build-id", BUILD, "--git-sha", "a",
+                      "--built-at", "2026-11-15T02:00:00"]) == 0  # fmt: skip
+    assert load_manifest(d).built_at == datetime(2026, 11, 15, 2, tzinfo=timezone.utc)
+
+
+def test_an_offset_built_at_is_converted_to_utc(tmp_path: Path) -> None:
+    d = _index(tmp_path)
+    assert tool.main(["--index-dir", str(d), "--build-id", BUILD, "--git-sha", "a",
+                      "--built-at", "2026-11-15T02:00:00+05:30"]) == 0  # fmt: skip
+    assert load_manifest(d).built_at == datetime(2026, 11, 14, 20, 30, tzinfo=timezone.utc)
+
+
+def test_parse_built_at_does_not_depend_on_the_machine_time_zone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time
+
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    if hasattr(time, "tzset"):
+        time.tzset()
+    assert tool.parse_built_at("2026-11-15T02:00:00") == datetime(
+        2026, 11, 15, 2, tzinfo=timezone.utc
+    )
+
+
+@pytest.mark.parametrize("kind", ["missing_dir", "garbage_manifest", "empty_dir"])
+def test_a_bad_previous_is_refused_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str
+) -> None:
+    d = _index(tmp_path)
+    prev = tmp_path / "prev"
+    if kind != "missing_dir":
+        prev.mkdir()
+    if kind == "garbage_manifest":
+        (prev / MANIFEST_NAME).write_text("{not json", encoding="utf-8")
+    code = tool.main(["--index-dir", str(d), "--build-id", BUILD, "--git-sha", "a",
+                      "--previous", str(prev)])  # fmt: skip
+    err = capsys.readouterr().err
+    assert code == 1 and "REFUSED: previous manifest unusable" in err and "Traceback" not in err
+
+
+def test_a_corrupt_input_file_is_refused_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    d = _index(tmp_path)
+    (d / "catalogue.parquet").write_bytes(b"not a parquet file")
+    assert _run(d) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("REFUSED: unexpected") and "Traceback" not in err
+    assert not (d / MANIFEST_NAME).exists()
+
+
+def test_the_cli_process_prints_refused_and_no_traceback(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    d = _index(tmp_path)
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(_PATH),
+            "--index-dir",
+            str(d),
+            "--built-at",
+            "garbage",
+            "--git-sha",
+            "a",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 1 and "REFUSED:" in r.stderr and "Traceback" not in r.stderr

@@ -750,7 +750,7 @@ separate Cloud Run instances with their own 4 GiB.
 ```
 python scripts/ops/make_build_manifest.py --index-dir <dir with the index files> \
     [--build-id 20261115T020000Z] [--previous <previous build dir or manifest>] \
-    [--git-sha <sha>] [--built-at <ISO UTC>] [--overwrite]
+    [--git-sha <sha>] [--built-at <ISO 8601; no offset = UTC>] [--overwrite]
 ```
 
 Writes `build_manifest.json` next to the files. Everything it asserts is derived from the files

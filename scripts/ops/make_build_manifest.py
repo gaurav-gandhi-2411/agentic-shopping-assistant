@@ -1,8 +1,8 @@
 """Write ``build_manifest.json`` for a directory of index files (Wave 1b V3(b) rework).
 
     python scripts/ops/make_build_manifest.py --index-dir <dir> [--build-id 20261115T020000Z]
-        [--previous <dir or build_manifest.json>] [--git-sha <sha>] [--built-at <ISO UTC>]
-        [--overwrite]
+        [--previous <dir or build_manifest.json>] [--git-sha <sha>]
+        [--built-at <ISO 8601; no offset = UTC>] [--overwrite]
 
 Used by the V3(c) refresh job and by hand. Reads what the loader needs from ``--index-dir``
 (dense.faiss, bm25.pkl, bm25_article_ids.npy, dense_article_ids.npy, catalogue.parquet and, when
@@ -11,7 +11,8 @@ files (per-store counts from the catalogue ``store`` column, vector counts and d
 the FAISS files, sha256 + size per file), checks it for consistency and the store registry, runs
 the +-30 % count gate when ``--previous`` is given, writes the manifest next to the files and
 re-verifies the result with the loader's own verifier. Exit code 0 only when a manifest was
-written; any inconsistency prints ``REFUSED: <reason>`` and exits 1 without writing anything.
+written; any inconsistency or bad argument (including an unreadable input file) prints
+``REFUSED: <reason>`` and exits 1 without writing anything, never a traceback.
 
 Local, read-only apart from the one manifest file: no network, no cloud.
 """
@@ -70,6 +71,25 @@ def store_counts(catalogue: Path) -> list[StoreEntry]:
     stores = df["store"].fillna("").astype(str).str.lower()
     counts = stores.value_counts().to_dict()
     return [StoreEntry(slug=str(s), items=int(n)) for s, n in sorted(counts.items())]
+
+
+def parse_built_at(text: str) -> datetime:
+    """``--built-at`` as an aware UTC datetime.
+
+    A value without a UTC offset is read as UTC (documented choice: the build clock is UTC, and
+    ``astimezone`` on a naive value would silently use the machine's local zone). A value with an
+    offset is converted to UTC.
+
+    Raises:
+        Refused: not an ISO 8601 date-time.
+    """
+    try:
+        parsed = datetime.fromisoformat(text.strip())
+    except ValueError as exc:
+        raise Refused(f"--built-at {text!r} is not an ISO 8601 date-time") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def load_previous(path: Path) -> BuildManifest:
@@ -153,7 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--build-id", default=None, help="default: UTC now")
     ap.add_argument("--previous", type=Path, default=None, help="previous build dir or manifest")
     ap.add_argument("--git-sha", default=None)
-    ap.add_argument("--built-at", default=None, help="ISO UTC time; default: now")
+    ap.add_argument(
+        "--built-at", default=None, help="ISO 8601 time; no offset means UTC; default: now"
+    )
     ap.add_argument("--overwrite", action="store_true", help="replace an existing manifest")
     args = ap.parse_args(argv)
 
@@ -166,11 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         git_sha = args.git_sha or next(
             (os.environ[e] for e in GIT_SHA_ENVS if os.environ.get(e)), ""
         )
-        built_at = (
-            datetime.fromisoformat(args.built_at).astimezone(timezone.utc)
-            if args.built_at
-            else datetime.now(timezone.utc)
-        )
+        built_at = parse_built_at(args.built_at) if args.built_at else datetime.now(timezone.utc)
         previous = None
         if args.previous is not None:
             try:
@@ -184,10 +202,14 @@ def main(argv: list[str] | None = None) -> int:
             built_at=built_at,
             previous=previous,
         )
+        path = write_manifest(index_dir, manifest)
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1
-    path = write_manifest(index_dir, manifest)
+    except Exception as exc:  # noqa: BLE001 - a CLI must refuse, never dump a traceback
+        # Unreadable or corrupt inputs (pyarrow/faiss/OS errors) surface here.
+        print(f"REFUSED: unexpected {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+        return 1
     print(
         f"wrote {path.name}: build_id={manifest.build_id} items={manifest.total_items} "
         f"stores={len(manifest.stores)} files={len(manifest.files)} "
