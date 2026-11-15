@@ -60,6 +60,10 @@ class IndexSnapshot:
     agent_streaming: Any = None
     source: str = "flat"  # "flat" (legacy layout) | "build" (builds/<id>/)
     loaded_at: float = field(default_factory=time.time)
+    # INDEX_BUILD_ID pin (revision-pinned rollout): the VALID id this revision is pinned to, and
+    # the fixed reason code when it could not be loaded (the snapshot is then the legacy index).
+    pinned_build_id: str | None = None
+    pin_failure: str | None = None
 
     @functools.cached_property
     def public_article_ids(self) -> frozenset[str]:

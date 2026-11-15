@@ -1,7 +1,9 @@
 """In-process hot reload of the retrieval index (Wave 1b V3(b)).
 
-OPT-IN, default OFF (``INDEX_HOT_RELOAD=1``): the measured swap peak does not fit the 4 GiB
-limit; see DEPLOY.md before enabling.
+DEPRECATED (architect decision, 2026-11-15): replaced by revision-pinned builds
+(``INDEX_BUILD_ID``, see ``src/retrieval/pinned_build.py`` and DEPLOY.md). Kept as-is and OFF:
+it gets no further work. OPT-IN, default OFF (``INDEX_HOT_RELOAD=1``): the measured swap peak
+does not fit the 4 GiB limit; see DEPLOY.md before enabling.
 
 A background daemon thread checks the bucket's ``pointers/`` listing every
 ``INDEX_RELOAD_INTERVAL_S`` (default 900 s, minimum 60 s). When the newest pointer names a build
@@ -78,8 +80,30 @@ class IndexSourceError(Exception):
     """The store could not be read (listing, pointer or download)."""
 
 
+class BuildNotFoundError(IndexSourceError):
+    """A named object of a build does not exist in the store."""
+
+
+class BuildTooLargeError(IndexSourceError):
+    """A named object of a build is larger than the cap the caller allows."""
+
+
 class IndexSource(Protocol):
-    """Where pointers and builds come from (GCS in production, a directory in tests)."""
+    """Where pointers and builds come from (GCS in production, a directory in tests).
+
+    ``download_file`` is the ONLY method the pinned-build startup path uses (one named object of
+    ``builds/<id>/``; no listing, no pointers). The pointer methods belong to the DEPRECATED hot
+    reload.
+    """
+
+    def download_file(self, build_id: str, name: str, dest: Path, max_bytes: int) -> None:
+        """Copy ``builds/<build_id>/<name>`` to the file ``dest``.
+
+        Raises:
+            BuildNotFoundError: the object does not exist.
+            BuildTooLargeError: the object is larger than ``max_bytes`` (nothing is written).
+        """
+        ...
 
     def list_pointer_names(self) -> list[str]:
         """File names under ``pointers/`` (e.g. ``20261115T020000Z.json``)."""
@@ -106,6 +130,14 @@ class LocalDirSource:
 
     def read_pointer(self, name: str) -> Mapping[str, Any]:
         return json.loads((self.root / "pointers" / name).read_text(encoding="utf-8"))
+
+    def download_file(self, build_id: str, name: str, dest: Path, max_bytes: int) -> None:
+        src = self.root / "builds" / build_id / name
+        if not src.is_file():
+            raise BuildNotFoundError("build file not found")
+        if src.stat().st_size > max_bytes:
+            raise BuildTooLargeError("build file exceeds the size cap")
+        shutil.copy2(src, dest)
 
     def download_build(self, build_id: str, dest: Path) -> None:
         src = self.root / "builds" / build_id
@@ -149,6 +181,16 @@ class GcsIndexSource:
     def read_pointer(self, name: str) -> Mapping[str, Any]:
         blob = self._bkt().blob(f"{self._prefix}{POINTERS_PREFIX}{name}")
         return json.loads(blob.download_as_text())
+
+    def download_file(self, build_id: str, name: str, dest: Path, max_bytes: int) -> None:
+        # get_blob reads the object's metadata (size) with one request and returns None when it
+        # does not exist: no listing, so nothing but the named object of the pinned build is touched.
+        blob = self._bkt().get_blob(f"{self._prefix}{BUILDS_PREFIX}{build_id}/{name}")
+        if blob is None:
+            raise BuildNotFoundError("build file not found")
+        if blob.size is not None and int(blob.size) > max_bytes:
+            raise BuildTooLargeError("build file exceeds the size cap")
+        blob.download_to_filename(str(dest))
 
     def download_build(self, build_id: str, dest: Path) -> None:
         prefix = f"{self._prefix}{BUILDS_PREFIX}{build_id}/"

@@ -225,6 +225,23 @@ def _npy_len(path: Path) -> int:
     return int(shape[0])
 
 
+def is_flat_file_name(name: str) -> bool:
+    """True for a plain file name that stays inside one directory.
+
+    Rejects separators, drive letters (``:``), dot names, control characters and over-long
+    names. Shared by the verifier and by the pinned-build downloader, which must apply the same
+    guard BEFORE it fetches anything the manifest names.
+    """
+    return not (
+        "/" in name
+        or "\\" in name
+        or ":" in name
+        or name in ("", ".", "..")
+        or len(name) > 255
+        or any(ord(c) < 32 for c in name)
+    )
+
+
 def verify_build_dir(
     build_dir: Path,
     manifest: BuildManifest | None = None,
@@ -269,14 +286,7 @@ def verify_build_dir(
     # read outside the build directory (separators, drive letters, dot names, control
     # characters, over-long names).
     for name in listed:
-        if (
-            "/" in name
-            or "\\" in name
-            or ":" in name
-            or name in ("", ".", "..")
-            or len(name) > 255
-            or any(ord(c) < 32 for c in name)
-        ):
+        if not is_flat_file_name(name):
             raise BuildValidationError("file_missing", "manifest lists a non-flat file name")
 
     for name, entry in listed.items():

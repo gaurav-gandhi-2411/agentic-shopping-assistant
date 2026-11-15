@@ -163,6 +163,7 @@ async def lifespan(app: FastAPI):
 
     from src.retrieval.index_store import (
         download_supplementary_assets,
+        download_variant_maps,
         ensure_index_dir,
         resolve_brand,
     )
@@ -179,12 +180,36 @@ async def lifespan(app: FastAPI):
     # back to the flat layout. With the switch unset _index_source is None: flat layout only.
     from api import index_runtime
 
-    _index_source = (
-        index_runtime.make_index_source(_index_store_uri) if _brand == "unified" else None
-    )
-    _build = (
-        index_runtime.load_newest_build(_index_source, config) if _index_source is not None else None
-    )
+    #
+    # REVISION-PINNED BUILD (the rollout design, replaces the above): INDEX_BUILD_ID pins this
+    # revision to ONE build; only builds/<id>/ is loaded (no pointer, no listing, no thread). On
+    # any failure the flat legacy index is served instead (never a different build), ONE error
+    # line is logged and /readyz fails (api/routes/health.py) so the tag-URL smoke stops the
+    # rollout before traffic shifts. A pin disables the deprecated pointer/hot-reload path.
+    from src.retrieval.pinned_build import read_pin
+
+    _pin = read_pin(os.environ)
+    _pin_failure: str | None = None
+    _build = None
+    if _pin.requested:
+        _index_source = None
+        _pin_failure = _pin.failure
+        if _pin_failure is None:
+            _pin_failure = "no_source" if _brand != "unified" else None
+        if _pin_failure is None:
+            _build, _pin_failure = index_runtime.load_pinned_snapshot(
+                _pin, _index_store_uri, config, _DATA_DIR / "pinned"
+            )
+        else:
+            index_runtime._log_pin_failure(_pin.build_id, _pin_failure, _pin_failure, "")
+    else:
+        _index_source = (
+            index_runtime.make_index_source(_index_store_uri) if _brand == "unified" else None
+        )
+        if _index_source is not None:
+            _build = index_runtime.load_newest_build(_index_source, config)
+    # file:// (dev/test build store) holds builds only; the flat layout is then the local dir.
+    _flat_uri = None if (_index_store_uri or "").startswith("file://") else _index_store_uri
     _manifest = None
     _clip = None
     _source = "flat"
@@ -192,16 +217,20 @@ async def lifespan(app: FastAPI):
         retriever, df = _build.retriever, _build.catalogue_df
         _manifest, _clip, _source = _build.manifest, _build.clip, "build"
         n_vectors = retriever.dense.index.ntotal
+        if _pin.requested and _flat_uri:
+            # The build carries the index and CLIP; the Shopify variant maps (cart links) are
+            # not part of a build, so they are fetched as on the flat path (non-fatal).
+            download_variant_maps(_flat_uri, _REPO_ROOT)
     else:
         from src.retrieval.build_manifest import try_load_manifest
         from src.retrieval.snapshot import load_index_parts
 
-        index_dir = ensure_index_dir(_brand, _DATA_DIR, _index_store_uri)
+        index_dir = ensure_index_dir(_brand, _DATA_DIR, _flat_uri)
 
         # Download CLIP index and Shopify variant map from GCS (same bucket, active brand only).
         # Failures are non-fatal — each feature degrades gracefully when its assets are absent.
-        if _index_store_uri:
-            download_supplementary_assets(_index_store_uri, _brand, _REPO_ROOT)
+        if _flat_uri:
+            download_supplementary_assets(_flat_uri, _brand, _REPO_ROOT)
 
         logger.info("Loading retrieval indices from %s (mode=%s)", index_dir, _brand)
         retriever, df = load_index_parts(index_dir, config)
@@ -246,6 +275,8 @@ async def lifespan(app: FastAPI):
         manifest=_manifest,
         clip=_clip,
         source=_source,
+        pinned_build_id=_pin.build_id,
+        pin_failure=_pin_failure,
     )
 
     # V3(b) hot reload: a daemon thread checks pointers/ every INDEX_RELOAD_INTERVAL_S and swaps

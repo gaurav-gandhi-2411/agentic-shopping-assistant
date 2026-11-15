@@ -73,6 +73,8 @@ def make_snapshot(
     manifest: BuildManifest | None = None,
     clip: ClipEntry | None = None,
     source: str = "flat",
+    pinned_build_id: str | None = None,
+    pin_failure: str | None = None,
 ) -> IndexSnapshot:
     """Build an IndexSnapshot: public view of the catalogue + both agent graphs compiled around
     THIS retriever and DataFrame (``build_graph`` captures them in closures, so the graphs must
@@ -94,6 +96,8 @@ def make_snapshot(
         agent_sync=agent_sync,
         agent_streaming=agent_streaming,
         source=source,
+        pinned_build_id=pinned_build_id,
+        pin_failure=pin_failure,
     )
 
 
@@ -121,6 +125,8 @@ def _init(
     manifest: BuildManifest | None = None,
     clip: ClipEntry | None = None,
     source: str = "flat",
+    pinned_build_id: str | None = None,
+    pin_failure: str | None = None,
 ) -> None:
     global _llm, _config, _session_store, _db_engine
     _llm = llm
@@ -133,7 +139,15 @@ def _init(
     # Compile both graph variants once per snapshot — never on the request path.
     install_snapshot(
         make_snapshot(
-            retriever, catalogue_df, llm, config, manifest=manifest, clip=clip, source=source
+            retriever,
+            catalogue_df,
+            llm,
+            config,
+            manifest=manifest,
+            clip=clip,
+            source=source,
+            pinned_build_id=pinned_build_id,
+            pin_failure=pin_failure,
         )
     )
 
