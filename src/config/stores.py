@@ -69,6 +69,7 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import re
 import urllib.parse
 from typing import Any
 
@@ -77,6 +78,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Per-store config table
 # ---------------------------------------------------------------------------
+
+
+def _shopify_store(display_name: str, domain: str) -> dict[str, Any]:
+    """Config entry for a live Shopify store: ``https://<domain>/products/{handle}``.
+
+    ``domain`` is the host that answers the product page directly (no apex->www hop).
+    """
+    return {
+        "display_name": display_name,
+        "pdp_url_template": f"https://{domain}/products/{{handle}}",
+        "active": True,
+    }
+
 
 STORE_CONFIG: dict[str, dict[str, Any]] = {
     "hm": {
@@ -211,6 +225,33 @@ STORE_CONFIG: dict[str, dict[str, Any]] = {
         "pdp_url_template": "https://campusshoes.com/products/{handle}",
         "active": True,
     },
+    # Wave 1b V3a: the 22 live-index Shopify stores that had no entry (their items rendered
+    # no Buy button).  Built with _shopify_store(); host = brands/<slug>.yaml's host, except
+    # fizzygoblet/korakari/rathore, whose apex 301s to www (V3a buylinks.csv), so www is used
+    # to give a direct 200.  tests/test_store_buy_urls.py fails if any indexed store lacks an
+    # entry here or its brands/<slug>.yaml template disagrees with it.
+    "jadeblue": _shopify_store("JadeBlue", "jadeblue.com"),
+    "vastramay": _shopify_store("Vastramay", "vastramay.com"),
+    "jompers": _shopify_store("Jompers", "jompers.com"),
+    "tjori": _shopify_store("Tjori", "www.tjori.com"),
+    "kisah": _shopify_store("Kisah", "kisah.in"),
+    "mohanlalsons": _shopify_store("Mohanlal Sons", "www.mohanlalsons.com"),
+    "5-elements": _shopify_store("5 Elements", "5-elements.co.in"),
+    "rathore": _shopify_store("Raghavendra Rathore Jodhpur", "www.rathore.com"),
+    "kalpraag": _shopify_store("Kalpraag", "kalpraag.com"),
+    "bhasinbrothers": _shopify_store("Bhasin Brothers", "bhasinbrothers.com"),
+    "houseofvian": _shopify_store("House Of Vian", "www.houseofvian.com"),
+    "kalapuri": _shopify_store("Kalapuri", "kalapuri.com"),
+    "fizzygoblet": _shopify_store("Fizzy Goblet", "www.fizzygoblet.com"),
+    "coralhaze": _shopify_store("Coral Haze", "coralhaze.com"),
+    "irasoles": _shopify_store("Ira Soles", "irasoles.com"),
+    "taurjuttis": _shopify_store("Taur Juttis", "taurjuttis.com"),
+    "korakari": _shopify_store("Korakari", "www.korakari.com"),
+    "kraftojodhpur": _shopify_store("Krafto Jodhpur", "www.kraftojodhpur.com"),
+    "vhaan": _shopify_store("Vhaan", "vhaan.in"),
+    "chappers": _shopify_store("Chappers", "chappers.in"),
+    "juttichooindia": _shopify_store("Juttichoo", "juttichooindia.com"),
+    "shopkop": _shopify_store("ShopKop", "shopkop.in"),
 }
 
 # ---------------------------------------------------------------------------
@@ -315,6 +356,20 @@ def get_store_display_name(store: str | None) -> str | None:
     return entry["display_name"] if entry else None
 
 
+_LONE_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
+def _quote_handle(handle: str) -> str:
+    """Percent-encode a catalogue handle for use inside a URL path.
+
+    Slugs (``[a-z0-9-]``) and Myntra relative paths pass through unchanged, so output for
+    every store that works today is byte-identical.  Spaces, unicode, ``?``/``#`` etc. are
+    encoded; ``/`` is kept (Myntra paths); a valid ``%XX`` is kept (no double-encoding) while
+    a lone ``%`` becomes ``%25``.
+    """
+    return urllib.parse.quote(_LONE_PERCENT.sub("%25", handle), safe="/%-._~")
+
+
 def build_pdp_url(store: str | None, row: dict[str, Any]) -> str | None:
     """Build a fully-qualified PDP deep-link for one catalogue row.
 
@@ -369,8 +424,12 @@ def build_pdp_url(store: str | None, row: dict[str, Any]) -> str | None:
         # Unknown store with no template and non-URL handle — no link available.
         return None
 
-    # Standard case: expand {handle} in the template.
-    url = template.replace("{handle}", handle)
+    # Standard case: expand {handle} in the template (percent-encoded; identity for slugs).
+    # A leading "/" would give "//" after the template's own "/" (double slash).
+    path = handle.lstrip("/")
+    if not path:
+        return None
+    url = template.replace("{handle}", _quote_handle(path))
 
     # Phase F: apply per-store affiliate config from ASA_AFFILIATE_<STORE> env var.
     return _apply_affiliate(url, store.lower())
