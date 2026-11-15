@@ -89,18 +89,52 @@ def index_age_hours(snapshot: IndexSnapshot, now: datetime | None = None) -> flo
     return ((now or datetime.now(timezone.utc)) - built).total_seconds() / 3600.0
 
 
+def is_pinned(snapshot: IndexSnapshot) -> bool:
+    """True when this revision was started with INDEX_BUILD_ID (valid or not)."""
+    return snapshot.pinned_build_id is not None or snapshot.pin_failure is not None
+
+
+def pin_error_code(snapshot: IndexSnapshot) -> str | None:
+    """Fixed reason code when a pin is set but not honoured, else None.
+
+    ``pin_failure`` is what startup recorded (the legacy index is being served); the second
+    condition is a defence in depth: a pinned revision must serve exactly the pinned build.
+    """
+    if not is_pinned(snapshot):
+        return None
+    if snapshot.pin_failure is not None:
+        return snapshot.pin_failure
+    if snapshot.source != "build" or snapshot.build_id != snapshot.pinned_build_id:
+        return "build_mismatch"
+    return None
+
+
 def describe_index(snapshot: IndexSnapshot, now: datetime | None = None) -> dict[str, Any]:
     """What /readyz reports about the served index (no paths, no secrets)."""
     m = snapshot.manifest
     served = len(snapshot.catalogue_df)  # the PUBLIC rows actually served
+    if snapshot.source == "build":
+        source = "build"
+    else:
+        source = "legacy-fallback" if snapshot.pin_failure is not None else "legacy"
+    pin = {
+        "pinned_build_id": snapshot.pinned_build_id,
+        "loaded_build_id": m.build_id if m is not None else None,
+        "source": source,
+    }
     if m is None:
         return {
             "build_id": snapshot.build_id,
             "layout": "legacy (no manifest)",
+            **pin,
+            "built_at": None,
+            "age_hours": None,
+            "items_built": None,
             "items_served": served,
         }
     age = index_age_hours(snapshot, now)
     return {
+        **pin,
         "build_id": m.build_id,
         "layout": "build" if snapshot.source == "build" else "flat+manifest",
         "built_at": m.built_at.isoformat(timespec="seconds"),

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Response
 import api.deps as deps
 from api.auth import _is_verification_disabled
 from src.llm.resilience import ProbeCache
-from src.retrieval.snapshot import describe_index
+from src.retrieval.snapshot import describe_index, is_pinned, pin_error_code
 from src.utils.redact import Redactor
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,7 @@ def readiness(response: Response) -> dict:
 
     # Index build info (V3b). Informational: a legacy index or an old build NEVER fails
     # readiness (a stale index is /canary/status's job, not a reason to pull the instance).
+    # The one exception is a revision PINNED to a build (INDEX_BUILD_ID) that is not serving it.
     index_info: dict[str, Any] | None = None
     snap = deps.get_snapshot_or_none()
     if snap is not None:
@@ -128,7 +129,20 @@ def readiness(response: Response) -> dict:
             if reloader is not None
             else {"hot_reload": "disabled (INDEX_HOT_RELOAD not set)"}
         )
-        if snap.manifest is None:
+        pin_code = pin_error_code(snap)
+        if pin_code is not None:
+            # A pinned revision that is not serving its pinned build must FAIL readiness: the
+            # tag-URL deploy smoke then stops the rollout before any traffic shifts. Fixed
+            # code list only; the pinned id is a validated build id or "<invalid>", never raw input.
+            pinned = snap.pinned_build_id or "<invalid>"
+            serving = f"build {snap.build_id}" if snap.source == "build" else "legacy"
+            checks["index"] = (
+                f"error: pinned build {pinned} not loaded, serving {serving} ({pin_code})"
+            )
+            ok = False
+        elif is_pinned(snap):
+            checks["index"] = f"ok ({index_info['build_id']}, age {index_info['age_hours']}h)"
+        elif snap.manifest is None:
             checks["index"] = "legacy (no manifest)"
         else:
             checks["index"] = (

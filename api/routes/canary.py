@@ -62,7 +62,7 @@ from src.agents.grounding import GROUNDED_FALLBACK_EMPTY, GROUNDED_FALLBACK_PREF
 from src.llm.context import llm_user_id_var
 from src.llm.resilience import LLM_BUSY_MESSAGE
 from src.retrieval.index_store import resolve_brand as _resolve_brand
-from src.retrieval.snapshot import index_age_hours
+from src.retrieval.snapshot import index_age_hours, pin_error_code
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["canary"], include_in_schema=False)
@@ -127,6 +127,16 @@ def _index_stale() -> bool:
     if age is None:
         return os.environ.get(INDEX_STRICT_ENV, "").strip().lower() in ("1", "true", "yes")
     return age > INDEX_MAX_AGE_HOURS
+
+
+def _index_pin_unloaded() -> bool:
+    """True when this revision is pinned to a build (INDEX_BUILD_ID) it is not serving.
+
+    Evaluated on every call like ``_index_stale`` (a cached pass must not mask it). Not pinned,
+    or no snapshot yet: not this assertion's business.
+    """
+    snap = deps.get_snapshot_or_none()
+    return snap is not None and pin_error_code(snap) is not None
 
 
 @dataclass
@@ -450,6 +460,12 @@ async def canary(
     token = _plain_query_token(request.scope.get("query_string", b""))
     if not _authorised(x_canary_token, token):
         raise HTTPException(status_code=404, detail="Not Found")
+    if _index_pin_unloaded():
+        return _respond(
+            500,
+            _fail_body("index_pin_unloaded", _PUBLIC_DETAIL["index_pin_unloaded"]),
+            cached=False,
+        )
     if _index_stale():
         return _respond(500, _fail_body("index_stale", _PUBLIC_DETAIL["index_stale"]), cached=False)
     try:
@@ -475,6 +491,7 @@ _PUBLIC_DETAIL: dict[str, str] = {
     "latency": "latency over budget",
     "timeout": "no result within the deadline",
     "index_stale": "index older than 36 h",
+    "index_pin_unloaded": "pinned index build not loaded",
 }
 
 
@@ -502,6 +519,15 @@ async def canary_status() -> JSONResponse:
       503); beyond it, or with no result at all, ``503 {"status":"stale"}``. A pass older than
       2 x ttl is never reported as a pass, whatever the reason the refresh failed.
     """
+    if _index_pin_unloaded():  # before the cache, like index_stale
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "fail",
+                "assertion": "index_pin_unloaded",
+                "detail": _PUBLIC_DETAIL["index_pin_unloaded"],
+            },
+        )
     if _index_stale():  # before the cache: a cached pass must not mask a stale index
         return JSONResponse(
             status_code=503,
