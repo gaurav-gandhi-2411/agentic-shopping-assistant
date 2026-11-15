@@ -27,8 +27,17 @@ N_CASES = 60
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "retrieval"
 
 OCCASIONS = [
-    "sangeet", "haldi", "mehendi", "wedding_guest", "reception_cocktail", "office_formal",
-    "festive_diwali", "casual_daily", "college", "date_night", "travel_party",
+    "sangeet",
+    "haldi",
+    "mehendi",
+    "wedding_guest",
+    "reception_cocktail",
+    "office_formal",
+    "festive_diwali",
+    "casual_daily",
+    "college",
+    "date_night",
+    "travel_party",
     "accessory_footwear",
 ]
 # (plain English, English+Hinglish noun, romanised "... ke liye", keyword form)
@@ -48,35 +57,71 @@ OCC_TEXT = {
 }
 # occasion -> gender slot -> garments (first = lower-priced option)
 GARMENTS: dict[str, dict[str, list[str]]] = {
-    "sangeet": {"women": ["anarkali gown", "lehenga"], "men": ["kurta set", "sherwani"],
-                "either": ["ethnic outfit"]},
-    "haldi": {"women": ["kurta set", "sharara set"], "men": ["kurta", "kurta pyjama set"],
-              "either": ["outfit"]},
-    "mehendi": {"women": ["palazzo kurta set", "sharara set"], "men": ["kurta", "nehru jacket set"],
-                "either": ["outfit"]},
-    "wedding_guest": {"women": ["saree", "lehenga"], "men": ["kurta set", "bandhgala"],
-                      "either": ["outfit"]},
-    "reception_cocktail": {"women": ["gown", "saree"], "men": ["blazer", "suit"],
-                           "either": ["outfit"]},
-    "office_formal": {"women": ["shirt", "trousers"], "men": ["formal shirt", "trousers"],
-                      "either": ["blazer"]},
-    "festive_diwali": {"women": ["kurta set", "anarkali"], "men": ["kurta", "kurta pyjama set"],
-                       "either": ["ethnic wear"]},
-    "casual_daily": {"women": ["cotton kurta", "top"], "men": ["t-shirt", "casual shirt"],
-                     "either": ["co-ord set"]},
+    "sangeet": {
+        "women": ["anarkali gown", "lehenga"],
+        "men": ["kurta set", "sherwani"],
+        "either": ["ethnic outfit"],
+    },
+    "haldi": {
+        "women": ["kurta set", "sharara set"],
+        "men": ["kurta", "kurta pyjama set"],
+        "either": ["outfit"],
+    },
+    "mehendi": {
+        "women": ["palazzo kurta set", "sharara set"],
+        "men": ["kurta", "nehru jacket set"],
+        "either": ["outfit"],
+    },
+    "wedding_guest": {
+        "women": ["saree", "lehenga"],
+        "men": ["kurta set", "bandhgala"],
+        "either": ["outfit"],
+    },
+    "reception_cocktail": {
+        "women": ["gown", "saree"],
+        "men": ["blazer", "suit"],
+        "either": ["outfit"],
+    },
+    "office_formal": {
+        "women": ["shirt", "trousers"],
+        "men": ["formal shirt", "trousers"],
+        "either": ["blazer"],
+    },
+    "festive_diwali": {
+        "women": ["kurta set", "anarkali"],
+        "men": ["kurta", "kurta pyjama set"],
+        "either": ["ethnic wear"],
+    },
+    "casual_daily": {
+        "women": ["cotton kurta", "top"],
+        "men": ["t-shirt", "casual shirt"],
+        "either": ["co-ord set"],
+    },
     "college": {"women": ["kurti", "jeans"], "men": ["hoodie", "shirt"], "either": ["sneakers"]},
     "date_night": {"women": ["dress", "top"], "men": ["shirt", "blazer"], "either": ["outfit"]},
-    "travel_party": {"women": ["jumpsuit", "dress"], "men": ["shirt", "jacket"],
-                     "either": ["jacket"]},
-    "accessory_footwear": {"women": ["jhumka earrings", "juttis"],
-                           "men": ["kolhapuri sandals", "loafers"],
-                           "either": ["necklace set", "sneakers"]},
+    "travel_party": {
+        "women": ["jumpsuit", "dress"],
+        "men": ["shirt", "jacket"],
+        "either": ["jacket"],
+    },
+    "accessory_footwear": {
+        "women": ["jhumka earrings", "juttis"],
+        "men": ["kolhapuri sandals", "loafers"],
+        "either": ["necklace set", "sneakers"],
+    },
 }
 HIGH_END = {"lehenga", "sherwani", "saree", "bandhgala", "suit", "gown", "sharara set"}
-NON_CLOTHING = {"jhumka earrings", "juttis", "kolhapuri sandals", "loafers", "necklace set",
-                "sneakers"}
+NON_CLOTHING = {
+    "jhumka earrings",
+    "juttis",
+    "kolhapuri sandals",
+    "loafers",
+    "necklace set",
+    "sneakers",
+}
 COLOURS = {
-    "haldi": ["yellow", "white", "orange"], "mehendi": ["green", "yellow", "pink"],
+    "haldi": ["yellow", "white", "orange"],
+    "mehendi": ["green", "yellow", "pink"],
     "accessory_footwear": ["gold", "silver", "black"],
 }
 DEFAULT_COLOURS = ["black", "blue", "red", "maroon", "pink", "white", "navy", "green", "grey"]
@@ -91,12 +136,17 @@ def _typo(word: str, rng: random.Random) -> str:
     if len(word) < 5:
         return word
     k = rng.randrange(1, len(word) - 1)
-    return word[:k] + word[k + 1:]
+    return word[:k] + word[k + 1 :]
 
 
 def _phrase(  # noqa: PLR0913 - one flat template function is clearer than a class here
-    style: str, garment: str, colour: str | None, occ: str, gender: str,
-    budget: int | None, rng: random.Random,
+    style: str,
+    garment: str,
+    colour: str | None,
+    occ: str,
+    gender: str,
+    budget: int | None,
+    rng: random.Random,
 ) -> str:
     """Render one query string in the requested phrasing style."""
     plain, hin, roman, kw = OCC_TEXT[occ]
@@ -155,28 +205,31 @@ def build_cases() -> list[dict]:
             style_term = STYLE_TERMS[(i // 10) % 2]
             shown_garment = f"{style_term} {garment}"
         text = _phrase(styles[i], shown_garment, colour, occ, gender, budget, rng)
-        cases.append({
-            "id": f"q{i + 1:02d}",
-            "text": text,
-            "language_style": styles[i],
-            "occasion": occ,
-            "gender": gender,
-            "budget_inr": budget,
-            "hard": is_hard,
-            "constraints": {
-                "gender": None if gender == "either" else gender,
-                "colour": colour,
-                "category": garment,
-                "max_price": budget,
-                "style_term": style_term,
-            },
-            "notes": (
-                "hard: multi-constraint (occasion + colour + budget"
-                + (f" + style term '{style_term}'" if style_term else "")
-                + ")"
-                if is_hard else "standard"
-            ),
-        })
+        cases.append(
+            {
+                "id": f"q{i + 1:02d}",
+                "text": text,
+                "language_style": styles[i],
+                "occasion": occ,
+                "gender": gender,
+                "budget_inr": budget,
+                "hard": is_hard,
+                "constraints": {
+                    "gender": None if gender == "either" else gender,
+                    "colour": colour,
+                    "category": garment,
+                    "max_price": budget,
+                    "style_term": style_term,
+                },
+                "notes": (
+                    "hard: multi-constraint (occasion + colour + budget"
+                    + (f" + style term '{style_term}'" if style_term else "")
+                    + ")"
+                    if is_hard
+                    else "standard"
+                ),
+            }
+        )
     return cases
 
 
@@ -184,13 +237,18 @@ def stratification_table(cases: list[dict]) -> str:
     """Markdown marginal counts per stratification axis."""
     out = []
     axes = [
-        ("occasion", lambda c: c["occasion"]), ("gender", lambda c: c["gender"]),
-        ("budget_inr", lambda c: str(c["budget_inr"])), ("language_style", lambda c: c["language_style"]),
-        ("hard", lambda c: str(c["hard"])), ("has colour", lambda c: str(bool(c["constraints"]["colour"]))),
+        ("occasion", lambda c: c["occasion"]),
+        ("gender", lambda c: c["gender"]),
+        ("budget_inr", lambda c: str(c["budget_inr"])),
+        ("language_style", lambda c: c["language_style"]),
+        ("hard", lambda c: str(c["hard"])),
+        ("has colour", lambda c: str(bool(c["constraints"]["colour"]))),
     ]
     for name, key in axes:
         counts = Counter(key(c) for c in cases)
-        out.append(f"| {name} | " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + " |")
+        out.append(
+            f"| {name} | " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) + " |"
+        )
     return "| axis | counts (n=%d) |\n|---|---|\n" % len(cases) + "\n".join(out)
 
 
