@@ -168,7 +168,8 @@ def run_case(agent: Any, config: dict, case: dict[str, Any], llm: StubLLM) -> di
         captured.append((query, list(items)))
         return items[:top_k]
 
-    original, g.rerank = g.rerank, capture
+    original = g.rerank
+    setattr(g, "rerank", capture)  # noqa: B010 - typed seam for a module-level function
     llm.calls = 0
     state = {
         "messages": [{"role": "user", "content": case["text"]}],
@@ -196,7 +197,7 @@ def run_case(agent: Any, config: dict, case: dict[str, Any], llm: StubLLM) -> di
             forced = {**state, "current_plan": json.dumps({"action": "search", "filters": {}})}
             agent.nodes["search"].invoke(forced)
     finally:
-        g.rerank = original
+        setattr(g, "rerank", original)  # noqa: B010
     pool = captured[0][1] if captured else []
     return case_record(case, pool, route if captured else "no_candidates", llm.calls)
 

@@ -19,7 +19,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping
 
 from evals.retrieval.common import (
     JUDGE_DAILY_TOKEN_BUDGET,
@@ -62,10 +62,7 @@ class HttpResult:
     body: dict[str, Any]
 
 
-class Transport(Protocol):
-    """POST one chat-completions payload."""
-
-    def __call__(self, payload: dict[str, Any]) -> HttpResult: ...
+Transport = Callable[[dict[str, Any]], HttpResult]  # POST one chat-completions payload
 
 
 def httpx_transport(timeout_s: float = 60.0) -> Transport:

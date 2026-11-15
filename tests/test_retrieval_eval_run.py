@@ -223,3 +223,24 @@ def test_restrict_to_stores_patches_and_restores() -> None:
         assert {"myntra", "flipkart"} <= hs.get_inactive_stores()
         assert "kisah" not in hs.get_inactive_stores()
     assert hs.get_inactive_stores is before
+
+
+def test_export_then_import_claude_via_cli(tmp_path: Path) -> None:
+    cand, out = tmp_path / "cand", tmp_path / "out"
+    _write_candidates(cand)
+    common = ["--limit", "3", "--cand", str(cand), "--out", str(out)]
+    assert run.main(["--stage", "judge", "--export-packets", *common]) == 0
+    pdir = out / "claude_packets"
+    manifest = json.loads((pdir / "manifest.json").read_text())
+    assert any(k.startswith("cal_") for k in manifest) and any(
+        k.startswith("main_") for k in manifest
+    )
+    for pid, meta in manifest.items():
+        res = {
+            q: {"labels": {str(i + 1): 1 for i in range(len(order))}}
+            for q, order in meta["orders"].items()
+        }
+        (pdir / f"{pid}.result.json").write_text(json.dumps(res))
+    assert run.main(["--stage", "judge", "--import-claude", *common]) == 0
+    assert len(json.loads((out / "labels_claude.json").read_text())) == 60
+    assert len(json.loads((pdir / "labels_cal_claude.json").read_text())) == 20

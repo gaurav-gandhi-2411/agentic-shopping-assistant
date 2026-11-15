@@ -231,15 +231,15 @@ def stage_judge(args: argparse.Namespace) -> int:
         print(f"wrote {n1} calibration + {n2} main packets to {pdir}")
         return 0
     if args.import_claude:
-        labels, problems = import_results(out_dir / "claude_packets")
-        cal = {k: v for k, v in labels["claude"].items() if k.startswith("cal")}
-        main = {k: v for k, v in labels["claude"].items() if not k.startswith("cal")}
+        imported, problems = import_results(out_dir / "claude_packets")
+        cal_lab = {k: v for k, v in imported["claude"].items() if k.startswith("cal")}
+        main_lab = {k: v for k, v in imported["claude"].items() if not k.startswith("cal")}
         (out_dir / "claude_packets" / "labels_cal_claude.json").write_text(
-            json.dumps(cal, indent=1)
+            json.dumps(cal_lab, indent=1)
         )
-        (out_dir / "labels_claude.json").write_text(json.dumps(main, indent=1))
+        (out_dir / "labels_claude.json").write_text(json.dumps(main_lab, indent=1))
         print(
-            f"imported {len(main)} main + {len(cal)} calibration Claude labels; "
+            f"imported {len(main_lab)} main + {len(cal_lab)} calibration Claude labels; "
             f"problems: {problems or 'none'}"
         )
         return 1 if problems else 0
@@ -419,7 +419,7 @@ def build_plan(
     c_tok = n * (mean(c_prompt) + EST_COMPLETION["C"])
     probe = 3 * (mean(a_prompt) + EST_COMPLETION["A"])
     per_judge = judge_cal + judge_main
-    plan = {
+    plan: dict[str, Any] = {
         "n_queries_with_candidates": n,
         "mean_prompt_tokens": {
             "judge": mean(jt),

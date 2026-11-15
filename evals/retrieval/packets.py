@@ -25,7 +25,10 @@ def export_packets(
 ) -> list[Path]:
     """Write packet text files (<= max_queries queries each) and manifest.json; return paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    manifest: dict[str, Any] = {}
+    # Merge with an existing manifest: calibration and main packets are exported by separate
+    # calls into the same directory and must both stay importable.
+    mpath = out_dir / "manifest.json"
+    manifest: dict[str, Any] = json.loads(mpath.read_text("utf-8")) if mpath.exists() else {}
     paths = []
     for start in range(0, len(prompts), max_queries):
         chunk = prompts[start : start + max_queries]
