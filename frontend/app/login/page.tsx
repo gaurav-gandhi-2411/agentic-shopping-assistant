@@ -8,10 +8,10 @@ interface Props {
 }
 
 /**
- * The root URL redirects anonymous visitors here, so this page IS the landing
- * page for anyone typing stylemaitri.vercel.app. It shipped as a bare unbranded
- * sign-in card — no logo, no product name, no way to reach the demo (defect
- * sweep 2026-07-10, P2-10). Brand header + demo entry above the auth card.
+ * Sign-in is optional now: `/` is the working assistant for anonymous visitors
+ * (Wave 1b V2), so this page is only reached on purpose (e.g. from the optional
+ * sign-in link shown after a look is saved). It keeps a brand header and a way
+ * back to the assistant above the auth card (defect sweep 2026-07-10, P2-10).
  */
 export default async function LoginPage({ searchParams }: Props) {
   const { error } = await searchParams
@@ -24,7 +24,7 @@ export default async function LoginPage({ searchParams }: Props) {
             Your AI stylist for weddings, sangeets &amp; every day.
           </p>
           <Link
-            href="/demo"
+            href="/"
             className="inline-block rounded-lg bg-primary text-primary-foreground text-sm font-semibold px-5 py-2.5 hover:bg-primary/90 transition-colors"
           >
             Try the live demo — no sign-in needed

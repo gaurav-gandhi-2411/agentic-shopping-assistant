@@ -24,6 +24,17 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },
+  // /demo and /demo/chat used to be the anonymous entry points; `/` is now the assistant
+  // itself (Wave 1b V2), so old links, shared URLs and bookmarks land there. Next carries
+  // the query string over automatically. Skipped when the shelved per-brand picker is
+  // switched on (NEXT_PUBLIC_MULTI_BRAND=1, see app/demo/page.tsx), which needs /demo.
+  async redirects() {
+    if (process.env.NEXT_PUBLIC_MULTI_BRAND === "1") return []
+    return [
+      { source: "/demo", destination: "/", permanent: false },
+      { source: "/demo/chat", destination: "/", permanent: false },
+    ]
+  },
   async headers() {
     return [
       // -----------------------------------------------------------------------

@@ -61,6 +61,7 @@ The Next.js frontend is deployed to Vercel and talks to each backend service dir
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
 | `NEXT_PUBLIC_BACKEND_URL` | Same as `NEXT_PUBLIC_SNITCH_BACKEND_URL` (fallback for authenticated path) |
+| `NEXT_PUBLIC_GOOGLE_AUTH_ENABLED` | Optional. Set to exactly `true` to show the Google button on `/login`; unset = hidden (the Google provider is not configured yet) |
 
 ---
 
@@ -670,6 +671,66 @@ vercel env add NEXT_PUBLIC_SUPABASE_URL         production
 vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY    production
 vercel env add NEXT_PUBLIC_BACKEND_URL          production
 ```
+
+---
+
+## Public landing page (`/`)
+
+`/` is the working assistant for anonymous visitors (Wave 1b V2); sign-in is optional.
+
+**Routes.** Public without a session (allow-list in `frontend/lib/publicPaths.ts`, used by
+`frontend/middleware.ts`): `/`, `/robots.txt`, `/sitemap.xml`, `/login`, `/auth/*`, `/embed/*`,
+`/pdp-demo/*`, `/look/*`, `/saved-looks`, `/opengraph-image`. Everything else (`/chat`,
+`/dashboard`) still redirects an anonymous user to `/login`. A signed-in user hitting `/` or
+`/login` goes to `/chat`. `/demo` and `/demo/chat` redirect to `/` (query string kept;
+`next.config.ts`), except when `NEXT_PUBLIC_MULTI_BRAND=1` re-enables the shelved brand picker.
+`robots.txt` allows `/` and disallows `/login /auth /chat /dashboard`; `sitemap.xml` lists `/`.
+
+**Cold start (no keep-warm, no pinger).** The page creates its demo session on load
+(`frontend/hooks/useDemoSession.ts`, `POST /demo/session`). A chip tap or message made before
+the session exists is queued and sent when it is ready, so a visitor never taps twice. After
+4 s of waiting (`frontend/hooks/useSlowStart.ts`) a skeleton and a plain "waking up, about a
+minute" message appear; the request is never aborted before 150 s (the Cloud Run cold start
+measured 49-80 s), then a friendly retry state is shown. Rate limit (`rate_limited`, with the
+wait in human terms), daily cap (`demo_limit`), the LLM busy reply and a failed session start
+each show a friendly notice (`frontend/components/landing/StreamNotice.tsx`); none shows a raw
+error code.
+
+**Where to change public copy.** Every user-visible string of the landing page (promise line,
+occasion chips, meta/OG/Twitter text, slow-start, limit and busy messages, the sign-in nudge)
+is in `frontend/lib/copy.ts`. Chip labels are also the exact queries sent. Do not use the
+champagne colour for new text (2.49:1 on cream) and keep chips at 44 px minimum height.
+
+**Optional sign-in.** Saving a look still works anonymously (demo token + localStorage); a
+"Sign in" link appears only in the "Look saved" panel. The Google button on `/login` is hidden
+unless `NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=true`.
+
+**Run the end-to-end test locally** (production build with stub origins baked in; Chromium is
+installed on demand and never committed; nothing contacts the real backend):
+
+```bash
+npm --prefix frontend ci
+NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8099 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=e2e npm --prefix frontend run build
+npm --prefix frontend exec playwright install chromium
+npm --prefix frontend run test:e2e
+```
+
+CI runs the same steps inside the `frontend` job.
+
+**Measure Lighthouse (B2) locally.** Local numbers are an estimate of production (no CDN, no
+real network, stubbed API); the production number is measured after deploy. Serve the build
+above with `npm --prefix frontend run start -- -p 3100` plus any process that answers
+`POST /demo/session` and `GET /api/brand` on `:8099`, then run three times and take the median:
+
+```bash
+npx lighthouse@13.6.0 http://127.0.0.1:3100/ --form-factor=mobile \
+  --throttling-method=simulate --only-categories=performance --output=json \
+  --output-path=./lh.json --chrome-flags="--headless=new --no-sandbox"
+```
+
+(`CHROME_PATH` can point at the Playwright Chromium.) Targets: Performance >= 85, LCP < 2.5 s,
+CLS < 0.1.
 
 ---
 
