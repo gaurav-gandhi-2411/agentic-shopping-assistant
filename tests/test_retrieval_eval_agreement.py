@@ -109,3 +109,19 @@ def test_pairwise_report_shape() -> None:
     pair = rep["pairs"]["a|b"]
     assert pair["n"] == 4 and sum(map(sum, pair["confusion"])) == 4
     assert rep["distributions"]["a"] == {"0": 1, "1": 1, "2": 2}
+
+
+def test_calibration_gate_threshold_is_0_4() -> None:
+    """A weakly positive kappa (0 < k < 0.4) must still stop the run."""
+    a = [0, 0, 0, 1, 1, 1, 2, 2, 2, 0, 1, 2]
+    b = [0, 1, 2, 1, 2, 0, 2, 0, 1, 0, 1, 2]
+    weak = {"a": dict(enumerate(map(int, a))), "b": dict(enumerate(map(int, b)))}
+    weak = {j: {str(k): v for k, v in lab.items()} for j, lab in weak.items()}
+    assert 0 < ag.cohen_kappa(a, b) < 0.4
+    ok, msg = ag.calibration_gate(weak)
+    assert not ok and "FAILED" in msg
+    c = [0, 0, 0, 1, 1, 1, 2, 2, 2, 0, 1, 2]
+    d = [0, 0, 1, 1, 1, 1, 2, 2, 2, 0, 2, 2]  # 10/12 agreement: kappa well above 0.4
+    assert ag.cohen_kappa(c, d) > 0.4
+    good = {"a": {str(i): v for i, v in enumerate(c)}, "b": {str(i): v for i, v in enumerate(d)}}
+    assert ag.calibration_gate(good)[0]
