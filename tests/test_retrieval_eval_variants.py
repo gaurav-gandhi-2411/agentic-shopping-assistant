@@ -146,3 +146,9 @@ def test_variant_c_records_cap_hit_and_params() -> None:
 )
 def test_price_band(price: float | None, band: str) -> None:
     assert vr.price_band(price) == band
+
+
+def test_variant_c_skips_llm_when_pool_not_larger_than_top_k() -> None:
+    llm = FakeLLM("never")
+    res = vr.run_variant_c("q", _items(5), llm)
+    assert res["outcome"] == "no_llm_call" and llm.seen == {} and _ids(res) == RRF5

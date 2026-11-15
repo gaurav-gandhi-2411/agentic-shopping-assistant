@@ -161,6 +161,18 @@ def run_variant_c(
 ) -> dict[str, Any]:
     """Variant C: compact reranker. Invalid/empty output falls back to RRF order; fewer than 5
     valid numbers are topped up from RRF order (never duplicates)."""
+    if len(items) <= TOP_K:  # same shortcut as production rerank(): nothing to choose between
+        return {
+            "variant": "C",
+            "final_ids": [it["article_id"] for it in items[:TOP_K]],
+            "raw_output": None,
+            "outcome": "no_llm_call",
+            "parsed": [],
+            "hit_cap": False,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "latency_ms": 0,
+        }
     system, user = build_compact_prompt(query, items)
     rec = RecordingLLM(llm)
     outcome = "ok"
