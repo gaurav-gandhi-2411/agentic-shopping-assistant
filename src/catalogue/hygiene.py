@@ -110,8 +110,9 @@ def _last_match(text: str, skip: frozenset[str] = frozenset()) -> tuple[str, str
         if gtype in skip:
             continue
         for m in rx.finditer(text):
-            if cat == _NF and not _is_tail_ok(text[m.end() :]):
+            if cat == _NF and gtype != "gift_card" and not _is_tail_ok(text[m.end() :]):
                 continue  # "Box Lakshmi necklace", "Bottle Green kundan": a modifier, not the head
+                # (gift cards are exempt: "Rakhi E-Gift Card - The Perfect Digital Gift" has a tagline)
             cand = (m.end(), m.end() - m.start(), gtype, cat)
             if best is None or cand[:2] > best[:2]:
                 best = cand

@@ -48,6 +48,7 @@ def test_category_from_type_then_title(
         ("Fashion", "Embroidered Navy Blue Bangle Box"),
         ("Covers", "Set of 2: Sky Blue Jacquard Cushion Covers"),
         ("Fashion", "Father's Day E-Gift Card"),  # "e gift" must not swallow "gift card"
+        ("Fashion", "Rakhi E-Gift Card - The Perfect Digital Gift for Rakshabandhan"),  # tagline
         ("kurta", "Shirt And Kurta Organiser"),  # trailing noun of a coordinated title
     ],
 )
