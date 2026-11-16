@@ -664,7 +664,7 @@ gs://asa-demo-indices-stylemaitri-prod/
                                    [clip.faiss clip_article_ids.npy] build_manifest.json
 ```
 
-No pointer objects are needed. The daily refresh job (V3(c), not part of this change) publishes
+No pointer objects are needed. The daily refresh job (V3(c), see "Daily index refresh and index rollout" below) publishes
 `builds/<id>/` (create-only) and then starts a rollout of a new revision pinned to `<id>` through
 the deploy workflow: no-traffic tag, smoke on the tag URL (including the `/readyz` index id and
 age), shift 100 %, post-shift check, automatic rollback to the previous revision (which is still
@@ -729,9 +729,9 @@ manifest exists) is unchanged.
 
 **What the smoke on the no-traffic tag URL must assert** (so a bad pin fails BEFORE the traffic
 shift): `GET /readyz` is 200 (a pin that is not honoured is already a 503, so today's
-`deploy_smoke.py` fails it), and additionally, once the smoke is extended (not part of this
-change): `index.source == "build"`, `index.loaded_build_id == <expected id>` (and equals
-`pinned_build_id`), `index.age_hours < 36`.
+`deploy_smoke.py` fails it), and additionally (V3c: `deploy_smoke.py --expect-build-id <id>`,
+used by `deploy.yml` in rollout mode): `index.source == "build"`, `index.loaded_build_id == <id>`
+and equals `pinned_build_id`, `index.age_hours < 36`.
 
 **Verified locally** (2026-11-15; real FastAPI app and lifespan, real FAISS/BM25/parquet of the
 live `unified` index copied read-only, 112,425 items / 89,407 public; the LLM client, the MiniLM
@@ -1023,6 +1023,129 @@ already depends on `run.services.update` for `gcloud run services update "$SERVI
 read from the cloud, and `DEPLOY.md` (Interaction with deploy.yml / "Unverified until the first real
 deploy") still records that a service-scoped `run.developer` has not been proven for `gcloud run
 deploy`; the same caveat covers this change.
+
+### Daily index refresh and index rollout (Wave 1b V3c)
+
+**Status: code and workflows are in; NOTHING has run against the cloud, a real feed or a real
+workflow runner.** Everything marked UNVERIFIED below is a statement about gcloud/GitHub behaviour
+that only the first real run can confirm. The architect's decisions are implemented as written:
+pinned builds, create-only publish, rollout through the existing deploy machinery, hot reload off.
+
+```
+refresh-index.yml (schedule 20:07 UTC = 01:37 IST, or manual)
+  refresh    fetch feeds -> build -> validate -> publish builds/<id>/ (create-only)     publisher SA
+  preflight  previous revision's pinned build still in the bucket (else refuse + alert)  deployer SA (Cloud Run read)
+                                                                                         + publisher SA (bucket read)
+  rollout    deploy.yml, index_build_id=<id>: same image, new revision pinned to <id>,   deployer SA (unchanged rights)
+             no-traffic tag -> smoke on the tag URL (/readyz: source=build,
+             loaded_build_id==<id>, age_hours<36) -> shift 100% -> post-shift check
+             -> automatic rollback to the previous revision (pinned to the previous build)
+  retain     only after a successful rollout: customTime=now on builds beyond the 3      deployer (read) + publisher (update)
+             newest that no revision references; the bucket lifecycle rule deletes
+             them 2 days later (the publisher cannot delete)
+  alert      any failed job -> ONE issue "StyleMaitri index refresh is failing" (label prod-alert)
+```
+
+| Piece | File | Tests |
+|---|---|---|
+| polite feed fetcher | `scripts/ops/refresh_feed.py` | `tests/test_refresh_feed.py` |
+| create-only build store | `scripts/ops/refresh_store.py` | `tests/test_refresh_store.py` |
+| orchestrator (stages, gates, exit codes, summary) | `scripts/ops/refresh_index.py` | `tests/test_refresh_index.py` |
+| alert lifecycle (reuses `canary.py`'s prod-alert machinery) | `scripts/ops/refresh_alert.py` | `tests/test_refresh_alert_and_workflow.py` |
+| retention | `scripts/ops/expire_builds.py` | `tests/test_expire_builds.py` (incl. the 10-day simulation) |
+| parity, smoke index assertions | `scripts/ops/check_parity.py`, `deploy_smoke.py` | `tests/test_check_parity.py`, `tests/test_deploy_smoke.py` |
+| preflight, keep-last-5 revisions | `scripts/ops/rollout_checks.py` | `tests/test_rollout_checks.py` |
+| workflow structure | `.github/workflows/{refresh-index,deploy}.yml` | `tests/test_rollout_workflows.py` (static + executed resolve step) |
+
+**One-time setup (GG).** Repo variables only (no new secrets, no new IAM): `REFRESH_BUILD_CMD` (the
+build command, see "Not built" below) and, when you want the schedule on, `REFRESH_ENABLED=true`.
+Merge the stacked PRs in order; the workflow files reference each other (`refresh-index.yml` calls
+`deploy.yml` with an input that only exists after the rollout PR).
+
+**Pause the refresh.** `gh variable set REFRESH_ENABLED --body false` (or delete the variable): the
+scheduled run is skipped, no PR needed. Manual runs ignore the switch. Hard stop: disable the
+workflow in the Actions UI. A pause changes nothing in prod; the serving build just ages, and
+`/canary/status` starts failing `index_stale` at 36 h.
+
+**Run it by hand.** `gh workflow run refresh-index.yml` is a DRY RUN (default): fetch, build,
+validate, nothing uploaded, no rollout, no alert. `-f dry_run=false` publishes and rolls out.
+Staged first live use: (1) dry run with `REFRESH_BUILD_CMD` unset to see `build_not_configured`
+and the feed stage on real feeds; (2) dry run with the build command; (3) one `dry_run=false`;
+(4) set `REFRESH_ENABLED=true`.
+
+**What a failed refresh looks like.** A red run; the step summary shows the JSON summary
+(`ok`, `stage`, `exit_code`, `failure.code`, per-store statuses); one open issue titled
+`StyleMaitri index refresh is failing` (label `prod-alert`) is opened or commented on, and closed by
+the next green run. Prod is untouched by a failed refresh, validation or publish. Exit codes: 0 ok,
+2 usage/config, 3 fetch gate (fewer than half the stores fresh), 4 build (incl.
+`build_not_configured`), 5 validation (per-store drop > 50 % for stores with >= 20 items, the
+existing +-30 % total gate, an unreadable previous manifest), 6 publish (create-only refusal).
+A failed rollout alerts too; `deploy.yml` has already rolled traffic back and restored the template
+pin (below).
+
+**Feed etiquette** (`refresh_feed.py`, limits in `store_registry.py`): at most 1 request/s per
+domain (robots.txt fetches count), User-Agent `StyleMaitriRefresh/1.0 (+https://github.com/gaurav-gandhi-2411/agentic-shopping-assistant)`,
+robots.txt honoured (Disallow, Crawl-delay; unreadable robots = store stopped), 429 with a short
+`Retry-After` waited once, otherwise the store stops; a challenge page, 403 or 503 stops the store
+at once; `refresh_enabled=False` is never contacted. **There is no curl TLS-fingerprint fallback**
+(unlike `scripts/download_shopify.py`): evading a block is not polite. Stores that needed it
+(rathore, bhasinbrothers, blissclub, silvertraq per that script's notes) will report `challenge` or
+`http_error` and are CARRIED OVER from the previous build, never half-refreshed. The refresh job
+needs a contact address in the User-Agent only via that fixed URL; GG may prefer an e-mail.
+
+**Rollback.** Automatic: any failed gate before the shift only removes the tag; any failure after
+the shift sends 100 % back to the previous revision (still pinned to the previous build). Because a
+rollout writes `INDEX_BUILD_ID` into the service TEMPLATE, a failed rollout also restores the
+template's previous value (otherwise the next ordinary code deploy would inherit the failed build;
+`check_parity.py` would fail that deploy loudly). Manual: `gcloud run services update-traffic
+asa-stylist-api --to-revisions <PREVIOUS>=100 --region asia-south1 --project stylemaitri-prod-260813`.
+That only works while the previous revision's build still exists (see Retention); the rollout's
+preflight refuses to start when it does not.
+
+**Retention.** After a successful rollout: keep the 3 newest builds and every build named by any
+revision that exists (traffic, tag, the service template, rollback targets); set `customTime=now`
+once on the rest; the bucket rule (`daysSinceCustomTime >= 2` under `builds/`) deletes them. A build
+is marked only once (re-marking daily pushed its deletion back forever; found by the simulation test,
+now a regression test). Known gap: a marked build cannot be un-marked, so a manual rollback to a
+revision older than the 3 newest builds is not supported once the 2 days pass. A refresh that fails
+for 10 days sets nothing and deletes nothing: serving build and the 3 newest survive (simulation).
+
+**Revision cleanup and Artifact Registry.** `deploy.yml` now ends with a best-effort "keep the last 5
+revisions" step (never a revision with traffic or a tag, the new one, the rollback target). The image
+policy (`ar_cleanup_policy.json`: newest 2 + tags `live`/`prev`) is independent: a revision among the
+5 can point at an image the registry already deleted (it could not start new instances). Rollouts
+reuse the serving image, so after a rollout `prev` points at the same image as `live` and the
+image before that loses its tag; only `live` and the immediate rollback revision are guaranteed.
+`gcloud run revisions delete` needs `run.revisions.delete`/`list` on the deployer (role
+`run.developer` on the service: UNVERIFIED); if it is missing the step logs and the deploy stays green.
+
+**Cost.** Storage: about 5 resident builds x 0.46-0.57 GB = about 2.3-2.9 GB (3 newest plus up to 2
+waiting out the 2-day delay, plus any revision-referenced build); price per GB-month NOT looked up.
+LLM: one rollout adds the 4 calls from answer (b) above (about 2.7 % of the 200,000 TPD at 1 a day,
+TPD UNVERIFIED). One extra Cloud Run revision per day (no instances while it has no traffic). GitHub
+Actions minutes are free on a public repo; the refresh job has a 240 minute timeout.
+
+**Not built, said plainly.** (1) There is no in-CI incremental builder: the per-brand
+`data/processed/<brand>` dirs and the CLIP image vectors do not exist on a fresh runner, and
+re-embedding 89k product images daily is not viable on a runner. `refresh_index.py --build-cmd`
+defines the contract (fresh CSVs for fetched stores, carry-over of the others from the previous
+build, index files into `{out_dir}`); without it the build stage fails `build_not_configured` and
+nothing is published. Designing that builder (CLIP carry-over by `article_id`, new items without an
+image vector, the catalogue cleaning/enrichment patches) is the next piece of work and needs a decision.
+(2) The Buy-link sample check in the manifest is still a placeholder.
+
+**UNVERIFIED (first real run decides):** real feed behaviour; google-cloud-storage create-only
+semantics (`if_generation_match=0` is the documented precondition; tested against a fake only);
+WIF use of the publisher SA from this workflow and two `auth` steps in one job; `run.revisions.*`
+rights; `gcloud run services update --no-traffic`; that `gcloud run deploy --update-env-vars` with an
+unchanged image creates a new revision with inherited secrets intact (the parity step would catch a
+difference before any traffic moves); a called workflow's `github.event_name` being `schedule`
+(the job `if` relies on it); `shellcheck` was not run (actionlint without it checks only the
+expression and structure level).
+
+**Verifying the workflows without running them.** `actionlint` in a throwaway venv:
+`python -m venv <tmp>; <tmp>/Scripts/pip install actionlint-py; <tmp>/Scripts/actionlint .github/workflows/*.yml`.
+Manual dry-run plan: see "Run it by hand".
 
 ---
 
