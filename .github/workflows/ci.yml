@@ -127,7 +127,7 @@ jobs:
           cp data/processed/unified/* data/processed/
 
       - name: Test
-        run: pytest -m "not requires_ollama" -v
+        run: pytest -m "not requires_ollama and not eval_statistical" -v
 
       # Grounding smoke (#81): 10 prompts x REST+WS, mock LLM, stub agent over the committed
       # fixture catalogue. Offline: no index, no network, no LLM, no GCP. Exits 1 if any injected
@@ -289,3 +289,14 @@ jobs:
         # beyond noise). 3 is a small explicit tolerance (~1% of n), not a default —
         # scripts/eval_gate.py --max-unlabeled stays 0 for local pre-deploy runs, where
         # unlabeled items DO mean "re-audit the gold set."
+
+      # Broad real-index statistical composition checks (marker eval_statistical). Excluded from
+      # the backend job above because they sample dozens of composer runs (the bridal-jewellery
+      # check alone is ~50-105 s) and carry statistical, not deterministic, assertions. The
+      # backend job keeps the hermetic and fixed-anchor variants. The conftest requires_index
+      # sentinel reads the flat data/processed/ path, so the index is also copied there.
+      - name: Real-index statistical composition checks
+        if: steps.wif.outputs.available == 'true'
+        run: |
+          cp data/processed/unified/* data/processed/
+          pytest -m eval_statistical -v

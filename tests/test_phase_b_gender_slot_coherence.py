@@ -1602,6 +1602,108 @@ class TestGuaranteedDistinctVariants:
 
 
 # ---------------------------------------------------------------------------
+# 8b. Bridal accessory slot — hermetic jewellery-availability regression
+# ---------------------------------------------------------------------------
+
+
+def _bridal_seed_row(article_id: str) -> pd.DataFrame:
+    row = _seed_catalogue_row(article_id).iloc[0].to_dict()
+    row.update(
+        prod_name="Red Bridal Lehenga", display_name="Red Bridal Lehenga",
+        colour_group_name="red", product_type_name="lehenga",
+        facets={"colour_group_name": "red", "product_type_name": "lehenga",
+                "department_name": "Women"},
+    )
+    return pd.DataFrame([row])
+
+
+def _accessory_item(article_id: str, name: str, product_type: str, score: float) -> dict:
+    return {
+        "article_id": article_id, "prod_name": name, "display_name": name,
+        "product_type": product_type, "colour": "gold", "gender": "women",
+        "score": score, "price_inr": 1499.0, "store": "myntra", "detail_desc": "",
+    }
+
+
+class _FamilyPoolRetriever:
+    """Models the live retrieval shape behind the 2026-07-19 bridal jewellery gap: a combined
+    "dupatta jewellery clutch" query is dominated by dupatta/clutch text (no jewellery in the
+    window), while a jewellery-only sub-query surfaces real jewellery. Records every query."""
+
+    def __init__(self, *, jewellery_score: float = 0.9) -> None:
+        self.queries: list[str] = []
+        self._jewellery_score = jewellery_score
+
+    def search(self, query: str, top_k: int = 20, filters: dict | None = None) -> list[dict]:
+        self.queries.append(query)
+        words = set(query.lower().split())
+        if "heels" in words:  # footwear slot: irrelevant here
+            return []
+        if "jewellery" in words and "dupatta" not in words and "clutch" not in words:
+            return [
+                _accessory_item("JEW1", "Gold Kundan Necklace Set", "necklace",
+                                self._jewellery_score),
+                _accessory_item("JEW2", "Gold Jhumka Earrings", "earrings", 0.5),
+            ]
+        if "dupatta" in words and "jewellery" not in words:
+            return [_accessory_item("DUP1", "Red Bridal Dupatta", "dupatta", 0.6)]
+        if "clutch" in words and "jewellery" not in words:
+            return [_accessory_item("CLU1", "Gold Embellished Clutch", "clutch", 0.55)]
+        # The combined query: only the lexically dominant families come back.
+        return [_accessory_item("DUP1", "Red Bridal Dupatta", "dupatta", 0.6),
+                _accessory_item("CLU1", "Gold Embellished Clutch", "clutch", 0.55)]
+
+
+class _JewelleryOnlyRetriever(_FamilyPoolRetriever):
+    def search(self, query: str, top_k: int = 20, filters: dict | None = None) -> list[dict]:
+        return [
+            c for c in super().search(query, top_k, filters)
+            if c["article_id"].startswith("JEW")
+        ]
+
+
+class TestBridalAccessorySlotHermetic:
+    """Deterministic, index-free guard for the bridal jewellery gap (replaces the 105 s
+    real-index sampling as the always-on backend check; the broad statistical check lives in
+    the eval job, see TestOfflineRealIndexCompositionEvidence)."""
+
+    @staticmethod
+    def _accessory(look: dict) -> dict | None:
+        return next((c for c in look["complements"] if c["_slot"] == "accessory"), None)
+
+    def test_jewellery_pool_is_requested_separately_for_bridal_anchor(self) -> None:
+        retriever = _FamilyPoolRetriever()
+        look = compose_outfit(
+            _bridal_seed_row("BRIDE1"), retriever,
+            seed_article_id="BRIDE1", occasion_slug="wedding_guest", gender="women",
+        )
+        # Root cause was the pool never containing jewellery: a jewellery-only sub-query must
+        # be issued (the combined query alone returns zero jewellery in this fixture).
+        assert any(
+            "jewellery" in q.split() and "dupatta" not in q.split() and "clutch" not in q.split()
+            for q in retriever.queries
+        ), f"no jewellery-only accessory sub-query issued: {retriever.queries}"
+        assert self._accessory(look) is not None
+
+    def test_composer_selects_jewellery_when_it_is_the_best_accessory_candidate(self) -> None:
+        look = compose_outfit(
+            _bridal_seed_row("BRIDE2"), _FamilyPoolRetriever(jewellery_score=0.95),
+            seed_article_id="BRIDE2", occasion_slug="wedding_guest", gender="women",
+        )
+        accessory = self._accessory(look)
+        assert accessory is not None
+        assert accessory["article_id"] in {"JEW1", "JEW2"}, accessory
+
+    def test_jewellery_only_pool_fills_the_accessory_slot(self) -> None:
+        look = compose_outfit(
+            _bridal_seed_row("BRIDE3"), _JewelleryOnlyRetriever(),
+            seed_article_id="BRIDE3", occasion_slug="wedding_guest", gender="women",
+        )
+        accessory = self._accessory(look)
+        assert accessory is not None and accessory["article_id"].startswith("JEW")
+
+
+# ---------------------------------------------------------------------------
 # 9. Offline real-index composition checks (requires_index)
 # ---------------------------------------------------------------------------
 
@@ -1784,6 +1886,69 @@ class TestOfflineRealIndexCompositionEvidence:
                     f"ids, overlap={overlap}"
                 )
 
+    def test_bridal_jewellery_family_pool_is_populated_on_real_index(
+        self, _unified_index: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Deterministic, ~1 s real-index form of the 2026-07-19 root-cause check.
+
+        The defect was a retrieval-POOL defect: the combined bridal accessory query returned 0
+        jewellery in its top-40 window. The fix issues one sub-query per accessory family. This
+        asserts that mechanism on the real index with no sampling: the slot's own query splits
+        into a jewellery sub-query, and that sub-query's top-40 (gender-filtered, as the composer
+        issues it) holds genuine jewellery. Measured 2026-11-16 on the local copy of the unified
+        index: 28/40 (the combined query: 0/40); threshold is 10/40, a ~2.8x margin.
+        """
+        retriever, _ = _unified_index
+        query = "dupatta jewellery clutch ethnic accessory"  # ethnic_one_piece accessory slot
+        sub_queries = split_accessory_query_by_family(query)
+        jewellery_queries = [q for q in sub_queries if "jewellery" in q.split()]
+        assert jewellery_queries, f"no jewellery sub-query produced from {query!r}: {sub_queries}"
+        hits = retriever.search(jewellery_queries[0], top_k=40, filters={"gender": "women"})
+        jewellery = [
+            h for h in hits
+            if any(
+                w in ((h.get("product_type") or "") + " " + (h.get("prod_name") or "")).lower()
+                for w in ("necklace", "earring", "jhumka", "choker", "bangle", "jewel")
+            )
+        ]
+        assert len(jewellery) >= 10, (
+            f"jewellery sub-query surfaced only {len(jewellery)}/{len(hits)} jewellery hits"
+        )
+
+    def test_bridal_accessory_slot_fills_for_fixed_anchors(
+        self, _unified_index: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One fixed anchor per bridal product type (first public women's article_id in sorted
+        order, so the choice is deterministic and independent of any RNG): the accessory slot
+        must fill. Deliberately does NOT assert a jewellery win: on the real index jewellery
+        wins the slot rarely (2/30 and 3/200 on two samples, one distinct "Bangle Box" item
+        in all 3 of the second) so a per-anchor win assertion would encode a fluke. The
+        win-rate evidence is the eval_statistical test below."""
+        from src.config.store_registry import public_stores
+
+        monkeypatch.delenv("INCLUDE_NON_PUBLIC_STORES", raising=False)
+        retriever, catalogue_df = _unified_index
+        product_types = catalogue_df["facets"].apply(
+            lambda f: ((f.get("product_type_name") if isinstance(f, dict) else "") or "").lower()
+        )
+        public = catalogue_df["store"].str.lower().isin(public_stores())
+        for ptype in ("lehenga", "saree", "anarkali"):
+            rows = catalogue_df[
+                (catalogue_df["gender"] == "women") & (product_types == ptype) & public
+            ]
+            assert not rows.empty, f"no public women's {ptype} anchors in the index"
+            seed_id = str(sorted(rows["article_id"].astype(str))[0])
+            look = compose_outfit(
+                catalogue_df, retriever,
+                seed_article_id=seed_id, occasion_slug="wedding_guest", gender="women",
+                brand_gender_default="women",
+            )
+            accessory = next(
+                (c for c in look.get("complements", []) if c.get("_slot") == "accessory"), None
+            )
+            assert accessory is not None, f"accessory slot empty for {ptype} anchor {seed_id}"
+
+    @pytest.mark.eval_statistical
     def test_bridal_wedding_look_has_a_real_shot_at_jewellery(
         self, _unified_index: tuple, monkeypatch: pytest.MonkeyPatch
     ) -> None:
