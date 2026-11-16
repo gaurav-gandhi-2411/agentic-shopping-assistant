@@ -62,6 +62,21 @@ def test_per_store_table_counts_and_reasons() -> None:
     assert by.loc["?", "n"] == 1
 
 
+def test_restrict_to_retrieved_keeps_only_labelled_items_in_a_top5() -> None:
+    labels = [
+        {"query_id": "q1", "items": [
+            {"article_id": "1", "relevant": True},
+            {"article_id": "2", "relevant": False, "reason": "budget"},  # labelled, not shown
+        ]},
+        {"query_id": "q2", "items": [{"article_id": "3", "relevant": False}]},  # query not run
+    ]
+    rows = [{"id": "q1", "top": [{"article_id": "1", "store": "libas"},
+                                 {"article_id": "9", "store": "x"}]}]  # 9 is unlabelled
+    kept, store_of = store_miss_rates.restrict_to_retrieved(labels, rows)
+    assert [(e["query_id"], [i["article_id"] for i in e["items"]]) for e in kept] == [("q1", ["1"])]
+    assert store_of == {"1": "libas", "9": "x"}
+
+
 def test_hygiene_report_lists_dropped_and_quarantined() -> None:
     text = catalogue_hygiene_report.build_report(_catalogue())
     assert "dropped (non_fashion) 1" in text and "quarantined 1" in text
