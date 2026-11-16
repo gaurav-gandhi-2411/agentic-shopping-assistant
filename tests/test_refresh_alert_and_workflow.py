@@ -92,6 +92,12 @@ def test_missing_or_corrupt_summary_still_alerts(tmp_path: Path) -> None:
     assert "no summary produced" in (create[1] or "")
 
 
+def test_failed_jobs_are_listed_but_only_as_plain_job_names() -> None:
+    assert "`preflight,rollout`" in ra.build_body({}, RUN, "x", "preflight,rollout")
+    assert "Failed job" not in ra.build_body({}, RUN, "x", "rollout`; curl evil")  # not a job list
+    assert "Failed job" not in ra.build_body({}, RUN, "x", "")
+
+
 def test_the_secret_like_text_in_the_detail_is_redacted() -> None:
     body = ra.build_body(
         {"failure": {"stage": "build", "code": "build_failed", "message": "token=" + "x" * 20}},
