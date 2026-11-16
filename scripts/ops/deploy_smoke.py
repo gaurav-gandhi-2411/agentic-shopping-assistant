@@ -8,6 +8,8 @@ Stdlib only, so the CI job needs no pip install.
 Checks, in order (first failure exits 1):
   1. GET <live-path>    -> 200            (default /api/brand, see note below)
   2. GET /readyz        -> 200, status == "ready"
+     with --expect-build-id <id> (index rollout): also index.source == "build",
+     loaded_build_id == pinned_build_id == <id> and age_hours < 36 (--max-index-age-hours)
   3. POST /demo/session -> 200, has session_token          (skipped with --no-chat)
   4. POST /chat "black kurta set for haldi" -> 200, non-empty `response`, >= 1 item  (skipped with --no-chat)
 
@@ -87,6 +89,33 @@ def parse_json(text: str, what: str) -> dict[str, Any]:
     return parsed
 
 
+MAX_INDEX_AGE_H = 36.0  # same ceiling as /canary/status index_stale
+
+
+def index_problem(
+    ready: dict[str, Any], expected_id: str, max_age_h: float = MAX_INDEX_AGE_H
+) -> str | None:
+    """Why a /readyz body does not show the expected pinned build, or None when it does.
+
+    Rollout gate: ``index.source == "build"``, ``loaded_build_id == pinned_build_id == expected_id``
+    and ``age_hours < max_age_h``. A missing block, a legacy fallback or a missing age all fail.
+    """
+    index = ready.get("index")
+    if not isinstance(index, dict):
+        return "/readyz has no index block"
+    if index.get("source") != "build":
+        return f"index.source is {index.get('source')!r}, expected 'build'"
+    loaded, pinned = index.get("loaded_build_id"), index.get("pinned_build_id")
+    if loaded != expected_id or pinned != expected_id:
+        return f"loaded_build_id={loaded!r} pinned_build_id={pinned!r}, expected {expected_id!r}"
+    age = index.get("age_hours")
+    if isinstance(age, bool) or not isinstance(age, int | float):
+        return f"index.age_hours is {age!r}, expected a number"
+    if age >= max_age_h:
+        return f"index.age_hours {age} >= {max_age_h}"
+    return None
+
+
 def get_with_retry(url: str, attempts: int = 2) -> tuple[int, str]:
     """GET with one retry: the first request to a no-traffic revision can hit a cold start."""
     status, text = 0, ""
@@ -106,6 +135,12 @@ def main(argv: list[str] | None = None, *, require_https: bool = True) -> None:
     ap.add_argument("--base-url", required=True)
     ap.add_argument("--live-path", default="/api/brand")
     ap.add_argument("--no-chat", action="store_true", help="liveness + /readyz only, no LLM call")
+    ap.add_argument(
+        "--expect-build-id",
+        default=None,
+        help="rollout mode: /readyz must show this build loaded (source build, age < 36 h)",
+    )
+    ap.add_argument("--max-index-age-hours", type=float, default=MAX_INDEX_AGE_H)
     args = ap.parse_args(argv)
     base = args.base_url.rstrip("/")
     if require_https and not base.startswith("https://"):
@@ -120,10 +155,15 @@ def main(argv: list[str] | None = None, *, require_https: bool = True) -> None:
     status, text = get_with_retry(base + "/readyz")
     if status != 200:
         fail(f"GET /readyz -> {status}: {text[:300]}")
-    ready = parse_json(text, "GET /readyz").get("status")
-    if ready != "ready":
+    ready_body = parse_json(text, "GET /readyz")
+    if ready_body.get("status") != "ready":
         fail(f"/readyz status != ready: {text[:300]}")
     print("PASS  GET /readyz -> 200 ready")
+    if args.expect_build_id is not None:
+        problem = index_problem(ready_body, args.expect_build_id, args.max_index_age_hours)
+        if problem:
+            fail(f"/readyz index: {problem}")
+        print(f"PASS  /readyz index: build {args.expect_build_id} loaded, age < {args.max_index_age_hours} h")
 
     if args.no_chat:
         print("=== smoke OK (no chat) ===")

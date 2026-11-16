@@ -217,3 +217,69 @@ def test_main_fails_on_missing_session_token(run_main) -> None:
 )
 def test_main_fails_cleanly_on_non_json_body(run_main, path: tuple[str, str]) -> None:
     _expect_fail(run_main, {path: (200, "<html>oops</html>")})
+
+
+# ---------------------------------------------------------------------------
+# Rollout mode: --expect-build-id (Wave 1b V3c). /readyz must show the pinned build.
+# ---------------------------------------------------------------------------
+
+BUILD = "20261116T020000Z"
+
+
+def _ready(**index: object) -> tuple[int, str]:
+    block = {
+        "source": "build",
+        "pinned_build_id": BUILD,
+        "loaded_build_id": BUILD,
+        "age_hours": 1.5,
+    }
+    block.update(index)
+    return 200, json.dumps({"status": "ready", "index": block})
+
+
+_EXPECT = ["--no-chat", "--expect-build-id", BUILD]
+
+
+def test_expect_build_id_passes_when_the_pinned_build_is_loaded_and_fresh(run_main) -> None:
+    run_main({("GET", "/readyz"): _ready()}, _EXPECT)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"source": "legacy"},
+        {"source": "legacy-fallback"},
+        {"loaded_build_id": "20261115T020000Z"},
+        {"pinned_build_id": "20261115T020000Z"},
+        {"loaded_build_id": None},
+        {"age_hours": 36.0},  # the limit itself is stale: strictly < 36
+        {"age_hours": 90},
+        {"age_hours": None},
+        {"age_hours": "1.5"},
+        {"age_hours": True},
+    ],
+)
+def test_expect_build_id_fails_on_each_wrong_index_state(run_main, bad: dict) -> None:
+    _expect_fail(run_main, {("GET", "/readyz"): _ready(**bad)}, _EXPECT)
+
+
+def test_expect_build_id_fails_when_readyz_has_no_index_block(run_main) -> None:
+    _expect_fail(run_main, {("GET", "/readyz"): (200, json.dumps({"status": "ready"}))}, _EXPECT)
+
+
+def test_age_just_under_the_limit_passes_and_the_limit_is_configurable(run_main) -> None:
+    run_main({("GET", "/readyz"): _ready(age_hours=35.99)}, _EXPECT)
+    _expect_fail(
+        run_main, {("GET", "/readyz"): _ready(age_hours=5)}, [*_EXPECT, "--max-index-age-hours", "4"]
+    )
+
+
+def test_without_the_flag_the_index_block_is_not_inspected(run_main) -> None:
+    run_main({("GET", "/readyz"): _ready(source="legacy", age_hours=999)}, ["--no-chat"])
+
+
+def test_index_problem_names_the_reason() -> None:
+    ready = json.loads(_ready(age_hours=40)[1])
+    assert "age_hours" in (smoke.index_problem(ready, BUILD) or "")
+    assert smoke.index_problem(ready, BUILD, max_age_h=48) is None
+    assert "expected" in (smoke.index_problem(ready, "20300101T000000Z") or "")
