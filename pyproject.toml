@@ -41,6 +41,7 @@ markers = [
     "requires_ollama: marks tests that require a running Ollama instance (deselect with -m 'not requires_ollama')",
     "requires_index: marks tests that require pre-built retrieval index files (deselect with -m 'not requires_index')",
     "requires_clip: marks tests that load the real CLIP model and require network/model download (deselect with -m 'not requires_clip')",
+    "eval_statistical: slow real-index statistical sampling checks; run only in the CI eval job (the backend job deselects them with -m 'not eval_statistical')",
 ]
 
 [tool.ruff]
