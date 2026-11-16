@@ -34,3 +34,20 @@ def test_summarise_is_deterministic_and_paired_difference_is_exact_for_identical
     assert s1 == s2  # seed 42 -> identical
     assert s1["diff"]["B-A"]["point"] == 0.0
     assert s1["diff"]["B-A"]["ci95"] == [0.0, 0.0]  # same data under the same resample indices
+
+
+def test_allowed_categories_driver_lists_only_unlabelled_items() -> None:
+    from scripts import eval_allowed_categories_ab as acab
+
+    rows = [
+        {
+            "id": "q1",
+            "top": [
+                {"rank": 1, "article_id": "7", "store": "s", "name": "n", "label": None},
+                {"rank": 2, "article_id": "8", "store": "s", "name": "m", "label": 1},
+            ],
+        }
+    ]
+    assert acab.unlabelled_items(rows) == [
+        {"query_id": "q1", "article_id": "7", "store": "s", "name": "n"}
+    ]
