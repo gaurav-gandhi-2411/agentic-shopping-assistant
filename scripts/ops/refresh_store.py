@@ -14,7 +14,6 @@ half-uploaded build is invisible ("not_found") instead of wrong.
 
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +56,10 @@ class BuildStore(Protocol):
         """Set ``customTime`` on every object of the build; returns the object count."""
         ...
 
+    def custom_time_of(self, build_id: str) -> datetime | None:
+        """``customTime`` when EVERY object of the build carries one (the earliest), else None."""
+        ...
+
 
 def _check_id(build_id: str) -> None:
     if not BUILD_ID_RE.fullmatch(build_id):
@@ -90,7 +93,9 @@ class LocalBuildStore:
 
     def list_objects(self, build_id: str) -> dict[str, int]:
         d = self._dir(build_id)
-        return {p.name: p.stat().st_size for p in d.iterdir() if p.is_file()} if d.is_dir() else {}
+        if not d.is_dir():
+            return {}
+        return {p.name: p.stat().st_size for p in d.iterdir() if p.is_file() and p.name[0] != "."}
 
     def read_object(self, build_id: str, name: str, max_bytes: int) -> bytes:
         path = self._dir(build_id) / Path(name).name
@@ -113,13 +118,14 @@ class LocalBuildStore:
                 raise CreateOnlyViolation(f"builds/{build_id}/{path.name} exists") from exc
 
     def set_custom_time(self, build_id: str, when: datetime) -> int:
-        # Local stand-in: customTime is stored as the file mtime so tests can observe it.
-        n = 0
-        for p in self._dir(build_id).iterdir():
-            if p.is_file():
-                os.utime(p, (when.timestamp(), when.timestamp()))
-                n += 1
+        # Local stand-in: a hidden sidecar file (excluded from list_objects) holds the time.
+        n = len(self.list_objects(build_id))
+        (self._dir(build_id) / ".customtime").write_text(when.isoformat(), encoding="utf-8")
         return n
+
+    def custom_time_of(self, build_id: str) -> datetime | None:
+        marker = self._dir(build_id) / ".customtime"
+        return datetime.fromisoformat(marker.read_text(encoding="utf-8")) if marker.is_file() else None
 
 
 class GcsBuildStore:
@@ -191,6 +197,11 @@ class GcsBuildStore:
             n += 1
         return n
 
+    def custom_time_of(self, build_id: str) -> datetime | None:
+        _check_id(build_id)
+        times = [b.custom_time for b in self._bkt().list_blobs(prefix=f"{PREFIX}{build_id}/")]
+        return min(times) if times and all(t is not None for t in times) else None
+
 
 class ReadOnlyStore:
     """Wraps a store for dry runs: reads pass through, any write raises. Belt and braces."""
@@ -212,3 +223,6 @@ class ReadOnlyStore:
 
     def set_custom_time(self, build_id: str, when: datetime) -> int:
         raise StoreError("read-only store (dry run): set_custom_time refused")
+
+    def custom_time_of(self, build_id: str) -> datetime | None:
+        return self._inner.custom_time_of(build_id)
