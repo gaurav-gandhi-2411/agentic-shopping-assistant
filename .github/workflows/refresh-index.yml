@@ -1,0 +1,152 @@
+name: Refresh index
+
+# Daily product-index refresh (Wave 1b V3(c)): fetch feeds -> build -> validate -> publish a NEW
+# build to gs://asa-demo-indices-stylemaitri-prod/builds/<id>/ (create-only, never overwrites).
+# The rollout of a revision pinned to that build and the retention step are separate jobs added by
+# the deploy-rollout PR; this file alone only PUBLISHES a build (which nothing serves yet).
+#
+# SAFE BY DEFAULT
+#   * manual runs default to dry_run=true: everything runs except publish (the store is wrapped
+#     read-only, nothing is uploaded, no rollout).
+#   * the SCHEDULE only runs when the repo variable REFRESH_ENABLED is exactly 'true' (the pause
+#     switch: set it to anything else, or delete it, to pause; no PR needed). Manual runs ignore it.
+#   * runs only on refs/heads/master and only in this repo; the publisher's WIF provider enforces
+#     the same condition independently (github-deploy-pool, repo + master).
+#   * the build command comes from the repo variable REFRESH_BUILD_CMD (see the orchestrator's
+#     docstring for the contract). Empty = the run fails with build_not_configured and publishes
+#     nothing: there is no in-CI incremental builder in the repo yet.
+#
+# Identity: stylemaitri-index-publisher (custom role indexPublisher: objects create/get/list/update
+# on the index bucket ONLY, no delete) through the same WIF provider as the deployer. The auth step
+# sits after checkout and before the orchestrator; in a dry run the orchestrator wraps the store
+# read-only, so the credential is only used to read the previous build's manifest.
+#
+# Failure -> exactly one `prod-alert` issue (opened, or commented on if already open); a later
+# successful run closes it. A failed refresh changes nothing in prod.
+
+on:
+  schedule:
+    - cron: "7 20 * * *"  # 20:07 UTC = 01:37 IST, off-peak and off the :00 pile-up
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: do everything except publish and rollout (nothing is uploaded)"
+        required: false
+        type: boolean
+        default: true
+
+# One refresh at a time. Never cancel a running one: a cancelled publish could strand a half build
+# (harmless to serving, the manifest is uploaded last, but it wastes the day).
+concurrency:
+  group: refresh-index
+  cancel-in-progress: false
+
+# No default token permissions; each job grants itself exactly what it needs.
+permissions: {}
+
+env:
+  GCP_PROJECT: stylemaitri-prod-260813
+  BUCKET: asa-demo-indices-stylemaitri-prod
+  # Not secrets (same provider path as in deploy.yml's header; an e-mail-shaped SA name).
+  WIF_PROVIDER: projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
+  PUBLISHER_SA: stylemaitri-index-publisher@stylemaitri-prod-260813.iam.gserviceaccount.com
+
+jobs:
+  refresh:
+    if: >-
+      github.repository == 'gaurav-gandhi-2411/agentic-shopping-assistant' &&
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'workflow_dispatch' || vars.REFRESH_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      id-token: write   # WIF auth as the publisher SA
+    outputs:
+      build_id: ${{ steps.run.outputs.build_id }}
+      published: ${{ steps.run.outputs.published }}
+      ok: ${{ steps.run.outputs.ok }}
+      summary_b64: ${{ steps.run.outputs.summary_b64 }}  # small JSON (~6 KB) for the alert job
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      # Only what the orchestrator imports (versions pinned as in requirements.txt). The build
+      # command installs its own heavier dependencies.
+      - name: Install orchestrator dependencies
+        run: |
+          python -m pip install --quiet pydantic==2.13.5 pandas==2.2.3 numpy==2.4.6 \
+            pyarrow==25.0.1 faiss-cpu==1.15.1 requests "google-cloud-storage>=2.14.0"
+
+      - name: Authenticate to GCP (index publisher SA via github-deploy-pool)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.PUBLISHER_SA }}
+
+      - name: Refresh (fetch, build, validate, publish unless dry run)
+        id: run
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          BUILD_CMD: ${{ vars.REFRESH_BUILD_CMD }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          # The orchestrator's own exit code is the contract; capture it so the summary and
+          # outputs are always written, then fail the step at the end.
+          FLAGS=()
+          if [ "$DRY_RUN" != "true" ]; then FLAGS+=(--publish); fi
+          if [ -n "$BUILD_CMD" ]; then FLAGS+=(--build-cmd "$BUILD_CMD"); fi
+          set +e
+          python scripts/ops/refresh_index.py --work-dir "$RUNNER_TEMP/refresh" \
+            --bucket "$BUCKET" --summary-out refresh-summary.json "${FLAGS[@]}"
+          RC=$?
+          set -e
+          {
+            echo "build_id=$(jq -r '.build_id // ""' refresh-summary.json 2>/dev/null || true)"
+            echo "published=$(jq -r '.published // false' refresh-summary.json 2>/dev/null || echo false)"
+            echo "ok=$(jq -r '.ok // false' refresh-summary.json 2>/dev/null || echo false)"
+            echo "summary_b64=$(jq -c . refresh-summary.json 2>/dev/null | base64 -w0 || true)"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Index refresh (dry_run=${DRY_RUN})"
+            echo '```json'
+            jq '{ok, stage, exit_code, build_id, previous_build_id, published, failure, fresh_stores, refreshable_stores, total_items, count_delta_pct}' refresh-summary.json 2>/dev/null || echo '(no summary produced)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+
+  # Separate job so only IT holds issues: write. Dry runs never alert (a manual rehearsal is not a
+  # production event); scheduled and real manual runs do.
+  alert:
+    needs: refresh
+    if: >-
+      always() && needs.refresh.result != 'skipped' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Update prod-alert issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUMMARY_B64: ${{ needs.refresh.outputs.summary_b64 }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ needs.refresh.result == 'success' && 'success' || 'failure' }}
+        run: |
+          # An empty/garbled summary is fine: refresh_alert.py then alerts with "no summary produced".
+          printf '%s' "$SUMMARY_B64" | base64 -d > refresh-summary.json 2>/dev/null || true
+          python3 scripts/ops/refresh_alert.py --repo "$REPO" --run-url "$RUN_URL" \
+            --summary refresh-summary.json --outcome "$OUTCOME"
