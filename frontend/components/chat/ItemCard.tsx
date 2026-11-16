@@ -10,6 +10,7 @@ import { ProductImage } from "@/components/ProductImage"
 import { Button } from "@/components/ui/button"
 import { useBrandConfig } from "@/hooks/useBrandConfig"
 import { getStoreDisplayName } from "@/lib/stores"
+import { COPY } from "@/lib/copy"
 import { formatProductType } from "@/lib/displayFormat"
 
 interface Props {
@@ -22,11 +23,15 @@ export function ItemCard({ item, onSend }: Props) {
   const { data: brand } = useBrandConfig()
 
   // Cross-store buy URL: prefer server-built pdp_url; fall back to legacy template expansion.
-  const buyUrl =
-    item.pdp_url ??
-    (item.pdp_handle && brand?.pdp_url_template
-      ? brand.pdp_url_template.replace("{handle}", item.pdp_handle)
-      : null)
+  // Live check (V3(d)): a product the store positively reports gone/sold out gets no Buy
+  // button at all, and never falls back to the legacy handle template either.
+  const unavailable = item.unavailable === true
+  const buyUrl = unavailable
+    ? null
+    : (item.pdp_url ??
+      (item.pdp_handle && brand?.pdp_url_template
+        ? brand.pdp_url_template.replace("{handle}", item.pdp_handle)
+        : null))
 
   // Store display name: prefer server-supplied store_display; fall back to client map.
   const storeDisplay =
@@ -36,15 +41,23 @@ export function ItemCard({ item, onSend }: Props) {
     <div
       className="rounded-lg border bg-card overflow-hidden flex flex-col transition-shadow hover:shadow-md"
       data-gender={item.gender}
+      data-unavailable={unavailable ? "true" : undefined}
     >
       {/* Image — the hero. Tall editorial aspect ratio, subtly rounded top
           (inherited from the card's own overflow-hidden + rounded-lg). */}
       <div className="relative w-full aspect-[4/5] shrink-0 bg-muted overflow-hidden group">
-        <ProductImage
-          src={item.image_url}
-          alt={item.prod_name}
-          sizes="(max-width: 640px) 50vw, 320px"
-        />
+        <div className={unavailable ? "h-full w-full opacity-50 grayscale" : "h-full w-full"}>
+          <ProductImage
+            src={item.image_url}
+            alt={item.prod_name}
+            sizes="(max-width: 640px) 50vw, 320px"
+          />
+        </div>
+        {unavailable && (
+          <span className="absolute top-1.5 left-1.5 rounded-sm bg-background/90 text-foreground text-[10px] font-semibold px-1.5 py-0.5">
+            {COPY.cards.noLongerAvailable}
+          </span>
+        )}
       </div>
 
       {/* Minimal chrome below the image. flex-1 + mt-auto on the button row
@@ -72,10 +85,13 @@ export function ItemCard({ item, onSend }: Props) {
             not a 0-1 relevance probability — rendering it as "N% match" showed "1%
             match" on good results and made healthy retrieval look broken. Ranking
             scores are for ordering, never for display. */}
-        {item.price_inr != null && (
+        {item.price_inr != null && !unavailable && (
           <p className="text-sm font-semibold text-foreground mt-0.5">
             ₹{item.price_inr.toLocaleString("en-IN")}
           </p>
+        )}
+        {item.price_may_have_changed && !unavailable && (
+          <p className="text-[11px] text-muted-foreground">{COPY.cards.priceMayHaveChanged}</p>
         )}
 
         <div className="flex items-center gap-1.5 flex-wrap mt-auto pt-1.5">

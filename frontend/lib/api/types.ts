@@ -44,6 +44,8 @@ export interface LookSnapshot {
     /** Cross-store fields — populated in unified mode; null in legacy per-brand mode. */
     store?: string | null
     store_display?: string | null
+    /** Set by GET /looks/{id} for items whose store is not public: render as unavailable. */
+    unavailable?: boolean
   }>
   rationale?: string | null
   cart_url?: string | null
@@ -171,6 +173,12 @@ export interface ItemSummary {
    * Prices are SNAPSHOT — never real-time. Display with snapshot disclaimer.
    */
   price_matches?: PriceMatch[] | null
+  /** Live price check (V3(d)): could not confirm the catalogue price in time. */
+  price_may_have_changed?: boolean
+  /** Live price check: the store reports the product gone or sold out. No Buy button. */
+  unavailable?: boolean
+  /** Catalogue price, present only when the live price replaced `price_inr`. */
+  indexed_price_inr?: number | null
   /**
    * True when this item is the user's own uploaded garment (the outfit seed from
    * an image upload), not a catalogue product. When true, pdp_url is always null

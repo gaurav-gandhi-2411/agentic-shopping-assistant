@@ -26,7 +26,7 @@ export default defineConfig({
       "lib/**/*.test.ts",
       "hooks/**/*.test.{ts,tsx}",
       "components/**/*.test.{ts,tsx}",
-      "app/**/*.test.ts",
+      "app/**/*.test.{ts,tsx}",
       "middleware.test.ts",
       "next.config.test.ts",
     ],
