@@ -28,9 +28,9 @@ def test_perfect_top5_has_ndcg_one() -> None:
 def test_summarise_is_deterministic_and_paired_difference_is_exact_for_identical_arms() -> None:
     rng = np.random.default_rng(0)
     base = np.column_stack([rng.integers(0, 6, 30), rng.integers(0, 6, 30), np.zeros(30), np.zeros(30)])
-    arms = {"A": base, "B": base.copy(), "C": base.copy()}
+    arms = {"A": base, "B": base.copy()}
     s1 = ab._summarise("p5", ab._p5, arms, 200, 42)
     s2 = ab._summarise("p5", ab._p5, arms, 200, 42)
     assert s1 == s2  # seed 42 -> identical
-    assert s1["diff"]["C-A"]["point"] == 0.0
-    assert s1["diff"]["C-A"]["ci95"] == [0.0, 0.0]  # same data under the same resample indices
+    assert s1["diff"]["B-A"]["point"] == 0.0
+    assert s1["diff"]["B-A"]["ci95"] == [0.0, 0.0]  # same data under the same resample indices

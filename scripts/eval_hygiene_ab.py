@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-"""Before/after measurement for the V3(b2)(b) catalogue hygiene + category guard (no LLM, no network).
+"""Before/after measurement for the V3(b2)(b) catalogue hygiene (no LLM, no network).
 
 Arms, all in the PUBLIC view (default env: only public stores reach the retriever):
-  A  baseline     base index copy, no ``category`` column  (guard is a no-op, so == master)
+  A  baseline     base index copy, no ``category`` column  (== master)
   D  removal only control: the base dense/BM25 indices untouched, the rows hygiene removes simply
                   absent from the catalogue frame (the retriever masks them out of both fetches);
                   isolates "these rows are gone" from "BM25 IDF and doc lengths shifted"
-  B  hygiene      hygiene index copy (scripts/make_hygiene_index_copy.py), category_guard OFF
-  C  hygiene+guard the same copy, category_guard ON (the shipped default)
+  B  hygiene      hygiene index copy (scripts/make_hygiene_index_copy.py)
+  (the former arm C, category guard ON, was dropped with the guard in R1: no measured effect)
 Paired differences reported: D-A (effect of removing the rows), B-D (effect of rebuilding BM25
-over the survivors), C-B (effect of the guard), C-A (total).
+over the survivors), B-A (total).
 
 Metrics (queries are the resampling unit; seed 42; 10,000 paired bootstrap resamples):
   strict gold  scripts/eval_strict.py's --mode pipeline retrieval (``_retrieve_pipeline``, imported,
@@ -18,7 +18,7 @@ Metrics (queries are the resampling unit; seed 42; 10,000 paired bootstrap resam
                definition), counts of labelled / unlabelled items, and nDCG@5 with binary labels,
                unlabelled counted as 0 and an ideal of five relevant items (a pessimistic bound
                that penalises an arm for unlabelled items; the unlabelled counts are reported next
-               to it). Items that are unlabelled in B/C but were NOT in A's top-5 are listed.
+               to it). Items that are unlabelled in D/B but were NOT in A's top-5 are listed.
   r1           scripts/eval_model.py's R1 stage (property-based relevance, no labels): P@5, P@10,
                nDCG@10 over the queries that carry a ``relevance`` block.
 
@@ -126,7 +126,7 @@ def _summarise(name: str, stat, arrays: dict[str, np.ndarray], n_boot: int, seed
     out: dict[str, Any] = {"arms": {}, "diff": {}}
     for j, k in enumerate(keys):
         out["arms"][k] = {"point": stat(arrays[k]), "ci95": _ci(vals[:, j])}
-    for a, b in (("D", "A"), ("B", "D"), ("B", "A"), ("C", "B"), ("C", "A")):
+    for a, b in (("D", "A"), ("B", "D"), ("B", "A")):
         if a not in keys or b not in keys:
             continue
         ja, jb = keys.index(a), keys.index(b)
@@ -182,13 +182,11 @@ def main() -> None:
     )
     assert len(control.catalogue_df) == len(hyg.catalogue_df), "control frame != hygiene frame"
 
-    arms = {"A": (base, None), "D": (control, None), "B": (hyg, False), "C": (hyg, True)}
+    arms = {"A": base, "D": control, "B": hyg}
     strict: dict[str, list[dict]] = {}
     r1: dict[str, dict] = {}
-    for arm, (retr, guard) in arms.items():
-        if guard is not None:
-            retr.config["retrieval"]["category_guard"] = guard
-        print(f"arm {arm}: guard={guard} strict + r1 ...", flush=True)
+    for arm, retr in arms.items():
+        print(f"arm {arm} strict + r1 ...", flush=True)
         strict[arm] = strict_rows(retr, queries, labels)
         r1[arm] = r1_per_query(retr, r1_queries)
 
@@ -214,7 +212,7 @@ def main() -> None:
             for r in strict[a] for t in r["top"]
             if t["label"] is None and (r["id"], t["article_id"]) not in a_unl
         ]
-        for a in ("D", "B", "C")
+        for a in ("D", "B")
     }
     # r1: only queries scored in every arm
     common = sorted(set.intersection(*(set(r1[a]) for a in arms)))
@@ -222,15 +220,15 @@ def main() -> None:
     for metric in ("precision_at_5", "precision_at_10", "ndcg_at_10"):
         arrs = {a: np.array([[r1[a][q][metric]] for q in common], dtype=float) for a in arms}
         report["r1"][metric] = _summarise(metric, lambda x: float(np.mean(x)), arrs, args.boot, args.seed)
-    changed = [q for q in common if r1["A"][q]["precision_at_5"] != r1["C"][q]["precision_at_5"]]
-    report["r1"]["queries_whose_p5_changed_A_to_C"] = changed
+    changed = [q for q in common if r1["A"][q]["precision_at_5"] != r1["B"][q]["precision_at_5"]]
+    report["r1"]["queries_whose_p5_changed_A_to_B"] = changed
     # top-5 membership change (any arm pair), strict
     report["strict"]["queries_whose_top5_changed"] = {
         f"{x}-{y}": [
             r["id"] for r, s in zip(strict[x], strict[y], strict=True)
             if [t["article_id"] for t in r["top"]] != [t["article_id"] for t in s["top"]]
         ]
-        for x, y in (("A", "D"), ("D", "B"), ("B", "C"), ("A", "C"))
+        for x, y in (("A", "D"), ("D", "B"), ("A", "B"))
     }
 
     (args.out_dir / "ab_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
