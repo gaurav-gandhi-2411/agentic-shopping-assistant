@@ -42,7 +42,10 @@ def test_category_from_type_then_title(
     ("ptype", "title"),
     [
         ("lehenga", "Brocade Lehenga Box"),  # the trousseau box typed as a lehenga
-        ("Gift Hamper", "Voylla Festive Celebration Diwali Gift Box"),  # packaging is dropped
+        ("Gift Hamper", "Bridal Jewellery Organiser"),  # packaging-only stays dropped
+        ("Gift Hamper", "Wedding Trunk"),
+        ("Gift Hamper", "Diwali E-Gift Card"),
+        ("Gift Hamper", "Rose Perfume Gift Set Perfume"),
         ("Gift Card", "Happy Mother's Day : Gift Card"),
         ("Fragrance", "Mira| Oriental Floral Gourmand Perfume, 20 Ml"),
         ("Fashion", "Embroidered Navy Blue Bangle Box"),
@@ -93,6 +96,30 @@ def test_hampers_stay_searchable_as_accessory(ptype: str, title: str) -> None:
     res = derive_category(ptype, title)
     assert res.category == "accessory"
     assert res.garment_type == "hamper"
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Forever Glow Valentine Jewellery Gift Box",
+        "His Timeless Style Valentine Men�s Gift Box",
+        "Key to My Heart Valentine Pendant Gift Box",
+        "Sealed With Love Valentine Jewellery Gift Box",
+        "Voylla Gift of Happiness Diwali Celebration Gift Box",
+        "Voylla Festival Fun Diwali Celebration Box",
+        "Voylla Festival of Joy Diwali Celebration Box",
+        "Voylla Festive Celebration Diwali Gift Box",
+    ],
+)
+def test_hamper_typed_gift_box_rows_are_kept_as_accessory(title: str) -> None:
+    res = derive_category("Gift Hamper", title)
+    assert (res.category, res.garment_type) == ("accessory", "hamper")
+    assert res.quarantine_reason == ""
+
+
+def test_untyped_gift_box_is_still_dropped() -> None:
+    # The exemption is keyed on the merchant's hamper TYPE, not on the title alone.
+    assert derive_category("Fashion", "Diwali Celebration Gift Box").category == "non_fashion"
 
 
 def test_dupatta_typed_garment_set_is_garment_not_quarantined() -> None:

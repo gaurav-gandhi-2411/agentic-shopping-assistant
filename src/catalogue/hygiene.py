@@ -161,6 +161,16 @@ def title_head(title: object) -> tuple[str, str] | None:
     return (hit[0], hit[1]) if hit else None
 
 
+_PACKAGING_ONLY = re.compile(r"\b(?:organi[sz]ers?|trunks?|trousseau|storage|empty)\b")
+
+
+def _is_gift_box_title(head_type: str, title: object) -> bool:
+    """True when a non-fashion head is a gift box / plain box (not an organiser, trunk, ...)."""
+    if head_type == "gift_box":
+        return True
+    return head_type == "box" and _PACKAGING_ONLY.search(_norm(title)) is None
+
+
 def derive_category(product_type: object, title: object) -> CategoryResult:
     """Derive ``category``, a finer ``garment_type`` and a quarantine reason for one item.
 
@@ -176,6 +186,11 @@ def derive_category(product_type: object, title: object) -> CategoryResult:
     typ = classify_type(product_type)
 
     if head is not None and head[1] == _NF:
+        if typ is not None and typ[0] == "hamper" and _is_gift_box_title(head[0], title):
+            # A merchant-typed hamper sold as "<occasion> Gift Box" is the hamper itself, which
+            # stays searchable (voylla 'Gift Hamper' rows); only packaging-only rows (gift cards,
+            # empty boxes/trunks/organisers, perfume, ...) are dropped.
+            return CategoryResult(_A, "hamper", "type")
         return CategoryResult(_NF, head[0], "title")
     if typ is not None:
         gtype, cat = typ
