@@ -89,7 +89,7 @@ class PreconditionFailed(Exception):
 class FakeBlob:
     def __init__(self, bucket: FakeBucket, name: str) -> None:
         self.bucket, self.name = bucket, name
-        self.custom_time: datetime | None = None
+        self.custom_time: datetime | None = bucket.custom_times.get(name)
 
     @property
     def size(self) -> int | None:
@@ -236,6 +236,20 @@ def test_gcs_list_ids_ignores_other_prefixes_and_set_custom_time_touches_only_th
     assert store.list_build_ids() == [B1, B2]
     assert store.set_custom_time(B1, WHEN) == 3
     assert {n.split("/")[1] for n in bucket.custom_times} == {B1}
+    assert store.custom_time_of(B1) == WHEN and store.custom_time_of(B2) is None
+
+
+def test_custom_time_of_is_none_unless_every_object_carries_one(tmp_path: Path) -> None:
+    store, bucket = _gcs()
+    store.create_build(_src(tmp_path), B1)
+    names = sorted(bucket.objects)
+    bucket.custom_times[names[0]] = WHEN  # a partially applied marking
+    assert store.custom_time_of(B1) is None
+    local = rs.LocalBuildStore(tmp_path / "bucket")
+    local.create_build(_src(tmp_path, "s2"), B2)
+    assert local.custom_time_of(B2) is None
+    local.set_custom_time(B2, WHEN)
+    assert local.custom_time_of(B2) == WHEN and ".customtime" not in local.list_objects(B2)
 
 
 def test_gcs_rejects_a_bucket_with_a_path() -> None:
