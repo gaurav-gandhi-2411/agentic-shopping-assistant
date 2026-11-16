@@ -19,6 +19,7 @@ from scripts import (  # noqa: E402
     make_hygiene_index_copy,
     store_miss_rates,
 )
+from src.catalogue.hygiene import apply_hygiene  # noqa: E402
 
 
 def _catalogue() -> pd.DataFrame:
@@ -75,6 +76,29 @@ def test_restrict_to_retrieved_keeps_only_labelled_items_in_a_top5() -> None:
     kept, store_of = store_miss_rates.restrict_to_retrieved(labels, rows)
     assert [(e["query_id"], [i["article_id"] for i in e["items"]]) for e in kept] == [("q1", ["1"])]
     assert store_of == {"1": "libas", "9": "x"}
+
+
+def test_retype_quarantined_uses_the_fixed_normalizer_and_updates_facets() -> None:
+    cat = _catalogue()
+    stale = pd.DataFrame(
+        {
+            "article_id": ["9"],
+            "store": ["ishhaara"],
+            "prod_name": ["Designer Evil Eye Short Chooda"],  # stale type "shorts"
+            "product_type_name": ["shorts"],
+            "search_text": ["x"],
+            "price_inr": 1.0,
+        }
+    )
+    cat = pd.concat([cat, stale], ignore_index=True)
+    cat["facets"] = [{"product_type_name": t} for t in cat["product_type_name"]]
+    out, n = make_hygiene_index_copy.retype_quarantined(cat)
+    row = out[out["article_id"] == "9"].iloc[0]
+    assert (row["product_type_name"], row["facets"]["product_type_name"]) == ("jewellery",) * 2
+    assert n == 2  # "Gold Bangles Lehenga" (type Bangles -> lehenga) is re-typed as well
+    assert cat.loc[cat["article_id"] == "9", "product_type_name"].iloc[0] == "shorts"  # input intact
+    _, report = apply_hygiene(out.drop(columns=["facets"]))
+    assert "9" not in set(report["quarantined"]["article_id"])
 
 
 def test_hygiene_report_lists_dropped_and_quarantined() -> None:

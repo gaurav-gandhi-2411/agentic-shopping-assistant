@@ -32,10 +32,40 @@ from src.catalogue.loader import load_config  # noqa: E402
 from src.retrieval.sparse_search import SparseRetriever  # noqa: E402
 
 
+def retype_quarantined(cat: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Stand-in for a rebuild with the fixed normalizer: re-type only the rows hygiene would
+    quarantine, from their title, using src.catalogue.normalizer (the root-cause fix).
+
+    A real build re-normalises every row from the raw store label; those labels are not in the
+    built catalogue, so this touches only the rows whose stale type is the quarantine trigger
+    (title-only, falls back to the existing type when the normalizer has no answer). Updates
+    ``product_type_name`` and the ``product_type_name`` entry of ``facets``. Returns (frame, n
+    rows whose type changed).
+    """
+    from src.catalogue.normalizer import normalize_garment_type
+
+    _, report = apply_hygiene(cat)
+    ids = set(report["quarantined"]["article_id"].astype(str))
+    out = cat.copy()
+    changed = 0
+    for i in out.index[out["article_id"].astype(str).isin(ids)]:
+        new = normalize_garment_type(str(out.at[i, "prod_name"]), None, None).garment_type
+        if new and new != out.at[i, "product_type_name"]:
+            out.at[i, "product_type_name"] = new
+            facets = out.at[i, "facets"]
+            if isinstance(facets, dict):
+                out.at[i, "facets"] = {**facets, "product_type_name": new}
+            changed += 1
+    return out, changed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--src", required=True, type=Path)
     ap.add_argument("--dst", required=True, type=Path)
+    ap.add_argument("--retype-quarantined", action="store_true",
+                    help="re-type quarantined rows with the fixed normalizer first "
+                         "(simulates a rebuild; see retype_quarantined)")
     args = ap.parse_args()
     src, dst = args.src.resolve(), args.dst.resolve()
     if src == dst:
@@ -44,6 +74,9 @@ def main() -> None:
         raise SystemExit(f"{dst} already exists; refusing to write into it")
 
     cat = pd.read_parquet(src / "catalogue.parquet")
+    if args.retype_quarantined:
+        cat, n_changed = retype_quarantined(cat)
+        print(f"re-typed {n_changed} quarantined rows with the fixed normalizer")
     kept, report = apply_hygiene(cat)
     print(f"catalogue {len(cat)} -> {len(kept)}  dropped={len(report['dropped'])} "
           f"quarantined={len(report['quarantined'])}")
