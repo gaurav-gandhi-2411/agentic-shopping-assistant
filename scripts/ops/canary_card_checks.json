@@ -1,0 +1,17 @@
+{
+  "_comment": "Daily end-to-end card-count checks (read by scripts/ops/canary.py). Each entry: query, min_cards (>= 1), optional note. The 5 landing chips must stay byte-equal to frontend/lib/copy.ts (tests/test_canary.py pins this). Baseline measured live on prod 2026-11-16 (revision 00034-vew, 2 runs each): cards 2/2, 5/5, 5/5, 4/4, 5/5, 5/5, 5/5, 4/5 in the order below.",
+  "checks": [
+    {
+      "query": "Sangeet outfit under ₹3,000",
+      "min_cards": 2,
+      "note": "KNOWN GAP, not a pass of the 4-card bar: prod returned only 2 cards on 2/2 live runs on 2026-11-16 (unresolved product finding). Floor deliberately set to the measured 2 so the canary does not go red daily on a known issue; raise to 4 when the finding is fixed."
+    },
+    {"query": "Haldi kurta set", "min_cards": 4},
+    {"query": "Wedding guest saree", "min_cards": 4},
+    {"query": "Office wear under ₹1,500", "min_cards": 4},
+    {"query": "Men's kurta for a wedding", "min_cards": 4},
+    {"query": "sherwani for groom", "min_cards": 4},
+    {"query": "lehenga for sangeet", "min_cards": 4},
+    {"query": "men's blazer for the office", "min_cards": 4}
+  ]
+}

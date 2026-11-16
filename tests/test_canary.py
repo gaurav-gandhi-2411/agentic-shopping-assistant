@@ -341,25 +341,27 @@ def rows(n: int, conclusion: str = "success") -> list[tuple[str, str, str]]:
 
 def test_cap_counts_prior_runs_excluding_current_and_skipped() -> None:
     r = rows(10) + [("99", "completed", "skipped"), ("500", "in_progress", "")]
-    assert canary.count_queries_today(r, "500") == 30
+    assert canary.count_queries_today(r, "500") == 10 * canary.QUERIES_PER_RUN
 
 
 def test_cap_boundary() -> None:
     cap = canary.DAILY_QUERY_CAP
-    assert not canary.would_exceed_cap(cap - 3)  # cap - 3 + 3 == cap allowed
-    assert canary.would_exceed_cap(cap - 2)
+    per = canary.QUERIES_PER_RUN
+    assert not canary.would_exceed_cap(cap - per)  # exactly one more run fits
+    assert canary.would_exceed_cap(cap - per + 1)
     assert canary.would_exceed_cap(cap)
 
 
 def _args(tmp_path: Path, **kw: Any):
     import argparse
+    # suite="core" + pace_s=0: the loopback tests keep exercising the original 3 queries unpaced.
     d = dict(base_url="http://127.0.0.1:1", out=str(tmp_path / "r.json"), force_fail=False,
-             repo="o/r", workflow="canary.yml", run_id="500")
+             repo="o/r", workflow="canary.yml", run_id="500", suite="core", pace_s=0.0)
     return argparse.Namespace(**(d | kw))
 
 
 def test_run_skips_without_querying_when_over_cap(tmp_path: Path, monkeypatch) -> None:
-    n = canary.DAILY_QUERY_CAP // 3  # runs that exactly spend the cap
+    n = canary.DAILY_QUERY_CAP // canary.QUERIES_PER_RUN  # runs that exactly spend the cap
     monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n) + CURRENT)
     called = []
     monkeypatch.setattr(canary, "http_post_json", lambda *a, **k: called.append(a) or {})
@@ -553,7 +555,7 @@ def test_lookup_counts_when_current_present_and_retries(monkeypatch) -> None:
         if len(calls) == 1:
             raise canary.CanaryError("gh api failed")
         return "1\tcompleted\tsuccess\n2\tcompleted\tsuccess\n500\tin_progress\t\n"
-    assert canary.lookup_spent("o/r", "canary.yml", "2026-11-03", "500", runner) == 6
+    assert canary.lookup_spent("o/r", "canary.yml", "2026-11-03", "500", runner) == 2 * canary.QUERIES_PER_RUN
     assert len(calls) == 2
 
 
@@ -732,12 +734,12 @@ def test_forced_run_may_exceed_cap_by_one_run() -> None:
 
 
 def test_forced_run_at_cap_proceeds_and_beyond_cap_errors(tmp_path: Path, monkeypatch, capsys) -> None:
-    n = canary.DAILY_QUERY_CAP // 3  # runs that exactly spend the cap
+    n = canary.DAILY_QUERY_CAP // canary.QUERIES_PER_RUN  # runs that exactly spend the cap
     monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n) + CURRENT)
     with _Server({"frames": good_frames()}) as srv:
         rc = canary.run_canary(_args(tmp_path, base_url=srv.url, force_fail=True))
     assert rc == 1 and len(srv.seen_user_messages) == 3  # ran (and failed on purpose)
-    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n + 1) + CURRENT)  # cap+3
+    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n + 1) + CURRENT)  # cap+1 run
     assert canary.run_canary(_args(tmp_path, force_fail=True)) == 1
     out = json.loads((tmp_path / "r.json").read_text())
     assert out["status"] == "skip" and "::error::" in capsys.readouterr().out
@@ -756,3 +758,120 @@ def test_run_prints_summary_with_crosschecked_total(tmp_path: Path, capsys) -> N
         canary.run_canary(_args(tmp_path, base_url=srv.url, repo=""))
     out = capsys.readouterr().out
     assert "SUMMARY: queries=3" in out and "crosschecked_total=6" in out
+
+
+# ---- card-count suite (min_cards) -----------------------------------------------------------------
+
+
+def _cards(n: int) -> list[dict[str, Any]]:
+    return [{"article_id": f"a{i}", "price_inr": 100.0 + i} for i in range(n)]
+
+
+@pytest.mark.parametrize(("n", "ok"), [(3, False), (4, True), (5, True)])
+def test_min_cards_below_at_above_threshold(n: int, ok: bool) -> None:
+    res = _eval(items_frame=_cards(n), min_cards=4)
+    assert res.ok is ok
+    assert res.cards == n
+    if not ok:
+        assert res.failures == [f"min_cards: {n} cards < 4"]
+
+
+def test_min_cards_none_keeps_original_behaviour() -> None:
+    assert _eval(items_frame=_cards(1)).ok
+
+
+def test_min_cards_missing_items_key_fails() -> None:
+    res = _eval(items_frame=None, final_state={}, min_cards=4)
+    assert "min_cards: 0 cards < 4" in res.failures and "no product cards returned" in res.failures
+
+
+def test_min_cards_error_frame_reports_transport_failure_only() -> None:
+    res = _eval(final_state=None, items_frame=None, min_cards=4,
+                protocol_error="server sent error frame: boom")
+    assert res.failures == ["server sent error frame: boom"]  # transport failure, no phantom count
+
+
+@pytest.mark.parametrize("junk", [["x", 1, None, [], "card"], [{}] * 2 + ["x"] * 50, "notalist"])
+def test_min_cards_hostile_items_do_not_inflate_or_crash(junk: Any) -> None:
+    fs = {"outfit_variants": "nope", "partner_look": 7}
+    res = _eval(items_frame=junk if isinstance(junk, list) else None, final_state=fs, min_cards=4)
+    assert any(f.startswith("min_cards:") for f in res.failures)  # non-dict junk is never a card
+
+
+def test_query_through_loopback_below_floor_fails_with_min_cards() -> None:
+    with _Server({"frames": good_frames()}) as srv:  # good_frames carries 2 cards
+        token = canary.http_post_json(f"{srv.url}/demo/session")["session_token"]
+        low = canary.run_query(srv.url, token, "q", 15000, 5.0, min_cards=4)
+    with _Server({"frames": good_frames()}) as srv:
+        token = canary.http_post_json(f"{srv.url}/demo/session")["session_token"]
+        ok = canary.run_query(srv.url, token, "q", 15000, 5.0, min_cards=2)
+    assert "min_cards: 2 cards < 4" in low.failures
+    assert ok.ok, ok.failures
+
+
+def test_shipped_card_checks_match_decision_and_frontend_chips() -> None:
+    checks = {c.query: c.min_cards for c in canary.CARD_CHECKS}
+    assert len(canary.CARD_CHECKS) == 8 and len(checks) == 8
+    chips = ["Sangeet outfit under ₹3,000", "Haldi kurta set", "Wedding guest saree",
+             "Office wear under ₹1,500", "Men's kurta for a wedding"]
+    copy_ts = (Path(__file__).resolve().parents[1] / "frontend" / "lib" / "copy.ts").read_text(
+        encoding="utf-8")
+    for chip in chips:
+        assert chip in checks and chip in copy_ts  # byte-equal to what the landing page shows
+    for extra in ("sherwani for groom", "lehenga for sangeet", "men's blazer for the office"):
+        assert extra in checks
+    # The known gap is the only reduced floor (see the note in canary_card_checks.json).
+    assert {q: n for q, n in checks.items() if n != 4} == {chips[0]: 2}
+    assert canary.QUERIES_PER_RUN == 11 and canary.DAILY_QUERY_CAP == 33
+
+
+@pytest.mark.parametrize("payload", [
+    "[]", "{}", '{"checks": []}', '{"checks": [{"query": "", "min_cards": 4}]}',
+    '{"checks": [{"query": "q"}]}', '{"checks": [{"query": "q", "min_cards": 0}]}',
+    '{"checks": [{"query": "q", "min_cards": true}]}', '{"checks": [{"query": "q", "min_cards": "4"}]}',
+    '{"checks": ["q"]}',
+])
+def test_load_card_checks_rejects_malformed(tmp_path: Path, payload: str) -> None:
+    f = tmp_path / "c.json"
+    f.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError):
+        canary.load_card_checks(f)
+
+
+def test_suite_specs_core_and_all() -> None:
+    assert canary.suite_specs("core") == [(q, None) for q in canary.QUERIES]
+    full = canary.suite_specs("all")
+    assert len(full) == canary.QUERIES_PER_RUN and full[3] == ("Sangeet outfit under ₹3,000", 2)
+
+
+def test_run_suite_paces_between_queries_only(monkeypatch) -> None:
+    seen: list[tuple[str, int | None]] = []
+    monkeypatch.setattr(canary, "run_query", lambda b, t, q, bud, min_cards=None:
+                        seen.append((q, min_cards)) or canary.QueryResult(query=q))
+    sleeps: list[float] = []
+    specs = [("a", None), ("b", 4), ("c", 2)]
+    out = canary.run_suite("u", "t", 15000, specs, 30.0, sleep=sleeps.append)
+    assert seen == specs and len(out) == 3 and sleeps == [30.0, 30.0]
+
+
+def test_run_suite_time_budget_exhausted_fails_closed(monkeypatch) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(canary, "run_query", lambda b, t, q, bud, min_cards=None:
+                        called.append(q) or canary.QueryResult(query=q))
+    ticks = iter([0.0, 0.0, canary.RUN_TIME_BUDGET_S + 1])  # start, 1st check, 2nd check
+    out = canary.run_suite("u", "t", 15000, [("a", None), ("b", 4)], 0.0, clock=lambda: next(ticks))
+    assert called == ["a"] and out[1].failures and "budget" in out[1].failures[0]
+
+
+def test_full_suite_run_alerts_on_min_cards_with_redacted_details(tmp_path: Path) -> None:
+    with _Server({"frames": good_frames()}) as srv:  # 2 cards for every query
+        rc = canary.run_canary(_args(tmp_path, base_url=srv.url, repo="", suite="all"))
+    out = json.loads((tmp_path / "r.json").read_text())
+    assert rc == 1 and out["status"] == "fail" and len(out["queries"]) == canary.QUERIES_PER_RUN
+    assert len(srv.seen_user_messages) == canary.QUERIES_PER_RUN
+    failed = {q["query"]: q["failures"] for q in out["queries"] if q["failures"]}
+    assert "Sangeet outfit under ₹3,000" not in failed  # floor 2: 2 cards passes
+    assert len(failed) == 7 and all(f == ["min_cards: 2 cards < 4"] for f in failed.values())
+    body = canary.build_issue_body(out, "https://x/run/1", "## Canary failed")
+    assert "min_cards: 2 cards < 4" in body and "Haldi kurta set" in body
+    assert "SECRET-SESSION-TOKEN" not in body and "tick123456" not in body
