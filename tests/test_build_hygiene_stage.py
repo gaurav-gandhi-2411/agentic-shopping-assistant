@@ -59,6 +59,36 @@ def test_clean_brand_catalogue_applies_hygiene() -> None:
     assert stats["hygiene"]["quarantined"]["article_id"].tolist() == ["3"]
 
 
+def test_clean_brand_catalogue_enforces_registry_allowed_categories(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import src.config.store_registry as reg
+
+    toy = reg.StoreRecord(
+        slug="toy",
+        display_name="Toy",
+        domain=None,
+        source_type="shopify",
+        public=True,
+        allowed_categories=frozenset({"jewellery"}),
+    )
+    monkeypatch.setitem(reg.STORE_REGISTRY, "toy", toy)
+    df, stats = _clean_brand_catalogue("toy", _toy_catalogue())
+    assert df["article_id"].tolist() == ["4"]  # the garment (id 1) is outside the allow-list
+    assert stats["category_restricted"] == 1
+    assert stats["rows_after_cleaning"] == 1
+    assert stats["hygiene"]["category_restricted"]["article_id"].tolist() == ["1"]
+    _write_hygiene_reports([stats], tmp_path / "hygiene")
+    written = pd.read_csv(tmp_path / "hygiene" / "hygiene_category_restricted.csv", dtype=str)
+    assert written["article_id"].tolist() == ["1"]
+
+
+def test_clean_brand_catalogue_without_restriction_drops_nothing_extra() -> None:
+    df, stats = _clean_brand_catalogue("toy", _toy_catalogue())
+    assert stats["category_restricted"] == 0
+    assert df["article_id"].tolist() == ["1", "4"]
+
+
 def test_hygiene_reports_are_written_and_printed(
     tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:
