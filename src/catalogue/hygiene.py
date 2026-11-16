@@ -186,10 +186,12 @@ def derive_category(product_type: object, title: object) -> CategoryResult:
     typ = classify_type(product_type)
 
     if head is not None and head[1] == _NF:
-        if typ is not None and typ[0] == "hamper" and _is_gift_box_title(head[0], title):
+        if re.search(r"\bhampers?\b", _norm(product_type)) and _is_gift_box_title(head[0], title):
             # A merchant-typed hamper sold as "<occasion> Gift Box" is the hamper itself, which
             # stays searchable (voylla 'Gift Hamper' rows); only packaging-only rows (gift cards,
-            # empty boxes/trunks/organisers, perfume, ...) are dropped.
+            # empty boxes/trunks/organisers, perfume, and 'GIFTABLES'-typed empty jewellery boxes)
+            # are dropped. Keyed on the word "hamper" in the type, not on the lexicon group, because
+            # 'giftables' shares that group yet is typed on empty daivik jewellery boxes.
             return CategoryResult(_A, "hamper", "type")
         return CategoryResult(_NF, head[0], "title")
     if typ is not None:

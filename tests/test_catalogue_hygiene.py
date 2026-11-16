@@ -46,6 +46,8 @@ def test_category_from_type_then_title(
         ("Gift Hamper", "Wedding Trunk"),
         ("Gift Hamper", "Diwali E-Gift Card"),
         ("Gift Hamper", "Rose Perfume Gift Set Perfume"),
+        # daivik: GIFTABLES-typed empty jewellery boxes are packaging, not hampers
+        ("GIFTABLES", "Rosegold Mirror Jewellery Box with Daivik Gold Plating (5.5\"x4\"x2\")"),
         ("Gift Card", "Happy Mother's Day : Gift Card"),
         ("Fragrance", "Mira| Oriental Floral Gourmand Perfume, 20 Ml"),
         ("Fashion", "Embroidered Navy Blue Bangle Box"),
