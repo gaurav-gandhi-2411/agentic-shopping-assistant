@@ -83,6 +83,14 @@ class ItemSummary(BaseModel):
     # flows through this single serialization point (search results, primary
     # outfit items, partner-look items, variant items).
     gender: str = "unknown"
+    # V3(d) render-time live check (src/pricing/live_check.py). Defaults = check off / not run.
+    # price_may_have_changed: the live check could not confirm the indexed price (timeout,
+    #   429, robots, breaker...). unavailable: the store positively reports the product gone or
+    #   fully sold out (pdp_url is then None). indexed_price_inr: catalogue price, set only when
+    #   the live price replaced price_inr.
+    price_may_have_changed: bool = False
+    unavailable: bool = False
+    indexed_price_inr: float | None = None
 
     @classmethod
     def from_agent_item(cls, item: dict) -> "ItemSummary":

@@ -50,6 +50,7 @@ from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
 from src.llm.context import llm_user_id_var
 from src.llm.resilience import LLM_BUSY_MESSAGE
+from src.pricing.live_check import apply_live_check, apply_live_check_sync
 from src.retrieval.index_store import resolve_brand as _resolve_brand
 
 logger = logging.getLogger(__name__)
@@ -373,7 +374,7 @@ def post_chat(
 
         tool_calls: list[dict] = result.get("tool_calls", [])
         routing = _extract_routing(tool_calls)
-        items = _items_from_result(result)
+        items = apply_live_check_sync(_items_from_result(result))
         response_text = result.get("final_answer") or ""
         if not response_text.strip():
             # Same choke-point guard as the WS path: never return cards with no text.
@@ -622,7 +623,7 @@ async def run_chat_turn(
         # product cards without N+1 catalogue fetches per item.
         # "always visual" hard rule: drop items without an image before serialising.
         _ws_raw = [it for it in result["retrieved_items"] if it.get("image_url")]
-        items = [ItemSummary.from_agent_item(it) for it in _ws_raw]
+        items = await apply_live_check([ItemSummary.from_agent_item(it) for it in _ws_raw])
         await send(WSItemsMessage(items=items))
 
     # ------------------------------------------------------------------
