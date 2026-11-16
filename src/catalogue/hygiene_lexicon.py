@@ -17,14 +17,18 @@ _G = "garment"
 LEXICON: tuple[tuple[str, str, str], ...] = (
     # non-fashion
     ("gift_card", _NF, r"e ?gift ?cards?|gift ?cards?|e ?gift|gift vouchers?|vouchers?"),
-    ("hamper", _NF, r"hampers?|giftables?|gift (?:box|boxes|wrap|bags?)"),
+    # A bridal/rakhi hamper is a real gifting product users ask for, so it stays searchable
+    # (accessory); only the packaging nouns below are dropped.
+    ("hamper", _A, r"hampers?|giftables?"),
+    ("gift_box", _NF, r"gift (?:box|boxes|wrap|bags?)"),
     # Bare "trunk(s)" is men's swim/underwear trunks (see swimwear below); only a storage trunk
     # named by what it stores is a non-garment.
     (
         "box",
         _NF,
         # "Zircon Box Set" (voylla) is a jewellery set sold in a box, not a box.
-        r"box(?:es)?(?! sets?\b)|trousseau|storage|organi[sz]ers?|"
+        # "Bridal Hamper Box B" is a hamper (accessory), so "hamper box" is not a box either.
+        r"(?<!hamper )box(?:es)?(?! sets?\b)|trousseau|storage|organi[sz]ers?|"
         r"(?:bridal|wedding|saree|sari|lehenga|jewell?ery|trousseau|storage) trunks?",
     ),
     (

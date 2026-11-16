@@ -42,7 +42,7 @@ def test_category_from_type_then_title(
     ("ptype", "title"),
     [
         ("lehenga", "Brocade Lehenga Box"),  # the trousseau box typed as a lehenga
-        ("Gift Hamper", "Floral Bliss Valentine Hamper"),
+        ("Gift Hamper", "Voylla Festive Celebration Diwali Gift Box"),  # packaging is dropped
         ("Gift Card", "Happy Mother's Day : Gift Card"),
         ("Fragrance", "Mira| Oriental Floral Gourmand Perfume, 20 Ml"),
         ("Fashion", "Embroidered Navy Blue Bangle Box"),
@@ -78,6 +78,21 @@ def test_non_fashion_false_positives_are_avoided(ptype: str, title: str, categor
     res = derive_category(ptype, title)
     assert res.category == category
     assert res.quarantine_reason == ""
+
+
+@pytest.mark.parametrize(
+    ("ptype", "title"),
+    [
+        ("Gift Hamper", "Floral Bliss Valentine Hamper"),
+        ("Hampers", "Mortantra X Zivame Bridal Hamper Box B"),
+        ("Rakhi Hamper", "Royal Bro Rakhi Hamper for Brother"),
+        ("Fashion", "Shubh Labh Hamper"),
+    ],
+)
+def test_hampers_stay_searchable_as_accessory(ptype: str, title: str) -> None:
+    res = derive_category(ptype, title)
+    assert res.category == "accessory"
+    assert res.garment_type == "hamper"
 
 
 def test_dupatta_typed_garment_set_is_garment_not_quarantined() -> None:
