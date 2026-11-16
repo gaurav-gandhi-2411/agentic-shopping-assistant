@@ -30,11 +30,13 @@ CSVs carry no ``tags`` column, so tags cannot be used; ``detail_desc`` is delibe
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import pandas as pd
 
 from src.catalogue.hygiene_lexicon import GENERIC_TYPES, LEXICON
+from src.config.store_registry import allowed_categories_by_store
 
 CATEGORIES: tuple[str, ...] = (
     "garment",
@@ -235,3 +237,34 @@ def apply_hygiene(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, pd.DataFram
     quarantined = out.loc[is_quar, cols].assign(reason=reasons[is_quar])
     kept = out.loc[~is_drop & ~is_quar].reset_index(drop=True)
     return kept, {"dropped": dropped, "quarantined": quarantined}
+
+
+def _report_cols(df: pd.DataFrame) -> list[str]:
+    return [
+        c
+        for c in ("article_id", "store", "prod_name", "product_type_name", "price_inr", "category")
+        if c in df.columns
+    ]
+
+
+def restrict_to_allowed_categories(
+    df: pd.DataFrame, allowed: Mapping[str, frozenset[str]] | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop rows whose store restricts ``allowed_categories`` and whose ``category`` is outside it.
+
+    ``allowed`` maps store slug -> allowed categories; default is the store registry's
+    ``allowed_categories`` (``None`` there = unrestricted, so an empty map is a no-op). Run it
+    AFTER :func:`apply_hygiene` (it needs the ``category`` column). ``unknown`` rows are kept (a
+    rule gap fails open, as in the rest of this module). Returns ``(kept, dropped)`` where
+    ``dropped`` has the hygiene report columns plus ``reason``.
+    """
+    rules = allowed_categories_by_store() if allowed is None else allowed
+    cols = _report_cols(df)
+    if not rules or "store" not in df.columns or "category" not in df.columns:
+        return df, df.iloc[0:0][cols].assign(reason="")
+    stores = df["store"].fillna("").astype(str).str.lower()
+    drop = pd.Series(False, index=df.index)
+    for slug, cats in rules.items():
+        drop |= (stores == slug.lower()) & ~df["category"].isin(set(cats) | {"unknown"})
+    dropped = df.loc[drop, cols].assign(reason="category_not_allowed_for_store")
+    return df.loc[~drop].reset_index(drop=True), dropped

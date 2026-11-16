@@ -133,3 +133,33 @@ def test_index_copy_keeps_aligned_vectors_and_refuses_to_overwrite(
 
     with pytest.raises(SystemExit):  # dst exists now: refuse, never overwrite
         make_hygiene_index_copy.main()
+
+
+def test_parse_allowed_and_index_copy_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert make_hygiene_index_copy.parse_allowed([]) is None
+    assert make_hygiene_index_copy.parse_allowed(["Libas=jewellery, accessory"]) == {
+        "libas": frozenset({"jewellery", "accessory"})
+    }
+    with pytest.raises(SystemExit):
+        make_hygiene_index_copy.parse_allowed(["libas"])
+
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    cat = _catalogue()
+    cat.to_parquet(src / "catalogue.parquet", index=False)
+    index = faiss.IndexFlatIP(8)
+    index.add(np.eye(4, 8, dtype=np.float32))
+    faiss.write_index(index, str(src / "dense.faiss"))
+    np.save(str(src / "dense_article_ids.npy"), cat["article_id"].values.astype(str))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["x", "--src", str(src), "--dst", str(dst), "--allowed-categories", "libas=jewellery"],
+    )
+    make_hygiene_index_copy.main()
+    kept = pd.read_parquet(dst / "catalogue.parquet")
+    assert kept["article_id"].tolist() == ["4"]  # libas garment (id 1) removed; voylla stays
+    restricted = pd.read_csv(dst / "hygiene_category_restricted.csv", dtype=str)
+    assert restricted["article_id"].tolist() == ["1"]

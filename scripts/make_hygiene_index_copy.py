@@ -27,7 +27,7 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from src.catalogue.hygiene import apply_hygiene  # noqa: E402
+from src.catalogue.hygiene import apply_hygiene, restrict_to_allowed_categories  # noqa: E402
 from src.catalogue.loader import load_config  # noqa: E402
 from src.retrieval.sparse_search import SparseRetriever  # noqa: E402
 
@@ -59,6 +59,22 @@ def retype_quarantined(cat: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return out, changed
 
 
+def parse_allowed(specs: list[str]) -> dict[str, frozenset[str]] | None:
+    """``["ishhaara=jewellery,accessory"]`` -> ``{"ishhaara": {"jewellery", "accessory"}}``.
+
+    None (no specs) means "use the store registry's allowed_categories".
+    """
+    if not specs:
+        return None
+    out: dict[str, frozenset[str]] = {}
+    for spec in specs:
+        slug, _, cats = spec.partition("=")
+        if not slug or not cats:
+            raise SystemExit(f"bad --allowed-categories {spec!r}; expected STORE=cat1,cat2")
+        out[slug.strip().lower()] = frozenset(c.strip() for c in cats.split(","))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--src", required=True, type=Path)
@@ -66,6 +82,9 @@ def main() -> None:
     ap.add_argument("--retype-quarantined", action="store_true",
                     help="re-type quarantined rows with the fixed normalizer first "
                          "(simulates a rebuild; see retype_quarantined)")
+    ap.add_argument("--allowed-categories", action="append", default=[], metavar="STORE=CAT,CAT",
+                    help="restrict a store to these categories (repeatable); overrides the "
+                         "registry's allowed_categories, for before/after measurements")
     args = ap.parse_args()
     src, dst = args.src.resolve(), args.dst.resolve()
     if src == dst:
@@ -78,6 +97,9 @@ def main() -> None:
         cat, n_changed = retype_quarantined(cat)
         print(f"re-typed {n_changed} quarantined rows with the fixed normalizer")
     kept, report = apply_hygiene(cat)
+    kept, restricted = restrict_to_allowed_categories(kept, parse_allowed(args.allowed_categories))
+    report["category_restricted"] = restricted
+    print(f"allowed_categories dropped {len(restricted)} rows")
     print(f"catalogue {len(cat)} -> {len(kept)}  dropped={len(report['dropped'])} "
           f"quarantined={len(report['quarantined'])}")
 
@@ -96,7 +118,8 @@ def main() -> None:
     np.save(str(dst / "dense_article_ids.npy"), kept["article_id"].values.astype(str))
     kept.to_parquet(str(dst / "catalogue.parquet"), index=False)
     SparseRetriever(load_config()).build_index(kept, dst)
-    for key, name in (("dropped", "hygiene_dropped.csv"), ("quarantined", "hygiene_quarantine.csv")):
+    for key, name in (("dropped", "hygiene_dropped.csv"), ("quarantined", "hygiene_quarantine.csv"),
+                      ("category_restricted", "hygiene_category_restricted.csv")):
         report[key].to_csv(dst / name, index=False)
     print(f"wrote {dst}: dense={new_index.ntotal} bm25 docs={len(kept)}")
 

@@ -75,7 +75,7 @@ from src.catalogue.cleaning import (  # noqa: E402
     reclassify_finished_sarees,
     recompute_derived_columns,
 )
-from src.catalogue.hygiene import apply_hygiene  # noqa: E402
+from src.catalogue.hygiene import apply_hygiene, restrict_to_allowed_categories  # noqa: E402
 from src.catalogue.loader import load_config  # noqa: E402
 from src.retrieval.dense_search import DenseRetriever  # noqa: E402
 
@@ -249,6 +249,7 @@ def _clean_brand_catalogue(brand: str, df: pd.DataFrame) -> tuple[pd.DataFrame, 
            ``garment_type``, drop non-fashion rows (boxes, hampers, gift cards, ...) and
            quarantine title-vs-type contradictions (excluded from the index, listed in
            ``stats["hygiene"]`` and written by _write_hygiene_reports).
+        7. Per-store ``allowed_categories`` from the store registry (src/config/store_registry.py).
 
     Returns (df, stats) where stats records per-step counts for the build report.
     """
@@ -258,6 +259,7 @@ def _clean_brand_catalogue(brand: str, df: pd.DataFrame) -> tuple[pd.DataFrame, 
     df, n_colour_filled = backfill_colours(df)
     df = recompute_derived_columns(df)
     df, hygiene = apply_hygiene(df)
+    df, hygiene["category_restricted"] = restrict_to_allowed_categories(df)
 
     stats = {
         "brand": brand,
@@ -268,6 +270,7 @@ def _clean_brand_catalogue(brand: str, df: pd.DataFrame) -> tuple[pd.DataFrame, 
         "colour_backfilled": n_colour_filled,
         "non_fashion_dropped": len(hygiene["dropped"]),
         "quarantined": len(hygiene["quarantined"]),
+        "category_restricted": len(hygiene["category_restricted"]),
         "rows_after_cleaning": len(df),
         "hygiene": hygiene,
     }
@@ -281,7 +284,11 @@ def _write_hygiene_reports(all_stats: list[dict], out_dir: Path) -> None:
     serve time.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    for key, name in (("dropped", "hygiene_dropped.csv"), ("quarantined", "hygiene_quarantine.csv")):
+    for key, name in (
+        ("dropped", "hygiene_dropped.csv"),
+        ("quarantined", "hygiene_quarantine.csv"),
+        ("category_restricted", "hygiene_category_restricted.csv"),
+    ):
         frames = [s["hygiene"][key] for s in all_stats if key in s.get("hygiene", {})]
         merged = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         merged.to_csv(out_dir / name, index=False)

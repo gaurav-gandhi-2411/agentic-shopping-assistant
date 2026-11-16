@@ -16,6 +16,12 @@ row"; this module answers the Wave 1b V3 questions on top of it:
                         next build's store set; to remove it from users at once set ``public``
                         to ``False`` as well.
   - ``feed_url_pattern`` the public product feed template (Shopify ``/products.json``).
+  - ``allowed_categories`` optional build-time restriction of a store to some catalogue
+                        categories (``src.catalogue.hygiene.CATEGORIES``: garment, accessory,
+                        jewellery, footwear, ...). ``None`` (default) = all categories. Enforced by
+                        ``src.catalogue.hygiene.restrict_to_allowed_categories`` in
+                        ``scripts/build_unified_index.py``; rows of an ``unknown`` category are
+                        never dropped (a rule gap fails open).
 
 ``tests/test_store_registry.py`` fails if this table and ``STORE_CONFIG`` disagree, or if a store
 of the live index (``tests/fixtures/indexed_stores.json``) is missing here.
@@ -69,6 +75,7 @@ class StoreRecord:
     source_type: SourceType
     public: bool
     refresh_enabled: bool = True
+    allowed_categories: frozenset[str] | None = None
 
     @property
     def feed_url_pattern(self) -> str | None:
@@ -168,6 +175,11 @@ def include_non_public() -> bool:
 def get_store(slug: str | None) -> StoreRecord | None:
     """Registry record for ``slug`` (case-insensitive), or None when unknown."""
     return STORE_REGISTRY.get(slug.lower()) if slug else None
+
+
+def allowed_categories_by_store() -> dict[str, frozenset[str]]:
+    """``{slug: allowed categories}`` for the stores that carry a restriction (others: all)."""
+    return {s: r.allowed_categories for s, r in STORE_REGISTRY.items() if r.allowed_categories}
 
 
 def public_stores() -> frozenset[str]:
