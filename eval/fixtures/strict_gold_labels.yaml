@@ -2441,6 +2441,8 @@ labels:
 # labeled_by: Claude (executor agent, Sonnet 5.5), independent of the public-store
 #   filter author; each label is auditable against the note beside it. GG may
 #   overturn any label.
+# provenance_status: single LLM judge (2026-11-15), pending consensus. These 127 labels
+#   (the ddb4dfd batch) have not been cross-checked by a second judge or by GG.
 # labeled_on: 2026-11-16
 # retrieval_snapshot: commit bf8a005, data/processed/unified, --mode pipeline
 #   (_retrieve_pipeline, occasion_gate=True), public-store view ON (default env,
