@@ -126,6 +126,32 @@ def test_throttle_is_per_domain() -> None:
     assert slept == [pytest.approx(1.0)]
 
 
+def test_global_limit_spaces_requests_across_different_domains() -> None:
+    clock = [0.0]
+    slept: list[float] = []
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+        clock[0] += s
+
+    t = rf.DomainThrottle(clock=lambda: clock[0], sleep=sleep, global_max_per_second=0.5)
+    t.wait("a.example")
+    t.wait("b.example")  # other domain, but the global 1 request / 2 s still applies
+    assert slept == [pytest.approx(2.0)]
+    t.wait("a.example")  # a's own 1 s interval elapsed long ago; global needs 2 s after b
+    assert slept == [pytest.approx(2.0), pytest.approx(2.0)]
+
+
+def test_global_limit_is_off_by_default_and_validated() -> None:
+    slept: list[float] = []
+    t = rf.DomainThrottle(clock=lambda: 0.0, sleep=slept.append)
+    t.wait("a.example")
+    t.wait("b.example")
+    assert slept == []
+    with pytest.raises(ValueError):
+        rf.DomainThrottle(global_max_per_second=0)
+
+
 def test_429_with_short_retry_after_waits_then_succeeds() -> None:
     sleeps: list[float] = []
     limited = rf.HttpResponse(429, {"retry-after": "7"}, "slow down")

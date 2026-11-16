@@ -110,10 +110,16 @@ class DomainThrottle:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        global_max_per_second: float | None = None,
     ) -> None:
         if max_per_second <= 0:
             raise ValueError("max_per_second must be positive")
+        if global_max_per_second is not None and global_max_per_second <= 0:
+            raise ValueError("global_max_per_second must be positive")
         self.min_interval = 1.0 / max_per_second
+        # Optional cap across ALL domains (None = per-domain only, the previous behaviour).
+        self.global_interval = 1.0 / global_max_per_second if global_max_per_second else 0.0
+        self._last_global: float | None = None
         self._clock = clock
         self._sleep = sleep
         self._last: dict[str, float] = {}
@@ -127,11 +133,14 @@ class DomainThrottle:
         """Block until the next request to ``domain`` is allowed, then record it."""
         interval = max(self.min_interval, self._interval.get(domain, 0.0))
         last = self._last.get(domain)
+        remaining = 0.0
         if last is not None:
             remaining = interval - (self._clock() - last)
-            if remaining > 0:
-                self._sleep(remaining)
-        self._last[domain] = self._clock()
+        if self._last_global is not None and self.global_interval:
+            remaining = max(remaining, self.global_interval - (self._clock() - self._last_global))
+        if remaining > 0:
+            self._sleep(remaining)
+        self._last[domain] = self._last_global = self._clock()
 
 
 def parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
