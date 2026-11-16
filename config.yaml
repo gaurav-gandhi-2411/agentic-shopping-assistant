@@ -108,3 +108,14 @@ clip:
 
 features:
   image_input_enabled: true
+
+# V3(d)(i) render-time live price/availability check (src/pricing/live_check.py).
+# Default OFF: the check adds up to budget_s of latency to a response that returns product
+# cards, and the real-store latency distribution is NOT MEASURED (no real store requests were
+# made when it was built). Turn on with enabled: true or env ASA_LIVE_PRICE_CHECK=1 after a
+# measured canary. On timeout/failure the indexed price is kept and flagged, never an error.
+live_price_check:
+  enabled: false
+  budget_s: 1.5
+  cache_ttl_s: 3600
+  max_cards: 8
