@@ -23,7 +23,8 @@ LEXICON: tuple[tuple[str, str, str], ...] = (
     (
         "box",
         _NF,
-        r"box(?:es)?|trousseau|storage|organi[sz]ers?|"
+        # "Zircon Box Set" (voylla) is a jewellery set sold in a box, not a box.
+        r"box(?:es)?(?! sets?\b)|trousseau|storage|organi[sz]ers?|"
         r"(?:bridal|wedding|saree|sari|lehenga|jewell?ery|trousseau|storage) trunks?",
     ),
     (

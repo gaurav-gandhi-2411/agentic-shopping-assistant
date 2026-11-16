@@ -67,6 +67,8 @@ def test_non_fashion_is_detected(ptype: str, title: str) -> None:
         ("necklace", "Reversible 2 sided Box Lakshmi and Ruby green necklace", "jewellery"),
         # "Bottle" as a colour.
         ("Earring", "Gold Plated Bottle Green Kundan Studded Dangler Earrings", "jewellery"),
+        # A jewellery set sold in a box is the jewellery.
+        ("Necklace Sets", "Sparkling Essentials Cluster Setting Clear CZ Box Set", "jewellery"),
         # Box pleats and box fits are garments.
         ("skirt", "Black Box Pleated Skirt", "garment"),
         ("shirt", "Brown Box Fit Shirt", "garment"),
