@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item
-from src.catalogue.hygiene import GARMENT_QUERY_EXCLUDED_CATEGORIES, is_garment_type_name
 from src.config.store_registry import include_non_public, public_stores
 from src.config.stores import get_inactive_stores
 
@@ -411,16 +410,6 @@ class HybridRetriever:
             )
             self._not_kids_mask = (~kids_mask).values
 
-        # Category guard (V3(b2)(b)): rows whose build-time ``category`` is accessory /
-        # jewellery / non_fashion. Only present on a catalogue built after the hygiene step
-        # (src/catalogue/hygiene.py); on an older index there is no ``category`` column and the
-        # guard is a no-op. Used by search() for garment queries only.
-        self._not_non_garment_mask: np.ndarray | None = None
-        if "category" in self.catalogue_df.columns:
-            self._not_non_garment_mask = (
-                ~self.catalogue_df["category"].isin(GARMENT_QUERY_EXCLUDED_CATEGORIES)
-            ).values
-
         # article_id -> position-in-FAISS-index lookup, precomputed once (mirrors
         # SparseRetriever's own _id_to_pos pattern) so the gender/colour/price
         # pushdown mask (see search()) can be translated into a faiss.IDSelectorArray
@@ -501,20 +490,6 @@ class HybridRetriever:
         # comment there) rather than recomputed here on every call.
         _not_kids_mask = self._not_kids_mask
 
-        # Category guard (V3(b2)(b)): a query whose product_type_name filter is a garment type
-        # must not return accessories, jewellery or non-fashion items. Skipped when the query
-        # itself asks for one of those types (is_garment_type_name is False for "earrings",
-        # "bag", "dupatta", "footwear", ...), when the index has no ``category`` column, and
-        # when ``retrieval.category_guard`` is false (default true). Pushed into BOTH fetches
-        # like the other exclusions, so excluded rows cannot occupy fetch-window slots.
-        _category_guard_mask: np.ndarray | None = None
-        if (
-            self._not_non_garment_mask is not None
-            and self.config["retrieval"].get("category_guard", True)
-            and is_garment_type_name((filters or {}).get("product_type_name"))
-        ):
-            _category_guard_mask = self._not_non_garment_mask
-
         def _combine_masks(*masks: np.ndarray | None) -> np.ndarray | None:
             """AND together any non-None boolean masks aligned with catalogue_df."""
             present = [m for m in masks if m is not None]
@@ -526,7 +501,7 @@ class HybridRetriever:
             return combined
 
         _exclusion_mask = _combine_masks(
-            _not_fabric_mask, _not_inactive_store_mask, _not_kids_mask, _category_guard_mask
+            _not_fabric_mask, _not_inactive_store_mask, _not_kids_mask
         )
 
         # Extract optional store + gender filters BEFORE fetching (hoisted up from
@@ -679,11 +654,6 @@ class HybridRetriever:
                 continue
             if _public_filter_on and item_store_raw not in public_stores():
                 continue  # non-public store (V3): same belt-and-suspenders as above
-            if (
-                _category_guard_mask is not None
-                and row.get("category") in GARMENT_QUERY_EXCLUDED_CATEGORIES
-            ):
-                continue  # category guard: same belt-and-suspenders as above
 
             # --- Store filter (cross-store unified index only; no-op on per-brand indices) ---
             if store_filter is not None:

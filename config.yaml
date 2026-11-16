@@ -12,11 +12,6 @@ retrieval:
   rrf_k: 60
   top_k: 50
   final_k: 5
-  # Category guard (V3(b2)(b)): a query whose product_type_name filter is a garment type never
-  # returns accessory / jewellery / non_fashion rows (by the build-time `category` column,
-  # src/catalogue/hygiene.py). Default true; a no-op on an index built before the hygiene step
-  # (no `category` column) and for queries that ask for an accessory/jewellery type themselves.
-  category_guard: true
   # Store-diversity re-rank knob (MMR nudge).
   # 0.0 = pure relevance / current behaviour (safe default; exact same output as before).
   # Increase to spread results across stores for cross-store-eligible queries.
