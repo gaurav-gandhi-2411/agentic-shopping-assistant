@@ -15,6 +15,7 @@ import { ExternalLink, ShoppingBag, Sparkles } from "lucide-react"
 import { Logo } from "@/components/Logo"
 import { getStoreDisplayName } from "@/lib/stores"
 import { formatSlotLabel } from "@/lib/displayFormat"
+import { COPY } from "@/lib/copy"
 import type { ItemLink, LookSnapshot, SharedLook } from "@/lib/api/types"
 
 // Default backend — the looks table is shared, any service can answer.
@@ -189,7 +190,12 @@ export default async function SharedLookPage({
               // Note: item.pdp_handle is a bare handle, not a resolvable URL — never
               // use it as an href fallback. If no real URL is available, render
               // the item card without a link.
-              const buyUrl = itemLinkMap.get(item.article_id) ?? item.buy_url ?? null
+              // Items from a store that is no longer public arrive with unavailable=true and
+              // no links (GET /looks/{id}, V3(d)(ii)); never render a Buy button for them.
+              const unavailable = item.unavailable === true
+              const buyUrl = unavailable
+                ? null
+                : (itemLinkMap.get(item.article_id) ?? item.buy_url ?? null)
               // Per-item store label — mirrors ItemCard.tsx's "Buy at {store}" convention.
               // Unified cross-store mode mixes stores within one look, so the buy
               // button must read each item's own store, not the page-level brand
@@ -208,7 +214,11 @@ export default async function SharedLookPage({
               // ItemCard.tsx's convention; also avoids nesting an <a> inside
               // an <a> now that the card has its own buy anchor).
               return (
-                <div key={item.article_id} className={cardClassName}>
+                <div
+                  key={item.article_id}
+                  className={cardClassName}
+                  data-unavailable={unavailable ? "true" : undefined}
+                >
                   <div className="relative aspect-[4/5] bg-muted">
                     {item.image_url ? (
                       <Image
@@ -217,7 +227,9 @@ export default async function SharedLookPage({
                         fill
                         sizes="(max-width: 640px) 50vw, 33vw"
                         unoptimized
-                        className="object-cover"
+                        className={
+                          unavailable ? "object-cover opacity-50 grayscale" : "object-cover"
+                        }
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-3xl select-none">
@@ -232,9 +244,14 @@ export default async function SharedLookPage({
                     <p className="text-xs font-medium leading-tight line-clamp-2">
                       {item.prod_name ?? item.display_name ?? ""}
                     </p>
-                    {item.price_inr != null && (
+                    {item.price_inr != null && !unavailable && (
                       <p className="text-xs text-muted-foreground">
                         ₹{item.price_inr.toLocaleString("en-IN")}
+                      </p>
+                    )}
+                    {unavailable && (
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {COPY.cards.noLongerAvailable}
                       </p>
                     )}
                     {buyUrl && (

@@ -62,6 +62,13 @@ export const COPY = {
     // /login description when the Google button is hidden (flag not set).
     descriptionEmailOnly: "Enter your email for a magic link.",
   },
+  cards: {
+    // Product cards in chat results and in shared looks (V3(d)). Copy proposed, not approved.
+    /** The store reports the product gone or sold out, or a saved look item is no longer offered. */
+    noLongerAvailable: "No longer available",
+    /** The live price check could not confirm the catalogue price in time. */
+    priceMayHaveChanged: "Price may have changed",
+  },
 } as const
 
 export type OccasionChip = (typeof OCCASION_CHIPS)[number]
