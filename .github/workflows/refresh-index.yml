@@ -2,8 +2,11 @@ name: Refresh index
 
 # Daily product-index refresh (Wave 1b V3(c)): fetch feeds -> build -> validate -> publish a NEW
 # build to gs://asa-demo-indices-stylemaitri-prod/builds/<id>/ (create-only, never overwrites).
-# The rollout of a revision pinned to that build and the retention step are separate jobs added by
-# the deploy-rollout PR; this file alone only PUBLISHES a build (which nothing serves yet).
+# Then, in separate jobs: preflight (the previous revision's pinned build must still exist) ->
+# rollout (deploy.yml in index-rollout mode: same image, new revision pinned to the build, tag smoke,
+# shift, post-shift check, automatic rollback) -> retain (customTime on old builds, only after a
+# successful rollout). Any failed job opens/updates ONE prod-alert issue; prod is never left on a
+# half-applied state (the rollback and template-pin restore live in deploy.yml).
 #
 # SAFE BY DEFAULT
 #   * manual runs default to dry_run=true: everything runs except publish (the store is wrapped
@@ -50,6 +53,9 @@ env:
   # Not secrets (same provider path as in deploy.yml's header; an e-mail-shaped SA name).
   WIF_PROVIDER: projects/631709154646/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
   PUBLISHER_SA: stylemaitri-index-publisher@stylemaitri-prod-260813.iam.gserviceaccount.com
+  DEPLOYER_SA: stylemaitri-deployer@stylemaitri-prod-260813.iam.gserviceaccount.com
+  REGION: asia-south1
+  SERVICE: asa-stylist-api
 
 jobs:
   refresh:
@@ -121,10 +127,124 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$RC"
 
-  # Separate job so only IT holds issues: write. Dry runs never alert (a manual rehearsal is not a
-  # production event); scheduled and real manual runs do.
-  alert:
+  # The deployer identity can read Cloud Run but not the bucket; the publisher can read the bucket
+  # but not Cloud Run. So the check "can the revision we would roll back to still load its build?"
+  # reads Cloud Run as the deployer, then the bucket as the publisher (second auth step replaces the
+  # first; UNVERIFIED that google-github-actions/auth re-points gcloud/ADC cleanly when used twice).
+  preflight:
     needs: refresh
+    if: needs.refresh.result == 'success' && needs.refresh.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet "google-cloud-storage>=2.14.0"
+
+      - name: Authenticate as the deployer (Cloud Run read)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Read the serving revision
+        run: |
+          gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service.json
+          PREV=$(jq -r '[.status.traffic[] | select((.percent // 0) == 100)] | if length == 1 then .[0].revisionName else empty end' service.json)
+          [ -n "$PREV" ] || { echo "::error::cannot identify a single revision serving 100%"; exit 1; }
+          gcloud run revisions describe "$PREV" --region "$REGION" --project "$GCP_PROJECT" --format=json > rev-prev.json
+
+      - name: Authenticate as the publisher (bucket read)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.PUBLISHER_SA }}
+
+      - name: Previous revision's pinned build still exists (refuse otherwise)
+        run: python scripts/ops/rollout_checks.py preflight --prev-revision-json rev-prev.json --bucket "$BUCKET"
+
+  # deploy.yml in index-rollout mode (workflow_call). The called workflow keeps its own concurrency
+  # group (deploy-prod), gates, rollback and template-pin restore; no new rights, same deployer.
+  rollout:
+    needs: [refresh, preflight]
+    if: needs.preflight.result == 'success' && needs.refresh.outputs.build_id != ''
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      index_build_id: ${{ needs.refresh.outputs.build_id }}
+    secrets: inherit
+
+  # Retention runs ONLY after a successful rollout (new build serving 100 %, post-shift check
+  # passed). It sets customTime; the bucket lifecycle rule deletes 2 days later. Never deletes.
+  retain:
+    needs: [refresh, rollout]
+    if: needs.rollout.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --quiet "google-cloud-storage>=2.14.0"
+
+      - name: Authenticate as the deployer (Cloud Run read)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Collect every revision that can reference a build
+        run: |
+          gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service.json
+          gcloud run revisions list --service "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > revisions-all.json
+          # An empty listing must fail closed: it would otherwise read as "nothing is referenced".
+          [ "$(jq 'length' revisions-all.json)" -gt 0 ] || { echo "::error::no revisions listed"; exit 1; }
+          mkdir revs
+          for NAME in $(jq -r '.[].metadata.name' revisions-all.json); do
+            jq --arg n "$NAME" '.[] | select(.metadata.name == $n)' revisions-all.json > "revs/${NAME}.json"
+          done
+
+      - name: Authenticate as the publisher (customTime on builds)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.PUBLISHER_SA }}
+
+      - name: Mark builds beyond the 3 newest (never a referenced one) for the lifecycle rule
+        run: |
+          python scripts/ops/expire_builds.py --bucket "$BUCKET" --service-json service.json \
+            --revisions-dir revs --keep 3 --apply
+
+  # Separate job so only IT holds issues: write. Dry runs never alert (a manual rehearsal is not a
+  # production event); scheduled and real manual runs do. ANY failed stage alerts.
+  alert:
+    needs: [refresh, preflight, rollout, retain]
     if: >-
       always() && needs.refresh.result != 'skipped' &&
       !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
@@ -144,9 +264,18 @@ jobs:
           SUMMARY_B64: ${{ needs.refresh.outputs.summary_b64 }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          OUTCOME: ${{ needs.refresh.result == 'success' && 'success' || 'failure' }}
+          R_REFRESH: ${{ needs.refresh.result }}
+          R_PREFLIGHT: ${{ needs.preflight.result }}
+          R_ROLLOUT: ${{ needs.rollout.result }}
+          R_RETAIN: ${{ needs.retain.result }}
         run: |
           # An empty/garbled summary is fine: refresh_alert.py then alerts with "no summary produced".
           printf '%s' "$SUMMARY_B64" | base64 -d > refresh-summary.json 2>/dev/null || true
+          FAILED=""
+          for PAIR in "refresh:$R_REFRESH" "preflight:$R_PREFLIGHT" "rollout:$R_ROLLOUT" "retain:$R_RETAIN"; do
+            case "${PAIR#*:}" in failure|cancelled) FAILED="${FAILED:+$FAILED,}${PAIR%%:*}" ;; esac
+          done
+          OUTCOME=success
+          if [ -n "$FAILED" ]; then OUTCOME=failure; fi
           python3 scripts/ops/refresh_alert.py --repo "$REPO" --run-url "$RUN_URL" \
-            --summary refresh-summary.json --outcome "$OUTCOME"
+            --summary refresh-summary.json --outcome "$OUTCOME" --failed-jobs "$FAILED"

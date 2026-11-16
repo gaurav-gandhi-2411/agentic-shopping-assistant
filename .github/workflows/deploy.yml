@@ -20,12 +20,35 @@ name: Deploy
 # URL (incl. one /chat) -> shift 100% traffic -> liveness + /readyz on the main URL (no chat) ->
 # pin service-level min-instances 0 and assert nothing serving has minScale > 0. ANY failure after the traffic shift rolls 100% back to
 # the revision that was serving before this run, then fails the job.
+#
+# INDEX ROLLOUT MODE (Wave 1b V3(c)): with `index_build_id` set (by refresh-index.yml through
+# workflow_call, or by hand through workflow_dispatch) the SAME image the serving revision runs is
+# redeployed as a no-traffic revision with `--update-env-vars INDEX_BUILD_ID=<id>` and goes through
+# the identical gates: tag smoke (+ /readyz index.source == build, loaded_build_id == <id>, age < 36 h),
+# shift, post-shift check, automatic rollback to the previous revision (still pinned to the previous
+# build). No image is built and CI-for-the-commit is not re-checked (no new code ships). Ordinary
+# code deploys NEVER pass INDEX_BUILD_ID: they inherit it from the template, and check_parity.py
+# asserts it is unchanged. The bucket-side preflight (previous build still present) runs in
+# refresh-index.yml before this workflow is called (the deployer has no bucket access).
 on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
     branches: [master]
   workflow_dispatch:
+    inputs:
+      index_build_id:
+        description: "Index rollout: pin a NEW revision of the SAME image to this build id (UTC timestamp, e.g. 20261116T020000Z). Empty = ordinary code deploy"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      index_build_id:
+        description: "Index build id to roll out (empty = ordinary code deploy)"
+        required: false
+        type: string
+        default: ""
 
 # Serialise prod deploys; never cancel one halfway (a cancelled run could strand traffic).
 concurrency:
@@ -52,6 +75,7 @@ jobs:
       github.repository == 'gaurav-gandhi-2411/agentic-shopping-assistant' &&
       (
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+        (inputs.index_build_id != '' && github.event_name == 'schedule' && github.ref == 'refs/heads/master') ||
         (github.event_name == 'workflow_run' &&
          github.event.workflow_run.conclusion == 'success' &&
          github.event.workflow_run.event == 'push' &&
@@ -72,15 +96,29 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           DISPATCH_SHA: ${{ github.sha }}
+          INDEX_ID: ${{ inputs.index_build_id }}
         run: |
           if [ "$EVENT_NAME" = "workflow_run" ]; then SHA="$RUN_SHA"; else SHA="$DISPATCH_SHA"; fi
           case "$SHA" in
             *[!0-9a-f]*|"") echo "::error::bad commit sha: '$SHA'"; exit 1 ;;
           esac
           if [ "${#SHA}" -ne 40 ]; then echo "::error::sha is not 40 hex chars: '$SHA'"; exit 1; fi
+          TAG="c-${SHA:0:7}"
+          MODE=code
+          if [ -n "$INDEX_ID" ]; then
+            # Rollout mode. The id comes from an input: validate it before it reaches any command.
+            # [[ =~ ]] matches the WHOLE string; grep would accept a multi-line value whose first line
+            # is valid and let the rest inject extra lines into $GITHUB_OUTPUT.
+            [[ "$INDEX_ID" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] \
+              || { echo "::error::index_build_id is not a build id (YYYYMMDDTHHMMSSZ)"; exit 1; }
+            MODE=rollout
+            TAG="ix-$(printf '%s' "$INDEX_ID" | tr 'A-Z' 'a-z')"  # Cloud Run tags are lower-case
+          fi
           {
             echo "sha=$SHA"
-            echo "tag=c-${SHA:0:7}"
+            echo "tag=$TAG"
+            echo "mode=$MODE"
+            echo "index_id=$INDEX_ID"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
@@ -92,6 +130,7 @@ jobs:
       # re-verified here for BOTH triggers and fails closed: an API error, zero runs, or a
       # non-success conclusion all stop the deploy.
       - name: Require successful CI for the target SHA (fail closed)
+        if: steps.target.outputs.mode == 'code'  # a rollout ships no new code
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.target.outputs.sha }}
@@ -112,7 +151,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.target.outputs.sha }}
+          MODE: ${{ steps.target.outputs.mode }}
         run: |
+          # Always runs (every later step keys off its output); a rollout is never "stale".
+          if [ "$MODE" = "rollout" ]; then echo "stale=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           TIP=$(gh api "repos/${GITHUB_REPOSITORY}/commits/master" --jq .sha) || { echo "::error::cannot read master tip; failing closed"; exit 1; }
           [ -n "$TIP" ] || { echo "::error::empty master tip; failing closed"; exit 1; }
           if [ "$TIP" != "$TARGET_SHA" ]; then
@@ -163,9 +205,19 @@ jobs:
           echo "revision=$PREV" >> "$GITHUB_OUTPUT"
           echo "Previous serving revision: $PREV"
 
+      # Rollout: no build. The new revision runs exactly the image (by digest) the serving one does.
+      - name: Reuse the serving image (index rollout)
+        id: reuse
+        if: steps.fresh.outputs.stale == 'false' && steps.target.outputs.mode == 'rollout'
+        run: |
+          IMAGE=$(jq -r '.spec.containers[0].image // empty' rev-prev.json)
+          [ -n "$IMAGE" ] || { echo "::error::serving revision has no image"; exit 1; }
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Rollout reuses image: $IMAGE"
+
       - name: Build and push image (tag = full commit SHA)
         id: image
-        if: steps.fresh.outputs.stale == 'false'
+        if: steps.fresh.outputs.stale == 'false' && steps.target.outputs.mode == 'code'
         env:
           SHA: ${{ steps.target.outputs.sha }}
         run: |
@@ -185,14 +237,20 @@ jobs:
         id: deploy
         if: steps.fresh.outputs.stale == 'false'
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
+          IMAGE: ${{ steps.image.outputs.image || steps.reuse.outputs.image }}
           TAG: ${{ steps.target.outputs.tag }}
+          MODE: ${{ steps.target.outputs.mode }}
+          INDEX_ID: ${{ steps.target.outputs.index_id }}
         run: |
+          # INDEX_BUILD_ID is passed ONLY in rollout mode; a code deploy inherits it from the template.
+          ROLLOUT_ARGS=()
+          if [ "$MODE" = "rollout" ]; then ROLLOUT_ARGS+=(--update-env-vars "INDEX_BUILD_ID=${INDEX_ID}"); fi
           gcloud run deploy "$SERVICE" \
             --image "$IMAGE" \
             --region "$REGION" --project "$GCP_PROJECT" \
             --no-traffic --tag "$TAG" \
             --min-instances=0 --cpu-boost \
+            "${ROLLOUT_ARGS[@]}" \
             --quiet
           gcloud run services describe "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > service-after.json
           NEW=$(jq -r --arg t "$TAG" '[.status.traffic[] | select(.tag == $t)][0].revisionName // empty' service-after.json)
@@ -204,24 +262,17 @@ jobs:
         if: steps.fresh.outputs.stale == 'false'
         env:
           NEW: ${{ steps.deploy.outputs.revision }}
+          INDEX_ID: ${{ steps.target.outputs.index_id }}
         run: |
           gcloud run revisions describe "$NEW" --region "$REGION" --project "$GCP_PROJECT" --format=json > rev-new.json
-          view() {
-            jq -S '{
-              env: (.spec.containers[0].env | sort_by(.name)),
-              limits: .spec.containers[0].resources.limits,
-              concurrency: .spec.containerConcurrency,
-              timeout: .spec.timeoutSeconds,
-              serviceAccount: .spec.serviceAccountName,
-              maxScale: .metadata.annotations["autoscaling.knative.dev/maxScale"]
-            }' "$1"
-          }
-          view rev-prev.json > cfg-prev.json
-          view rev-new.json > cfg-new.json
-          if ! diff -u cfg-prev.json cfg-new.json; then
-            echo "::error::new revision differs from the serving revision in env/secrets/cpu/memory/maxScale/SA (diff above). No traffic was shifted."
-            exit 1
-          fi
+          # The parity view (env incl. secret refs, limits, concurrency, timeout, SA, maxScale) lives
+          # in a tested script (tests/test_check_parity.py). INDEX_BUILD_ID is excluded from the env
+          # diff and asserted separately: equal to the serving revision's value on a code deploy,
+          # equal to the rollout id (and not a downgrade) in rollout mode. Fails closed.
+          EXPECT=()
+          if [ -n "$INDEX_ID" ]; then EXPECT=(--expect-index-build-id "$INDEX_ID"); fi
+          python3 scripts/ops/check_parity.py rev-prev.json rev-new.json "${EXPECT[@]}" \
+            || { echo "::error::parity check failed. No traffic was shifted."; exit 1; }
           MIN=$(jq -r '.metadata.annotations["autoscaling.knative.dev/minScale"] // "0"' rev-new.json)
           [ "$MIN" = "0" ] || { echo "::error::new revision minScale=$MIN, expected 0"; exit 1; }
           BOOST=$(jq -r '.metadata.annotations["run.googleapis.com/startup-cpu-boost"] // "false"' rev-new.json)
@@ -233,9 +284,13 @@ jobs:
         if: steps.fresh.outputs.stale == 'false'
         env:
           TAG: ${{ steps.target.outputs.tag }}
+          INDEX_ID: ${{ steps.target.outputs.index_id }}
         run: |
           TAG_URL="${SERVICE_URL/https:\/\//https://${TAG}---}"
-          python3 scripts/ops/deploy_smoke.py --base-url "$TAG_URL" --live-path "$LIVE_PATH"
+          # Rollout: /readyz must show source=build, loaded_build_id == pinned == the id, age < 36 h.
+          EXPECT=()
+          if [ -n "$INDEX_ID" ]; then EXPECT=(--expect-build-id "$INDEX_ID"); fi
+          python3 scripts/ops/deploy_smoke.py --base-url "$TAG_URL" --live-path "$LIVE_PATH" "${EXPECT[@]}"
 
       # A failed gate between deploy and the traffic shift leaves a c-<sha7> tag (and its URL) on a
       # revision that will never serve. Remove just the tag, best effort. This step sits BEFORE the
@@ -264,7 +319,12 @@ jobs:
       # calls today and 1 once W4 / #77 lands).
       - name: Smoke test main URL (liveness + /readyz, no chat)
         if: steps.fresh.outputs.stale == 'false'
-        run: python3 scripts/ops/deploy_smoke.py --base-url "$SERVICE_URL" --live-path "$LIVE_PATH" --no-chat
+        env:
+          INDEX_ID: ${{ steps.target.outputs.index_id }}
+        run: |
+          EXPECT=()
+          if [ -n "$INDEX_ID" ]; then EXPECT=(--expect-build-id "$INDEX_ID"); fi
+          python3 scripts/ops/deploy_smoke.py --base-url "$SERVICE_URL" --live-path "$LIVE_PATH" --no-chat "${EXPECT[@]}"
 
       - name: Pin min-instances 0 at service level and assert none serving
         id: minscale
@@ -298,9 +358,14 @@ jobs:
           SHA: ${{ steps.target.outputs.sha }}
           PREV: ${{ steps.prev.outputs.revision }}
           NEW: ${{ steps.deploy.outputs.revision }}
+          INDEX_ID: ${{ steps.target.outputs.index_id }}
         run: |
           {
-            echo "### Deployed ${SHA}"
+            if [ -n "$INDEX_ID" ]; then
+              echo "### Index rollout ${INDEX_ID} (same image, pinned revision)"
+            else
+              echo "### Deployed ${SHA}"
+            fi
             echo "- serving: \`${NEW}\` (100%)"
             echo "- previous (rollback target): \`${PREV}\`"
             echo "- rollback: \`gcloud run services update-traffic ${SERVICE} --to-revisions ${PREV}=100 --region ${REGION} --project ${GCP_PROJECT}\`"
@@ -336,3 +401,46 @@ jobs:
         # Logic (digest normalisation, 'tags add' argv) lives in a tested script; 'tags add' moves an
         # existing tag and is a no-op if it already points there.
         run: python3 scripts/ops/pin_images.py rev-new.json rev-prev.json
+
+      # A rollout writes INDEX_BUILD_ID into the service TEMPLATE. If the rollout then failed (and
+      # traffic was rolled back or never shifted) the template still names the build that failed,
+      # and the next ordinary code deploy would inherit it (check_parity.py would reject that deploy
+      # loudly). Put the previous value back. --no-traffic: this must never route traffic.
+      # UNVERIFIED against the cloud that `services update` accepts --no-traffic; if it does not,
+      # this step fails with a warning (best effort) and the next code deploy fails the parity check
+      # loudly instead of shipping the wrong pin: fix by hand with the same command.
+      - name: Restore the service template pin after a failed rollout (best effort)
+        if: always() && job.status != 'success' && steps.target.outputs.mode == 'rollout' && steps.deploy.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          PREV_PIN=$(jq -r '[.spec.containers[0].env[]? | select(.name == "INDEX_BUILD_ID") | .value][0] // ""' rev-prev.json)
+          if [ -n "$PREV_PIN" ]; then
+            printf '%s' "$PREV_PIN" | grep -Eq '^[0-9]{8}T[0-9]{6}Z$' || { echo "::error::previous pin is malformed; not restoring"; exit 1; }
+            gcloud run services update "$SERVICE" --update-env-vars "INDEX_BUILD_ID=${PREV_PIN}" \
+              --no-traffic --region "$REGION" --project "$GCP_PROJECT" --quiet
+          else
+            gcloud run services update "$SERVICE" --remove-env-vars INDEX_BUILD_ID \
+              --no-traffic --region "$REGION" --project "$GCP_PROJECT" --quiet
+          fi
+
+      # Keep the newest 5 revisions (plus anything serving, tagged, the new one and the rollback
+      # target). Best effort: only after a fully successful deploy, and a failure here (for example
+      # a missing run.revisions.delete right, UNVERIFIED for the deployer) never fails the deploy.
+      # Selection logic is tested (tests/test_rollout_checks.py); an empty or unreadable revision
+      # list exits 2 and deletes nothing. Artifact Registry interplay: see DEPLOY.md.
+      - name: Keep the last 5 revisions (best effort)
+        if: success() && steps.fresh.outputs.stale == 'false' && steps.pin_images.outcome == 'success'
+        continue-on-error: true
+        env:
+          NEW: ${{ steps.deploy.outputs.revision }}
+          PREV: ${{ steps.prev.outputs.revision }}
+        run: |
+          gcloud run revisions list --service "$SERVICE" --region "$REGION" --project "$GCP_PROJECT" --format=json > revisions-all.json
+          python3 scripts/ops/rollout_checks.py revisions-to-delete \
+            --revisions-json revisions-all.json --service-json service-final.json \
+            --protect "$NEW" --protect "$PREV" --keep 5 > revisions-to-delete.txt
+          while IFS= read -r REV; do
+            [ -n "$REV" ] || continue
+            echo "deleting old revision $REV"
+            gcloud run revisions delete "$REV" --region "$REGION" --project "$GCP_PROJECT" --quiet
+          done < revisions-to-delete.txt

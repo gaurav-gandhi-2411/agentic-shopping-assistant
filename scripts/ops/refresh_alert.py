@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,14 @@ def load_summary(path: Path | None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def build_body(summary: dict[str, Any], run_url: str, heading: str) -> str:
+def clean_jobs(text: str) -> str:
+    """Failed job names for the body: lower-case letters and commas only, else empty."""
+    return text if re.fullmatch(r"[a-z,]{1,60}", text or "") else ""
+
+
+def build_body(
+    summary: dict[str, Any], run_url: str, heading: str, failed_jobs: str = ""
+) -> str:
     """Markdown body from fixed machine codes plus one redacted, truncated message."""
     failure = summary.get("failure") or {}
     stores = summary.get("stores") or []
@@ -53,6 +61,8 @@ def build_body(summary: dict[str, Any], run_url: str, heading: str) -> str:
         f"**Exit code:** `{summary.get('exit_code', 'n/a')}`",
         f"**Build id:** `{summary.get('build_id')}` (previous `{summary.get('previous_build_id')}`)",
     ]
+    if clean_jobs(failed_jobs):
+        lines.append(f"**Failed job(s):** `{clean_jobs(failed_jobs)}`")
     if failure.get("message"):
         lines.append(f"**Detail:** {canary.redact(str(failure['message']))[:300]}")
     if stopped:
@@ -73,6 +83,7 @@ def apply(
     summary: dict[str, Any],
     run_url: str,
     runner: canary.GhRunner = canary.gh,
+    failed_jobs: str = "",
 ) -> canary.IssueAction:
     """Run the lifecycle against GitHub. ``outcome`` is ``failure`` or ``success``."""
     listed = runner(
@@ -107,12 +118,12 @@ def apply(
                 "issue", "create", "--repo", repo, "--title", ALERT_TITLE,
                 "--label", ALERT_LABEL, "--body-file", "-",
             ],
-            build_body(summary, run_url, "## Index refresh failed\n\nDetected"),
+            build_body(summary, run_url, "## Index refresh failed\n\nDetected", failed_jobs),
         )  # fmt: skip
     elif action.kind == "comment":
         runner(
             ["issue", "comment", str(action.numbers[0]), "--repo", repo, "--body-file", "-"],
-            build_body(summary, run_url, "Still failing"),
+            build_body(summary, run_url, "Still failing", failed_jobs),
         )
     elif action.kind == "close":
         for n in action.numbers:
@@ -131,9 +142,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run-url", required=True)
     ap.add_argument("--summary", type=Path, default=None)
     ap.add_argument("--outcome", choices=("failure", "success"), required=True)
+    ap.add_argument("--failed-jobs", default="", help="comma-separated job names, e.g. rollout")
     args = ap.parse_args(argv)
     try:
-        action = apply(args.repo, args.outcome, load_summary(args.summary), args.run_url)
+        action = apply(
+            args.repo,
+            args.outcome,
+            load_summary(args.summary),
+            args.run_url,
+            failed_jobs=args.failed_jobs,
+        )
     except canary.CanaryError as exc:
         print(f"::error::could not update the alert issue: {exc}", file=sys.stderr)
         return 1
