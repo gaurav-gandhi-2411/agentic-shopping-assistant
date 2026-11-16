@@ -16,7 +16,7 @@ _G = "garment"
 
 LEXICON: tuple[tuple[str, str, str], ...] = (
     # non-fashion
-    ("gift_card", _NF, r"gift ?cards?|e ?gift|gift vouchers?|vouchers?"),
+    ("gift_card", _NF, r"e ?gift ?cards?|gift ?cards?|e ?gift|gift vouchers?|vouchers?"),
     ("hamper", _NF, r"hampers?|giftables?|gift (?:box|boxes|wrap|bags?)"),
     # Bare "trunk(s)" is men's swim/underwear trunks (see swimwear below); only a storage trunk
     # named by what it stores is a non-garment.

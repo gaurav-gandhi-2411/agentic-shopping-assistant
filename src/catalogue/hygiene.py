@@ -139,6 +139,12 @@ def title_head(title: object) -> tuple[str, str] | None:
     hit = _last_match(prefix)
     if hit is None and prefix != t:
         hit = _last_match(t)
+    if cut is not None and cut.start() > 0 and cut.group() == "and":
+        # "Shirt And Kurta Organiser": in a coordinated title a trailing non-fashion noun is the
+        # head. Not for hampers: "Kurta and Pyjama Gift Box" is still a garment bundle.
+        full = _last_match(t)
+        if full is not None and full[1] == _NF and full[0] != "hamper":
+            hit = full
     if hit is not None and hit[0] == "hamper":
         # "Kurta Rakhi Gift Box": a garment sold inside a gift box is still the garment.
         alt = _last_match(prefix, skip=frozenset({"hamper", "box", "rakhi"}))

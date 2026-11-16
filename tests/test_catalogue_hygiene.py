@@ -47,6 +47,8 @@ def test_category_from_type_then_title(
         ("Fragrance", "Mira| Oriental Floral Gourmand Perfume, 20 Ml"),
         ("Fashion", "Embroidered Navy Blue Bangle Box"),
         ("Covers", "Set of 2: Sky Blue Jacquard Cushion Covers"),
+        ("Fashion", "Father's Day E-Gift Card"),  # "e gift" must not swallow "gift card"
+        ("kurta", "Shirt And Kurta Organiser"),  # trailing noun of a coordinated title
     ],
 )
 def test_non_fashion_is_detected(ptype: str, title: str) -> None:
