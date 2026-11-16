@@ -76,3 +76,31 @@ lines.
 - To refine: sum `llm_call` log events (`tokens_in`/`tokens_out`, user `anon:canary-internal`) per
   day from Cloud Logging after a week of operation, and read the real TPD at
   https://console.groq.com/settings/limits.
+
+## Card-count suite added to the WS canary (2026-11-16)
+
+`canary.yml` now runs 3 core queries + 8 card-count checks (`scripts/ops/canary_card_checks.json`)
+= 11 turns per run, once a day, paced 30 s apart. Per-turn cost uses the MEASURED inputs above
+(2 calls, 3,262 tokens); arithmetic reproduced by a throwaway script (not committed).
+
+| Item | Calls/day | Tokens/day | Share of limit |
+|---|---|---|---|
+| Added by the 8 checks, nominal (8 turns x 2 calls x 3,262) | +16 | +26,096 | 1.6% of 1,000 RPD (VERIFIED limit), 13.0% of 200,000 TPD (UNVERIFIED limit) |
+| Added, pessimistic (every check an outfit turn, 6 calls x 1,343 tokens, ESTIMATE ceiling) | +48 | +64,464 | 4.8% RPD, 32.2% TPD |
+| Whole WS canary now (11 turns nominal) | 22 | 35,882 | 2.2% RPD, 17.9% TPD |
+| Scenario A (nominal stack) before -> after | 154 -> 170 | 101,136 -> 127,232 | TPD 50.6% -> 63.6%; real-user headroom 30 -> 22 conversations/day |
+| Scenario D (cap-bound worst) before (12 WS queries) -> after (cap 33) | 252 -> 294 | 254,850 -> 323,352 | already over 100% TPD before (127.4%), 161.7% after |
+
+- Per minute: turns are 30 s apart, so at most 2 turns/min = 6,524 tokens against the VERIFIED
+  8,000 TPM. Back-to-back (about 8 s per turn, not measured here) would be about 24K TPM, which is
+  why the pacing exists. A real chat in the same minute can still push a minute over the limit.
+- Cap: `DAILY_QUERY_CAP` 12 -> 33 queries (3 runs/day: the scheduled run plus 2 re-runs); a forced
+  run may add one more run (44). The cap is enforced in `scripts/ops/canary.py`
+  (`would_exceed_cap`, via the workflow-runs API) before any query is sent.
+- Demo per-IP limit (35/hour, VERIFIED in `api/demo/guards.py`, one count per WS connection):
+  11 per run, 33 for three runs even if all land on one runner IP inside one hour. A 429 is
+  `capped`, not a failure.
+- Time: 11 x (turn + 30 s) is about 7 min nominal; the script stops starting queries after
+  1,080 s (recorded as failures, fail closed) and the job timeout is 25 min.
+- A correction to the planning estimate: 8 turns x 3.4K tokens is about 27K tokens/day, not 54K
+  (54K is 16 calls x 3.4K, which counts the per-turn token figure once per call).
