@@ -203,6 +203,10 @@ def test_gate_fails_below_0_4_and_prints_the_confusion_table() -> None:
 
 def test_gate_fails_closed_on_undefined_kappa_and_on_a_single_judge() -> None:
     assert not rl.kappa_gate({"a": _labels(), "b": _labels(const=True)})[0]
+    # both judges constant: kappa is NaN (chance agreement is total), and NaN < 0.4 is False,
+    # so only the explicit isnan check stops it
+    ok, msg = rl.kappa_gate({"a": _labels(const=True), "b": _labels(const=True)})
+    assert not ok and "FAILED" in msg and "nan" in msg.lower()
     assert not rl.kappa_gate({"a": _labels()})[0]
 
 
