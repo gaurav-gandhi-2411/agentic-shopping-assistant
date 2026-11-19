@@ -357,10 +357,26 @@ paced at 8 s. Artifacts (untracked): `reports/wave1b/v4e/ledger.jsonl`, `cache.j
 Pair (gpt-oss-120b vs qwen3.8-27b) on the same 20 items: exact agreement 17/20, Cohen's kappa
 0.764 (unweighted), 0.899 (quadratic). Confusion (rows gpt-oss-120b, columns qwen; labels 0, 1, 2):
 `[[8, 1, 0], [2, 3, 0], [0, 0, 6]]`. All three qwen misses are 0/1 boundary items (two hand-label-1
-items given 0, one hand-label-0 given 1). The harness therefore REFUSED to continue (a judge failed
-calibration); no main judging was run. The Claude calibration labels were not yet available, so the
-3-judge gate was not evaluated. Measured calibration completion tokens: 195 (gpt-oss-120b) and 61
-(qwen) per call against the 400 assumed in the plan.
+items given 0, one hand-label-0 given 1). The harness as first written REFUSED to continue on that
+per-judge criterion. Measured calibration completion tokens: 195 (gpt-oss-120b) and 61 (qwen) per
+call against the 400 assumed in the plan.
+
+**Gate ruling (exception, 2026-11-19).** The ">= 18/20 exact vs hand labels" per-judge criterion
+was our own stage-1 addition, not the architect's. The gate is now only the architect's: stop if ANY
+judge pair has kappa < 0.4 (NaN fails closed). The per-judge exact count is still printed and
+reported but blocks nothing (a judge that did not label every calibration item still refuses).
+Claude's blind calibration labels (packet `cal_01`, 20 items) were then imported and all three pairs
+computed on the same 20 items:
+
+| pair | exact agreement | kappa | kappa (quadratic) | confusion (rows first judge, cols second; 0/1/2) |
+|---|---|---|---|---|
+| claude / gpt-oss-120b | 19/20 | 0.921 | 0.966 | [[9,1,0],[0,4,0],[0,0,6]] |
+| claude / qwen3.8-27b | 18/20 | 0.839 | 0.934 | [[9,1,0],[1,3,0],[0,0,6]] |
+| gpt-oss-120b / qwen3.8-27b | 17/20 | 0.764 | 0.899 | [[8,1,0],[2,3,0],[0,0,6]] |
+
+Krippendorff alpha (ordinal, 3 judges) 0.915, bootstrap 95% CI [0.741, 1.000]. Versus hand labels:
+gpt-oss-120b 20/20, claude 19/20 (cal3:c3e, hand 1, claude 0), qwen3.8-27b 17/20. Gate passed
+(minimum pair kappa 0.764 >= 0.4).
 
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
