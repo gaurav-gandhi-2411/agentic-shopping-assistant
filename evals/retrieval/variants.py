@@ -1,7 +1,9 @@
-"""The three reranking variants compared on the same 20-candidate pools.
+"""The four reranking variants compared on the same 20-candidate pools.
 
 A  current production reranker: the REAL `src.agents.reranker.rerank` (production prompt, 150
    max_tokens, production parser and fallbacks) behind an injectable, recording LLM.
+A2 variant A with the truncation fixed: same prompt/parser/fallbacks, cap A2_MAX_TOKENS (600),
+   finish_reason == "length" never trusted (explicit retrieval-order fallback, counted).
 B  no reranker: hybrid RRF order, i.e. the candidate order itself.
 C  compact reranker: candidates numbered 1..N (never long article ids), one short line each,
    JSON-free comma-separated answer, a cap sized so a normal answer cannot truncate, and a
@@ -14,14 +16,22 @@ the pool is already deduped by the retriever, and those steps are variant-indepe
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Sequence, cast
 
 from src.agents.reranker import _parse_selected, rerank
 
+logger = logging.getLogger(__name__)
+
 TOP_K = 5
 A_MAX_TOKENS = 150  # hard-coded in src/agents/reranker.py::rerank; asserted against in tests
+# A2: gpt-oss-20b at reasoning_effort low used 96-148 hidden reasoning tokens in the logged prod
+# calls (reports/wave1b/v4-token-breakdown.md) and the visible JSON answer is ~60 tokens, so the
+# worst observed total is ~210. 600 leaves ~2.8x headroom over that; the A2 run still asserts
+# finish_reason is never "length" and counts any hit (see assert_no_length_hits).
+A2_MAX_TOKENS = 600
 # C: visible output is 8 numbers (~3 tokens each incl. separators, so ~24-30 tokens). gpt-oss
 # reasoning tokens count against max_tokens even at low effort (prod's 150-token JSON answers hit
 # the 150 cap in 8/15 logged calls), so the cap carries ~150 tokens of reasoning slack. Stage 2
@@ -74,14 +84,77 @@ def _outcome(call: Mapping[str, Any] | None, n: int) -> str:
     return "partial" if len(parsed) < TOP_K else "ok"
 
 
+class CapOverrideLLM:
+    """Forces `max_tokens` on every call of a wrapped client.
+
+    `rerank()` hard-codes max_tokens=150, so variant A2 (same prompt, same parser, same
+    fallbacks, larger cap) overrides the cap here instead of forking the production function."""
+
+    def __init__(self, inner: SupportsGenerate, max_tokens: int) -> None:
+        self.inner, self.max_tokens = inner, max_tokens
+
+    def generate(self, prompt: str, system: str | None = None, **kwargs: Any) -> str:
+        kwargs["max_tokens"] = self.max_tokens
+        return self.inner.generate(prompt, system=system, **kwargs)
+
+
 def run_variant_a(
     query: str,
     items: list[dict[str, Any]],
     llm: SupportsGenerate,
 ) -> dict[str, Any]:
     """Variant A: production `rerank()` on `items`; returns the shown top-5 and call telemetry."""
+    return _run_production_rerank("A", query, items, llm, None)
+
+
+def run_variant_a2(
+    query: str,
+    items: list[dict[str, Any]],
+    llm: SupportsGenerate,
+) -> dict[str, Any]:
+    """Variant A2: production `rerank()` with the truncation fixed (cap A2_MAX_TOKENS).
+
+    Everything else is variant A: production system prompt, candidate block, parser, partial
+    top-up and colour-diversity swap; reasoning_effort stays low (set by the live adapter).
+    Contract: a call that still ends with finish_reason == "length" is NEVER trusted: the turn
+    falls back EXPLICITLY to retrieval order (variant B's cards), outcome "length_fallback" and
+    `length_hit` True, a warning is logged, and `assert_no_length_hits` fails the stage check.
+    """
+    row = _run_production_rerank("A2", query, items, llm, A2_MAX_TOKENS)
+    row["length_hit"] = bool(row["hit_cap"])
+    if row["length_hit"]:
+        logger.warning(
+            "[A2] finish_reason=length at cap %s for %r: explicit fallback to retrieval order",
+            A2_MAX_TOKENS,
+            query,
+        )
+        row["final_ids"] = [it["article_id"] for it in items[:TOP_K]]
+        row["outcome"] = "length_fallback"
+    return row
+
+
+def assert_no_length_hits(rows: Sequence[Mapping[str, Any]]) -> None:
+    """A2's sizing check: the cap must be large enough that finish_reason is never 'length'.
+
+    Raises AssertionError naming the offending queries (the stage reports it, never hides it)."""
+    bad = [f"{r.get('query_id', '?')}#{r.get('rep', 1)}" for r in rows if r.get("length_hit")]
+    assert not bad, (
+        f"A2 hit its {A2_MAX_TOKENS}-token cap (finish_reason=length) on {len(bad)} call(s): "
+        f"{bad}; raise A2_MAX_TOKENS from the measured completion_tokens and rerun those queries"
+    )
+
+
+def _run_production_rerank(
+    variant: str,
+    query: str,
+    items: list[dict[str, Any]],
+    llm: SupportsGenerate,
+    cap: int | None,
+) -> dict[str, Any]:
     rec = RecordingLLM(llm)
-    shown = rerank(query, items, cast(Any, rec), top_k=TOP_K)  # rec duck-types LLMClient.generate
+    # the cap override sits OUTSIDE the recorder so the recorded kwargs show the cap actually sent
+    front: SupportsGenerate = rec if cap is None else CapOverrideLLM(rec, cap)
+    shown = rerank(query, items, cast(Any, front), top_k=TOP_K)  # duck-types LLMClient.generate
     call = rec.calls[0] if rec.calls else None
     meta = (call or {}).get("meta", {})
     usage = meta.get("usage") or {}
@@ -92,7 +165,7 @@ def run_variant_a(
         or (comp is not None and max_tokens is not None and comp >= max_tokens)
     )
     return {
-        "variant": "A",
+        "variant": variant,
         "final_ids": [it["article_id"] for it in shown],
         "raw_output": (call or {}).get("output"),
         "outcome": _outcome(call, len(items)),
