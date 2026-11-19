@@ -12,7 +12,10 @@ candidate pools:
 
 Two factors are run on the best two arms (highest nDCG@5 point estimate): **F1** single-garment sets
 demoted vs not (ethnic-wear queries), **F2** gender-unspecified queries, current order vs
-gender-interleaved. A and A2 are also run 3x per query to measure **card-count stability**.
+gender-interleaved. A and A2 are also run twice per query (N = 2: rep 1 plus one repeat) to
+measure **card-count stability**. The A/A2/B/C comparison runs on candidate pools **regenerated on
+current master** (`candidates_master/`, see "Candidates"); the pre-#129 frozen pools are judged and
+serve as the "sets not demoted" arm of F1.
 
 Metrics: nDCG@5 and precision@5 on the 5 cards the user would see (precision at labels >= 1,
 >= 1.5 and >= 2), bootstrap 95% CIs (10,000 resamples over queries, seed 42), paired differences
@@ -20,8 +23,9 @@ Metrics: nDCG@5 and precision@5 on the 5 cards the user would see (precision at 
 p50/p95, the rate of `finish_reason = length`, the parse-failure / fallback rate, and how often
 card counts differ between repeats.
 
-Stage 2 (not run yet) also contains a consensus relabelling of strict-gold labels, see "Consensus
-relabel" below. **No live LLM call has been made by any code in this directory.**
+Stage 2 also contains a consensus relabelling of strict-gold labels, see "Consensus
+relabel" below. **Live calls so far: stage-2 day 1, calibration only (8 Groq calls), see "Stage 2
+log".** Nothing else has been run live.
 
 ## Label provenance (read this before quoting any number)
 
@@ -72,7 +76,7 @@ under ₹1000" (same stratum: mehendi, gender-neutral, plain English, <= 1000) t
 `tests/test_retrieval_eval_fixture_overlap.py` fails if any fixture equals a strict-gold query up to
 budget and stopwords (it would have caught the old q15; the other 59 pass).
 
-## Candidates (`candidates/q*.json`, 0.92 MB, committed)
+## Candidates (`candidates/q*.json` frozen, `candidates_master/q*.json` regenerated; ~1 MB each, committed)
 
 `candidates.py` drives the real compiled LangGraph agent (intent parsing, filters, hybrid RRF with
 the gender/colour/price pushdown, kids/fabric exclusion, store diversity, per-store cap) and
@@ -95,9 +99,26 @@ before it (#129). Regenerating all 60 cases on the merged master with the same i
 sha256 `f5608c38...`, same as the provenance in `_summary.json`) into a scratch dir and comparing
 article-id sequences: 43 of 60 pools are identical, 17 differ (q01 q07 q08 q16 q18 q22 q27 q28 q29
 q30 q33 q34 q42 q43 q47 q53 q58): in every one the new pool is a subset of the frozen pool
-(sets removed, or demoted/reordered), never a new item. The frozen pools are therefore the "sets
-not demoted" pools; **the main A/A2/B/C comparison runs on them as frozen**, and F1 re-runs the two
-best arms on the demoted pools to measure exactly this change. `candidates --only qNN` refreshes
+(sets removed, or demoted/reordered), never a new item.
+
+**Arrangement (decided after that measurement): both sets are kept.**
+
+| directory | what | used for |
+|---|---|---|
+| `candidates_master/` (60 files) | regenerated on master after #129 (sets demoted before rerank): 43 identical, 17 differ | the main A / A2 / B / C comparison (`--pools`, the default when it exists), F2, and the treated arm of F1 |
+| `candidates/` (60 files, frozen at 4b4fb4e) | pre-#129 pools; a superset of the regenerated ones | judging (every judge labels these, so every item either set can show has a label and the nDCG ideal comes from the full frozen pool) and the F1 "sets not demoted" arm |
+
+`--cand` stays the frozen dir (judge, packets, plan prompts for the judges); `--pools` points the
+reranker arms elsewhere. With a single directory (`--cand` set to anything else and no `--pools`)
+both roles use it, which is how the mock tests run. F1 then compares the main run on the
+regenerated pool (treated) with a re-run of the same arm on the frozen pool (base), only for the
+flagged queries whose two pools differ (q01 q07 q16 q27 q28 q43 of the 8); the factors stage
+raises if any pool item has no judge label. Regenerate with
+`python -m evals.retrieval.run --stage candidates --index-dir <index> --cand evals/retrieval/candidates_master`;
+a full run writes `candidates_master/_summary.json` with provenance (code commit, catalogue
+sha256 `f5608c38...`, config, store restriction) and `compared_to_frozen` (the 17 differing ids and
+`new_items_vs_frozen`, empty at generation: no new item). The frozen `_summary.json` is never
+rewritten. `candidates --only qNN` refreshes
 single cases (used for q15) without touching the others; regenerating q02, q12, q14, q24 on master
 reproduced the frozen files id-for-id and order-for-order. `public_stores.json` equals the 38
 `public_stores()` of the merged store registry (checked), so it no longer needs replacing.
@@ -152,9 +173,12 @@ number for those queries.
   {kurta, kurti, anarkali, anarkali gown, lehenga, saree, sherwani, bandhgala} (no "set", no generic
   "outfit"): the queries where production's single-garment gate actually fires. 8 queries (q01 q02
   q07 q13 q16 q27 q28 q43): small n, so the F1 CI will be wide and the result exploratory. The
-  treated arm re-runs the variant on production's `_prefer_single_garment_pool(items, 5)` applied to
-  the frozen top-20 (stable partition, singles first; >= 5 singles means sets are dropped from the
-  pool, otherwise demoted behind the singles). **Pool-membership changes are judged** with the
+  treated arm is the main run on the master-regenerated pool (production's
+  `_prefer_single_garment_pool(items, 5)` already applied before rerank by #129: singles first;
+  >= 5 singles means sets are dropped from the pool, otherwise demoted behind the singles); the
+  base arm re-runs the variant on the frozen pool ("sets not demoted"), only where the two differ
+  (6 of the 8). With a single pool directory (no regenerated pools) the treated arm is synthesised
+  with `demote_sets` on the frozen pool instead. **Pool-membership changes are judged** with the
   labels every candidate already has (one judging pass over the frozen 20 serves all arms) and an
   nDCG ideal taken from the FULL frozen pool in BOTH arms, so dropping sets can never shrink the
   ideal and flatter the arm; the cost is reported beside it (`pool_loss`: items removed and how many
@@ -166,9 +190,10 @@ number for those queries.
 - An arm is only called when the treatment changes the pool/order; an unchanged pool reuses the
   rep-1 row (`reused`), so no token is spent on a no-op.
 
-### Stability (N = 3)
+### Stability (N = 2)
 
-A and A2 run 3 times per query (`--reps 3`, rep-major: rep 1 of every arm finishes first). Repeats
+A and A2 run twice per query (`--reps`, default `DEFAULT_REPS = 2`: rep 1 plus one repeat; cut
+from 3 by the architect; rep-major: rep 1 of every arm finishes first). Repeats
 are separate cache entries (`rerank-20b-<arm>-r<k>`), so they are real calls; the payload (temperature
 0, seed 42) is identical, so any difference is provider-side variance (hidden reasoning). The report
 gives, per arm: how many queries show different card counts across repeats (after the post-rerank
@@ -207,7 +232,7 @@ python -m evals.retrieval.run --stage candidates --index-dir <copy of data/proce
 python -m evals.retrieval.run --stage plan
 # dry run of everything, no network
 python -m evals.retrieval.run --stage judge    --mock --out <scratch>
-python -m evals.retrieval.run --stage variants --mock --out <scratch>   # A A2 B C, --reps 3
+python -m evals.retrieval.run --stage variants --mock --out <scratch>   # A A2 B C, --reps 2 (default)
 python -m evals.retrieval.run --stage factors  --mock --out <scratch>   # F1 / F2 on the top two
 python -m evals.retrieval.run --stage report   --out <scratch>
 # Claude judge (done by the orchestrator, no LLM call from this harness)
@@ -266,8 +291,8 @@ candidates (smaller pools skip the reranker).
 |---|---|
 | judge (rubric + 20 candidates), 57 calls | 1,773 |
 | calibration judge call (5 candidates), 4 calls | 764 |
-| A / A2 production reranker (system + user), 53 calls | 1,852 |
-| C compact reranker (system + user), 53 calls | 523 |
+| A / A2 production reranker (system + user), 53 calls, master pools | 1,795 |
+| C compact reranker (system + user), 53 calls, master pools | 501 |
 | relabel chunk (rubric + ~25 items), 8 calls | 4,123 / 4,453 / 4,466 / 4,043 / 4,142 / 4,206 / 4,284 / 2,093 |
 
 **Batching.** Judge: one call per query (all 20 candidates). Relabel: whole queries packed into
@@ -280,7 +305,7 @@ pools that actually change (upper bound 20 queries x 2 arms = 40 calls).
 |---|---|---|---|---|
 | gpt-oss-120b | calibration 4.7K + 57 judge calls 123.9K + relabel 39.0K + caching probe 6.0K | 173.5K | 150K | 2 |
 | qwen3.8-27b | calibration 4.7K + 57 judge calls 123.9K + relabel 39.0K | 167.5K | 150K | 2 |
-| gpt-oss-20b | A x3 318.3K + A2 x3 334.2K + C 33.0K + factors <= 84.1K + probe 6.0K | 775.6K | 100K | 8 (4 with one rep instead of three) |
+| gpt-oss-20b | A x2 206.2K + A2 x2 216.8K + C 31.9K + factors <= 81.8K + probe 5.8K | 542.5K | 100K | 6 (4 with one rep instead of two) |
 
 Day by day, per Groq judge model (`schedule_per_judge_model` in `plan.json`; the worst-case
 pre-check, prompt + 1,500, decides where each day stops):
@@ -295,26 +320,47 @@ judging, and repeats come last so the main comparison finishes first):
 
 | day | work | calls | tokens |
 |---|---|---|---|
-| 1 | A rep 1 (49) | 49 | 98.1K |
-| 2 | A rep 1 (4), A2 rep 1 (43) | 47 | 98.4K |
-| 3 | A2 rep 1 (10), C (53), F1/F2 (21) | 84 | 98.2K |
-| 4 | F1/F2 (19), A rep 2 (29) | 48 | 98.0K |
-| 5 | A rep 2 (24), A2 rep 2 (24) | 48 | 98.5K |
-| 6 | A2 rep 2 (29), A rep 3 (19) | 48 | 99.0K |
-| 7 | A rep 3 (34), A2 rep 3 (15) | 49 | 99.6K |
-| 8 | A2 rep 3 (38) | 38 | 79.9K |
+| 1 | A rep 1 (51) | 51 | 99.2K |
+| 2 | A rep 1 (2), A2 rep 1 (46) | 48 | 98.0K |
+| 3 | A2 rep 1 (7), C (53), F1/F2 (26) | 86 | 99.4K |
+| 4 | F1/F2 (14), A rep 2 (36) | 50 | 98.7K |
+| 5 | A rep 2 (17), A2 rep 2 (32) | 49 | 98.5K |
+| 6 | A2 rep 2 (21) | 21 | 42.9K |
 
-So the full design takes **8 days on the reranker model** (the two judge models and the relabel fit in
-2 days and run in parallel with it). The main A/A2/B/C comparison is complete after day 3; the
-stability repeats (N = 3, as briefed) are what stretch it to 8. Options if that is too slow, not
-taken here: N = 2 repeats (about 6 days), or run A / A2 repeats on a subset of queries.
+(`python -m evals.retrieval.run --stage plan` at this commit, N = 2, master-regenerated pools;
+the F1/F2 count is the upper bound, 40 calls, of which only the changed pools are really made:
+F1 at most 6 queries x 2 arms, F2 at most 12 x 2.)
+
+So the design takes **6 days on the reranker model** (the two judge models and the relabel fit in
+2 days and run in parallel with it). The main A/A2/B/C comparison is complete after day 3 (A on
+days 1-2, A2 on days 2-3, C on day 3); factors finish on day 4; the stability repeat (N = 2, cut
+from 3 by the architect, which took the plan from 8 days to 6) fills days 4-6.
 
 Wall clock under the global 1 request / 8 s: judges 138 requests across both models = 0.31 h
-at the spacing alone; reranker arms 411 requests = 0.91 h. The 8K TPM limit binds instead: a ~2.2K
+at the spacing alone; reranker arms 305 requests = 0.68 h. The 8K TPM limit binds instead: a ~2.2K
 token judge call or ~2.0K reranker call allows ~4 calls per minute, a ~5K relabel call ~1-2 per
 minute, so a full day on one model is roughly 15-30 minutes of wall clock (estimate, not measured). The caching probe
 (3 calls on each of gpt-oss-20b and gpt-oss-120b, 6 total, verdict from `cached_tokens` and the
 TPM-header deltas, refill-corrected) should run before the stage-2 prompt design.
+
+## Stage 2 log
+
+**Day 1 (2026-11-19), calibration only.** `run --stage judge --live` at branch head 2959305 (judge
+path unchanged by later commits), 8 live calls (4 calibration prompts x 2 Groq judges), 0 x 429,
+paced at 8 s. Artifacts (untracked): `reports/wave1b/v4e/ledger.jsonl`, `cache.jsonl`.
+
+| judge | exact vs hand labels (n = 20) | off by two | tokens used (4 calls) | of 150K/day |
+|---|---|---|---|---|
+| gpt-oss-120b | 20/20 | 0 | 3,706 (prompt 2,927, completion 779, reasoning 539) | 2.5% |
+| qwen3.8-27b | **17/20 (fails the >= 18 criterion)** | 0 | 3,153 (prompt 2,910, completion 243, reasoning 0) | 2.1% |
+
+Pair (gpt-oss-120b vs qwen3.8-27b) on the same 20 items: exact agreement 17/20, Cohen's kappa
+0.764 (unweighted), 0.899 (quadratic). Confusion (rows gpt-oss-120b, columns qwen; labels 0, 1, 2):
+`[[8, 1, 0], [2, 3, 0], [0, 0, 6]]`. All three qwen misses are 0/1 boundary items (two hand-label-1
+items given 0, one hand-label-0 given 1). The harness therefore REFUSED to continue (a judge failed
+calibration); no main judging was run. The Claude calibration labels were not yet available, so the
+3-judge gate was not evaluated. Measured calibration completion tokens: 195 (gpt-oss-120b) and 61
+(qwen) per call against the 400 assumed in the plan.
 
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
@@ -376,7 +422,8 @@ The labels are LLM-consensus labels, not human ground truth: the proposal is for
 evals/retrieval/
   make_queries.py     generator for the 60 fixtures (seed 42)       fixtures: evals/fixtures/retrieval/
   public_stores.json  the 38 public stores (equal to the merged store registry's public set)
-  candidates.py       candidate generation (real agent, rerank captured; --only)   candidates/  (frozen output)
+  candidates.py       candidate generation (real agent, rerank captured; --only)   candidates/  (frozen output),
+                      candidates_master/ (regenerated on master, main-comparison pools, _summary.json provenance)
   rubric.md           grading rubric = judge system prompt
   scrub.py            store-name scrub for judge-visible text + leak-rate measurement
   judge.py            prompt builder, label parser, calibration set
