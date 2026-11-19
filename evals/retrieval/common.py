@@ -10,7 +10,9 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 FIXTURE_DIR = REPO / "evals" / "fixtures" / "retrieval"
-CANDIDATE_DIR = HERE / "candidates"
+CANDIDATE_DIR = HERE / "candidates"  # frozen at 4b4fb4e: judged pools, F1 "sets not demoted" arm
+# Pools regenerated on current master (#129 demotes sets before rerank): the main A/A2/B/C pools.
+MASTER_CANDIDATE_DIR = HERE / "candidates_master"
 RUN_DIR = REPO / "reports" / "wave1b" / "v4e"  # untracked outputs (labels, ledgers, packets)
 PUBLIC_STORES_PATH = HERE / "public_stores.json"
 SEED = 42
@@ -52,6 +54,19 @@ def count_tokens(text: str) -> int:
 def sha(text: str) -> str:
     """Short stable hash used for prompt-cache keys."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def resolve_pools_dir(cand_dir: Path, pools: str | None) -> Path:
+    """Directory of the pools the variants run on.
+
+    Explicit `--pools` wins. Otherwise, when `cand_dir` is the default frozen directory and the
+    master-regenerated pools exist, those are the main-comparison pools; any other `--cand`
+    (a test or scratch dir) is its own pool, so a single-directory run keeps working."""
+    if pools:
+        return Path(pools)
+    if cand_dir == CANDIDATE_DIR and MASTER_CANDIDATE_DIR.exists():
+        return MASTER_CANDIDATE_DIR
+    return cand_dir
 
 
 def load_candidates(case_id: str, cand_dir: Path = CANDIDATE_DIR) -> dict[str, Any]:

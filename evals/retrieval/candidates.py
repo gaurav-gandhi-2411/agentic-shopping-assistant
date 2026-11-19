@@ -236,6 +236,47 @@ def generate(
     return records
 
 
+def compare_pools(frozen_dir: Path, new_dir: Path) -> dict[str, Any]:
+    """Article-id sequence comparison of every case present in both pool directories.
+
+    `differing` lists the cases whose id sequence changed; `new_items` the (case -> ids) found in
+    the new pool but not the frozen one (expected empty: #129 only demotes or removes sets)."""
+    identical, differing, new_items = [], [], {}
+    for p in sorted(new_dir.glob("q*.json")):
+        old = frozen_dir / p.name
+        if not old.exists():
+            continue
+        a = [it["article_id"] for it in json.loads(old.read_text(encoding="utf-8"))["items"]]
+        b = [it["article_id"] for it in json.loads(p.read_text(encoding="utf-8"))["items"]]
+        if a == b:
+            identical.append(p.stem)
+            continue
+        differing.append(p.stem)
+        extra = [x for x in b if x not in set(a)]
+        if extra:
+            new_items[p.stem] = extra
+    return {
+        "frozen_dir": frozen_dir.name,
+        "n_identical": len(identical),
+        "differing": differing,
+        "new_items_vs_frozen": new_items,
+    }
+
+
+def summary_with_provenance(
+    records: list[dict[str, Any]],
+    provenance: dict[str, Any],
+    comparison: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The `_summary.json` content of a regenerated pool directory: counts + provenance, and how
+    the pools differ from the frozen set (the F1 'sets not demoted' arm)."""
+    out = summarize(records)
+    out["provenance"] = provenance
+    if comparison is not None:
+        out["compared_to_frozen"] = comparison
+    return out
+
+
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Per-case candidate counts, route counts and the store distribution of all candidates."""
     from collections import Counter

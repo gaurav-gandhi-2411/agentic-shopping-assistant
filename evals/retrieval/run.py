@@ -38,6 +38,7 @@ from evals.retrieval.common import (
     count_tokens,
     load_candidates,
     load_cases,
+    resolve_pools_dir,
     sha,
 )
 from evals.retrieval.factors import (
@@ -351,11 +352,11 @@ def _run_arm(
 
 
 def stage_variants(args: argparse.Namespace) -> int:
-    """A, A2, B, C on the frozen pools. A and A2 run `--reps` times per query (stability); the
+    """A, A2, B, C on the pools regenerated on master (`--pools`). A and A2 run `--reps` times per query (stability); the
     order is rep-major so rep 1 of every arm finishes first (the main comparison needs only
     that; later reps can wait for the next day's token budget)."""
     out_dir = Path(args.out)
-    cand = Path(args.cand)
+    cand = resolve_pools_dir(Path(args.cand), args.pools)  # master-regenerated pools
     cases = usable_cases(args.limit, cand)
     llms = _make_llms(args, out_dir)
     results: dict[str, list[dict[str, Any]]] = {"A": [], "A2": [], "B": [], "C": []}
@@ -396,7 +397,8 @@ def stage_factors(args: argparse.Namespace) -> int:
 
     Needs labels and variants.json. Calls are only made for queries whose pool actually changes
     under the treatment (an unchanged pool reuses the rep-1 row)."""
-    out_dir, cand = Path(args.out), Path(args.cand)
+    out_dir, cand = Path(args.out), Path(args.cand)  # cand = frozen pools (judged superset)
+    pools_dir = resolve_pools_dir(cand, args.pools)
     variants = json.loads((out_dir / "variants.json").read_text())
     _, agg = _load_aggregate(out_dir, ["gpt-oss-120b", "qwen3.8-27b", "claude"])
     if not agg:
@@ -420,19 +422,33 @@ def stage_factors(args: argparse.Namespace) -> int:
             base_rows, treated_rows = [], []
             loss = {"n_before": 0, "n_after": 0, "n_removed": 0, "n_removed_relevant": 0}
             for c in flagged:
-                pool = _pool_for(c, cand)
-                new_pool = transform(pool)
-                base = rep1[v][c["id"]]
-                if [it["article_id"] for it in new_pool] == [it["article_id"] for it in pool]:
-                    treated = {**base, "reused": True}
-                else:
-                    treated = _with_cards(_run_arm(v, c, new_pool, llms.get(v), 1), c, new_pool)
-                    treated["reused"] = False
+                pool = _pool_for(c, pools_dir)  # what the main comparison (rep 1) ran on
+                base_pool, new_pool = pool, transform(pool)
+                if factor == "F1" and pools_dir != cand:
+                    # Regenerated pools already carry #129 (sets demoted before rerank): the
+                    # treated arm is the main run, the "sets not demoted" arm is the frozen pool.
+                    base_pool, new_pool = _pool_for(c, cand), pool
+                lab = {a: x["label"] for a, x in _pool_labels_for(agg, c["id"]).items()}
+                unlabelled = {str(it["article_id"]) for it in base_pool + new_pool} - set(lab)
+                if unlabelled:
+                    raise RuntimeError(
+                        f"{c['id']}: {len(unlabelled)} pool items have no judge label "
+                        f"(judge the frozen pool, a superset of the regenerated one): "
+                        f"{sorted(unlabelled)[:3]}"
+                    )
+                main_ids = [it["article_id"] for it in pool]
+                arm_rows = []
+                for arm_pool in (base_pool, new_pool):
+                    if [it["article_id"] for it in arm_pool] == main_ids:
+                        arm_rows.append({**rep1[v][c["id"]], "reused": True})
+                    else:
+                        row = _with_cards(_run_arm(v, c, arm_pool, llms.get(v), 1), c, arm_pool)
+                        arm_rows.append({**row, "reused": False})
+                base, treated = arm_rows
                 if factor == "F1":
-                    lab = {a: x["label"] for a, x in _pool_labels_for(agg, c["id"]).items()}
-                    for k, val in pool_loss(pool, new_pool, lab).items():
+                    for k, val in pool_loss(base_pool, new_pool, lab).items():
                         loss[k] += val
-                    for r, p in ((base, pool), (treated, new_pool)):
+                    for r, p in ((base, base_pool), (treated, new_pool)):
                         by_id = {str(it["article_id"]): it for it in p}
                         r["n_sets_shown"] = sum(
                             1 for a in r["final_ids"] if a in by_id and _is_set_item(by_id[a])
@@ -649,12 +665,14 @@ def stage_plan(args: argparse.Namespace) -> int:
     from src.agents.reranker import _SYSTEM, _format_candidates
 
     cases = usable_cases(args.limit, Path(args.cand))
-    pools = [load_candidates(c["id"], Path(args.cand))["items"] for c in cases]
+    pools = [load_candidates(c["id"], Path(args.cand))["items"] for c in cases]  # judged: frozen
     jt = [
         count_tokens(p.system + p.user)
         for p in (build_judge_prompt(c, it, SEED) for c, it in zip(cases, pools, strict=True))
     ]
-    big = [(c, it) for c, it in zip(cases, pools, strict=True) if len(it) > 5]
+    rr_dir = resolve_pools_dir(Path(args.cand), args.pools)  # reranker arms: regenerated pools
+    rr_pools = [load_candidates(c["id"], rr_dir)["items"] for c in cases]
+    big = [(c, it) for c, it in zip(cases, rr_pools, strict=True) if len(it) > 5]
     ct = [sum(count_tokens(x) for x in build_compact_prompt(c["text"], it)) for c, it in big]
     at = [
         count_tokens(_SYSTEM)
@@ -676,6 +694,30 @@ def stage_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def candidate_provenance(index_dir: Path, config_path: Path, public_only: bool) -> dict[str, Any]:
+    """Provenance of a regenerated pool directory: code commit, catalogue hash, config, scope."""
+    import hashlib
+    import subprocess
+
+    head = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    cat = index_dir / "catalogue.parquet"
+    digest = hashlib.sha256(cat.read_bytes()).hexdigest() if cat.exists() else None
+    return {
+        "role": "main-comparison pools, regenerated on master after #129 (sets demoted before "
+        "rerank); the frozen candidates/ pools are the F1 'sets not demoted' arm",
+        "code_commit": head or "unknown",
+        "index": f"{index_dir.name} (read-only)",
+        "catalogue_parquet_sha256": digest,
+        "config": config_path.name,
+        "restriction": "public_stores.json pushed into BM25+FAISS fetch" if public_only else "none",
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
@@ -693,7 +735,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--resume", action="store_true", help="accepted for clarity; always resumes")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--out", default=str(RUN_DIR))
-    ap.add_argument("--cand", default=str(CANDIDATE_DIR))
+    ap.add_argument(
+        "--cand",
+        default=str(CANDIDATE_DIR),
+        help="frozen pools: judged by every judge, and the F1 'sets not demoted' arm",
+    )
+    ap.add_argument(
+        "--pools",
+        default=None,
+        help="pools the A/A2/B/C comparison runs on (default: candidates_master/ when --cand is "
+        "the default frozen dir and it exists, else --cand)",
+    )
     ap.add_argument("--index-dir", default=None)
     ap.add_argument("--config", default=str(REPO / "config.yaml"))
     ap.add_argument(
@@ -725,7 +777,20 @@ def main(argv: list[str] | None = None) -> int:
             args.sparse_only,
             set(args.only.split(",")) if args.only else None,
         )
-        print(json.dumps(candidates.summarize(recs), indent=1))
+        summary = candidates.summarize(recs)
+        out_cand = Path(args.cand)
+        if not args.only and not args.limit and out_cand.resolve() != CANDIDATE_DIR.resolve():
+            # A full regeneration into a directory other than the frozen one: record provenance
+            # and how it differs from the frozen pools (the frozen _summary.json is never touched).
+            summary = candidates.summary_with_provenance(
+                recs,
+                candidate_provenance(Path(args.index_dir), Path(args.config), not args.all_stores),
+                candidates.compare_pools(CANDIDATE_DIR, out_cand),
+            )
+            (out_cand / "_summary.json").write_text(
+                json.dumps(summary, indent=1, ensure_ascii=False), encoding="utf-8"
+            )
+        print(json.dumps(summary, indent=1))
         return 0
     stages = {
         "judge": stage_judge,
