@@ -506,8 +506,37 @@ def stage_report(args: argparse.Namespace) -> int:
 # Completion-token assumptions for the plan (visible output + hidden reasoning at low effort).
 # Judges: ~120 visible + reasoning; A: observed prod p50 144 of the 150 cap (v4 log analysis);
 # C: ~30 visible + reasoning. Stage 2 replaces these with ledger medians after the first calls.
-EST_COMPLETION = {"judge": 400, "calibration": 400, "A": 150, "C": 100}
+EST_COMPLETION = {"judge": 400, "calibration": 400, "A": 150, "A2": 250, "C": 100}
+# A2 completion: visible JSON ~60 tokens + hidden reasoning 96-148 measured in prod logs, +margin.
 TPM_LIMIT = 8_000  # Groq free tier per model (architect brief)
+F1_QUERIES, F2_QUERIES = (
+    8,
+    12,
+)  # flagged fixtures (factors.is_set_demotion_query / is_gender_unspecified)
+FACTOR_ARMS = 2  # factors run on the two best arms; both LLM arms is the upper bound
+
+
+def schedule(
+    tasks: list[tuple[str, int, float]], budget: int, per_call_cap: float | None = None
+) -> list[dict[str, Any]]:
+    """Greedy day-by-day packing of (name, n_calls, tokens_per_call) tasks, in order, under a
+    daily token budget. A call is never split across days; `per_call_cap` (the runner's worst-case
+    pre-check, prompt + completion cap) must also fit in the remaining day budget, which is how
+    the live run will actually stop. Returns [{"day", "tokens", "calls", "work": {name: calls}}]."""
+    days: list[dict[str, Any]] = []
+    cur: dict[str, Any] = {"day": 1, "tokens": 0.0, "calls": 0, "work": {}}
+    for name, n, each in tasks:
+        for _ in range(n):
+            need = max(each, per_call_cap or 0.0)
+            if cur["tokens"] + need > budget and cur["calls"]:
+                days.append(cur)
+                cur = {"day": cur["day"] + 1, "tokens": 0.0, "calls": 0, "work": {}}
+            cur["tokens"] += each
+            cur["calls"] += 1
+            cur["work"][name] = cur["work"].get(name, 0) + 1
+    if cur["calls"]:
+        days.append(cur)
+    return days
 
 
 def build_plan(
@@ -517,55 +546,101 @@ def build_plan(
     c_prompt: list[int],
     judge_budget: int = JUDGE_DAILY_TOKEN_BUDGET,
     rerank_budget: int = RERANKER_DAILY_TOKEN_BUDGET,
+    reps: int = 3,
+    relabel: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Per-model token totals, days needed under the daily budget, and TPM-bound minutes."""
+    """Per-model token totals, day-by-day schedules and wall-clock under the global 1 request /
+    8 s limit. `jt`/`cal` cover every query / calibration call; `a_prompt` and `c_prompt` only
+    the pools with more than 5 candidates (smaller pools skip the reranker). `relabel` is the
+    consensus-relabel plan (`relabel.plan`) or None (then NOT included)."""
     import math
 
     def mean(x: list[int]) -> float:
         return sum(x) / len(x)
 
-    n = len(jt)
+    n, n_llm = len(jt), len(a_prompt)
     judge_cal = len(cal) * (mean(cal) + EST_COMPLETION["calibration"])
-    judge_main = n * (mean(jt) + EST_COMPLETION["judge"])
-    judge_worst = n * (mean(jt) + JUDGE_MAX_TOKENS)
-    selfcons = 10 * (mean(jt) + EST_COMPLETION["judge"])
-    a_tok = n * (mean(a_prompt) + EST_COMPLETION["A"])
-    c_tok = n * (mean(c_prompt) + EST_COMPLETION["C"])
-    probe = 3 * (mean(a_prompt) + EST_COMPLETION["A"])
-    per_judge = judge_cal + judge_main
+    judge_each = mean(jt) + EST_COMPLETION["judge"]
+    a_each = mean(a_prompt) + EST_COMPLETION["A"]
+    a2_each = mean(a_prompt) + EST_COMPLETION["A2"]
+    c_each = mean(c_prompt) + EST_COMPLETION["C"]
+    probe = 3 * a_each
+    f_calls = (F1_QUERIES + F2_QUERIES) * FACTOR_ARMS  # upper bound: every pool changes
+    r_tok = relabel["expected_tokens_per_judge"] if relabel else 0
+    r_calls = relabel["n_calls_per_judge"] if relabel else 0
+    r_each = r_tok / r_calls if r_calls else 0
     plan: dict[str, Any] = {
         "n_queries_with_candidates": n,
+        "n_pools_over_5_candidates": n_llm,
+        "reps": reps,
         "mean_prompt_tokens": {
             "judge": mean(jt),
             "calibration": mean(cal),
-            "A": mean(a_prompt),
+            "A_A2": mean(a_prompt),
             "C": mean(c_prompt),
         },
+        "est_completion_tokens_ASSUMED": EST_COMPLETION,
+        "relabel_included": bool(relabel),
         "tokens": {
             "per_judge_calibration": judge_cal,
-            "per_judge_main_expected": judge_main,
-            "per_judge_main_worst_case_cap_hit_every_call": judge_worst,
-            "per_judge_selfconsistency_10q_optional": selfcons,
-            "A_all_queries": a_tok,
-            "C_all_queries": c_tok,
+            "per_judge_main_expected": n * judge_each,
+            "per_judge_main_worst_case_cap_hit_every_call": n * (mean(jt) + JUDGE_MAX_TOKENS),
+            "per_judge_relabel_expected": r_tok,
+            "A_all_reps": n_llm * reps * a_each,
+            "A2_all_reps": n_llm * reps * a2_each,
+            "C_one_rep": n_llm * c_each,
+            "factors_upper_bound": f_calls * a2_each,
             "caching_probe_per_model": probe,
         },
-        "per_model": {
-            "gpt-oss-120b (judge+probe)": per_judge + probe,
-            "qwen3.8-27b (judge)": per_judge,
-            "gpt-oss-20b (A+C)": a_tok + c_tok + probe,
-        },
-        "budgets": {"judge": judge_budget, "rerank_model": rerank_budget},
     }
+    plan["per_model"] = {
+        "gpt-oss-120b (judge + relabel + probe)": judge_cal + n * judge_each + r_tok + probe,
+        "qwen3.8-27b (judge + relabel)": judge_cal + n * judge_each + r_tok,
+        "gpt-oss-20b (A, A2, C, factors, probe)": (
+            plan["tokens"]["A_all_reps"]
+            + plan["tokens"]["A2_all_reps"]
+            + plan["tokens"]["C_one_rep"]
+            + plan["tokens"]["factors_upper_bound"]
+            + probe
+        ),
+    }
+    judge_tasks: list[tuple[str, int, float]] = [
+        ("calibration", len(cal), judge_cal / len(cal)),
+        ("relabel_chunks", r_calls, r_each),
+        ("judge_queries", n, judge_each),
+    ]
+    rerank_tasks: list[tuple[str, int, float]] = [
+        ("A_rep1", n_llm, a_each),
+        ("A2_rep1", n_llm, a2_each),
+        ("C_rep1", n_llm, c_each),
+        ("factors", f_calls, a2_each),
+    ] + [
+        (f"{arm}_rep{r}", n_llm, e)
+        for r in range(2, reps + 1)
+        for arm, e in (("A", a_each), ("A2", a2_each))
+    ]
+    plan["schedule_per_judge_model"] = schedule(
+        judge_tasks, judge_budget, JUDGE_MAX_TOKENS + mean(jt)
+    )
+    plan["schedule_gpt_oss_20b"] = schedule(rerank_tasks, rerank_budget, 600 + mean(a_prompt))
     plan["days"] = {
-        "gpt-oss-120b": math.ceil(plan["per_model"]["gpt-oss-120b (judge+probe)"] / judge_budget),
-        "qwen3.8-27b": math.ceil(plan["per_model"]["qwen3.8-27b (judge)"] / judge_budget),
-        "gpt-oss-120b_worst_case": math.ceil((judge_worst + judge_cal + probe) / judge_budget),
-        "gpt-oss-20b": math.ceil(plan["per_model"]["gpt-oss-20b (A+C)"] / rerank_budget),
+        "each_groq_judge": len(plan["schedule_per_judge_model"]),
+        "gpt-oss-20b": len(plan["schedule_gpt_oss_20b"]),
+        "gpt-oss-20b_without_repeats_rep1_only": math.ceil(
+            (n_llm * (a_each + a2_each + c_each) + f_calls * a2_each) / rerank_budget
+        ),
     }
-    call_tok = mean(jt) + EST_COMPLETION["judge"]
-    plan["tpm_bound_minutes_per_judge_main"] = n * call_tok / TPM_LIMIT
-    plan["rpm_bound_minutes_per_judge_main"] = n * MIN_REQUEST_INTERVAL_S / 60
+    both_judges_calls = 2 * (len(cal) + r_calls + n)
+    plan["wall_clock_global_1_req_per_8s"] = {
+        "judge_requests_total_both_models": both_judges_calls,
+        "judge_hours_rate_limit_only": both_judges_calls * MIN_REQUEST_INTERVAL_S / 3600,
+        "rerank_requests_total": n_llm * reps * 2 + n_llm + f_calls,
+        "rerank_hours_rate_limit_only": (n_llm * reps * 2 + n_llm + f_calls)
+        * MIN_REQUEST_INTERVAL_S
+        / 3600,
+        "tpm_note": "8K TPM per model: ~4 judge calls/min, ~1-2 relabel calls/min; the TPM "
+        "limit, not the 8 s spacing, binds the judge runs",
+    }
     return plan
 
 
@@ -579,22 +654,22 @@ def stage_plan(args: argparse.Namespace) -> int:
         count_tokens(p.system + p.user)
         for p in (build_judge_prompt(c, it, SEED) for c, it in zip(cases, pools, strict=True))
     ]
-    ct = [
-        sum(count_tokens(x) for x in build_compact_prompt(c["text"], it))
-        for c, it in zip(cases, pools, strict=True)
-    ]
+    big = [(c, it) for c, it in zip(cases, pools, strict=True) if len(it) > 5]
+    ct = [sum(count_tokens(x) for x in build_compact_prompt(c["text"], it)) for c, it in big]
     at = [
         count_tokens(_SYSTEM)
         + count_tokens(
             f'Query: "{c["text"]}"\n\nProducts:\n{_format_candidates(it)}\n\nSelect the best 5 products.'
         )
-        for c, it in zip(cases, pools, strict=True)
+        for c, it in big
     ]
     cal = [
         count_tokens(p.system + p.user)
         for p in (build_judge_prompt(x["case"], x["candidates"], SEED) for x in calibration_cases())
     ]
-    plan = build_plan(jt, cal, at, ct, args.judge_budget, args.rerank_budget)
+    relabel_path = Path(args.out) / "relabel" / "plan.json"
+    relabel = json.loads(relabel_path.read_text("utf-8")) if relabel_path.exists() else None
+    plan = build_plan(jt, cal, at, ct, args.judge_budget, args.rerank_budget, args.reps, relabel)
     plan["tokenizer"] = "tiktoken o200k_base" if count_tokens("a b") == 2 else "heuristic"
     (Path(args.out) / "plan.json").write_text(json.dumps(plan, indent=1))
     print(json.dumps(plan, indent=1))
