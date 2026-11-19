@@ -50,9 +50,11 @@ from evals.retrieval.factors import (
     pool_loss,
 )
 from evals.retrieval.groq_judge import (
+    BudgetExhaustedError,
     GroqRunner,
     Ledger,
     ModelSpec,
+    RateLimitStopError,
     ResultCache,
     assert_live_allowed,
     httpx_transport,
@@ -113,6 +115,7 @@ class GroqLLM:
         self.query_id = ""
         self.rep = 1  # repeats of a query are separate cache entries (they must be real calls)
         self.last_meta: dict[str, Any] = {}
+        self.stop_exc: Exception | None = None
 
     def generate(self, prompt: str, system: str | None = None, **kw: Any) -> str:
         spec = dataclasses.replace(
@@ -120,9 +123,16 @@ class GroqLLM:
             name=f"{self.spec.name}-{self.variant}-r{self.rep}",
             max_tokens=int(kw.get("max_tokens", self.spec.max_tokens)),
         )
-        res = self.runner.call(
-            spec, self.query_id, system or "", prompt, sha((system or "") + prompt)
-        )
+        try:
+            res = self.runner.call(
+                spec, self.query_id, system or "", prompt, sha((system or "") + prompt)
+            )
+        except (BudgetExhaustedError, RateLimitStopError) as exc:
+            # rerank() swallows every exception into a "timeout" fallback; a day-budget or 429
+            # stop is not a model failure, so remember it and let `_run_arm` abort the stage
+            # instead of recording a fake fallback row.
+            self.stop_exc = exc
+            raise
         if res is None:
             raise RuntimeError("Groq call failed")
         self.last_meta = {
@@ -358,6 +368,9 @@ def _run_arm(
         row = run_variant_c(case["text"], pool, llm)
     else:
         row = run_variant_b(pool)
+    if isinstance(llm, GroqLLM) and llm.stop_exc is not None:
+        exc, llm.stop_exc = llm.stop_exc, None
+        raise exc  # day budget / 429 stop: abort, never record the swallowed fallback as a row
     return {"query_id": case["id"], "rep": rep, **row}
 
 
@@ -369,18 +382,30 @@ def stage_variants(args: argparse.Namespace) -> int:
     cand = resolve_pools_dir(Path(args.cand), args.pools)  # master-regenerated pools
     cases = usable_cases(args.limit, cand)
     llms = _make_llms(args, out_dir)
+    wanted = [a.strip() for a in args.arms.split(",") if a.strip()]
+    if not wanted or not set(wanted) <= {"A", "A2", "B", "C"}:
+        raise ValueError(f"--arms must be a comma list from A,A2,B,C, got {args.arms!r}")
+    full = set(wanted) == {"A", "A2", "B", "C"}
     results: dict[str, list[dict[str, Any]]] = {"A": [], "A2": [], "B": [], "C": []}
-    for rep in range(1, args.reps + 1):
-        arms = ("A", "A2", "B", "C") if rep == 1 else ("A", "A2")
-        for arm in arms:
-            for c in cases:
-                pool = _pool_for(c, cand)
-                row = _run_arm(arm, c, pool, llms.get(arm), rep)
-                results[arm].append(_with_cards(row, c, pool))
-    (out_dir / "variants.json").write_text(json.dumps(results, indent=1))
-    check = _a2_length_check(results["A2"])
-    print(f"variants A/A2/B/C over {len(cases)} queries x {args.reps} reps -> variants.json")
-    print(check)
+    try:
+        for rep in range(1, args.reps + 1):
+            for arm in ("A", "A2", "B", "C") if rep == 1 else ("A", "A2"):
+                if arm not in wanted:
+                    continue
+                for c in cases:
+                    pool = _pool_for(c, cand)
+                    row = _run_arm(arm, c, pool, llms.get(arm), rep)
+                    results[arm].append(_with_cards(row, c, pool))
+    except (BudgetExhaustedError, RateLimitStopError):
+        # keep what finished (the cache would also resume it) but never as variants.json
+        (out_dir / "variants_partial.json").write_text(json.dumps(results, indent=1))
+        raise
+    # a partial arm set must not be mistaken for the full comparison by the report stage
+    name = "variants.json" if full else "variants_partial.json"
+    (out_dir / name).write_text(json.dumps(results, indent=1))
+    print(f"variants {','.join(wanted)} over {len(cases)} queries x {args.reps} reps -> {name}")
+    if "A2" in wanted:
+        print(_a2_length_check(results["A2"]))
     return 0
 
 
@@ -740,6 +765,11 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=DEFAULT_REPS,
         help="variants: runs per query of the stochastic arms A, A2",
+    )
+    ap.add_argument(
+        "--arms",
+        default="A,A2,B,C",
+        help="variants: comma list of arms to run (a subset writes variants_partial.json)",
     )
     ap.add_argument("--mock", action="store_true", help="rule-based fakes, no network")
     ap.add_argument(
