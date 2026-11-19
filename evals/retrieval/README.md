@@ -472,6 +472,55 @@ the daily token balance: remaining TPD could not be read, the 100K/day own cap a
 were the guards. The run was one probe call plus 53 calls, the last response showed 946 of 1,000
 requests remaining.
 
+**Day 2, offline step (no LLM calls).** The decision rule above was committed first (`ae03ab4`),
+then everything below was computed with `python -m evals.retrieval.offline` at `a488f03`
+(artifacts: `evals/retrieval/results/offline_results.md` and `.json`; rows in the untracked
+`reports/wave1b/v4e/variants_partial.json`, arms A and B only, no `variants.json` yet). Labels:
+LLM-consensus on the 961 items, 11 tied (median-resolved). Primary population n = 53 queries (pool
+> 5 candidates); excluded: q46 q56 q59 (no candidates) and q11 q13 q16 q23 (pool <= 5);
+sensitivity row n = 57. nDCG@5 is defined on 49 of the 53 (4 queries have no label >= 1 in the
+pool); P@5 on all 53.
+
+| primary, n = 53 | nDCG@5 (n=49) | P@5, label >= 1 (n=53) | P@5, label >= 2 |
+|---|---|---|---|
+| A rep 1 (production as deployed) | 0.661 [0.559, 0.758] | 0.642 [0.532, 0.747] | 0.540 [0.430, 0.645] |
+| B (retrieval order) | 0.631 [0.533, 0.726] | 0.615 [0.509, 0.717] | 0.506 [0.404, 0.608] |
+| paired A - B | +0.030 [+0.008, +0.055], Wilcoxon p 0.023, sign p 0.065 | +0.026 [+0.008, +0.049] | +0.034 [+0.004, +0.072] |
+
+Sensitivity (n = 57, nDCG n = 53): A - B nDCG@5 +0.028 [+0.008, +0.051]. A used 1,724 prompt + 138
+completion tokens per live call (n = 53), latency p50 1,098 ms. A outcomes under the new taxonomy:
+ok 17, partial 1, length 31, empty_selection 4 (no_exact_match 4), i.e. 31 of 53 calls (58%) are
+cut at the cap and fall back to retrieval order, yet A is still 0.030 nDCG@5 ahead of B, so the
+picks that do arrive carry signal. Neither A2 nor C is measured yet, so the decision rule has not
+been applied.
+
+Factors, variant B only (the LLM arms of F1 / F2 need live calls and are not computed):
+- **F1 sets demoted vs not**, 8 ethnic-wear queries (single garment named on sangeet / haldi /
+  mehendi / wedding guest / diwali: q01 anarkali gown, q02 kurta, q07 kurta, q13 lehenga, q16
+  lehenga, q27 kurta, q28 saree, q43 anarkali; the pool differs in 6 of them: all but q02 and q13).
+  Frozen pool (not demoted) vs master pool (demoted): nDCG@5 0.840 -> 0.814, paired -0.026
+  [-0.142, +0.071]; P@5 0.775 -> 0.750, paired -0.025 [-0.075, +0.000]. All 19 items removed from
+  the pools (95 -> 76) carry consensus label >= 1. n = 8: exploratory, the CI spans zero.
+- **F2 gender-unspecified**, 12 queries (9 with a different top 5): current vs gender-interleaved
+  nDCG@5 0.494 -> 0.544, paired +0.050 [-0.030, +0.145] (nDCG n = 11); P@5 0.500 -> 0.550,
+  paired +0.050 [-0.017, +0.133]. n = 12: exploratory, the CI spans zero.
+
+**Day-2 live runbook (prepared, NOT started).** A2 rep 1 then C rep 1 on the master pools, rep 1
+only, on gpt-oss-20b within `RERANKER_DAILY_TOKEN_BUDGET` (100K/day, ledger-counted per UTC day, the
+pre-check reserves prompt + cap so A2 stops up to one 2.4K-token call early), one request per 8 s
+globally, stop on 3 consecutive 429s or ANY busy signal (HTTP 5xx, 498, a transport timeout),
+resumable from `cache.jsonl`, key read by name only:
+
+```
+python -m evals.retrieval.live_run --env-file <repo>/.env -- --stage variants --live --arms A2,C --reps 1
+```
+
+Expected, NOT MEASURED: A2 ~1.7K prompt + ~0.25K completion per call is ~105K tokens for 53 calls,
+so A2 spans two UTC days (about 41-46 calls on day 2), and C (~0.5K prompt + ~0.25K completion)
+fits on day 3. A day stop writes `variants_partial.json` and exits with `STOPPED`; rerunning the
+same command the next day continues from the cache. Check afterwards: `finish_reason` counts
+(A2 must show 0 `length`), the outcome counts, and that no row was recorded for a stop.
+
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
 Re-labels the strict-gold labels with the same three blind judges (gpt-oss-120b, qwen3.8-27b via
