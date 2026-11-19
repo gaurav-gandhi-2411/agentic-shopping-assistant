@@ -3,13 +3,25 @@
 Purpose: decide which reranker variant to ship, on the same 60 queries and the same top-20
 candidate pools:
 
-- **A** the current production LLM reranker (real `src/agents/reranker.py::rerank`, 150 max_tokens),
+- **A** the current production LLM reranker as deployed (real `src/agents/reranker.py::rerank`,
+  gpt-oss-20b, 150 max_tokens, reasoning low),
+- **A2** the same reranker with the truncation fixed (cap 600; a `finish_reason == "length"` is
+  never trusted, it falls back explicitly to retrieval order and is counted),
 - **B** no reranker (hybrid RRF order),
 - **C** a compact reranker (numbered one-line candidates in, comma-separated numbers out).
 
+Two factors are run on the best two arms (highest nDCG@5 point estimate): **F1** single-garment sets
+demoted vs not (ethnic-wear queries), **F2** gender-unspecified queries, current order vs
+gender-interleaved. A and A2 are also run 3x per query to measure **card-count stability**.
+
 Metrics: nDCG@5 and precision@5 on the 5 cards the user would see (precision at labels >= 1,
 >= 1.5 and >= 2), bootstrap 95% CIs (10,000 resamples over queries, seed 42), paired differences
-A-B, C-B, C-A with CI plus sign and Wilcoxon p, tokens per call and latency p50/p95.
+(A-B, A2-B, A2-A, C-B, C-A, C-A2) with CI plus sign and Wilcoxon p, tokens per turn, latency
+p50/p95, the rate of `finish_reason = length`, the parse-failure / fallback rate, and how often
+card counts differ between repeats.
+
+Stage 2 (not run yet) also contains a consensus relabelling of strict-gold labels, see "Consensus
+relabel" below. **No live LLM call has been made by any code in this directory.**
 
 ## Label provenance (read this before quoting any number)
 
@@ -20,8 +32,16 @@ resolved by the median for the primary metric, with a sensitivity run that exclu
 Agreement is reported as pairwise Cohen's kappa (unweighted and quadratic-weighted), Krippendorff's
 alpha (ordinal, bootstrap CI), confusion tables and per-judge label distributions. Judges see the
 title, price, category, colour and a 150-char description in a per-(query, seed) shuffled order;
-they never see the store, the system rank, the catalogue gender column or the variant. Stage 2
-uses only gpt-oss-120b and qwen3.8-27b on Groq; the primary model gpt-oss-20b is never a judge.
+they never see the store field, the system rank, the catalogue gender column or the variant.
+**Store names are scrubbed from titles and descriptions** (`scrub.py`: every slug, display name
+and domain label in `src/config/store_registry.py`, public and non-public, removed before the
+150-char truncation): before the scrub 222 of 961 candidate lines (23.1%) carried a store name
+(vastramay 74, tjori 46, kisah 34, jadeblue 23, ...); after, 0 of 961
+(`python -m evals.retrieval.scrub`, which also prints the before/after; the leak detector is
+independent of the scrubber and `tests/test_retrieval_eval_scrub.py` checks every registry store).
+Brand names that are not registry stores (for example "YASH GALLERY" inside a title) are not
+scrubbed. Stage 2 uses only gpt-oss-120b and qwen3.8-27b on Groq; the primary model gpt-oss-20b is
+never a judge.
 
 ## Query set (60 frozen fixtures: `evals/fixtures/retrieval/q01..q60.json`)
 
@@ -45,6 +65,13 @@ rubric. The query text is public product wording (it is sent to LLM judges); no 
 Known limitation: a few low-budget cases keep a high-end garment when the occasion has no cheaper
 garment in the table (for example women's reception gown/saree), so they may return few candidates.
 
+q15 was replaced: the generator first produced "green outfit for mehendi under ₹1000", equal to the
+strict-gold query "green outfit for mehendi" up to the budget. It is now "yellow outfit for mehendi
+under ₹1000" (same stratum: mehendi, gender-neutral, plain English, <= 1000) through
+`COLOUR_OVERRIDES` in `make_queries.py`, applied after the rng draw so no other fixture changed.
+`tests/test_retrieval_eval_fixture_overlap.py` fails if any fixture equals a strict-gold query up to
+budget and stopwords (it would have caught the old q15; the other 59 pass).
+
 ## Candidates (`candidates/q*.json`, 0.92 MB, committed)
 
 `candidates.py` drives the real compiled LangGraph agent (intent parsing, filters, hybrid RRF with
@@ -62,6 +89,19 @@ Three queries (q46, q56, q59, all romanised Hinglish) return no candidates becau
 Four of those have <= 5 candidates (1, 2, 3 and 5): production skips the reranker for them and all
 three variants show the same cards (they add nothing to the A/B/C contrast; keep them for coverage).
 
+**Freshness vs master (measured 2026-11-19).** The frozen files were generated at base commit
+4b4fb4e. Master has since moved the single-garment set gate from after `rerank()` to the wide pool
+before it (#129). Regenerating all 60 cases on the merged master with the same index (catalogue
+sha256 `f5608c38...`, same as the provenance in `_summary.json`) into a scratch dir and comparing
+article-id sequences: 43 of 60 pools are identical, 17 differ (q01 q07 q08 q16 q18 q22 q27 q28 q29
+q30 q33 q34 q42 q43 q47 q53 q58): in every one the new pool is a subset of the frozen pool
+(sets removed, or demoted/reordered), never a new item. The frozen pools are therefore the "sets
+not demoted" pools; **the main A/A2/B/C comparison runs on them as frozen**, and F1 re-runs the two
+best arms on the demoted pools to measure exactly this change. `candidates --only qNN` refreshes
+single cases (used for q15) without touching the others; regenerating q02, q12, q14, q24 on master
+reproduced the frozen files id-for-id and order-for-order. `public_stores.json` equals the 38
+`public_stores()` of the merged store registry (checked), so it no longer needs replacing.
+
 ## Variants
 
 - **A**: `variants.run_variant_a` calls the production `rerank()` with a recording LLM, so the prompt
@@ -69,6 +109,13 @@ three variants show the same cards (they add nothing to the A/B/C contrast; keep
   fallbacks are exactly production's. Records raw output, finish_reason, cap hit, outcome
   (`ok / partial / parse_error / timeout / no_llm_call`) and the final top-5.
   Difference from production: the live adapter has no model-fallback chain (see "Truncation").
+- **A2**: `variants.run_variant_a2`: variant A with the cap overridden to `A2_MAX_TOKENS = 600`
+  (`CapOverrideLLM`, so `rerank()` itself is not forked: same system prompt, candidate block, parser,
+  partial top-up and colour-diversity swap; `reasoning_effort` low). 600 = ~2.8x the worst logged
+  total (visible JSON ~60 tokens + 96-148 hidden reasoning tokens, `reports/wave1b/v4-token-breakdown.md`).
+  A length finish (or `completion_tokens >= cap`) is never trusted: the turn falls back explicitly to
+  retrieval order, outcome `length_fallback`, a warning is logged, and `assert_no_length_hits` /
+  the report's `a2_length_check` line fail if any call did so (the data is kept either way).
 - **B**: RRF order.
 - **C**: `variants.build_compact_prompt`: candidates numbered 1..N, `title (12 words) | price band |
   colour`, instructions first (byte-stable prefix), answer = 8 comma-separated numbers, `max_tokens =
@@ -80,8 +127,53 @@ three variants show the same cards (they add nothing to the A/B/C contrast; keep
   as designed. Invalid or short output falls back to (or is topped up from) RRF order.
   C does not replay production's colour-diversity swap (`_enforce_colour_diversity`), A does.
 
-Not replayed for any variant (variant-independent, and the pool is already deduped): graph.py's
-post-rerank name+colour dedup, beach per-type cap and price re-sort.
+### Cards the user sees: the post-rerank replay (`post_rerank.py`)
+
+`rerank()` returns 5, but `search_node` then runs name+colour dedup with backfill, the beach cap and
+a chain of gates that DROP cards without refilling them (attribute / theme / accessory /
+loungewear gates, the occasion coherence gate with its loungewear / merchandise / athletic-footwear /
+haldi-colour gates, the price qualifier, the size-mismatch demotion). Every variant row therefore
+carries `final_ids` (the reranker's five) and `cards` (the ids left after the replay, same
+production functions in production order). Primary metrics use `final_ids`; `metrics_post_gates`
+uses `cards`. Example on the frozen pools: q30 ("blazer", top-5 = pool[:5]) shows 4 cards while a
+different pick shows 5, the production blazer 4-vs-5 shape (`tests/test_retrieval_eval_post_rerank.py`).
+**Not reproduced:** everything before `rerank()` (the frozen pools already include it), colour-chip
+and refinement bookkeeping, the response/rationale nodes, session or ownership logic, multi-turn
+state such as `excluded_colours`. On the 53 frozen pools with more than 5 candidates, taking
+pool[:5] as the pick, 40 show 5 cards, 8 show 4, 1 shows 3, 3 show 2 and 1 shows 1 (scratch probe,
+`apply_post_rerank` over the candidate files). The per-query cause of the low counts (q01, q10, q24
+-> 2; q58 -> 1) was not investigated: check them against `search_node` before quoting a card-count
+number for those queries.
+
+### Factors on the best two arms (`factors.py`, stage `factors`)
+
+- **F1 sets demoted vs not.** Flag (deterministic from fixture occasion + garment, no model):
+  occasion in {sangeet, haldi, mehendi, wedding_guest, festive_diwali} and the stated garment in
+  {kurta, kurti, anarkali, anarkali gown, lehenga, saree, sherwani, bandhgala} (no "set", no generic
+  "outfit"): the queries where production's single-garment gate actually fires. 8 queries (q01 q02
+  q07 q13 q16 q27 q28 q43): small n, so the F1 CI will be wide and the result exploratory. The
+  treated arm re-runs the variant on production's `_prefer_single_garment_pool(items, 5)` applied to
+  the frozen top-20 (stable partition, singles first; >= 5 singles means sets are dropped from the
+  pool, otherwise demoted behind the singles). **Pool-membership changes are judged** with the
+  labels every candidate already has (one judging pass over the frozen 20 serves all arms) and an
+  nDCG ideal taken from the FULL frozen pool in BOTH arms, so dropping sets can never shrink the
+  ideal and flatter the arm; the cost is reported beside it (`pool_loss`: items removed and how many
+  of them had label >= 1) with `sets_in_shown_top5` per arm.
+- **F2 gender-unspecified.** The 12 fixtures with gender "either": current order vs a pool
+  interleaved women's / men's by retrieval rank (start with the gender of the best-ranked gendered
+  item; unisex/unknown items keep their positions; the surplus gender follows in rank order). Same
+  labels; the variant is re-run on the reordered pool (for B the order is the result).
+- An arm is only called when the treatment changes the pool/order; an unchanged pool reuses the
+  rep-1 row (`reused`), so no token is spent on a no-op.
+
+### Stability (N = 3)
+
+A and A2 run 3 times per query (`--reps 3`, rep-major: rep 1 of every arm finishes first). Repeats
+are separate cache entries (`rerank-20b-<arm>-r<k>`), so they are real calls; the payload (temperature
+0, seed 42) is identical, so any difference is provider-side variance (hidden reasoning). The report
+gives, per arm: how many queries show different card counts across repeats (after the post-rerank
+replay), how many show a different top-5 set, the per-query detail, and the per-rep mean nDCG@5
+(noise floor). Primary comparisons use rep 1 only (one draw per query, like production).
 
 ### How truncated reranker output is parsed today (architect item c)
 
@@ -115,14 +207,16 @@ python -m evals.retrieval.run --stage candidates --index-dir <copy of data/proce
 python -m evals.retrieval.run --stage plan
 # dry run of everything, no network
 python -m evals.retrieval.run --stage judge    --mock --out <scratch>
-python -m evals.retrieval.run --stage variants --mock --out <scratch>
+python -m evals.retrieval.run --stage variants --mock --out <scratch>   # A A2 B C, --reps 3
+python -m evals.retrieval.run --stage factors  --mock --out <scratch>   # F1 / F2 on the top two
 python -m evals.retrieval.run --stage report   --out <scratch>
 # Claude judge (done by the orchestrator, no LLM call from this harness)
 python -m evals.retrieval.run --stage judge --export-packets      # reports/wave1b/v4e/claude_packets/
 python -m evals.retrieval.run --stage judge --import-claude       # after <packet>.result.json exist
 # STAGE 2 ONLY, live Groq: needs BOTH --live and STAGE2_LIVE_OK=1 in the process settings
 python -m evals.retrieval.run --stage judge --live
-python -m evals.retrieval.run --stage variants --live
+python -m evals.retrieval.run --stage variants --live             # resumable; stops at the budget
+python -m evals.retrieval.run --stage factors  --live             # after the labels exist
 python -m evals.retrieval.caching_probe --live                    # <= 6 live calls, hard cap
 ```
 
@@ -148,53 +242,156 @@ reasoning and cached tokens, latency, rate-limit headers), `cache.jsonl` (resuma
 
 ## Quota and day plan (stage 2)
 
-Architect limits, built in as defaults (`common.py`): judges gpt-oss-120b and qwen3.8-27b only;
-daily token budget 150,000 per judge model (hard stop, counted from the ledger per UTC day);
-the reranker model gpt-oss-20b has a separate 100,000 tokens/day budget because prod canary
-traffic already uses ~100K of its 200K TPD; at most 1 request per 8 s per model; stop after 3
+Architect limits, built in as defaults (`common.py`, pinned by `tests/test_retrieval_eval_groq_limits.py`):
+judges gpt-oss-120b and qwen3.8-27b only; daily token budget 150,000 per judge model (hard stop,
+counted from the ledger per UTC day); the reranker model gpt-oss-20b has a separate 100,000
+tokens/day budget because prod canary traffic already uses ~100K of its 200K TPD; **one request per
+8 s GLOBALLY** (one clock across both judge models and the reranker, not per model); stop after 3
 consecutive 429s; Retry-After and `x-ratelimit-remaining-tokens` honoured. Provider limits as
-briefed: 30 RPM, 1K RPD, 8K TPM, 200K TPD per model.
+briefed: 30 RPM, 1K RPD, 8K TPM, 200K TPD per model. The budget pre-check reserves the FULL
+completion cap (prompt + `max_tokens`) before each call, so a run can never overshoot the daily
+budget (the old 700-token guess could overshoot by ~800 tokens on the 1,500-token judge cap); the
+price is that a day stops up to one worst-case call early.
 
-Token estimates from the built prompts (`python -m evals.retrieval.run --stage plan`, tiktoken
-`o200k_base` as a proxy; for qwen the real tokenizer differs, so treat qwen as +-15%; n = 57 queries
-with candidates; completion tokens are ASSUMED, not measured: judge 400, A 150, C 100, replace with
-ledger medians after the first calls):
+Measured with `python -m evals.retrieval.run --stage plan` (and `python -m evals.retrieval.relabel
+--stage plan` for the relabel) at the head of this branch. **Tokenizer: the 3.6 chars/token
+heuristic, because tiktoken is not installed here**; it reads ~17% above tiktoken `o200k_base`
+(judge prompt mean 1,773 here vs 1,511 in the earlier tiktoken run), so these are conservative;
+for qwen the real tokenizer differs again (+-15%). **Completion tokens are ASSUMED, not measured**
+(judge 400, calibration 400, A 150, A2 250, C 100, relabel 900 per call); stage 2 replaces them
+with ledger medians after the first calls. n = 57 queries with candidates, 53 of which have > 5
+candidates (smaller pools skip the reranker).
 
 | prompt | mean tokens (prompt) |
 |---|---|
-| judge (rubric + 20 candidates) | 1,511 (max 1,931) |
-| calibration judge call (5 candidates) | 658 |
-| A production reranker (system + user) | 1,649 |
-| C compact reranker (system + user) | 542 |
+| judge (rubric + 20 candidates), 57 calls | 1,773 |
+| calibration judge call (5 candidates), 4 calls | 764 |
+| A / A2 production reranker (system + user), 53 calls | 1,852 |
+| C compact reranker (system + user), 53 calls | 523 |
+| relabel chunk (rubric + ~25 items), 8 calls | 4,123 / 4,453 / 4,466 / 4,043 / 4,142 / 4,206 / 4,284 / 2,093 |
+
+**Batching.** Judge: one call per query (all 20 candidates). Relabel: whole queries packed into
+chunks of >= 25 items (8 calls for the 194 items); chunk 1 is the calibration chunk (25 drift items,
+18 of them stored-irrelevant) and the gate runs before the other 7. Reranker arms A / A2 / C: one
+call per (query, rep): a rerank is a single-turn call and cannot be batched. F1 / F2: only the
+pools that actually change (upper bound 20 queries x 2 arms = 40 calls).
 
 | model | work | tokens (expected) | daily budget | days |
 |---|---|---|---|---|
-| gpt-oss-120b | calibration 4.2K + 57 judge calls 108.9K + caching probe 5.4K | 118.6K | 150K | 1 (2 if every call hits the 1,500 cap: worst case 181K) |
-| qwen3.8-27b | calibration 4.2K + 57 judge calls 108.9K | 113.2K | 150K | 1 (2 in the worst case) |
-| gpt-oss-20b | A 57 calls 102.6K + C 57 calls 36.6K + caching probe 5.4K | 144.6K | 100K | 2 (A alone exceeds one day: split across days; the cache resumes) |
+| gpt-oss-120b | calibration 4.7K + 57 judge calls 123.9K + relabel 39.0K + caching probe 6.0K | 173.5K | 150K | 2 |
+| qwen3.8-27b | calibration 4.7K + 57 judge calls 123.9K + relabel 39.0K | 167.5K | 150K | 2 |
+| gpt-oss-20b | A x3 318.3K + A2 x3 334.2K + C 33.0K + factors <= 84.1K + probe 6.0K | 775.6K | 100K | 8 (4 with one rep instead of three) |
 
-Optional judge self-consistency (10 queries) adds ~19K per judge. The 8K TPM limit is the binding
-rate: ~1.9K tokens per judge call means ~4 calls/min, about 14 minutes of wall clock per judge for
-the main run (the 8 s spacing alone would be ~7.6 min). Caching probe: 3 calls on each of
-gpt-oss-20b and gpt-oss-120b (6 total), verdict from `cached_tokens` and the TPM-header deltas,
-refill-corrected; run it before stage-2 prompt design.
+Day by day, per Groq judge model (`schedule_per_judge_model` in `plan.json`; the worst-case
+pre-check, prompt + 1,500, decides where each day stops):
+
+| day | work | calls | tokens |
+|---|---|---|---|
+| 1 | calibration (4) -> relabel gate + chunks (8) -> judge queries (48 of 57) | 60 | 148.0K |
+| 2 | judge queries (9 remaining) | 9 | 19.6K |
+
+Day by day for gpt-oss-20b (`schedule_gpt_oss_20b`; factors need the labels, so they start after
+judging, and repeats come last so the main comparison finishes first):
+
+| day | work | calls | tokens |
+|---|---|---|---|
+| 1 | A rep 1 (49) | 49 | 98.1K |
+| 2 | A rep 1 (4), A2 rep 1 (43) | 47 | 98.4K |
+| 3 | A2 rep 1 (10), C (53), F1/F2 (21) | 84 | 98.2K |
+| 4 | F1/F2 (19), A rep 2 (29) | 48 | 98.0K |
+| 5 | A rep 2 (24), A2 rep 2 (24) | 48 | 98.5K |
+| 6 | A2 rep 2 (29), A rep 3 (19) | 48 | 99.0K |
+| 7 | A rep 3 (34), A2 rep 3 (15) | 49 | 99.6K |
+| 8 | A2 rep 3 (38) | 38 | 79.9K |
+
+So the full design takes **8 days on the reranker model** (the two judge models and the relabel fit in
+2 days and run in parallel with it). The main A/A2/B/C comparison is complete after day 3; the
+stability repeats (N = 3, as briefed) are what stretch it to 8. Options if that is too slow, not
+taken here: N = 2 repeats (about 6 days), or run A / A2 repeats on a subset of queries.
+
+Wall clock under the global 1 request / 8 s: judges 138 requests across both models = 0.31 h
+at the spacing alone; reranker arms 411 requests = 0.91 h. The 8K TPM limit binds instead: a ~2.2K
+token judge call or ~2.0K reranker call allows ~4 calls per minute, a ~5K relabel call ~1-2 per
+minute, so a full day on one model is roughly 15-30 minutes of wall clock (estimate, not measured). The caching probe
+(3 calls on each of gpt-oss-20b and gpt-oss-120b, 6 total, verdict from `cached_tokens` and the
+TPM-header deltas, refill-corrected) should run before the stage-2 prompt design.
+
+## Consensus relabel (`relabel.py`, `relabel_p5.py`)
+
+Re-labels the strict-gold labels with the same three blind judges (gpt-oss-120b, qwen3.8-27b via
+Groq, Claude via packets) under the strict-gold rubric (`relabel_rubric.md`: the six relevance
+conditions of `eval/fixtures/strict_gold_queries.yaml`, binary relevant / irrelevant, a miss reason
+from its taxonomy for every irrelevant item). 194 items:
+
+| group | n | what |
+|---|---|---|
+| `ddb4dfd` | 127 | the batch labelled 2026-11-15 by a single LLM judge ("pending consensus"), isolated by the marker comment in `strict_gold_labels.yaml` |
+| `drift` | 60 | random older labels, seed 42, stratified by query category (largest-remainder allocation), a drift check: do today's judges still agree with the 2026-07-11 labels? |
+| `hygiene` | 7 | strict-gold top-5 items with no label on the merged master (R1) |
+
+The 7 hygiene pairs, derived by `relabel_p5 --capture` on a read-only hygiene index copy
+(`make_hygiene_index_copy.py --retype-quarantined` of `data/processed/unified`, public-store view,
+`eval_strict._retrieve_pipeline` for every one of the 100 queries): gold_009 8029162504414 (high
+waisted jeans for women), gold_017 7976145289259 and 8060765405346 (lehenga for sangeet), gold_040
+9985773142313 (halter neck top for women), kids_leak_002 7408442474539 (gold jewellery to go with red
+lehenga), occ_adv_004 8060765405346 (sangeet lehenga for women), occ_anniversary_001 7785143337182
+(anniversary party outfit for women). On that snapshot strict P@5 with the stored labels is 0.8363
+(373 relevant of 446 scored, 7 unlabelled; `python -m evals.retrieval.relabel_p5 --top5 ...`).
+
+Outputs (run dir `reports/wave1b/v4e/relabel/`, untracked): `items.json`, `labels_<judge>.json`
+(labels + reasons), `consensus.json` (per-item majority and votes; agreement vs the stored label as
+percent, Cohen's kappa and a 2x2 confusion table, overall and per group; judge-pair kappa and
+Krippendorff alpha), `proposal.yaml` (replacements, new labels for the hygiene items, unresolved
+ties). **`strict_gold_labels.yaml` is never edited** and a two-judge tie never becomes a
+replacement. The report warns when fewer than 3 judges contributed. `relabel_p5.py` computes strict
+P@5 (eval_strict's definition: relevant / (relevant + miss) over labelled top-5 items) with the stored
+labels vs with the proposal's resolved labels applied; no threshold anywhere is changed.
+
+Calibration gate: chunk 1 (drift items, with stored-irrelevant items over-represented so both
+classes exist) is judged by every judge first; any judge pair with kappa < 0.4, or an undefined
+kappa, stops the run and prints the 2x2 confusion table of each pair. Blindness: the judges see the
+query text and the shopper gender it was filtered with, then title (store names scrubbed), price,
+colour, type and a 400-char description; never the store, the catalogue gender column, the stored
+label, the rank, the query id or the group.
+
+```
+# prepare (reads the catalogue parquet of a read-only index copy; no LLM)
+python -m evals.retrieval.relabel_p5 --capture --data-dir <hygiene index copy> --out top5.json
+python -m evals.retrieval.relabel --stage prepare --catalogue <index copy>/catalogue.parquet --hygiene-top5 top5.json
+python -m evals.retrieval.relabel --stage plan
+python -m evals.retrieval.relabel --stage judge --mock            # dry run, no network
+# STAGE 2 ONLY
+python -m evals.retrieval.relabel --stage export-packets          # Claude packets, same prompts
+python -m evals.retrieval.relabel --stage judge --live            # + STAGE2_LIVE_OK=1
+python -m evals.retrieval.relabel --stage import-claude
+python -m evals.retrieval.relabel --stage consensus
+python -m evals.retrieval.relabel_p5 --top5 top5.json --proposal <run dir>/proposal.yaml
+```
+
+The labels are LLM-consensus labels, not human ground truth: the proposal is for GG to review.
 
 ## Files
 
 ```
 evals/retrieval/
   make_queries.py     generator for the 60 fixtures (seed 42)       fixtures: evals/fixtures/retrieval/
-  public_stores.json  the 38 public stores (temporary, see above)
-  candidates.py       candidate generation (real agent, rerank captured)   candidates/  (frozen output)
+  public_stores.json  the 38 public stores (equal to the merged store registry's public set)
+  candidates.py       candidate generation (real agent, rerank captured; --only)   candidates/  (frozen output)
   rubric.md           grading rubric = judge system prompt
+  scrub.py            store-name scrub for judge-visible text + leak-rate measurement
   judge.py            prompt builder, label parser, calibration set
-  groq_judge.py       throttled/budgeted/resumable Groq runner, live guard
+  groq_judge.py       throttled (global 8 s) / budgeted / resumable Groq runner, cache with call meta
   packets.py          Claude packet exporter / importer
   agreement.py        kappa, alpha, aggregation, calibration gate
-  variants.py         A / B / C
+  variants.py         A / A2 / B / C
+  post_rerank.py      replay of search_node's post-rerank tail (card counts)
+  factors.py          F1 (sets demoted) and F2 (gender-interleaved) definitions
   metrics.py          nDCG, precision, bootstrap, paired tests
+  report.py           report assembly: metrics, rates, stability, factor tables
+  relabel.py          consensus relabelling of strict-gold labels (+ relabel_rubric.md)
+  relabel_p5.py       strict top-5 snapshot, strict P@5 before/after majority labels
   caching_probe.py    stage-2 prompt-caching probe (not run in stage 1)
   mock.py             rule-based fake judge + fake Groq transport (tests, --mock)
-  run.py              stage driver
+  run.py              stage driver (judge, variants, factors, report, plan)
 tests/test_retrieval_eval_*.py   mock-only unit tests
 ```
