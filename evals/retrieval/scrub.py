@@ -108,7 +108,7 @@ def main() -> int:
     from evals.retrieval.common import CANDIDATE_DIR, load_candidates, load_cases
 
     items = [it for c in load_cases() for it in load_candidates(c["id"], CANDIDATE_DIR)["items"]]
-    res = {
+    res: dict[str, dict[str, Any]] = {
         mode: dict(zip(("leaking_lines", "lines"), leak_rate(judge_lines(items, mode == "after"))))
         for mode in ("before", "after")
     }

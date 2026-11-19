@@ -8,7 +8,7 @@ have an undefined nDCG (NaN) and drop out of nDCG means for every variant alike.
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -106,7 +106,7 @@ def percentile(values: Sequence[float], q: float) -> float:
     return float(np.percentile(np.asarray(values, dtype=float), q)) if len(values) else float("nan")
 
 
-def usage_summary(rows: Sequence[dict]) -> dict[str, float]:
+def usage_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     """Mean prompt/completion tokens and latency p50/p95 over rows that made an LLM call.
 
     `no_llm_call` rows (pool <= top_k, reranker skipped; variant B) carry recorded zeros that

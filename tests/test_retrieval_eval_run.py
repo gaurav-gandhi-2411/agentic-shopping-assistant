@@ -104,7 +104,7 @@ def test_judge_variants_report_mock_pipeline(
     assert run.main(["--stage", "variants", *base]) == 0
     assert run.main(["--stage", "report", *base]) == 0
     rep = json.loads((out / "report.json").read_text())
-    assert set(rep["metrics"]) == {"A", "B", "C"} and rep["n_queries"] == 3
+    assert set(rep["metrics"]) == {"A", "A2", "B", "C"} and rep["n_queries"] == 3
     assert "not human ground truth" in capsys.readouterr().out
     # rerun is fully cached: no new ledger rows for judging
     n_rows = len((out / "ledger.jsonl").read_text().splitlines())
