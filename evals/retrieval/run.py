@@ -204,8 +204,8 @@ def run_calibration(
 ) -> dict[str, dict[str, int]]:
     """Each judge labels the 20 calibration items; returns {judge: {article_id: label}}.
 
-    A judge that misses the pass criterion (>=18/20 exact, none off by two) is reported and
-    its labels are still returned so the caller can print them, but `calibration_ok` fails."""
+    Labels are returned as-is; `calibration_ok` reports exact-vs-hand counts and fails closed
+    on missing labels, the pairwise-kappa gate decides whether the main run proceeds."""
     out: dict[str, dict[str, int]] = {name: {} for name in specs}
     for cal in calibration_cases():
         p = build_judge_prompt(cal["case"], cal["candidates"], seed)
@@ -227,12 +227,21 @@ def _cal_gold() -> dict[str, int]:
 
 
 def calibration_ok(labels: dict[str, dict[str, int]]) -> tuple[bool, list[str]]:
+    """Per-judge exact-vs-hand-labels count, REPORTED only (GG ruling 2026-11-19: the stage-1
+    ">= 18/20 exact" per-judge criterion was our own addition; the architect's gate is the
+    pairwise kappa >= 0.4 in `ag.calibration_gate`). The one blocker kept here is fail-closed:
+    a judge that did not label every calibration item (failed call or unparseable output)."""
     gold = _cal_gold()
     msgs, ok = [], True
     for judge, pred in labels.items():
         s = score_calibration(pred, gold)
-        msgs.append(f"{judge}: exact {s['exact']}/{s['n']}, off-by-two {s['off_by_two']}")
-        ok &= s["passed"]
+        missing = sum(1 for k in gold if k not in pred)
+        note = f", MISSING {missing} labels" if missing else ""
+        msgs.append(
+            f"{judge}: exact {s['exact']}/{s['n']}, off-by-two {s['off_by_two']}"
+            f" (reported, not a gate){note}"
+        )
+        ok &= missing == 0
     return ok, msgs
 
 
@@ -270,7 +279,7 @@ def stage_judge(args: argparse.Namespace) -> int:
     ok, msgs = calibration_ok(cal_labels)
     print("calibration per judge:\n  " + "\n  ".join(msgs))
     if not ok:
-        print("REFUSING to continue: a judge failed the calibration criterion.")
+        print("REFUSING to continue: a judge did not label every calibration item.")
         return 2
     if args.mock:  # the mock stands in for the Claude judge's calibration labels too
         cal_labels["claude"] = _cal_gold()

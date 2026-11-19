@@ -130,8 +130,53 @@ def test_calibration_failure_refuses_main_run(
     rc = run.main(
         ["--stage", "judge", "--mock", "--limit", "3", "--cand", str(cand), "--out", str(out)]
     )
-    assert rc == 2 and "REFUSING" in capsys.readouterr().out
+    text = capsys.readouterr().out
+    # the inverted judge now stops through the architect's pairwise-kappa gate, not an exact count
+    assert rc == 2 and "CALIBRATION GATE FAILED" in text and "not a gate" in text
     assert not (out / "labels_gpt-oss-120b.json").exists()  # no main run happened
+
+
+def _cal_gold_sorted() -> dict[str, int]:
+    g = run._cal_gold()
+    return {k: g[k] for k in sorted(g)}
+
+
+def _flipped(n_wrong: int) -> dict[str, int]:
+    """The calibration hand labels with the first `n_wrong` items shifted by one grade."""
+    gold = _cal_gold_sorted()
+    return {k: (v + 1) % 3 if i < n_wrong else v for i, (k, v) in enumerate(gold.items())}
+
+
+def test_exact_vs_hand_count_is_reported_not_a_blocker() -> None:
+    """GG ruling: a judge at 17/20 exact (below the old >= 18 criterion) passes when every pair
+    kappa >= 0.4; the exact count stays visible in the report line."""
+    from evals.retrieval import agreement as ag
+
+    labels = {
+        "gpt-oss-120b": _cal_gold_sorted(),
+        "qwen3.8-27b": _flipped(3),  # 17/20 exact, kappa vs hand labels ~0.77
+        "claude": _cal_gold_sorted(),
+    }
+    ok, msgs = run.calibration_ok(labels)
+    assert ok and any("17/20" in m and "not a gate" in m for m in msgs)
+    assert ag.calibration_gate(labels)[0]
+
+
+def test_pair_with_kappa_around_0_3_stops_the_run() -> None:
+    from evals.retrieval import agreement as ag
+
+    labels = {"a": _cal_gold_sorted(), "b": _flipped(9), "c": _cal_gold_sorted()}
+    keys = sorted(labels["a"])
+    k = ag.cohen_kappa([labels["a"][x] for x in keys], [labels["b"][x] for x in keys])
+    assert 0.25 < k < 0.4  # 0.316
+    ok, msg = ag.calibration_gate(labels)
+    assert not ok and "FAILED" in msg and "a|b" in msg
+
+
+def test_judge_missing_calibration_labels_fails_closed() -> None:
+    labels = {"a": _cal_gold_sorted(), "b": dict(list(_cal_gold_sorted().items())[:15])}
+    ok, msgs = run.calibration_ok(labels)
+    assert not ok and any("MISSING 5" in m for m in msgs)
 
 
 def _live_path_with_mock_transport(monkeypatch: pytest.MonkeyPatch) -> None:
