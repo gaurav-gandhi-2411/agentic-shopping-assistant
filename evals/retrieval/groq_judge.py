@@ -44,6 +44,16 @@ class RateLimitStopError(RuntimeError):
     """Three consecutive 429 responses: stop rather than hammer the provider."""
 
 
+class BusyStopError(RateLimitStopError):
+    """A busy signal (5xx, Groq's 498 capacity status, a transport timeout): stop at once.
+
+    The reranker model is also production's primary, so any sign of provider strain ends the run
+    instead of retrying. Subclasses RateLimitStopError so every stop handler treats it the same."""
+
+
+BUSY_STATUSES = frozenset({498})  # plus every status >= 500
+
+
 def assert_live_allowed(live: bool, environ: Mapping[str, str] | None = None) -> None:
     """Refuse live calls unless `live` is set AND STAGE2_LIVE_OK == "1"."""
     environ = os.environ if environ is None else environ
@@ -248,7 +258,22 @@ class GroqRunner:
         while True:
             self._throttle()
             t0 = self._clock()
-            res = self.transport(payload)
+            try:
+                res = self.transport(payload)
+            except Exception as exc:  # noqa: BLE001 - timeout / connection error = busy signal
+                self.ledger.append(
+                    {
+                        "judge": spec.name,
+                        "model": spec.model,
+                        "query_id": query_id,
+                        "prompt_hash": prompt_hash,
+                        "status": 0,
+                        "total_tokens": 0,
+                        "event": "busy",
+                        "error": type(exc).__name__,
+                    }
+                )
+                raise BusyStopError(f"transport failure {type(exc).__name__}; stopping") from exc
             latency_ms = round((self._clock() - t0) * 1000)
             self.n_calls += 1
             base = {
@@ -271,6 +296,9 @@ class GroqRunner:
                 attempt += 1
                 continue
             self.consecutive_429 = 0
+            if res.status in BUSY_STATUSES or res.status >= 500:
+                self.ledger.append({**base, "total_tokens": 0, "event": "busy"})
+                raise BusyStopError(f"busy signal: HTTP {res.status}; stopping")
             if res.status != 200:
                 self.ledger.append({**base, "total_tokens": 0, "event": "error"})
                 return None
