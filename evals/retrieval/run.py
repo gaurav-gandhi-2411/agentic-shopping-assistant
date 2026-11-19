@@ -526,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--sparse-only", action="store_true", help="candidates: BM25 only (equality proof)"
     )
+    ap.add_argument("--only", default=None, help="candidates: comma-separated case ids to refresh")
     ap.add_argument("--export-packets", action="store_true")
     ap.add_argument("--import-claude", action="store_true")
     ap.add_argument("--allow-partial-gate", action="store_true")
@@ -546,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
             args.limit,
             not args.all_stores,
             args.sparse_only,
+            set(args.only.split(",")) if args.only else None,
         )
         print(json.dumps(candidates.summarize(recs), indent=1))
         return 0

@@ -209,8 +209,12 @@ def generate(
     limit: int | None = None,
     public_only: bool = True,
     sparse_only: bool = False,
+    only: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate candidate files for all (or the first `limit`) cases; returns the records."""
+    """Generate candidate files for all (or the first `limit`) cases; returns the records.
+
+    `only` restricts generation to those case ids (used to refresh a single replaced fixture
+    without touching the other frozen candidate files)."""
     import src.agents.graph as g
 
     retriever, df, config = load_stack(index_dir, config_path, sparse_only)
@@ -222,6 +226,8 @@ def generate(
     with restrict_to_stores(stores, all_stores):
         agent = g.build_graph(retriever, df, llm, config, streaming_mode=True)
         for case in load_cases(limit):
+            if only is not None and case["id"] not in only:
+                continue
             rec = run_case(agent, config, case, llm)
             (out_dir / f"{case['id']}.json").write_text(
                 json.dumps(rec, indent=1, ensure_ascii=False), encoding="utf-8"
