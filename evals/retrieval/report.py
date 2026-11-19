@@ -189,7 +189,7 @@ def build_report(
         "outcomes": {
             v: {
                 o: sum(1 for r in rows if r.get("outcome") == o)
-                for o in {r.get("outcome") for r in rows}
+                for o in sorted({str(r.get("outcome")) for r in rows})
             }
             for v, rows in all_called.items()
         },
