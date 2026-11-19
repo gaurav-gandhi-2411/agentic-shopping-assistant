@@ -383,9 +383,29 @@ gpt-oss-120b 20/20, claude 19/20 (cal3:c3e, hand 1, claude 0), qwen3.8-27b 17/20
 0 `finish_reason = length`). Day-1 tokens from `ledger.jsonl` (calibration + main): gpt-oss-120b
 119,016 (prompt 92,817, completion 26,199, reasoning 18,289), 79% of the 150K cap; qwen3.8-27b
 103,665 (prompt 95,441, completion 8,224), 69%. Mean completion per judge call 429 (gpt-oss) and
-135 (qwen), against 400 assumed. The 10 main Claude packets are exported (not yet judged);
-`labels_claude.json` is empty until they are imported. Main-run agreement is not computed until the
-Claude labels exist.
+135 (qwen), against 400 assumed.
+
+**Main-run agreement (961 items, 57 queries, frozen pools).** The Claude blind judge labelled the 10
+packets (labels only, no reasons); all 10 packets carry a byte-identical rubric block (sha256 prefix
+`6a7bdecde058b399`, also equal to the calibration packet's; checked because one judge skipped
+re-reading `main_03`'s rubric). Import: 961 labels, every packet item labelled exactly once, 0
+missing, 0 extra, 0 out-of-range keys, 0 invalid values. Items are labelled by three judges, so
+these are LLM-consensus labels, not human ground truth.
+
+| pair | exact | kappa | kappa (quadratic) | confusion (rows first judge, cols second; 0/1/2) |
+|---|---|---|---|---|
+| claude / gpt-oss-120b | 755/961 (78.6%) | 0.658 | 0.842 | [[368,1,15],[77,53,92],[2,19,334]] |
+| claude / qwen3.8-27b | 808/961 (84.1%) | 0.753 | 0.894 | [[338,43,3],[25,124,73],[0,9,346]] |
+| gpt-oss-120b / qwen3.8-27b | 781/961 (81.3%) | 0.692 | 0.866 | [[351,90,6],[3,42,28],[9,44,388]] |
+
+Krippendorff alpha (ordinal) 0.866, bootstrap 95% CI [0.848, 0.884]. Label distribution (0/1/2):
+claude 384/222/355, gpt-oss-120b 447/73/441, qwen3.8-27b 363/176/422. gpt-oss-120b rarely uses the
+middle grade (73 vs claude 222) and claude/qwen split the 1s differently, so most disagreement is
+the 1 boundary: pairs differ by two grades on 15 + 2, 3 + 0 and 6 + 9 items only. Three-judge
+outcome per item: unanimous 697 (72.5%), 2-of-3 majority 253 (26.3%), full three-way split 11
+(1.1%). Per the README rule, strict-majority resolves 950 items; the 11 splits are ties resolved
+by the median for the primary metric, with a sensitivity run that excludes them. Consensus label
+distribution 0/1/2 = 397/150/414. Every pair kappa is >= 0.4 (minimum 0.658).
 
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
