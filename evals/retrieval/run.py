@@ -398,15 +398,35 @@ def stage_variants(args: argparse.Namespace) -> int:
                     results[arm].append(_with_cards(row, c, pool))
     except (BudgetExhaustedError, RateLimitStopError):
         # keep what finished (the cache would also resume it) but never as variants.json
-        (out_dir / "variants_partial.json").write_text(json.dumps(results, indent=1))
+        write_partial(out_dir / "variants_partial.json", results, wanted)
         raise
     # a partial arm set must not be mistaken for the full comparison by the report stage
     name = "variants.json" if full else "variants_partial.json"
-    (out_dir / name).write_text(json.dumps(results, indent=1))
+    if full:
+        (out_dir / name).write_text(json.dumps(results, indent=1))
+    else:
+        write_partial(out_dir / name, results, wanted)
     print(f"variants {','.join(wanted)} over {len(cases)} queries x {args.reps} reps -> {name}")
     if "A2" in wanted:
         print(_a2_length_check(results["A2"]))
     return 0
+
+
+def write_partial(path: Path, results: dict[str, list[dict[str, Any]]], wanted: list[str]) -> None:
+    """Merge this run's arms into variants_partial.json instead of replacing the file.
+
+    An arm is overwritten only when it was run now AND has rows (or had none stored): a run that
+    stops before its first row (day budget already spent) must not wipe rows stored by earlier
+    runs or by the offline stage. (The first day-2 launch did exactly that to A and B; both were
+    regenerated from the cache and the offline stage.)"""
+    stored: dict[str, list[dict[str, Any]]] = {}
+    if path.exists():
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    merged = {arm: stored.get(arm, []) for arm in ("A", "A2", "B", "C")}
+    for arm in wanted:
+        if results.get(arm) or not merged[arm]:
+            merged[arm] = results.get(arm, [])
+    path.write_text(json.dumps(merged, indent=1), encoding="utf-8")
 
 
 def _a2_length_check(rows: list[dict[str, Any]]) -> str:

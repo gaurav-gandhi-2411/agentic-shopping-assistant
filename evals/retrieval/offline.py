@@ -307,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     # outcomes only appear in the results.
     path = out_dir / "variants_partial.json"
     stored = json.loads(path.read_text())
-    path.write_text(json.dumps({"A": stored["A"], "B": rows["B"]}, indent=1), encoding="utf-8")
+    path.write_text(json.dumps({**stored, "B": rows["B"]}, indent=1), encoding="utf-8")
     md = render_md(res)
     rdir = Path(args.results_dir) if args.results_dir else out_dir
     rdir.mkdir(parents=True, exist_ok=True)
