@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from evals.retrieval import run
+from evals.retrieval.common import DEFAULT_REPS
 
 
 def test_schedule_packs_calls_under_the_daily_budget_without_splitting_a_call() -> None:
@@ -54,6 +55,16 @@ def test_schedule_conserves_every_planned_token_and_repeats_cost_days() -> None:
         assert scheduled == pytest.approx(planned)
     assert p3["tokens"]["A_all_reps"] == 3 * p1["tokens"]["A_all_reps"]
     assert p3["days"]["gpt-oss-20b"] >= p1["days"]["gpt-oss-20b"] >= 2
+
+
+def test_default_repetitions_are_two_in_cli_and_plan() -> None:
+    """Architect decision: rep 1 plus ONE repeat for A and A2 (not 3)."""
+    assert DEFAULT_REPS == 2
+    default_plan = run.build_plan([1000] * 10, [500] * 4, [1500] * 8, [400] * 8)
+    assert default_plan["reps"] == 2
+    assert default_plan["tokens"]["A_all_reps"] == 8 * 2 * (1500 + 150)
+    names = {k for d in default_plan["schedule_gpt_oss_20b"] for k in d["work"]}
+    assert "A_rep2" in names and "A_rep3" not in names and "A2_rep3" not in names
 
 
 def test_relabel_tokens_are_added_to_both_groq_judges_only() -> None:

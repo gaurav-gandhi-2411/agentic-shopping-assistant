@@ -26,6 +26,7 @@ JUDGE_MODELS = {
 RERANKER_MODEL = "openai/gpt-oss-20b"
 JUDGE_DAILY_TOKEN_BUDGET = 150_000
 RERANKER_DAILY_TOKEN_BUDGET = 100_000
+DEFAULT_REPS = 2  # runs per query of A and A2: rep 1 plus ONE repeat (stability)
 MIN_REQUEST_INTERVAL_S = 8.0  # <= 1 request per 8 s per model
 
 

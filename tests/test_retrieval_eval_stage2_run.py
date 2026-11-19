@@ -31,7 +31,7 @@ def test_variants_rows_and_reps(out_dir: Path) -> None:
     n = len({r["query_id"] for r in v["B"]})
     assert len(v["B"]) == n and len(v["C"]) == n  # B and C: one draw per query
     for arm in ("A", "A2"):
-        assert len(v[arm]) == 3 * n and {r["rep"] for r in v[arm]} == {1, 2, 3}
+        assert len(v[arm]) == 2 * n and {r["rep"] for r in v[arm]} == {1, 2}  # N = 2 default
     assert all("cards" in r for rows in v.values() for r in rows)
     assert all(len(r["cards"]) <= 5 for rows in v.values() for r in rows)
 
@@ -51,7 +51,7 @@ def test_report_has_all_arms_pairs_stability_and_top2(out_dir: Path) -> None:
     assert len(rep["top2_by_ndcg5_point_estimate"]) == 2
     st = rep["stability"]["A"]
     assert st["n_queries_repeated"] > 0 and "card_count_differs_rate" in st
-    assert set(rep["rep_spread"]["A2"]) == {"rep1", "rep2", "rep3"}
+    assert set(rep["rep_spread"]["A2"]) == {"rep1", "rep2"}
     assert rep["usage"]["B"]["n"] == 0 and rep["usage"]["B"]["n_no_llm_call"] > 0
     assert "metrics_post_gates" in rep and "A" in rep["metrics_post_gates"]
 

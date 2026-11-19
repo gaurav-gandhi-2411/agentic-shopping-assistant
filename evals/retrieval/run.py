@@ -5,7 +5,7 @@
     python -m evals.retrieval.run --stage judge --mock [--limit N]   # calibration gate + labels
     python -m evals.retrieval.run --stage judge --export-packets     # Claude packets (no LLM)
     python -m evals.retrieval.run --stage judge --import-claude      # import Claude results
-    python -m evals.retrieval.run --stage variants --mock [--limit N] [--reps 3]  # A A2 B C
+    python -m evals.retrieval.run --stage variants --mock [--limit N] [--reps 2]  # A A2 B C
     python -m evals.retrieval.run --stage factors --mock             # F1/F2 on the best two arms
     python -m evals.retrieval.run --stage report [--mock]
     python -m evals.retrieval.relabel --mock ...                     # consensus relabelling
@@ -27,6 +27,7 @@ from typing import Any, Callable
 from evals.retrieval import agreement as ag
 from evals.retrieval.common import (
     CANDIDATE_DIR,
+    DEFAULT_REPS,
     JUDGE_DAILY_TOKEN_BUDGET,
     JUDGE_MODELS,
     MIN_REQUEST_INTERVAL_S,
@@ -352,8 +353,8 @@ def _run_arm(
 
 
 def stage_variants(args: argparse.Namespace) -> int:
-    """A, A2, B, C on the pools regenerated on master (`--pools`). A and A2 run `--reps` times per query (stability); the
-    order is rep-major so rep 1 of every arm finishes first (the main comparison needs only
+    """A, A2, B, C on the pools regenerated on master (`--pools`). A and A2 run `--reps` times
+    (default 2: rep 1 plus one repeat) per query (stability); the order is rep-major so rep 1 of every arm finishes first (the main comparison needs only
     that; later reps can wait for the next day's token budget)."""
     out_dir = Path(args.out)
     cand = resolve_pools_dir(Path(args.cand), args.pools)  # master-regenerated pools
@@ -562,7 +563,7 @@ def build_plan(
     c_prompt: list[int],
     judge_budget: int = JUDGE_DAILY_TOKEN_BUDGET,
     rerank_budget: int = RERANKER_DAILY_TOKEN_BUDGET,
-    reps: int = 3,
+    reps: int = DEFAULT_REPS,
     relabel: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Per-model token totals, day-by-day schedules and wall-clock under the global 1 request /
@@ -726,7 +727,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=["candidates", "judge", "variants", "factors", "report", "plan"],
     )
     ap.add_argument(
-        "--reps", type=int, default=3, help="variants: runs per query of the stochastic arms A, A2"
+        "--reps",
+        type=int,
+        default=DEFAULT_REPS,
+        help="variants: runs per query of the stochastic arms A, A2",
     )
     ap.add_argument("--mock", action="store_true", help="rule-based fakes, no network")
     ap.add_argument(
