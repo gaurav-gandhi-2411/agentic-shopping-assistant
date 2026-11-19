@@ -122,7 +122,7 @@ def probe(
         raise RuntimeError(f"probe would exceed the {MAX_LIVE_CALLS}-call cap")
     out: dict[str, Any] = {"calls": 0, "models": {}}
     for name, model in models.items():
-        spec = ModelSpec(f"probe-{name}", model, {"reasoning_effort": "low"}, 150, 20_000, 150)
+        spec = ModelSpec(f"probe-{name}", model, {"reasoning_effort": "low"}, 150, 20_000)
         rows: list[dict[str, Any]] = []
         prev_t: float | None = None
         for i in range(CALLS_PER_MODEL):

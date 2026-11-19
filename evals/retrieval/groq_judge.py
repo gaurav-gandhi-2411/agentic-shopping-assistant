@@ -1,6 +1,6 @@
 """Throttled, budgeted, resumable Groq chat client for the judges and the reranker variants.
 
-Limits baked in as defaults (architect, stage 2): <= 1 request per 8 s per model, a hard
+Limits baked in as defaults (architect, stage 2): <= 1 request per 8 s GLOBALLY (across models), a hard
 DAILY TOKEN BUDGET per model (judges 150,000; reranker model 100,000 because prod canary traffic
 already spends ~100K of its 200K TPD), stop after 3 consecutive 429s, honour Retry-After and the
 `x-ratelimit-remaining-*` headers, and a resumable JSONL cache keyed by
@@ -98,7 +98,6 @@ class ModelSpec:
     params: Mapping[str, Any] = field(default_factory=dict)
     max_tokens: int = 1500
     daily_budget: int = JUDGE_DAILY_TOKEN_BUDGET
-    expected_completion: int = 700  # budget pre-check estimate (reasoning included)
 
 
 def parse_reset_seconds(value: str | None) -> float:
@@ -137,28 +136,41 @@ class Ledger:
 
 
 class ResultCache:
-    """Resumable cache of successful responses keyed by (judge, query_id, prompt_hash)."""
+    """Resumable cache of completed responses keyed by (judge, query_id, prompt_hash).
+
+    A record keeps the response text AND its call metadata (finish_reason, usage, latency_ms) so
+    a resumed run reports the same token / latency / length-hit numbers as the original call.
+    Empty-content replies (the model spent its whole cap on hidden reasoning) are cached too: the
+    tokens were already spent, and repeating the identical request would only spend them again.
+    Records written before metadata existed (text only) load with `meta` empty."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self._d: dict[str, str] = {}
+        self._d: dict[str, dict[str, Any]] = {}
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             for line in path.read_text("utf-8").splitlines():
                 rec = json.loads(line)
-                self._d[rec["key"]] = rec["text"]
+                self._d[rec["key"]] = rec
 
     @staticmethod
     def key(judge: str, query_id: str, prompt_hash: str) -> str:
         return f"{judge}|{query_id}|{prompt_hash}"
 
     def get(self, key: str) -> str | None:
+        """Cached response text, or None when the key was never cached."""
+        rec = self._d.get(key)
+        return None if rec is None else str(rec["text"])
+
+    def get_record(self, key: str) -> dict[str, Any] | None:
+        """Full cached record {"key", "text", "meta"} or None."""
         return self._d.get(key)
 
-    def put(self, key: str, text: str) -> None:
-        self._d[key] = text
+    def put(self, key: str, text: str, meta: Mapping[str, Any] | None = None) -> None:
+        rec = {"key": key, "text": text, "meta": dict(meta or {})}
+        self._d[key] = rec
         with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"key": key, "text": text}, ensure_ascii=False) + "\n")
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
 class GroqRunner:
@@ -177,17 +189,19 @@ class GroqRunner:
         self.transport, self.ledger, self.cache = transport, ledger, cache
         self.min_interval_s, self._clock, self._sleep = min_interval_s, clock, sleep
         self.max_sleep_s = max_sleep_s
-        self._last: dict[str, float] = {}
+        self._last: float | None = None
         self.consecutive_429 = 0
         self.n_calls = 0
 
-    def _throttle(self, model: str) -> None:
-        last = self._last.get(model)
-        if last is not None:
-            wait = self.min_interval_s - (self._clock() - last)
+    def _throttle(self) -> None:
+        """GLOBAL pacing: one request per `min_interval_s` across ALL models sharing this runner
+        (the architect limit is 1 request / 8 s in total, not per model, so the two judge
+        models interleave on a single clock)."""
+        if self._last is not None:
+            wait = self.min_interval_s - (self._clock() - self._last)
             if wait > 0:
                 self._sleep(wait)
-        self._last[model] = self._clock()
+        self._last = self._clock()
 
     def call(
         self,
@@ -201,16 +215,20 @@ class GroqRunner:
         """One cached/throttled/budgeted call. Returns {"text", "finish_reason", "usage",
         "latency_ms", "cached", "headers"} or None if the call failed (non-429 error)."""
         key = ResultCache.key(spec.name, query_id, prompt_hash)
-        if self.cache and (hit := self.cache.get(key)) is not None:
+        if self.cache and (hit := self.cache.get_record(key)) is not None:
+            meta = hit.get("meta") or {}
             return {
-                "text": hit,
-                "finish_reason": None,
-                "usage": {},
-                "latency_ms": 0,
+                "text": hit["text"],
+                "finish_reason": meta.get("finish_reason"),
+                "usage": meta.get("usage") or {},
+                "latency_ms": meta.get("latency_ms", 0),
                 "cached": True,
                 "headers": {},
             }
-        est = count_tokens(system) + count_tokens(user) + spec.expected_completion
+        # Worst case: the full completion cap (reasoning included) is spent. Estimating with a
+        # typical completion instead let a run overshoot the daily budget by up to
+        # max_tokens - typical (~800 tokens for the 1,500-token judge cap).
+        est = count_tokens(system) + count_tokens(user) + spec.max_tokens
         used = self.ledger.tokens_today(spec.model)
         if used + est > spec.daily_budget:
             raise BudgetExhaustedError(
@@ -228,7 +246,7 @@ class GroqRunner:
         }
         attempt = 0
         while True:
-            self._throttle(spec.model)
+            self._throttle()
             t0 = self._clock()
             res = self.transport(payload)
             latency_ms = round((self._clock() - t0) * 1000)
@@ -283,8 +301,16 @@ class GroqRunner:
                         self.max_sleep_s,
                     )
                 )
-            if self.cache and text:
-                self.cache.put(key, text)
+            if self.cache:  # empty replies are cached too (their tokens are already spent)
+                self.cache.put(
+                    key,
+                    text,
+                    {
+                        "finish_reason": choice.get("finish_reason"),
+                        "usage": usage,
+                        "latency_ms": latency_ms,
+                    },
+                )
             return {
                 "text": text,
                 "finish_reason": choice.get("finish_reason"),

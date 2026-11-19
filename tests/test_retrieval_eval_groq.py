@@ -12,7 +12,7 @@ from evals.retrieval import caching_probe as cp
 from evals.retrieval import groq_judge as gj
 from evals.retrieval.mock import mock_transport
 
-SPEC = gj.ModelSpec("j", "openai/gpt-oss-120b", {}, 100, 10_000, 100)
+SPEC = gj.ModelSpec("j", "openai/gpt-oss-120b", {}, 100, 10_000)
 
 
 class Clock:
@@ -98,7 +98,7 @@ def test_throttle_enforces_min_interval(tmp_path: Path) -> None:
 
 
 def test_daily_budget_hard_stop(tmp_path: Path) -> None:
-    small = gj.ModelSpec("j", "openai/gpt-oss-120b", {}, 100, 1_400, 100)
+    small = gj.ModelSpec("j", "openai/gpt-oss-120b", {}, 100, 1_400)
     r = _runner(tmp_path, lambda p: _ok())
     r.call(small, "q1", "s", "u", "h1")  # ledger now holds 650 tokens
     r.call(small, "q2", "s", "u", "h2")  # 650 + ~102 est fits (1300 total)

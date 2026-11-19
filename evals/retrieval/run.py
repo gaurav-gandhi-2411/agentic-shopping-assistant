@@ -82,7 +82,7 @@ def judge_specs(budget: int = JUDGE_DAILY_TOKEN_BUDGET) -> dict[str, ModelSpec]:
 
 
 def reranker_spec(budget: int = RERANKER_DAILY_TOKEN_BUDGET) -> ModelSpec:
-    return ModelSpec("rerank-20b", RERANKER_MODEL, {"reasoning_effort": "low"}, 150, budget, 150)
+    return ModelSpec("rerank-20b", RERANKER_MODEL, {"reasoning_effort": "low"}, 150, budget)
 
 
 class GroqLLM:
