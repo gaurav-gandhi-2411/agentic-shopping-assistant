@@ -92,6 +92,8 @@ _COMPOUND_SORTED: list[tuple[str, str]] = sorted(
 # Garment rule list  (order matters for the position scan)
 # ---------------------------------------------------------------------------
 
+_WEAK_JEWELLERY = "jewellery_weak"  # internal tag, never returned; see _resolve_weak_jewellery
+
 _GARMENT_RULES: list[tuple[str, str, str]] = [
     # Bottoms & shorts — specific first so "under dresses" purpose clause doesn't win
     (r"\bshorts?\b", "shorts", "apparel"),
@@ -165,7 +167,10 @@ _GARMENT_RULES: list[tuple[str, str, str]] = [
     # Footwear
     (
         r"\bfootwear\b|\bshoe\b|\bshoes\b|\bsandal\b|\bsandals\b|\bsneaker\b|\bsneakers\b"
-        r"|\bheels?\b|\bboot\b|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b"
+        # "Boot Cut" is a trouser cut, not a boot (globalrepublic "Boot Cut ... Lower").
+        # mule/loafer/clog/wedge: "Jean Jazz Mule" (houseofvian) resolved to jeans without them.
+        r"|\bheels?\b|\bboot\b(?!\s+cut)|\bboots\b|\bflats?\b|\bslipper\b|\bslippers\b"
+        r"|\bmules?\b|\bloafers?\b|\bclogs?\b|\bwedges?\b"
         # 2026-07-19 fix: ethnic-footwear brands (kraftojodhpur, houseofvian,
         # 5-elements, taurjuttis, fizzygoblet) use jutti/mojari/kolhapuri/chappal
         # as their footwear noun — none of these were in the rule set, so titles
@@ -208,7 +213,7 @@ _GARMENT_RULES: list[tuple[str, str, str]] = [
     (r"\bnecklaces?\b", "necklace", "accessories"),
     (r"\bearrings?\b", "earrings", "accessories"),
     (r"\bjhumkas?\b", "jhumka", "accessories"),
-    (r"\bharams?\b", "jewellery", "accessories"),
+    (r"\bha+rams?\b", "jewellery", "accessories"),  # "Haaram" is a real spelling (ishhaara)
     (r"\bpendants?\b", "jewellery", "accessories"),
     (r"\bchains?\b", "jewellery", "accessories"),
     (r"\bpins?\b", "jewellery", "accessories"),
@@ -218,6 +223,22 @@ _GARMENT_RULES: list[tuple[str, str, str]] = [
     # "Jada Billa"/"Jadabilla"/"JadaBillai" (hair-ornament, daivik).
     (r"\bjada\s*billa(?:i)?\b", "jewellery", "accessories"),
     (r"\bmattal\b", "jewellery", "accessories"),
+    # 2026-11-16 (V3(b2)(b) quarantine root-cause): jewellery nouns that were missing, so a
+    # coincidental apparel word ("Short Chooda", "Indo Western Bangle", "Short Neckpiece")
+    # was the only match and won. Quarantine review of the built catalogue found ishhaara
+    # "Short Chooda"/"Neckpiece"/"Neckalce"/"Indo Western Studs|Bangle", tjori "Short Size
+    # Mala" and daivik "(Short, Long, HipBelt)" typed shorts/indowestern.
+    # (not "payal" -- Payal Singhal is a designer collab on myntra/fizzygoblet apparel and shoes;
+    # not singular "stud" -- "Stud Detail T-Shirt".)
+    (r"\bneck\s?pieces?\b|\bneckalce\b|\bneckace\b|\bmalas?\b", "necklace", "accessories"),
+    # "weak" jewellery nouns: they only decide the type when no stronger noun is present, so
+    # "Kundan Jhumka Bangles" stays jhumka and "Necklace Bracelet Set" stays necklace.
+    (
+        r"\bchoo?das?\b|\bchuras?\b|\bchoo?ras?\b|\bbangles?\b|\bbangels?\b|\bkadas?\b"
+        r"|\bbracelets?\b|\bhip\s?belts?\b|\banklets?\b|\bstuds\b",
+        _WEAK_JEWELLERY,
+        "accessories",
+    ),
     # Coord set (catch-all for coord after compound table)
     (r"\bco-?ord\b", "coord", "apparel"),
     # Kaftan
@@ -388,7 +409,8 @@ def normalize_garment_type(
     # "saree"). Safe beyond these 3 brands too: a real shorts/shirt/saree/top
     # garment listing essentially never also contains a necklace/earring/
     # jhumka/jewellery noun in the same title.
-    _APPAREL_FRAGMENT_GTYPES = {"shorts", "shirt", "saree", "top"}
+    matches = _resolve_weak_jewellery(matches)
+    _APPAREL_FRAGMENT_GTYPES = {"shorts", "shirt", "saree", "top", "indowestern"}
     _JEWELLERY_GTYPES = {"jewellery", "necklace", "earrings", "jhumka"}
     if any(gt in _JEWELLERY_GTYPES for _, gt, _ in matches) and any(
         gt in _APPAREL_FRAGMENT_GTYPES for _, gt, _ in matches
@@ -420,6 +442,21 @@ def normalize_garment_type(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_weak_jewellery(
+    matches: list[tuple[int, str, str]],
+) -> list[tuple[int, str, str]]:
+    """Drop weak jewellery matches when a strong jewellery noun is present, else relabel them.
+
+    Weak nouns (bangle/chooda/bracelet/anklet/studs/hip belt) must not override the more
+    specific necklace/earrings/jhumka/jewellery types that existing catalogue rows and the slot
+    logic rely on; they only decide when nothing stronger matched.
+    """
+    strong = {"jewellery", "necklace", "earrings", "jhumka"}
+    if any(gt in strong for _, gt, _ in matches):
+        matches = [m for m in matches if m[1] != _WEAK_JEWELLERY]
+    return [(p, "jewellery" if g == _WEAK_JEWELLERY else g, c) for p, g, c in matches]
 
 
 def _category_for(garment_type: str) -> str:
@@ -464,7 +501,8 @@ def _fallback_product_type(product_type_name: str | None) -> NormalizationResult
 
     # Jewellery-noun precedence over apparel-fragment words — see Step 3.5 in
     # normalize_garment_type (same collision, e.g. store label "Short Necklaces").
-    _apparel_fragment_gtypes = {"shorts", "shirt", "saree", "top"}
+    matches = _resolve_weak_jewellery(matches)
+    _apparel_fragment_gtypes = {"shorts", "shirt", "saree", "top", "indowestern"}
     _jewellery_gtypes = {"jewellery", "necklace", "earrings", "jhumka"}
     if any(gt in _jewellery_gtypes for _, gt, _ in matches) and any(
         gt in _apparel_fragment_gtypes for _, gt, _ in matches
