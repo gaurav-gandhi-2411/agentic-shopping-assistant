@@ -407,6 +407,22 @@ outcome per item: unanimous 697 (72.5%), 2-of-3 majority 253 (26.3%), full three
 by the median for the primary metric, with a sensitivity run that excludes them. Consensus label
 distribution 0/1/2 = 397/150/414. Every pair kappa is >= 0.4 (minimum 0.658).
 
+**Reranker day 1: variant A rep 1** (`--stage variants --live --arms A --reps 1`, master-regenerated
+pools, production `rerank()` with gpt-oss-20b, max_tokens 150; output
+`reports/wave1b/v4e/variants_partial.json`, calls in `ledger.jsonl`). Completed in one day: 57
+queries, 53 live calls (4 pools of <= 5 candidates skip the reranker), all status 200, 0 x 429.
+Tokens 98,675 (prompt 91,351, completion 7,324, of which reasoning 5,868) of the 100K reranker
+budget. `finish_reason`: length 31, stop 22 (31 calls hit the 150 cap: 58% of live calls, against
+8 of 15 in the prod log). Outcomes: ok 17, partial 1, parse_error 35 (31 length cuts plus 4 `stop`
+replies with an empty `selected` list, q12 q17 q22 q29, "no product meets the constraints"; the
+production parser treats an empty list as unparsable, so these also fall back to retrieval order),
+no_llm_call 4. Latency p50 1,098 ms, p95 1,575 ms. So 35 of 53 live calls (66%) end in
+retrieval-order fallback in variant A, which is the truncation problem A2 is designed to remove.
+Groq exposes only per-minute token and per-day request headers (limit 8,000 TPM, 1,000 RPD), not
+the daily token balance: remaining TPD could not be read, the 100K/day own cap and the 3 x 429 stop
+were the guards. The run was one probe call plus 53 calls, the last response showed 946 of 1,000
+requests remaining.
+
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
 Re-labels the strict-gold labels with the same three blind judges (gpt-oss-120b, qwen3.8-27b via
