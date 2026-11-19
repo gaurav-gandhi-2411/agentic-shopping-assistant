@@ -1,0 +1,26 @@
+{
+ "query_id": "q11",
+ "text": "Can you suggest black jumpsuit for a woman to wear to a party? I want it to look elegant but stay comfortable.",
+ "route": "graph_rerank",
+ "pool_size_before_cap": 1,
+ "n_candidates": 1,
+ "llm_stub_calls": 0,
+ "items": [
+  {
+   "rank": 1,
+   "article_id": "10105011568937",
+   "store": "virgio",
+   "prod_name": "Yalina|100% Viscose High Neck Jumpsuit",
+   "display_name": "Yalina|100% Viscose High Neck Jumpsuit (Black jumpsuit)",
+   "price_inr": 2699.0,
+   "product_type": "jumpsuit",
+   "department": "N/A",
+   "gender": "women",
+   "colour": "Black",
+   "detail_desc": "Black fit & flare jumpsuit, featuring a halter neckline back cut-out detail. Designed with two functional pockets, bust yoke panels, and concealed zip closure.",
+   "snippet": "Black fit & flare jumpsuit, featuring a halter neckline back cut-out detail. Designed with two functional pockets, bust yoke panels, and concealed zip closure.",
+   "rrf_score": 0.03278688524590164,
+   "pdp_handle": "j3-yalina-viscose-high-neck-jumpsuit"
+  }
+ ]
+}

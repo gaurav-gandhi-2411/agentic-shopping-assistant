@@ -1,0 +1,58 @@
+{
+ "query_id": "q23",
+ "text": "Can you suggest navy dress for a woman to wear to a party? I want it to look elegant but stay comfortable. Please keep it under ₹1000.",
+ "route": "graph_rerank",
+ "pool_size_before_cap": 3,
+ "n_candidates": 3,
+ "llm_stub_calls": 0,
+ "items": [
+  {
+   "rank": 1,
+   "article_id": "8629264580758",
+   "store": "libas",
+   "prod_name": "Navy Blue Solid Cotton A-Line One Piece Dress",
+   "display_name": "Navy Blue Solid Cotton A-Line One Piece Dress (Dark Blue dress)",
+   "price_inr": 729.0,
+   "product_type": "dress",
+   "department": "N/A",
+   "gender": "women",
+   "colour": "Dark Blue",
+   "detail_desc": "Our Navy Blue Cotton Maxi dress features a Round Neckline, Sleeveless design, and a flared hemline. Highlighted with captivating solid, this style is perfect for casual wear.",
+   "snippet": "Our Navy Blue Cotton Maxi dress features a Round Neckline, Sleeveless design, and a flared hemline. Highlighted with captivating solid, this style is perfect for casual wear.",
+   "rrf_score": 0.03200204813108039,
+   "pdp_handle": "navy-blue-solid-cotton-a-line-one-piece-dress-43238"
+  },
+  {
+   "rank": 2,
+   "article_id": "9964609962281",
+   "store": "virgio",
+   "prod_name": "Islaa|100% Viscose Printed Midi Dress",
+   "display_name": "Islaa|100% Viscose Printed Midi Dress (Navy Blue dress)",
+   "price_inr": 999.0,
+   "product_type": "dress",
+   "department": "N/A",
+   "gender": "women",
+   "colour": "Navy Blue",
+   "detail_desc": "Navy printed midi dress featuring a mix of animal and floral motifs. Designed with a sweetheart neckline and short puff sleeves. Features side pockets. Made from smooth, breathable woven fabric for easy comfort.",
+   "snippet": "Navy printed midi dress featuring a mix of animal and floral motifs. Designed with a sweetheart neckline and short puff sleeves. Features side pockets. Made from smooth, breathable woven fabric for ea",
+   "rrf_score": 0.03149801587301587,
+   "pdp_handle": "nb1-islaa-viscose-printed-midi-dress"
+  },
+  {
+   "rank": 3,
+   "article_id": "8600463966358",
+   "store": "libas",
+   "prod_name": "Navy Blue Printed Rayon Dress",
+   "display_name": "Navy Blue Printed Rayon Dress (Dark Blue dress)",
+   "price_inr": 649.0,
+   "product_type": "dress",
+   "department": "N/A",
+   "gender": "women",
+   "colour": "Dark Blue",
+   "detail_desc": "Navy Blue Printed Rayon Dress What you get : Only Dress ( 1 Pcs) Prints Patterns: Printed Color: Navy Blue Material: Viscose Rayon Length: Maxi Length Neck type: Round Neck Shape: A-Line Sleeve: Three Quarter Sleeves Sleeve type: Regular Sleeves Occasion: Festive Wear Care Instruction: Gentle Hand W",
+   "snippet": "Navy Blue Printed Rayon Dress What you get : Only Dress ( 1 Pcs) Prints Patterns: Printed Color: Navy Blue Material: Viscose Rayon Length: Maxi Length Neck type: Round Neck Shape: A-Line Sleeve: Three",
+   "rrf_score": 0.031754032258064516,
+   "pdp_handle": "navy-blue-printed-rayon-dress-g2522"
+  }
+ ]
+}
