@@ -54,13 +54,13 @@ def test_truncated_json_falls_back_to_retrieval_order() -> None:
     though the picks were already visible in the cut-off text."""
     cut = '{"selected": [7, 3, 12, 1, 9], "reasoning": "Black kurtas that suit a hal'
     res = vr.run_variant_a("q", _items(), FakeLLM(cut, {"completion_tokens": 150}, "length"))
-    assert _ids(res) == RRF5 and res["outcome"] == "parse_error"
+    assert _ids(res) == RRF5 and res["outcome"] == "length"
     assert res["hit_cap"] is True and res["max_tokens"] == 150 == vr.A_MAX_TOKENS
 
 
 def test_cut_inside_selected_list_also_falls_back() -> None:
     res = vr.run_variant_a("q", _items(), FakeLLM('{"selected": [7, 3, 12', {}, "length"))
-    assert _ids(res) == RRF5 and res["outcome"] == "parse_error"
+    assert _ids(res) == RRF5 and res["outcome"] == "length"
 
 
 def test_empty_reasoning_exhausted_output_falls_back() -> None:
@@ -70,9 +70,9 @@ def test_empty_reasoning_exhausted_output_falls_back() -> None:
         assert _ids(res) == RRF5 and res["outcome"] == "parse_error"
 
 
-def test_provider_exception_falls_back_as_timeout() -> None:
+def test_provider_exception_falls_back_as_http_error() -> None:
     res = vr.run_variant_a("q", _items(), FakeLLM(RuntimeError("boom")))
-    assert _ids(res) == RRF5 and res["outcome"] == "timeout"
+    assert _ids(res) == RRF5 and res["outcome"] == "http_error"
 
 
 def test_complete_json_reorders_and_closed_short_list_is_topped_up() -> None:
@@ -127,7 +127,7 @@ def test_variant_c_fallbacks() -> None:
     part = vr.run_variant_c("q", _items(), FakeLLM("7,3"))
     assert _ids(part) == ["a7", "a3", "a1", "a2", "a4"] and part["outcome"] == "partial"
     boom = vr.run_variant_c("q", _items(), FakeLLM(ValueError("x")))
-    assert _ids(boom) == RRF5 and boom["outcome"] == "timeout"
+    assert _ids(boom) == RRF5 and boom["outcome"] == "http_error"
 
 
 def test_variant_c_records_cap_hit_and_params() -> None:

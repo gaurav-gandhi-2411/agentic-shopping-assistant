@@ -16,7 +16,16 @@ from evals.retrieval import metrics as mt
 
 ARMS_ORDER = ("A", "A2", "B", "C")
 PAIRS = (("A", "B"), ("A2", "B"), ("A2", "A"), ("C", "B"), ("C", "A"), ("C", "A2"))
-FALLBACK_OUTCOMES = ("parse_error", "timeout", "length_fallback")
+# "timeout" and "length_fallback" are the pre-taxonomy names (rows from before 2026-11-20)
+FALLBACK_OUTCOMES = (
+    "parse_error",
+    "length",
+    "empty_selection",
+    "http_error",
+    "budget",
+    "timeout",
+    "length_fallback",
+)
 METRICS = ("ndcg5", "p5_ge1", "p5_ge2", "p5_ge1_5")
 
 
@@ -73,6 +82,13 @@ def rates(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "timeout_rate": frac(sum(1 for r in called if r.get("outcome") == "timeout")),
         "fallback_rate": frac(sum(1 for r in called if r.get("outcome") in FALLBACK_OUTCOMES)),
         "partial_rate": frac(sum(1 for r in called if r.get("outcome") == "partial")),
+        # every reason counted on its own, never lumped into "timeout"
+        "outcome_counts": {
+            o: sum(1 for r in called if r.get("outcome") == o)
+            for o in ("ok", "partial", "length", "parse_error", "empty_selection", "http_error")
+            if any(r.get("outcome") == o for r in called)
+        },
+        "no_exact_match": sum(1 for r in called if r.get("no_exact_match")),
     }
 
 

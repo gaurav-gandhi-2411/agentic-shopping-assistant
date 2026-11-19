@@ -27,16 +27,21 @@ logger = logging.getLogger(__name__)
 
 TOP_K = 5
 A_MAX_TOKENS = 150  # hard-coded in src/agents/reranker.py::rerank; asserted against in tests
-# A2: gpt-oss-20b at reasoning_effort low used 96-148 hidden reasoning tokens in the logged prod
-# calls (reports/wave1b/v4-token-breakdown.md) and the visible JSON answer is ~60 tokens, so the
-# worst observed total is ~210. 600 leaves ~2.8x headroom over that; the A2 run still asserts
-# finish_reason is never "length" and counts any hit (see assert_no_length_hits).
+# A2 cap, from the stage-2 day-1 variant A ledger (53 live calls, reasoning_effort low, cap 150,
+# reports/wave1b/v4e/ledger.jsonl): the 22 calls that finished (stop) used 22-107 reasoning tokens
+# (median 77) and 26-64 visible tokens; the 31 calls cut at the cap (finish_reason length) show
+# reasoning of 98-148, and 21 of them 148 = the cap minus two visible tokens, so the reasoning
+# distribution is CENSORED at ~148 and its true tail is unknown. 600 = ~64 visible + ~536 of
+# reasoning room, 3.6x the censoring point. Smaller (400) would still leave 2.3x but this is the
+# first run that can show where the tail ends; the stage asserts finish_reason is never "length"
+# and counts any hit (assert_no_length_hits). Cost: the budget pre-check reserves prompt + 600.
 A2_MAX_TOKENS = 600
 # C: visible output is 8 numbers (~3 tokens each incl. separators, so ~24-30 tokens). gpt-oss
-# reasoning tokens count against max_tokens even at low effort (prod's 150-token JSON answers hit
-# the 150 cap in 8/15 logged calls), so the cap carries ~150 tokens of reasoning slack. Stage 2
-# must check completion_tokens / finish_reason from the ledger and raise it if any call hits it.
-C_MAX_TOKENS = 200
+# reasoning counts against max_tokens even at low effort and was censored at ~148 on 40% of day-1
+# variant A calls (see above), so the old 200 cap (visible 30 + 170 reasoning) would be at risk of
+# the same truncation. 400 leaves ~370 for reasoning (2.5x the censoring point) at a small cost
+# (C prompts are ~500 tokens). Stage 2 still reads finish_reason from the ledger and counts hits.
+C_MAX_TOKENS = 400
 C_ASK_N = 8
 C_SYSTEM = (
     "You rank fashion products for a shopper's query. Choose the 8 best matches, best first.\n"
@@ -66,22 +71,74 @@ class RecordingLLM:
     def generate(self, prompt: str, system: str | None = None, **kwargs: Any) -> str:
         rec: dict[str, Any] = {"prompt": prompt, "system": system, "kwargs": dict(kwargs)}
         self.calls.append(rec)
-        out = self.inner.generate(prompt, system=system, **kwargs)
+        try:
+            out = self.inner.generate(prompt, system=system, **kwargs)
+        except Exception as exc:
+            rec["error"] = type(exc).__name__  # lets the outcome say budget vs http_error
+            raise
         rec["output"] = out
         rec["meta"] = dict(getattr(self.inner, "last_meta", {}) or {})
         return out
 
 
+# Distinct, counted reasons a rerank turn ends the way it does. This is also the SPEC for the
+# production fix (src/agents/reranker.py currently logs everything it swallows as "timeout" and an
+# empty selection as "parse_error"). "partial" is a flavour of ok (valid but < 5 picks, topped up).
+OUTCOMES = (
+    "ok",
+    "partial",
+    "length",  # finish_reason == "length" and nothing usable (A2: never trusted at all)
+    "parse_error",  # complete reply that is not the expected shape
+    "empty_selection",  # valid `selected: []` with finish_reason stop = "no exact match"
+    "http_error",  # the provider call raised (timeout, 5xx, transport)
+    "budget",  # day budget / 429 stop: never a row in practice, the stage aborts
+    "no_llm_call",
+)
+_BUDGET_ERRORS = ("BudgetExhaustedError", "RateLimitStopError", "BusyStopError")
+
+
+def is_empty_selection(text: str) -> bool:
+    """True when the reply is a well-formed JSON object whose `selected` list is empty."""
+    import json
+
+    blobs = [text.strip()]
+    m = re.search(r"\{[\s\S]*?\}", text)
+    if m:
+        blobs.append(m.group())
+    for blob in blobs:
+        try:
+            parsed = json.loads(blob)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("selected"), list):
+            return len(parsed["selected"]) == 0
+    return False
+
+
+def classify_reply(
+    call: Mapping[str, Any], valid: Sequence[Any] | None, text_empty_ok: bool = True
+) -> str:
+    """Outcome of one call that was made. `valid` = the parsed valid picks (None/[] = unusable)."""
+    if "output" not in call:
+        return "budget" if call.get("error") in _BUDGET_ERRORS else "http_error"
+    meta = call.get("meta") or {}
+    if valid:
+        return "partial" if len(valid) < TOP_K else "ok"
+    if meta.get("finish_reason") == "length":
+        return "length"
+    if text_empty_ok and is_empty_selection(str(call["output"])):
+        return "empty_selection"
+    return "parse_error"
+
+
 def _outcome(call: Mapping[str, Any] | None, n: int) -> str:
-    """Classify variant A's call the way rerank() logs it: none / timeout / parse_error / partial / ok."""
+    """Classify variant A's call: no_llm_call / http_error / budget / length / empty_selection /
+    parse_error / partial / ok (see OUTCOMES)."""
     if call is None:
         return "no_llm_call"  # <= top_k candidates: rerank() returns them untouched
     if "output" not in call:
-        return "timeout"  # generate() raised
-    parsed = _parse_selected(call["output"], n)
-    if parsed is None:
-        return "parse_error"
-    return "partial" if len(parsed) < TOP_K else "ok"
+        return classify_reply(call, None)  # generate() raised
+    return classify_reply(call, _parse_selected(call["output"], n))
 
 
 class CapOverrideLLM:
@@ -117,7 +174,7 @@ def run_variant_a2(
     Everything else is variant A: production system prompt, candidate block, parser, partial
     top-up and colour-diversity swap; reasoning_effort stays low (set by the live adapter).
     Contract: a call that still ends with finish_reason == "length" is NEVER trusted: the turn
-    falls back EXPLICITLY to retrieval order (variant B's cards), outcome "length_fallback" and
+    falls back EXPLICITLY to retrieval order (variant B's cards), outcome "length" and
     `length_hit` True, a warning is logged, and `assert_no_length_hits` fails the stage check.
     """
     row = _run_production_rerank("A2", query, items, llm, A2_MAX_TOKENS)
@@ -129,7 +186,8 @@ def run_variant_a2(
             query,
         )
         row["final_ids"] = [it["article_id"] for it in items[:TOP_K]]
-        row["outcome"] = "length_fallback"
+        row["outcome"] = "length"
+        row["no_exact_match"] = False
     return row
 
 
@@ -164,11 +222,15 @@ def _run_production_rerank(
         meta.get("finish_reason") == "length"
         or (comp is not None and max_tokens is not None and comp >= max_tokens)
     )
+    outcome = _outcome(call, len(items))
     return {
         "variant": variant,
         "final_ids": [it["article_id"] for it in shown],
         "raw_output": (call or {}).get("output"),
-        "outcome": _outcome(call, len(items)),
+        "outcome": outcome,
+        # "no exact match": the model said nothing fits (valid empty list, finish_reason stop).
+        # The turn returns retrieval order; it is a valid answer, not a parse failure.
+        "no_exact_match": outcome == "empty_selection",
         "max_tokens": max_tokens,
         "finish_reason": meta.get("finish_reason"),
         "hit_cap": hit_cap,
@@ -248,20 +310,17 @@ def run_variant_c(
         }
     system, user = build_compact_prompt(query, items)
     rec = RecordingLLM(llm)
-    outcome = "ok"
     try:
         raw = rec.generate(user, system=system, max_tokens=C_MAX_TOKENS, temperature=0)
         picked = parse_compact(raw, len(items))
     except Exception:  # noqa: BLE001 - any provider failure falls back like production does
-        raw, picked, outcome = None, [], "timeout"
-    if outcome == "ok" and not picked:
-        outcome = "parse_error"
-    elif outcome == "ok" and len(picked) < TOP_K:
-        outcome = "partial"
+        raw, picked = None, []
+    call = rec.calls[0]
+    # C's reply has no JSON, so a reply without numbers is a parse_error (text_empty_ok=False)
+    outcome = classify_reply(call, picked, text_empty_ok=False)
     order = [items[i - 1] for i in picked]
     seen = {it["article_id"] for it in order}
     order += [it for it in items if it["article_id"] not in seen]
-    call = rec.calls[0]
     meta = call.get("meta", {})
     usage = meta.get("usage") or {}
     comp = usage.get("completion_tokens")

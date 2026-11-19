@@ -127,26 +127,49 @@ reproduced the frozen files id-for-id and order-for-order. `public_stores.json` 
 
 - **A**: `variants.run_variant_a` calls the production `rerank()` with a recording LLM, so the prompt
   (system + candidate block), `max_tokens=150`, `temperature=0` and the production parser and
-  fallbacks are exactly production's. Records raw output, finish_reason, cap hit, outcome
-  (`ok / partial / parse_error / timeout / no_llm_call`) and the final top-5.
+  fallbacks are exactly production's. Records raw output, finish_reason, cap hit, outcome (see
+  "Outcome taxonomy" below) and the final top-5.
   Difference from production: the live adapter has no model-fallback chain (see "Truncation").
 - **A2**: `variants.run_variant_a2`: variant A with the cap overridden to `A2_MAX_TOKENS = 600`
   (`CapOverrideLLM`, so `rerank()` itself is not forked: same system prompt, candidate block, parser,
-  partial top-up and colour-diversity swap; `reasoning_effort` low). 600 = ~2.8x the worst logged
-  total (visible JSON ~60 tokens + 96-148 hidden reasoning tokens, `reports/wave1b/v4-token-breakdown.md`).
+  partial top-up and colour-diversity swap; `reasoning_effort` low). **Cap, from the day-1 variant A
+  ledger (53 live calls, cap 150):** the 22 calls that finished used 22-107 reasoning tokens
+  (median 77) and 26-64 visible tokens; the 31 calls cut at the cap show 98-148 reasoning tokens, 21
+  of them exactly 148 (the cap minus two visible tokens), so the reasoning distribution is censored
+  at ~148 and its tail is unknown. 600 = ~64 visible + ~536 reasoning room, 3.6x the censoring point
+  (the earlier estimate was 2.8x the logged prod total, `reports/wave1b/v4-token-breakdown.md`).
   A length finish (or `completion_tokens >= cap`) is never trusted: the turn falls back explicitly to
-  retrieval order, outcome `length_fallback`, a warning is logged, and `assert_no_length_hits` /
+  retrieval order, outcome `length`, a warning is logged, and `assert_no_length_hits` /
   the report's `a2_length_check` line fail if any call did so (the data is kept either way).
+  An empty `selected` list with `finish_reason` stop is a VALID "no exact match": retrieval order,
+  `no_exact_match` flag, outcome `empty_selection` (never `parse_error`).
 - **B**: RRF order.
 - **C**: `variants.build_compact_prompt`: candidates numbered 1..N, `title (12 words) | price band |
   colour`, instructions first (byte-stable prefix), answer = 8 comma-separated numbers, `max_tokens =
-  200`, `temperature 0`. The cap is 200, not the ~48 the visible answer needs, because gpt-oss
-  hidden reasoning counts against `max_tokens` even at low effort (production's 150 cap is hit by
-  8 of 15 reranker calls for that reason). Stage 2 must read `finish_reason` and
-  `completion_tokens` from the ledger and raise the cap if any C call hits it. The compact system
+  400` (was 200), `temperature 0`. The cap is far above the ~48 the visible answer needs because
+  gpt-oss hidden reasoning counts against `max_tokens` even at low effort: day-1 variant A showed
+  reasoning censored at ~148 tokens on 31 of 53 calls, so 200 (30 visible + 170) was at risk of the
+  same truncation; 400 leaves ~370 for reasoning. Stage 2 reads `finish_reason` and
+  `completion_tokens` from the ledger and raises the cap if any C call hits it. The compact system
   prompt is ~150 tokens, below Groq's 1,024-token minimum cacheable prefix, so caching cannot help C
   as designed. Invalid or short output falls back to (or is topped up from) RRF order.
   C does not replay production's colour-diversity swap (`_enforce_colour_diversity`), A does.
+
+### Outcome taxonomy (spec for the later production fix)
+
+Every rerank turn ends in exactly one logged, counted reason (`variants.OUTCOMES`, rates in
+`report.rates()["outcome_counts"]`): `ok`; `partial` (a flavour of ok: valid but < 5 picks, topped up
+from retrieval order); `length` (finish_reason length, nothing usable; for A2 never trusted at all);
+`parse_error` (a complete reply that is not the expected shape, including picks that are all out of
+range); `empty_selection` (valid `selected: []` with finish_reason stop: the model says no exact
+match, so the turn returns retrieval order with a `no_exact_match` flag and is NOT a parse failure);
+`http_error` (the provider call raised); `budget` (day-budget, 3 x 429 or busy stop: the harness
+aborts the stage, so it never becomes a data row); `no_llm_call` (pool of <= 5). **Nothing swallowed
+is ever called "timeout"** (production's `rerank()` currently logs every swallowed exception as
+`timeout` and an empty selection as `parse_error`; the production fix should log these reasons
+separately, treat `empty_selection` as valid, and size the cap from the censored reasoning data
+above). Day-1 variant A rows keep their original outcome names on disk; the results re-classify
+them from the stored raw output (4 of the 35 old `parse_error` rows were `empty_selection`).
 
 ### Cards the user sees: the post-rerank replay (`post_rerank.py`)
 
