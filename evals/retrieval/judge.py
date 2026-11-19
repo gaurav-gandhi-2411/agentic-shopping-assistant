@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from evals.retrieval.common import HERE, sha
+from evals.retrieval.scrub import scrub_stores
 
 RUBRIC_PATH = HERE / "rubric.md"
 SNIPPET_CHARS = 150
@@ -52,9 +53,12 @@ def shuffled_order(query_id: str, ids: Sequence[str], seed: int) -> list[str]:
 def _fmt_candidate(n: int, c: Mapping[str, Any]) -> str:
     price = c.get("price_inr")
     price_s = f"₹{price:.0f}" if isinstance(price, (int, float)) else "price n/a"
-    desc = " ".join((c.get("detail_desc") or c.get("snippet") or "").split())[:SNIPPET_CHARS]
+    # Store names are scrubbed from title and description (they carry the brand); the
+    # description is scrubbed BEFORE truncation so a cut-off brand fragment cannot survive.
+    desc = " ".join((c.get("detail_desc") or c.get("snippet") or "").split())
+    desc = scrub_stores(desc)[:SNIPPET_CHARS]
     parts = [
-        f"{n}. {c.get('display_name') or c.get('title') or ''}",
+        f"{n}. {scrub_stores(c.get('display_name') or c.get('title') or '')}",
         f"price {price_s}",
         f"category {c.get('product_type') or 'n/a'}",
         f"colour {c.get('colour') or 'n/a'}",
