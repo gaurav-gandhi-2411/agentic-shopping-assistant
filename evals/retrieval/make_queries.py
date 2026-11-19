@@ -124,6 +124,11 @@ COLOURS = {
     "mehendi": ["green", "yellow", "pink"],
     "accessory_footwear": ["gold", "silver", "black"],
 }
+# q15 drew "green outfit for mehendi under ₹1000", a near-duplicate of the strict-gold query
+# "green outfit for mehendi" (a label-set query this eval must not overlap). Same stratum
+# (mehendi, gender-neutral, plain English, <= 1000), different colour. The override is applied
+# after the rng draw, so no other case changes.
+COLOUR_OVERRIDES = {"q15": "yellow"}
 DEFAULT_COLOURS = ["black", "blue", "red", "maroon", "pink", "white", "navy", "green", "grey"]
 BUDGETS: list[int | None] = [None, 1000, 1500, 3000, 5000]
 STYLES = ["plain_en", "en_hinglish", "romanised_hinglish", "keyword_typo", "stylist_descriptive"]
@@ -199,6 +204,7 @@ def build_cases() -> list[dict]:
         is_hard = i in hard
         pool = COLOURS.get(occ, DEFAULT_COLOURS)
         colour = rng.choice(pool) if (is_hard or i % 2 == 0) else None
+        colour = COLOUR_OVERRIDES.get(f"q{i + 1:02d}", colour)  # applied after rng: no drift
         shown_garment = garment
         style_term = None
         if is_hard and garment not in NON_CLOTHING and (i // 5) % 2 == 0:
