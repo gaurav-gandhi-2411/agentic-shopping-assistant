@@ -19,6 +19,10 @@ Design decisions
   BEFORE the merge: saree reclassification, true-fabric-bolt row drop, colour backfill,
   mojibake cleanup, then search_text/display_name/facets are recomputed from the fixed
   columns. See _clean_brand_catalogue.
+- Catalogue hygiene (V3(b2)(b), src/catalogue/hygiene.py) runs last in that per-brand step:
+  adds ``category``/``garment_type`` columns, drops non-fashion rows, and excludes
+  title-vs-type contradictions (quarantine). Dropped and quarantined rows are listed in
+  data/processed/unified/hygiene/*.csv. Takes effect only when this script is re-run.
 - Dense FAISS: RE-EMBEDDED from the cleaned+merged catalogue's search_text (not
   concatenated from stale per-brand vectors) — colour backfill and mojibake cleanup change
   search_text, so the old "concatenate, no re-embedding needed" design no longer holds.
@@ -71,6 +75,7 @@ from src.catalogue.cleaning import (  # noqa: E402
     reclassify_finished_sarees,
     recompute_derived_columns,
 )
+from src.catalogue.hygiene import apply_hygiene, restrict_to_allowed_categories  # noqa: E402
 from src.catalogue.loader import load_config  # noqa: E402
 from src.retrieval.dense_search import DenseRetriever  # noqa: E402
 
@@ -240,6 +245,11 @@ def _clean_brand_catalogue(brand: str, df: pd.DataFrame) -> tuple[pd.DataFrame, 
         3. Drop remaining true fabric_material rows (fabric bolts).
         4. Colour backfill for null/empty colour_group_name.
         5. Recompute search_text/display_name/facets from the fixed columns.
+        6. Catalogue hygiene (V3(b2)(b), src/catalogue/hygiene.py): add ``category`` and
+           ``garment_type``, drop non-fashion rows (boxes, hampers, gift cards, ...) and
+           quarantine title-vs-type contradictions (excluded from the index, listed in
+           ``stats["hygiene"]`` and written by _write_hygiene_reports).
+        7. Per-store ``allowed_categories`` from the store registry (src/config/store_registry.py).
 
     Returns (df, stats) where stats records per-step counts for the build report.
     """
@@ -248,6 +258,8 @@ def _clean_brand_catalogue(brand: str, df: pd.DataFrame) -> tuple[pd.DataFrame, 
     df, n_fabric_dropped = drop_true_fabric_material(df)
     df, n_colour_filled = backfill_colours(df)
     df = recompute_derived_columns(df)
+    df, hygiene = apply_hygiene(df)
+    df, hygiene["category_restricted"] = restrict_to_allowed_categories(df)
 
     stats = {
         "brand": brand,
@@ -256,9 +268,31 @@ def _clean_brand_catalogue(brand: str, df: pd.DataFrame) -> tuple[pd.DataFrame, 
         "saree_reclassified": n_saree_reclassified,
         "fabric_material_dropped": n_fabric_dropped,
         "colour_backfilled": n_colour_filled,
+        "non_fashion_dropped": len(hygiene["dropped"]),
+        "quarantined": len(hygiene["quarantined"]),
+        "category_restricted": len(hygiene["category_restricted"]),
         "rows_after_cleaning": len(df),
+        "hygiene": hygiene,
     }
     return df, stats
+
+
+def _write_hygiene_reports(all_stats: list[dict], out_dir: Path) -> None:
+    """Write the dropped (non-fashion) and quarantined rows of every brand as CSV in *out_dir*.
+
+    These are the audit trail for rows that were removed at build time; nothing reads them at
+    serve time.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for key, name in (
+        ("dropped", "hygiene_dropped.csv"),
+        ("quarantined", "hygiene_quarantine.csv"),
+        ("category_restricted", "hygiene_category_restricted.csv"),
+    ):
+        frames = [s["hygiene"][key] for s in all_stats if key in s.get("hygiene", {})]
+        merged = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        merged.to_csv(out_dir / name, index=False)
+        logger.info("hygiene %s: %d rows -> %s", key, len(merged), out_dir / name)
 
 
 def _load_and_clean_brand(brand: str) -> tuple[pd.DataFrame, dict]:
@@ -272,19 +306,21 @@ def _print_cleaning_report(all_stats: list[dict]) -> None:
     print("\n=== Phase A cleaning report ===")
     header = (
         f"  {'brand':<14} {'mojibake(name/desc)':<20} {'saree_reclass':>13} "
-        f"{'fabric_dropped':>14} {'colour_filled':>13} {'rows_after':>10}"
+        f"{'fabric_dropped':>14} {'colour_filled':>13} {'non_fashion':>11} {'quarantined':>11} "
+        f"{'rows_after':>10}"
     )
     print(header)
     totals = {
         "mojibake_prod_name": 0, "mojibake_detail_desc": 0, "saree_reclassified": 0,
-        "fabric_material_dropped": 0, "colour_backfilled": 0, "rows_after_cleaning": 0,
+        "fabric_material_dropped": 0, "colour_backfilled": 0, "non_fashion_dropped": 0,
+        "quarantined": 0, "rows_after_cleaning": 0,
     }
     for s in all_stats:
         mojibake = f"{s['mojibake_prod_name']}/{s['mojibake_detail_desc']}"
         print(
             f"  {s['brand']:<14} {mojibake:<20} {s['saree_reclassified']:>13} "
             f"{s['fabric_material_dropped']:>14} {s['colour_backfilled']:>13} "
-            f"{s['rows_after_cleaning']:>10}"
+            f"{s['non_fashion_dropped']:>11} {s['quarantined']:>11} {s['rows_after_cleaning']:>10}"
         )
         for k in totals:
             totals[k] += s[k]
@@ -292,7 +328,8 @@ def _print_cleaning_report(all_stats: list[dict]) -> None:
     print(
         f"  {'TOTAL':<14} {total_mojibake:<20} "
         f"{totals['saree_reclassified']:>13} {totals['fabric_material_dropped']:>14} "
-        f"{totals['colour_backfilled']:>13} {totals['rows_after_cleaning']:>10}"
+        f"{totals['colour_backfilled']:>13} {totals['non_fashion_dropped']:>11} "
+        f"{totals['quarantined']:>11} {totals['rows_after_cleaning']:>10}"
     )
     print("================================\n")
 
@@ -603,6 +640,7 @@ def main() -> None:
     print("\n[2/5] Building unified catalogue...")
     df_merged = build_catalogue_unified(brands, clean_catalogues)
     cat_total = len(df_merged)
+    _write_hygiene_reports(all_stats, _UNIFIED_DIR / "hygiene")
 
     # Step 3 — dense FAISS (re-embedded from the cleaned merged catalogue)
     print("\n[3/5] Re-embedding dense FAISS index...")

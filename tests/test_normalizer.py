@@ -600,3 +600,59 @@ def test_generic_bra_unaffected_by_sports_bra_rule() -> None:
     result = normalize_garment_type("Absolute Invisible Bra")
     assert result.garment_type == "innerwear"
     assert result.category == "apparel"
+
+
+# ---------------------------------------------------------------------------
+# V3(b2)(b) quarantine root cause: titles typed as an apparel word although the product is
+# jewellery/footwear (each title below was a real quarantined row).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prod_name,expected_gt",
+    [
+        ("Emerald Green Kundan Short Necklace", "necklace"),
+        ("Ad Stone Leafy Short Neckpiece", "necklace"),
+        ("Antique Kasu Mala Short Neckalce", "necklace"),
+        ("Handcrafted Black Karungali Bead Short Size Mala 8MM", "necklace"),
+        ("Kundan Jadau Maanga Mala Short Haaram Set", "jewellery"),
+        ("Short Punjabi Chooda With Golden Touch", "jewellery"),
+        ("Designer Evil Eye Studded Short Chooda", "jewellery"),
+        ("Navratna Diamond Indo Western Studs", "jewellery"),
+        ("Indo Western Colorful Beaded Bangle", "jewellery"),
+        ("Unique Indo Western Fusion Necklace", "necklace"),
+        ("Bridal Lakshmi Combo (Available in Short, Long, HipBelt and Combo)", "jewellery"),
+        ("Bloom 925 Sterling Silver Mio Ear Jacket Earrings", "earrings"),
+        ("Flower Top Tassel Earrings", "earrings"),
+        ("Dark Pink Gold-Plated Jhumka Earrings with Floral Kundan Top", "earrings"),
+        ("Jean Jazz Mule", "footwear"),
+        ("Denim Charm Kolhapuri Chappal for Men", "footwear"),
+        ("Wood Brown Chain Cruelty-Free Leather Mules", "footwear"),
+    ],
+)
+def test_quarantine_root_cause_titles(prod_name: str, expected_gt: str) -> None:
+    assert normalize_garment_type(prod_name).garment_type == expected_gt
+
+
+def test_boot_cut_is_not_a_boot() -> None:
+    assert normalize_garment_type("Wine High Waisted Boot Cut Cotton Blend Lower").category != (
+        "footwear"
+    )
+    assert normalize_garment_type("Printed Boot Cut Jeans").garment_type == "jeans"
+    assert normalize_garment_type("Tan Leather Ankle Boots").garment_type == "footwear"
+
+
+@pytest.mark.parametrize(
+    "prod_name,expected_gt",
+    [
+        ("Indya X Payal Singhal Pink Mirror Work Crop Top", "top"),  # designer name, not anklet
+        ("Black Graphic Stud T-Shirt 100% Cotton", "top"),  # singular "stud" is a detail
+        ("Gold-Plated Jadau Kundan Necklace/Mala - MN695", "necklace"),
+        ("Kundan Antique Finish Jhumka Bangles", "jhumka"),  # weak noun does not override
+        ("Marron Beads Necklace Bracelet Set", "necklace"),
+    ],
+)
+def test_new_jewellery_nouns_do_not_regress_apparel_or_stronger_types(
+    prod_name: str, expected_gt: str
+) -> None:
+    assert normalize_garment_type(prod_name).garment_type == expected_gt

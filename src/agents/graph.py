@@ -1102,6 +1102,32 @@ def _apply_formality_softener(items: list[dict], formality_softener: str | None)
     return items
 
 
+def _prefer_single_garment_pool(items: list[dict], top_k: int) -> list[dict]:
+    """Single-garment set exclusion applied to the WIDE candidate pool, pre-rerank.
+
+    2026-11-16 fix: this gate used to run on the 5 items left after rerank(), so every set
+    it stripped (e.g. "Sherwani Set" / "Lehenga Set": 240/471 public sherwanis, 44/59
+    lehengas) left a hole nothing refilled ("sherwani for groom" -> 2 cards from a pool of
+    20). On the pool, the reranker simply picks its top_k from the surviving singles.
+
+    Underflow: when fewer than top_k single garments exist the sets are DEMOTED behind the
+    singles, never removed, so a thin category still fills its slots (same "stable
+    demotion, never removal" discipline as demote_size_mismatched_items).
+    """
+    from src.agents.outfit.slots import is_multi_piece_set
+
+    singles: list[dict] = []
+    sets: list[dict] = []
+    for it in items:
+        is_set = is_multi_piece_set(
+            it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+        )
+        (sets if is_set else singles).append(it)
+    if len(singles) >= top_k:
+        return singles
+    return singles + sets
+
+
 def _detect_ooc(query: str) -> str | None:
     """Return the OOC category label if query contains a known non-clothing keyword, else None.
 
@@ -2291,6 +2317,17 @@ def build_graph(
         ]
         if col in catalogue_df.columns
     }
+    # index_group_name is not a catalogue-value filter: HybridRetriever.search translates
+    # "ladieswear"/"menswear" into the gender column, and search_node's own gender sync sets
+    # exactly these two values. Only the non-public H&M-style stores (myntra, flipkart,
+    # bhasinbrothers) carry them as real column values; every Shopify store has "N/A". On the
+    # public view (V3b) the catalogue no longer holds a single such row, so validate-before-
+    # trust would drop the synced index_group_name every turn, and the fallback branches that
+    # rebuild the gender filter from index_group_name alone ({product_type_name,
+    # index_group_name} candidate, gender-only retry) would then lose gender and surface the
+    # other gender's items. Keep the two translated values valid regardless of the data.
+    if "index_group_name" in _valid_facet_values:
+        _valid_facet_values["index_group_name"] |= {"ladieswear", "menswear"}
 
     # Router backend — created here if not injected so the graph is self-contained.
     if router_backend is None:
@@ -2859,6 +2896,29 @@ def build_graph(
         candidates = _apply_price_qualifier(candidates, _qualifier_intent.price_qualifier)
         candidates = _apply_formality_softener(candidates, _qualifier_intent.formality_softener)
 
+        # Single-garment set exclusion (largest remaining strict-eval miss bucket,
+        # 2026-07-11 follow-up): "kurti under 1500" surfaced a "Kaftan Kurta with
+        # Abstract Patchwork Palazzo" — a 2-3 piece SET listing — when the user
+        # named ONE garment type. Reuses the composer's is_multi_piece_set gate
+        # (never reimplemented) on the plain search path. Skipped when the query
+        # itself asks for a set/combo/outfit/look — that legitimizes a multi-piece
+        # result (see _OUTFIT_INTENT_RE above for the same "outfit" word list).
+        # Also skipped for a genuine two-garment "X and Y" query (Wave 9,
+        # 2026-07-24) — garment_type_secondary means the user explicitly named
+        # BOTH pieces, so a combo listing naming both ("T-shirt with Joggers"
+        # for "joggers and t-shirt") is a legitimate hit, not SET-listing
+        # noise; live-verified this gate otherwise strips every secondary-type
+        # candidate whose real catalogue title happens to be a 2-piece combo
+        # naming both requested garments, defeating the multi-garment fix.
+        # 2026-11-16: moved here from AFTER rerank (5 items, no backfill) — it under-filled
+        # "sherwani for groom" to 2 cards; see _prefer_single_garment_pool.
+        if _qualifier_intent.garment_type and candidates and not (
+            _SET_INTENT_RE.search(raw_query)
+            or _OUTFIT_INTENT_RE.search(raw_query)
+            or _qualifier_intent.garment_type_secondary
+        ):
+            candidates = _prefer_single_garment_pool(candidates, top_k)
+
         items_out = rerank(query, candidates, llm, top_k=top_k)
 
         # Dedup by (prod_name, colour): H&M lists same product in many colours;
@@ -2926,7 +2986,6 @@ def build_graph(
         from src.agents.outfit.slots import classify_item as _occ_classify_item
         from src.agents.outfit.slots import fabric_score_delta as _occ_fabric_delta
         from src.agents.outfit.slots import is_attribute_contradiction as _occ_is_attr_contradiction
-        from src.agents.outfit.slots import is_multi_piece_set as _occ_is_multi_piece_set
         from src.agents.outfit.slots import is_theme_contradiction as _occ_is_theme_contradiction
 
         _occ_intent = _occ_parse_intent(raw_query)
@@ -2934,33 +2993,8 @@ def build_graph(
             state.get("messages", [])
         )
 
-        # Single-garment set exclusion (largest remaining strict-eval miss bucket,
-        # 2026-07-11 follow-up): "kurti under 1500" surfaced a "Kaftan Kurta with
-        # Abstract Patchwork Palazzo" — a 2-3 piece SET listing — when the user
-        # named ONE garment type. Reuses the composer's is_multi_piece_set gate
-        # (never reimplemented) on the plain search path. Skipped when the query
-        # itself asks for a set/combo/outfit/look — that legitimizes a multi-piece
-        # result (see _OUTFIT_INTENT_RE above for the same "outfit" word list).
-        # Also skipped for a genuine two-garment "X and Y" query (Wave 9,
-        # 2026-07-24) — garment_type_secondary means the user explicitly named
-        # BOTH pieces, so a combo listing naming both ("T-shirt with Joggers"
-        # for "joggers and t-shirt") is a legitimate hit, not SET-listing
-        # noise; live-verified this gate otherwise strips every secondary-type
-        # candidate whose real catalogue title happens to be a 2-piece combo
-        # naming both requested garments, defeating the multi-garment fix.
-        if _occ_intent.garment_type and items_out and not (
-            _SET_INTENT_RE.search(raw_query)
-            or _OUTFIT_INTENT_RE.search(raw_query)
-            or _occ_intent.garment_type_secondary
-        ):
-            _set_filtered = [
-                it for it in items_out
-                if not _occ_is_multi_piece_set(
-                    it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
-                )
-            ]
-            if _set_filtered:  # pool-underflow protected, same discipline as every other gate
-                items_out = _set_filtered
+        # (Single-garment set exclusion used to run here, on the 5 post-rerank items; it now
+        # runs on the wide pool before rerank(), see the "Single-garment set exclusion" block.)
 
         # Attribute-contradiction gate (2026-07-25, "attribute-contradiction"
         # strict-eval miss bucket): plain search relies entirely on embedding

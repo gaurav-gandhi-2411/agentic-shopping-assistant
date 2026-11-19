@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Container
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from src.config.store_registry import is_public
 from src.config.stores import get_inactive_stores
 from src.retrieval.clip_encoder import get_clip_encoder
 from src.retrieval.index_store import UNIFIED_BRAND
@@ -175,6 +177,8 @@ def find_anchor_from_image(
     model_id: str = "clip-ViT-B-32",
     _index_base: Path | None = None,
     _catalogue_base: Path | None = None,
+    clip_entry: _IndexEntry | None = None,
+    allowed_ids: Container[str] | None = None,
 ) -> list[str]:
     """Find the nearest catalogue anchors for an uploaded image.
 
@@ -200,6 +204,10 @@ def find_anchor_from_image(
         model_id:    CLIP model identifier (must match the one used at index build time).
         _index_base: Override the base path for CLIP indices (used in tests).
         _catalogue_base: Override the base path for catalogue parquets (used in tests).
+        clip_entry:  ``(faiss_index, article_ids)`` from the live IndexSnapshot; when given it
+                     replaces the process-lifetime per-brand cache so a hot-reloaded build is used.
+        allowed_ids: when given, only these ids may be returned (the snapshot's public
+                     catalogue); anything else is dropped after the search.
 
     Returns:
         List of up to ``top_k`` article_id strings, ranked by descending
@@ -220,7 +228,7 @@ def find_anchor_from_image(
         )
         return []
 
-    entry = _load_brand_index(brand, _index_base)
+    entry = clip_entry if clip_entry is not None else _load_brand_index(brand, _index_base)
     if entry is None:
         logger.warning("find_anchor_from_image: no CLIP index for brand=%s; returning []", brand)
         return []
@@ -231,11 +239,15 @@ def find_anchor_from_image(
     img_vec = encoder.encode_image(img)  # (512,) float32, L2-normalised
 
     query = img_vec.reshape(1, -1).astype(np.float32)
-    actual_k = min(top_k, faiss_index.ntotal)
+    # Candidates are filtered AFTER the search (inactive and non-public stores, or the
+    # allowed_ids set), so oversample: a flat index scores everything anyway, and the
+    # hidden stores' items must not starve the visible top_k.
+    filtering = brand_lower == UNIFIED_BRAND or allowed_ids is not None
+    actual_k = min(max(top_k * 20, 100) if filtering else top_k, faiss_index.ntotal)
     scores, indices = faiss_index.search(query, actual_k)
 
     # Unified brand only: join against the catalogue store column so results from
-    # an inactive store never surface, even though its rows remain in the index.
+    # an inactive or non-public store never surface, even though its rows remain in the index.
     store_map: dict[str, str] | None = None
     if brand_lower == UNIFIED_BRAND:
         store_map = _load_unified_store_map(_catalogue_base)
@@ -245,9 +257,15 @@ def find_anchor_from_image(
         if idx < 0:
             continue
         article_id = str(article_ids[idx])
-        if store_map is not None and store_map.get(article_id) in inactive_stores:
-            continue
+        if allowed_ids is not None and article_id not in allowed_ids:
+            continue  # snapshot's public catalogue is the allow-list (V3)
+        if store_map is not None:
+            store = store_map.get(article_id)
+            if store in inactive_stores or not is_public(store):
+                continue
         results.append(article_id)
+        if len(results) >= top_k:
+            break
     logger.debug(
         "find_anchor_from_image: brand=%s top_k=%d returned=%d",
         brand,

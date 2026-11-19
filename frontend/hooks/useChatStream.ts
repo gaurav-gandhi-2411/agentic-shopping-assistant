@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getWsFallbackTarget, getWsTarget } from "@/lib/api/client"
 import { openChatSocket, type WsTarget } from "@/lib/api/wsConnect"
+import { noticeFromCloseReason, noticeFromErrorFrame, type LimitNotice } from "@/lib/limits"
 import type {
   ChatMessage,
   ItemSummary,
@@ -84,6 +85,9 @@ export function useChatStream({
   const [isSending, setIsSending] = useState(false)
   const [connectionLost, setConnectionLost] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  // Set when the backend refuses the turn for a limit (rate_limited / demo_limit) so the
+  // UI can show a friendly notice; before this, those frames were swallowed silently.
+  const [limitNotice, setLimitNotice] = useState<LimitNotice | null>(null)
 
   // Keep a ref so event handlers always see the latest conversationId without
   // stale closures — especially important when the WS session frame arrives
@@ -114,6 +118,7 @@ export function useChatStream({
       // Close any in-flight WS before opening a new one.
       wsRef.current?.close()
       setConnectionLost(false)
+      setLimitNotice(null)
 
       const cid =
         cidOverride !== undefined ? cidOverride : conversationIdRef.current
@@ -313,6 +318,8 @@ export function useChatStream({
 
             case "error": {
               finished = true
+              const notice = noticeFromErrorFrame(frame.code, frame.message)
+              if (notice) setLimitNotice(notice)
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -344,6 +351,8 @@ export function useChatStream({
           // Code 1008 = policy violation / rate limit — do not retry.
           if (event.code === 1008) {
             finished = true
+            // Closed without a preceding error frame: the close reason carries the cause.
+            setLimitNotice(noticeFromCloseReason(event.reason))
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId && m.isStreaming
@@ -577,12 +586,14 @@ export function useChatStream({
     setMessages(msgs)
     setIsSending(false)
     setConnectionLost(false)
+    setLimitNotice(null)
   }, [])
 
   return {
     messages,
     isSending,
     connectionLost,
+    limitNotice,
     conversationId,
     sendMessage,
     sendImage,

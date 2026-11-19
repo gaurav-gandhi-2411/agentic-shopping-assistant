@@ -136,6 +136,7 @@ def inject_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deps, "_session_store", store)
     monkeypatch.setattr(deps, "_llm", _MockLLM())
     monkeypatch.setattr(deps, "_config", _MINIMAL_CONFIG)
+    monkeypatch.setattr(deps, "_snapshot", None)  # the legacy fall-backs below apply only then
     monkeypatch.setattr(deps, "_retriever", _MockRetriever())
     monkeypatch.setattr(
         deps,

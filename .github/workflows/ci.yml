@@ -127,7 +127,7 @@ jobs:
           cp data/processed/unified/* data/processed/
 
       - name: Test
-        run: pytest -m "not requires_ollama" -v
+        run: pytest -m "not requires_ollama and not eval_statistical" -v
 
       # Grounding smoke (#81): 10 prompts x REST+WS, mock LLM, stub agent over the committed
       # fixture catalogue. Offline: no index, no network, no LLM, no GCP. Exits 1 if any injected
@@ -178,6 +178,21 @@ jobs:
 
       - name: Build
         run: cd frontend && npm run build
+        env:
+          # Stub origins baked into this CI-only bundle (never deployed; Vercel builds its
+          # own) so the e2e step below can serve THIS build. Nothing listens on these
+          # addresses: the e2e test intercepts every API request and mocks the WebSocket.
+          NEXT_PUBLIC_BACKEND_URL: http://127.0.0.1:8099
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: e2e-anon-key
+
+      # Wave 1b V2: one anonymous mobile (390x844) query end to end, backend stubbed, no live
+      # LLM or production call. Chromium is installed per run and never committed.
+      - name: Install Playwright browser
+        run: cd frontend && npx playwright install --with-deps chromium
+
+      - name: E2E (mobile landing, stubbed backend)
+        run: cd frontend && npm run test:e2e
 
       - name: Security audit (npm audit)
         run: python scripts/check_advisory_allowlist.py npm-audit
@@ -274,3 +289,14 @@ jobs:
         # beyond noise). 3 is a small explicit tolerance (~1% of n), not a default —
         # scripts/eval_gate.py --max-unlabeled stays 0 for local pre-deploy runs, where
         # unlabeled items DO mean "re-audit the gold set."
+
+      # Broad real-index statistical composition checks (marker eval_statistical). Excluded from
+      # the backend job above because they sample dozens of composer runs (the bridal-jewellery
+      # check alone is ~50-105 s) and carry statistical, not deterministic, assertions. The
+      # backend job keeps the hermetic and fixed-anchor variants. The conftest requires_index
+      # sentinel reads the flat data/processed/ path, so the index is also copied there.
+      - name: Real-index statistical composition checks
+        if: steps.wif.outputs.available == 'true'
+        run: |
+          cp data/processed/unified/* data/processed/
+          pytest -m eval_statistical -v

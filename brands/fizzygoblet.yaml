@@ -18,7 +18,7 @@ sizing_system: "IN"
 # gender_default is evidence-backed "women".
 gender_default: "women"
 catalogue_path: "data/raw/shopify/fizzygoblet/products.csv"
-pdp_url_template: "https://fizzygoblet.com/products/{handle}"
+pdp_url_template: "https://www.fizzygoblet.com/products/{handle}"
 suggestion_chips:
   - "Jootis for festive wear"
   - "Block heels under 3000"

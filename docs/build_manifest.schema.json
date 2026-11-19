@@ -1,0 +1,220 @@
+{
+  "$defs": {
+    "BuyLinkSample": {
+      "description": "Result of the Buy-link sample check (filled by the publisher; placeholder until V3c).",
+      "properties": {
+        "checked": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Checked",
+          "type": "integer"
+        },
+        "ok": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Ok",
+          "type": "integer"
+        }
+      },
+      "title": "BuyLinkSample",
+      "type": "object"
+    },
+    "FileEntry": {
+      "description": "One file of the build.",
+      "properties": {
+        "name": {
+          "description": "File name inside the build directory (no sub-directories).",
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Lower-case hex sha256.",
+          "maxLength": 64,
+          "minLength": 64,
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "FileEntry",
+      "type": "object"
+    },
+    "StoreEntry": {
+      "description": "One store's contribution to the build.",
+      "properties": {
+        "items": {
+          "minimum": 0,
+          "title": "Items",
+          "type": "integer"
+        },
+        "slug": {
+          "title": "Slug",
+          "type": "string"
+        },
+        "source_updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Newest feed `updated_at` of the store's rows, else the feed fetch time (ISO UTC).",
+          "title": "Source Updated At"
+        }
+      },
+      "required": [
+        "slug",
+        "items"
+      ],
+      "title": "StoreEntry",
+      "type": "object"
+    },
+    "ValidationBlock": {
+      "description": "Publisher-side validation results recorded in the manifest (informational for the API).",
+      "properties": {
+        "buy_link_sample": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BuyLinkSample"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "count_delta_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(total_items - previous total) / previous total * 100.",
+          "title": "Count Delta Pct"
+        },
+        "schema_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ok"
+        }
+      },
+      "title": "ValidationBlock",
+      "type": "object"
+    }
+  },
+  "description": "``build_manifest.json``.",
+  "properties": {
+    "build_id": {
+      "description": "UTC timestamp, e.g. 20261115T020000Z; also the directory name.",
+      "title": "Build Id",
+      "type": "string"
+    },
+    "built_at": {
+      "description": "UTC build time (timezone-aware).",
+      "format": "date-time",
+      "title": "Built At",
+      "type": "string"
+    },
+    "clip_dim": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "512 when CLIP files are present.",
+      "title": "Clip Dim"
+    },
+    "dense_dim": {
+      "default": 384,
+      "title": "Dense Dim",
+      "type": "integer"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FileEntry"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "git_sha": {
+      "title": "Git Sha",
+      "type": "string"
+    },
+    "previous_build_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Previous Build Id"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "stores": {
+      "items": {
+        "$ref": "#/$defs/StoreEntry"
+      },
+      "title": "Stores",
+      "type": "array"
+    },
+    "total_items": {
+      "minimum": 0,
+      "title": "Total Items",
+      "type": "integer"
+    },
+    "validation": {
+      "$ref": "#/$defs/ValidationBlock"
+    },
+    "vector_count": {
+      "description": "Dense vectors; must equal total_items.",
+      "minimum": 0,
+      "title": "Vector Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "build_id",
+    "built_at",
+    "git_sha",
+    "stores",
+    "total_items",
+    "vector_count",
+    "files"
+  ],
+  "title": "BuildManifest",
+  "type": "object"
+}

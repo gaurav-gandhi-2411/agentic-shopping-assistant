@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from src.catalogue.cleaning import is_fabric_bolt_text, is_kids_item
+from src.config.store_registry import include_non_public, public_stores
 from src.config.stores import get_inactive_stores
 
 from .dense_search import DenseRetriever
@@ -460,6 +461,23 @@ class HybridRetriever:
                     ~self.catalogue_df["store"].str.lower().isin(inactive_stores)
                 ).values  # boolean array aligned with catalogue_df
 
+        # Wave 1b V3: non-public stores (src/config/store_registry.py) never reach users. A
+        # WHITELIST (store in public_stores()), so a store missing from the registry fails
+        # closed. Same mechanism and cost as the inactive-store mask: pushed into BOTH the
+        # dense (IDSelectorArray) and BM25 (allowed_ids) fetch, so non-public items cannot
+        # starve recall by occupying fetch-window slots. INCLUDE_NON_PUBLIC_STORES=1 (local
+        # development and evals) turns it off.
+        _public_filter_on = "store" in self.catalogue_df.columns and not include_non_public()
+        if _public_filter_on:
+            _public_mask = (
+                self.catalogue_df["store"].fillna("").astype(str).str.lower().isin(public_stores())
+            ).values
+            _not_inactive_store_mask = (
+                _public_mask
+                if _not_inactive_store_mask is None
+                else _not_inactive_store_mask & _public_mask
+            )
+
         # Juniors/girls/boys/kids items must never appear in ANY search result —
         # the catalogue's gender column mislabels many of them as "women"/"men"
         # (see src.catalogue.cleaning.is_kids_item docstring), so a gender filter
@@ -634,6 +652,8 @@ class HybridRetriever:
             )
             if item_store_raw in get_inactive_stores():
                 continue
+            if _public_filter_on and item_store_raw not in public_stores():
+                continue  # non-public store (V3): same belt-and-suspenders as above
 
             # --- Store filter (cross-store unified index only; no-op on per-brand indices) ---
             if store_filter is not None:
