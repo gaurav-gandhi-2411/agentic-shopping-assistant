@@ -378,6 +378,15 @@ Krippendorff alpha (ordinal, 3 judges) 0.915, bootstrap 95% CI [0.741, 1.000]. V
 gpt-oss-120b 20/20, claude 19/20 (cal3:c3e, hand 1, claude 0), qwen3.8-27b 17/20. Gate passed
 (minimum pair kappa 0.764 >= 0.4).
 
+**Day 1, main judging (frozen pools).** Both Groq judges labelled all 57 queries with candidates
+(961 labels each; one call per query; 61 calls each including calibration, all status 200, 0 x 429,
+0 `finish_reason = length`). Day-1 tokens from `ledger.jsonl` (calibration + main): gpt-oss-120b
+119,016 (prompt 92,817, completion 26,199, reasoning 18,289), 79% of the 150K cap; qwen3.8-27b
+103,665 (prompt 95,441, completion 8,224), 69%. Mean completion per judge call 429 (gpt-oss) and
+135 (qwen), against 400 assumed. The 10 main Claude packets are exported (not yet judged);
+`labels_claude.json` is empty until they are imported. Main-run agreement is not computed until the
+Claude labels exist.
+
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
 Re-labels the strict-gold labels with the same three blind judges (gpt-oss-120b, qwen3.8-27b via
