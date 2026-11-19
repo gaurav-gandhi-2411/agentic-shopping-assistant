@@ -63,6 +63,12 @@ def test_detector_is_not_vacuous_the_unscrubbed_rate_is_high() -> None:
     assert before[0] / before[1] > 0.10 and after[0] == 0
 
 
+def test_description_is_scrubbed_before_it_is_truncated() -> None:
+    cand = {"article_id": "x", "display_name": "Kurta", "detail_desc": "Libas " + "ab " * 80}
+    desc = jd._fmt_candidate(1, cand).rsplit(" | ", 1)[1]
+    assert len(desc) == jd.SNIPPET_CHARS  # the removed brand does not eat into the snippet budget
+
+
 def test_leak_detector_catches_respaced_forms() -> None:
     assert sc.leaks("a v a s t r a m a y")
     assert not sc.leaks("plain green kurta")

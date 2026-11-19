@@ -374,6 +374,21 @@ def build_report(
     }
 
 
+def judge_warnings(labels: dict[str, dict[str, int]], expected: int = 3) -> list[str]:
+    """Warnings when fewer than `expected` judges contributed labels (or contributed nothing).
+
+    A 2-judge "majority" is a unanimity requirement and any disagreement becomes a tie, so
+    every number in the report must carry this caveat."""
+    n = sum(1 for lab in labels.values() if lab)
+    out = []
+    if n < expected:
+        out.append(
+            f"ONLY {n} of {expected} judges contributed labels ({sorted(k for k, v in labels.items() if v)}): "
+            "majority labels are weaker than the designed 3-family consensus; do not quote as such"
+        )
+    return out
+
+
 def stage_report(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
     variants = json.loads((out_dir / "variants.json").read_text())
@@ -383,8 +398,11 @@ def stage_report(args: argparse.Namespace) -> int:
         return 2
     rep = build_report(usable_cases(args.limit, Path(args.cand)), variants, agg)
     rep["agreement"] = ag.pairwise_report(labels)
+    rep["warnings"] = judge_warnings(labels)
     (out_dir / "report.json").write_text(json.dumps(rep, indent=1))
     print(json.dumps({k: rep[k] for k in ("n_queries", "metrics", "paired", "usage")}, indent=1))
+    for w in rep["warnings"]:
+        print("WARNING:", w)
     print("LLM-consensus labels (three model families), not human ground truth.")
     return 0
 

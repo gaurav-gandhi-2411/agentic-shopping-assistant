@@ -113,7 +113,7 @@ def run_variant_b(items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "variant": "B",
         "final_ids": [it["article_id"] for it in items[:TOP_K]],
-        "outcome": "ok",
+        "outcome": "no_llm_call",  # nothing is called; its zeros are not usage measurements
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "latency_ms": 0,

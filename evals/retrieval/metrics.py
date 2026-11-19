@@ -107,14 +107,20 @@ def percentile(values: Sequence[float], q: float) -> float:
 
 
 def usage_summary(rows: Sequence[dict]) -> dict[str, float]:
-    """Mean prompt/completion tokens and latency p50/p95 over per-call usage rows."""
-    if not rows:
-        return {"n": 0}
-    pt = [r["prompt_tokens"] for r in rows if r.get("prompt_tokens") is not None]
-    ct = [r["completion_tokens"] for r in rows if r.get("completion_tokens") is not None]
-    lat = [r["latency_ms"] for r in rows if r.get("latency_ms") is not None]
+    """Mean prompt/completion tokens and latency p50/p95 over rows that made an LLM call.
+
+    `no_llm_call` rows (pool <= top_k, reranker skipped; variant B) carry recorded zeros that
+    are not measurements: including them would drag token and latency means towards 0, so they
+    are excluded and only counted (`n_no_llm_call`). `n` is the number of LLM-call rows."""
+    called = [r for r in rows if r.get("outcome") != "no_llm_call"]
+    if not called:
+        return {"n": 0, "n_no_llm_call": len(rows) - len(called)}
+    pt = [r["prompt_tokens"] for r in called if r.get("prompt_tokens") is not None]
+    ct = [r["completion_tokens"] for r in called if r.get("completion_tokens") is not None]
+    lat = [r["latency_ms"] for r in called if r.get("latency_ms") is not None]
     return {
-        "n": len(rows),
+        "n": len(called),
+        "n_no_llm_call": len(rows) - len(called),
         "mean_prompt_tokens": float(np.mean(pt)) if pt else float("nan"),
         "mean_completion_tokens": float(np.mean(ct)) if ct else float("nan"),
         "latency_p50_ms": percentile(lat, 50),
