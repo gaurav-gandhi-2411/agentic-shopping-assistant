@@ -223,6 +223,32 @@ report counts 8 of 15 gpt-oss-20b reranker calls at 150 completion tokens
 (command: a short script over `turns[].in/out/models`); the filters differ and were not reconciled.
 `finish_reason` is not logged, so "at cap" is inferred from `completion_tokens == 150`.
 
+## Pre-registered decision rule (stage 2)
+
+Written by the architect and committed BEFORE any variant result was computed on the consensus
+labels (the commit SHA is recorded in the Stage 2 log). It is not changed after results are seen;
+any later deviation must be listed explicitly next to the result.
+
+1. **Primary metric:** nDCG@5 on the consensus labels (strict majority of the three judges; the
+   median for the no-majority items), one draw per query (rep 1 of every arm), ideal ranking from
+   the full labelled pool of the query.
+2. **Uncertainty:** paired bootstrap over queries, 10,000 resamples, seed 42, percentile 95% CI
+   (`metrics.N_BOOT`, `metrics.SEED`).
+3. **Choice:** let *best* be the variant with the highest nDCG@5 point estimate among A, A2, B, C.
+   A variant v is admissible when the 95% lower bound of the paired difference (v - best) is
+   >= -0.03 (best itself is admissible). Ship the **cheapest admissible variant**: lowest mean
+   tokens per turn first (B costs 0), then lowest median latency.
+4. **Secondary, reported and NOT used to choose:** precision@5 (labels >= 1, >= 1.5, >= 2) and
+   card-count stability across repeats; also the post-gate metrics, the F1 / F2 factors and the
+   sensitivity run that excludes tied items.
+5. **Reporting:** n per metric and the queries excluded, always. Excluded from the primary
+   comparison: the 3 queries with no candidates (q46, q56, q59: production sends them to
+   clarify) and the queries whose pool has <= 5 candidates (production skips the reranker, all
+   variants show the same cards, so they cannot discriminate). A sensitivity row with all queries
+   that have candidates (pools <= 5 included) is reported beside it.
+6. **Labels are LLM-consensus labels, not human ground truth** (three model families); every number
+   carries that caveat.
+
 ## Stages
 
 ```
