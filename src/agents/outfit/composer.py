@@ -460,8 +460,9 @@ def compose_outfit(
         price_outlier_cap = _anchor_price_for_cap * _PRICE_OUTLIER_FACTOR
 
     # Footwear floor (2026-11 budget fix): when footwear is a required slot that has not been
-    # filled yet, accessories may not spend the money footwear needs. The floor is the cheapest
-    # eligible footwear in the catalogue for this gender (derived, not hardcoded).
+    # filled yet, accessories and other OPTIONAL slots (e.g. outerwear) that come before it may
+    # not spend the money footwear needs. The floor is the cheapest eligible footwear in the
+    # catalogue for this gender and occasion (derived, not hardcoded).
     _footwear_idx = next(
         (i for i, s in enumerate(fill_slots) if s.slot_name == "footwear" and s.required), None
     )
@@ -476,7 +477,7 @@ def compose_outfit(
             and _footwear_floor is not None
             and _footwear_idx is not None
             and slot_idx < _footwear_idx
-            and slot_spec.slot_name == "accessory"
+            and (slot_spec.slot_name == "accessory" or not slot_spec.required)
             and slot_budget >= _footwear_floor  # if footwear cannot fit anyway, don't starve this
         ):
             slot_budget -= _footwear_floor

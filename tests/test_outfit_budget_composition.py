@@ -118,6 +118,46 @@ def test_accessory_cannot_spend_the_footwear_floor(monkeypatch: pytest.MonkeyPat
     assert fw["filters"]["price_max"] > acc["filters"]["price_max"]  # footwear may use the floor
 
 
+def test_optional_slot_before_required_footwear_also_reserves_the_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.agents.outfit.slots import SlotSpec
+
+    s = _stub()
+    monkeypatch.setattr(composer, "footwear_price_floor", lambda *_a, **_k: 700.0)
+    monkeypatch.setattr(
+        composer,
+        "get_fill_slots",
+        lambda *_a, **_k: [
+            SlotSpec("outerwear", "jacket blazer coat cardigan", required=False),
+            SlotSpec("footwear", "heels juttis ethnic footwear", required=True),
+        ],
+    )
+    compose_outfit(pd.DataFrame(), s, occasion_slug="sangeet", gender="women", budget_inr=3000)
+    outer = next(c for c in s.calls if "jacket" in c["query"].lower())
+    assert outer["filters"]["price_max"] == pytest.approx(3000 - s.anchors[1]["price_inr"] - 700.0)
+
+
+def test_required_non_footwear_slot_is_not_starved_by_the_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.agents.outfit.slots import SlotSpec
+
+    s = _stub()
+    monkeypatch.setattr(composer, "footwear_price_floor", lambda *_a, **_k: 700.0)
+    monkeypatch.setattr(
+        composer,
+        "get_fill_slots",
+        lambda *_a, **_k: [
+            SlotSpec("bottom", "trousers jacket", required=True),
+            SlotSpec("footwear", "heels juttis ethnic footwear", required=True),
+        ],
+    )
+    compose_outfit(pd.DataFrame(), s, occasion_slug="sangeet", gender="women", budget_inr=3000)
+    bottom = next(c for c in s.calls if "trousers" in c["query"].lower())
+    assert bottom["filters"]["price_max"] == pytest.approx(3000 - s.anchors[1]["price_inr"])
+
+
 def test_no_reservation_when_footwear_cannot_fit_anyway(monkeypatch: pytest.MonkeyPatch) -> None:
     s = _stub()
     monkeypatch.setattr(composer, "footwear_price_floor", lambda *_a, **_k: 99999.0)
