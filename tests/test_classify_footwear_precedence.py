@@ -57,6 +57,9 @@ def test_real_rows_blast_radius_is_exactly_the_garment_typed_footwear_rows() -> 
         for a, b in zip(ft["product_type_name"].astype(str), ft["prod_name"].astype(str), strict=True)
     ]
     counts = pd.Series(classes).value_counts().to_dict()
-    # before the change: footwear 3855, accessory 90, men_formalwear 39, outerwear 1
+    # Property (any index build): no garment-class outcome survives for a footwear-typed row, and
+    # the override only ever moves rows to footwear (accessory combos stay accessory). The exact
+    # counts of ONE build (3855+39+1 footwear, 90 accessory) are reported in the commit message,
+    # not asserted: CI downloads a different build.
     assert counts.get("men_formalwear", 0) == 0 and counts.get("outerwear", 0) == 0
-    assert counts == {"footwear": 3855 + 39 + 1, "accessory": 90}
+    assert set(counts) <= {"footwear", "accessory"} and counts.get("footwear", 0) > 1000

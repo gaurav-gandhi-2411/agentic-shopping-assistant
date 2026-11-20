@@ -28,6 +28,51 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 FIXTURE_PATH = REPO_ROOT / "evals" / "fixtures" / "outfit_compose_snapshot.json"
+# Identity of the index the fixture was recorded on. Selections depend on the exact index build, so
+# a comparison against a DIFFERENT build (CI downloads the deployed bucket's index) is meaningless:
+# both the test and --check refuse to compare unless this matches.
+FINGERPRINT_PATH = REPO_ROOT / "evals" / "fixtures" / "outfit_compose_snapshot.index.json"
+
+
+class IndexMismatchError(RuntimeError):
+    """The index under test is not the build the snapshot fixture was recorded on."""
+
+
+def index_fingerprint(index_dir: Path, df: Any) -> dict[str, Any]:
+    """Cheap identity of an index build: row count, sorted-id hash, price sum, file sizes, build id.
+
+    ``df`` is the PUBLIC catalogue (as returned by ``load_retriever``). The two index file sizes
+    catch a rebuild that keeps the same rows (re-embedding, re-tokenising).
+    """
+    import hashlib
+
+    from src.retrieval.build_manifest import try_load_manifest
+
+    ids = sorted(str(a) for a in df["article_id"])
+    manifest = try_load_manifest(index_dir)
+    return {
+        "rows": len(df),
+        "ids_sha256": hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest(),
+        "price_inr_sum": round(float(df["price_inr"].fillna(0).sum()), 2),
+        "dense_faiss_bytes": (index_dir / "dense.faiss").stat().st_size,
+        "bm25_pkl_bytes": (index_dir / "bm25.pkl").stat().st_size,
+        "build_id": getattr(manifest, "build_id", None),
+    }
+
+
+def assert_index_matches(index_dir: Path, df: Any, expected: dict[str, Any] | None = None) -> None:
+    """Raise IndexMismatchError (clear message, not a selection diff) unless the index matches."""
+    want = expected if expected is not None else json.loads(FINGERPRINT_PATH.read_text("utf-8"))
+    got = index_fingerprint(index_dir, df)
+    diffs = [
+        f"{k}: fixture={want.get(k)!r} index={got.get(k)!r}" for k in want if got.get(k) != want[k]
+    ]
+    if diffs:
+        raise IndexMismatchError(
+            f"the index at {index_dir} is not the build outfit_compose_snapshot.json was recorded "
+            f"on, so its selections cannot be compared ({'; '.join(diffs)}). Re-record the fixture "
+            "against this index (--record) or point at the recorded one."
+        )
 
 # 30 queries: occasions x genders x with/without budgets. The first two are the Sangeet
 # strings from the latency diagnosis (the second is an assumed sibling, see PR notes).
@@ -135,6 +180,11 @@ def main() -> None:
     ap.add_argument("--index-dir", required=True, type=Path)
     ap.add_argument("--record", action="store_true")
     ap.add_argument("--check", action="store_true", help="compare against the fixture")
+    ap.add_argument(
+        "--write-fingerprint",
+        action="store_true",
+        help="(re)write only the index fingerprint sidecar for this index",
+    )
     ap.add_argument("--timing", type=Path)
     ap.add_argument("--runs", type=int, default=3)
     args = ap.parse_args()
@@ -158,7 +208,18 @@ def main() -> None:
         FIXTURE_PATH.write_text("{\n" + body + "\n}\n", "utf-8")
         print(f"wrote {FIXTURE_PATH} ({len(snap)} queries)")
 
+    if args.record or args.write_fingerprint:
+        FINGERPRINT_PATH.write_text(
+            json.dumps(index_fingerprint(args.index_dir, df), indent=1) + "\n", "utf-8"
+        )
+        print(f"wrote {FINGERPRINT_PATH}")
+
     if args.check:
+        try:
+            assert_index_matches(args.index_dir, df)
+        except IndexMismatchError as exc:
+            print(f"INDEX MISMATCH: {exc}")
+            sys.exit(2)
         want = json.loads(FIXTURE_PATH.read_text("utf-8"))
         bad = [q for q in QUERIES if summarise(compose_turn(q, df, retriever)) != want[q]]
         print(f"fixture check: {len(QUERIES) - len(bad)}/{len(QUERIES)} identical")

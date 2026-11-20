@@ -1,0 +1,8 @@
+{
+ "rows": 89407,
+ "ids_sha256": "274026c6dd6280ce600929455556ad51beb06fc842f6d66b7c74bd0cfe84cc58",
+ "price_inr_sum": 865953422.17,
+ "dense_faiss_bytes": 172684845,
+ "bm25_pkl_bytes": 84540163,
+ "build_id": null
+}
