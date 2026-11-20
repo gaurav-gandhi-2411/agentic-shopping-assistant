@@ -16,6 +16,7 @@ from src.agents.outfit.body_type import (
 )
 from src.agents.outfit.coherence import is_athletic_register_occasion
 from src.agents.outfit.composer import (
+    build_more_options,
     compose_biased_look,
     compose_outfit_variants,
     probe_reusable_as_base,
@@ -3865,12 +3866,24 @@ def build_graph(
                         f"complete this look in the current catalogue._"
                     )
 
+        # "More options" row (additive payload field): alternate anchors from the candidates the
+        # anchor stage already retrieved; None (absent) without a budget. Never blocks the look.
+        try:
+            _more_options = build_more_options(look_variants, budget_inr)
+        except Exception as _mo_exc:  # noqa: BLE001 - optional extra; the look must still ship
+            logger.warning("[outfit] more_options failed (%s)", _mo_exc)
+            _more_options = None
+        for _v in look_variants:  # internal pool: keep it out of the persisted turn state
+            _v.pop("anchor_alternates", None)
+
         update: dict = {
             "retrieved_items": items_out,
             "new_items_this_turn": True,
             "tool_calls": state.get("tool_calls", []) + [
                 {"outfit": {"article_id": article_id, "occasion": occasion_slug, "gender": gender}}
             ],
+            "more_options": _more_options,
+            "more_options_budget_inr": budget_inr if _more_options is not None else None,
             "look_id": result.get("look_id"),
             "occasion": result.get("occasion"),
             "look_gender": result.get("gender"),

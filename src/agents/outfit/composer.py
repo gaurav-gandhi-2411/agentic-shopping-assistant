@@ -22,6 +22,7 @@ from src.agents.outfit.occasions import get_occasion
 from src.agents.outfit.slots import (
     _FORMAL_ETHNIC_OCCASIONS,
     FOOTWEAR_KEYWORDS,
+    NON_OUTFIT_ITEM_CLASSES,
     SLOT_ALLOWED_CLASSES,
     accessory_query_matches,
     classify_anchor,
@@ -39,7 +40,15 @@ from src.agents.outfit.slots import (
     is_western_item,
     split_accessory_query_by_family,
 )
-from src.catalogue.cleaning import has_gender_text_conflict, is_kids_item, is_loungewear_text
+from src.catalogue.cleaning import (
+    has_gender_text_conflict,
+    is_fabric_bolt_text,
+    is_kids_item,
+    is_loungewear_text,
+    is_occasion_merchandise_name,
+    is_occasion_merchandise_type,
+)
+from src.config.stores import build_pdp_url
 from src.retrieval.hybrid_search import HybridRetriever, normalize_prod_name
 
 logger = logging.getLogger(__name__)
@@ -307,6 +316,9 @@ def compose_outfit(
     empty_slots, suppressed_slots, occasion, gender, budget_total_inr.
     """
     look_id = str(uuid.uuid4())
+    # Gate-passing, in-budget anchor candidates of the occasion-driven anchor stage, kept (no
+    # extra retrieval) so the caller can offer alternates. None unless that stage ran with a budget.
+    anchor_alternates: list[dict] | None = None
 
     # ── Step 1: resolve seed item ───────────────────────────────────────────
     if seed_article_id:
@@ -438,6 +450,8 @@ def compose_outfit(
         seed_item = valid[0]
         seed_item["_role"] = "seed"
         seed_article_id = seed_item["article_id"]
+        if budget_inr is not None:
+            anchor_alternates = list(valid)
 
     if owned_anchor:
         seed_item["_owned"] = True
@@ -620,7 +634,7 @@ def compose_outfit(
         budget_total,
     )
 
-    return {
+    look: dict = {
         "look_id": look_id,
         "seed_item": seed_item,
         "complements": complements,
@@ -631,6 +645,101 @@ def compose_outfit(
         "gender": effective_gender,
         "budget_total_inr": budget_total,
     }
+    if anchor_alternates is not None:
+        look["anchor_alternates"] = anchor_alternates
+    return look
+
+
+MORE_OPTIONS_MAX: int = 6
+MORE_OPTIONS_MAX_PER_STORE: int = 2
+
+
+def build_more_options(
+    looks: list[dict],
+    budget_inr: float | None,
+    *,
+    limit: int = MORE_OPTIONS_MAX,
+) -> list[dict] | None:
+    """Alternate anchors ("more options") for a budgeted, occasion-driven outfit turn.
+
+    Built purely from the anchor candidates the anchor stage ALREADY retrieved and gated
+    (gender, kids, gender-name conflict, occasion coherence, price <= budget; see
+    ``compose_outfit``) - no retrieval, no LLM. Returns None when no budget was given or the
+    anchor stage did not run (explicit seed, owned anchor): the field is then absent. Returns
+    a possibly empty list otherwise.
+
+    Rules, in order:
+      * garments only (accessory/footwear/unclassifiable are never an anchor), no fabric bolts or
+        occasion merchandise, priced, within budget, with a buy link (server-built PDP URL);
+      * never the seed nor any item already shown in ANY look variant;
+      * one entry per normalised product name (colourways of one product count once);
+      * ordering is the anchor stage's own relevance order (the retrieval rank), diversified:
+        first pass takes items of a product type not yet shown, second pass fills the rest;
+        at most ``MORE_OPTIONS_MAX_PER_STORE`` per store in both passes; at most ``limit``.
+    """
+    if budget_inr is None or not looks:
+        return None
+    base = looks[0]
+    pool = base.get("anchor_alternates")
+    if pool is None:
+        return None
+    shown: set[str] = set()
+    for look in looks:
+        seed = look.get("seed_item") or {}
+        if seed.get("article_id"):
+            shown.add(str(seed["article_id"]))
+        shown |= {str(c["article_id"]) for c in (look.get("complements") or [])}
+
+    eligible: list[dict] = []
+    seen_names: set[str] = set()
+    for item in pool:
+        aid = str(item.get("article_id"))
+        price = item.get("price_inr")
+        name = item.get("prod_name") or item.get("display_name") or ""
+        if aid in shown or price is None or not 0 < price <= budget_inr:
+            continue
+        item_class = classify_item(item.get("product_type") or "", name)
+        if item_class in NON_OUTFIT_ITEM_CLASSES or item_class == "unknown":
+            continue  # an anchor is a garment: no accessories/footwear, nothing unclassifiable
+        if (
+            is_fabric_bolt_text(name)
+            or is_occasion_merchandise_type(item.get("product_type"))
+            or is_occasion_merchandise_name(
+                name, item.get("product_type"), item.get("detail_desc")
+            )
+        ):
+            continue
+        if not build_pdp_url(item.get("store"), item):
+            continue
+        key = normalize_prod_name(name)
+        if key in seen_names:
+            continue
+        seen_names.add(key)
+        eligible.append(item)
+
+    picked: list[dict] = []
+    per_store: dict[str, int] = {}
+    types_seen: set[str] = set()
+
+    def _take(item: dict) -> None:
+        picked.append(item)
+        store = str(item.get("store") or "").lower()
+        per_store[store] = per_store.get(store, 0) + 1
+        types_seen.add(str(item.get("product_type") or "").lower())
+
+    for distinct_pass in (True, False):
+        for item in eligible:
+            if len(picked) >= limit:
+                break
+            if item in picked:
+                continue
+            store = str(item.get("store") or "").lower()
+            if per_store.get(store, 0) >= MORE_OPTIONS_MAX_PER_STORE:
+                continue
+            if distinct_pass and str(item.get("product_type") or "").lower() in types_seen:
+                continue
+            _take(item)
+    return picked
 
 
 def _suppression_reason(slot_name: str, gender: str) -> str:

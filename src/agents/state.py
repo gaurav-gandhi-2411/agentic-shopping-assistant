@@ -29,6 +29,8 @@ class AgentState(TypedDict):
     outfit_rationale: str | None    # grounded rationale for the base variant
     outfit_variants: list | None    # list of variant look dicts (1-3)
     budget_total_inr: float | None  # sum of shown item prices for the base variant
+    more_options: list[dict] | None  # alternate anchors under the budget (<=6); None = absent
+    more_options_budget_inr: float | None  # the stated budget the row is "under"
     suppressed_slots: list[dict] | None  # [{"slot": ..., "reason": ...}] — see
                                           # composer.compose_outfit's docstring
 
