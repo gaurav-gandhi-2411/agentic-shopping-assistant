@@ -183,6 +183,72 @@ def test_empty_pool_under_a_budget_retries_once_with_a_wider_window() -> None:
     assert any(c["top_k"] == composer._BUDGET_RETRY_TOP_K for c in n.calls)
 
 
+def test_footwear_floor_failure_never_blocks_a_budgeted_look(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def boom(*_a: Any, **_k: Any) -> float:
+        raise RuntimeError("injected floor failure")
+
+    monkeypatch.setattr(composer, "footwear_price_floor", boom)
+    monkeypatch.setattr(composer, "_FLOOR_FAILURE_LOGGED", False)
+    stubs = [_stub(), _stub()]
+    with caplog.at_level("WARNING", logger=composer.logger.name):
+        looks = [
+            compose_outfit(pd.DataFrame(), s, occasion_slug="sangeet", gender="women", budget_inr=3000)
+            for s in stubs
+        ]
+    for look in looks:  # still a look, in budget, composed with no footwear reservation
+        assert look["seed_item"] is not None
+        assert (look.get("budget_total_inr") or 0) <= 3000
+    acc = next(c for c in stubs[0].calls if "dupatta" in c["query"].lower())
+    assert acc["filters"]["price_max"] == pytest.approx(3000 - stubs[0].anchors[1]["price_inr"])
+    # logged once per process (two requests, one record), with the traceback
+    msgs = [r for r in caplog.records if "footwear price floor failed" in r.getMessage()]
+    assert len(msgs) == 1 and msgs[0].exc_info is not None
+
+
+class _IgnoresPriceMax(_Stub):
+    """A retriever whose search silently ignores price_max (a fake or a future backend)."""
+
+    def search(self, query: str, top_k: int = 20, filters: dict | None = None) -> list[dict]:
+        f = {k: v for k, v in (filters or {}).items() if k != "price_max"}
+        return super().search(query, top_k, f)
+
+
+def test_all_anchors_over_budget_stay_out_even_if_retriever_ignores_price_max() -> None:
+    anchors = [
+        _item("o1", "Silk Lehenga Skirt Set", "lehenga", 900),
+        _item("o2", "Gold Sequin Lehenga", "lehenga", 1100),
+    ]
+    s = _IgnoresPriceMax(anchors, [], [])
+    # budget 500: both the capped and the widened search return over-budget anchors anyway; the
+    # budget gate (not the pushdown) must keep them out and give the honest budget message
+    look = compose_outfit(pd.DataFrame(), s, occasion_slug="sangeet", gender="women", budget_inr=500)
+    assert look["seed_item"] is None
+    assert "500" in look["outfit_rationale"]
+
+
+def test_widened_fallback_picks_cheapest_in_budget_when_price_max_is_ignored() -> None:
+    anchors = [
+        _item("o1", "Silk Lehenga Skirt Set", "lehenga", 900),
+        _item("o2", "Gold Sequin Lehenga", "lehenga", 1700),  # over the 1500 budget
+        _item("o3", "Cotton Lehenga Set", "lehenga", 700),
+    ]
+
+    class _CapEmptyThenIgnores(_IgnoresPriceMax):
+        def search(self, query: str, top_k: int = 20, filters: dict | None = None) -> list[dict]:
+            cap = (filters or {}).get("price_max")
+            if cap is not None and cap < 1500:
+                return []  # the anchor-cap search finds nothing under 600
+            return super().search(query, top_k, filters)  # widened search: ignores price_max
+
+    s = _CapEmptyThenIgnores(anchors, [], [])
+    # the widened search returns all three (incl. the 1700 one); only in-budget anchors may
+    # be chosen, cheapest first
+    look = compose_outfit(pd.DataFrame(), s, occasion_slug="sangeet", gender="women", budget_inr=1500)
+    assert look["seed_item"]["article_id"] == "o3"
+
+
 def test_no_retry_without_a_budget() -> None:
     s = _stub()
     s.footwear = []  # genuinely none
@@ -234,13 +300,13 @@ def test_footwear_floor_none_without_catalogue_or_footwear() -> None:
 def test_footwear_rows_are_scanned_once_per_retriever(monkeypatch: pytest.MonkeyPatch) -> None:
     r = _Cat()
     calls = {"n": 0}
-    real = composer._footwear_rows_by_gender
+    real = composer._footwear_floor_state
 
     def counting(df: pd.DataFrame) -> dict:
         calls["n"] += 1
         return real(df)
 
-    monkeypatch.setattr(composer, "_footwear_rows_by_gender", counting)
+    monkeypatch.setattr(composer, "_footwear_floor_state", counting)
     for g, occ in (("women", "sangeet"), ("men", "sangeet"), ("women", "office")):
         footwear_price_floor(r, g, occ)  # type: ignore[arg-type]
     assert calls["n"] == 1

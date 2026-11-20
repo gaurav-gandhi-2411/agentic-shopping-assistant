@@ -4,9 +4,11 @@ import logging
 import math
 import re
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from src.agents.outfit.body_type import body_type_score_delta
@@ -99,11 +101,14 @@ ANCHOR_BUDGET_FRACTION: float = 0.4
 # _find_best_candidate); the normal window stays 40.
 _BUDGET_RETRY_TOP_K: int = 200
 
+# The footwear-floor failure is logged once per process, not once per request.
+_FLOOR_FAILURE_LOGGED: bool = False
+
 
 def warm_footwear_floors(retriever: HybridRetriever) -> None:
-    """Build the footwear-row table once, at index load, so the first budgeted outfit request
-    doesn't pay for it (~2 s on the 89k-row public catalogue). Per-(gender, occasion) floors
-    then cost well under a millisecond. Safe on retrievers without a catalogue (no-op)."""
+    """Build the footwear prefilter once, at index load, so the first budgeted outfit request
+    doesn't pay for it. Per-(gender, occasion) floors are then derived lazily, cheapest row
+    first. Safe on retrievers without a catalogue (no-op)."""
     footwear_price_floor(retriever, "women", "casual")
 
 
@@ -131,12 +136,12 @@ def footwear_price_floor(
         return None  # stub/fake retrievers in tests: no catalogue, no reservation
     state = getattr(base, "_footwear_floor_state", None)
     if not isinstance(state, dict):
-        state = {"rows": _footwear_rows_by_gender(catalogue_df), "floors": {}}
+        state = _footwear_floor_state(catalogue_df)
         base._footwear_floor_state = state  # type: ignore[attr-defined]
     key = (gender, occasion_slug)
     if key not in state["floors"]:
         floor: float | None = None
-        for item in state["rows"].get(gender, []):  # ascending price: first survivor wins
+        for item in _ascending_footwear_items(state, gender):  # first survivor wins
             if _score_candidates(
                 [item],
                 query="",
@@ -158,45 +163,68 @@ def footwear_price_floor(
     return state["floors"][key]
 
 
-def _footwear_rows_by_gender(catalogue_df: pd.DataFrame) -> dict[str, list[dict]]:
-    """Footwear-class rows as retriever-shaped item dicts, per exact gender, price ascending."""
+def _footwear_floor_state(catalogue_df: pd.DataFrame) -> dict:
+    """Cheap, vectorised prefilter for the floor scan: footwear-looking, priced, exact-gender
+    rows, per gender, as positions into ``catalogue_df`` sorted by price (stable, so ties keep
+    catalogue order). The expensive per-row work (``classify_item`` + building the item dict)
+    is deferred to ``_ascending_footwear_items``, which stops at the first gate survivor."""
+    state: dict = {"df": catalogue_df, "order": {}, "items": {}, "floors": {}}
     needed = {"product_type_name", "prod_name", "gender", "price_inr"}
     if not needed <= set(catalogue_df.columns):
-        return {}
-    pt = catalogue_df["product_type_name"].fillna("").astype(str)
-    nm = catalogue_df["prod_name"].fillna("").astype(str)
-    text = (pt + " " + nm).str.lower()
+        return state
+    text = (
+        catalogue_df["product_type_name"].fillna("").astype(str)
+        + " "
+        + catalogue_df["prod_name"].fillna("").astype(str)
+    ).str.lower()
     # Substring prefilter (a superset of classify_item's word-boundary match) so the Python
-    # classifier only runs on footwear-looking rows, not the whole 100k+ catalogue.
+    # classifier only ever sees footwear-looking rows, never the whole 100k+ catalogue.
     pattern = "|".join(re.escape(k) for k in sorted(FOOTWEAR_KEYWORDS))
     hit = text.str.contains(pattern, regex=True).to_numpy()
-    out: dict[str, list[dict]] = {"men": [], "women": []}
-    sub = catalogue_df[hit]
-    for aid, ptv, nmv, row in zip(sub.index, pt[hit], nm[hit], sub.itertuples(index=False)):
-        gender = str(getattr(row, "gender", "") or "").lower()
-        price = getattr(row, "price_inr", None)
-        if gender not in out or not isinstance(price, (int, float)) or not price > 0:
-            continue
-        if classify_item(ptv, nmv) != "footwear":
-            continue
-        facets = getattr(row, "facets", None)
+    price = pd.to_numeric(catalogue_df["price_inr"], errors="coerce").to_numpy()
+    gender = catalogue_df["gender"].fillna("").astype(str).str.lower().to_numpy()
+    for g in ("men", "women"):
+        pos = np.flatnonzero(hit & (gender == g) & (price > 0))  # NaN > 0 is False
+        state["order"][g] = pos[np.argsort(price[pos], kind="stable")]
+    return state
+
+
+def _footwear_item(state: dict, pos: int) -> dict | None:
+    """Retriever-shaped item dict for catalogue row ``pos`` if it is footwear-class, else None
+    (memoised: the same rows are re-walked for every (gender, occasion) floor)."""
+    items: dict[int, dict | None] = state["items"]
+    if pos in items:
+        return items[pos]
+    df: pd.DataFrame = state["df"]
+    row = df.iloc[pos]
+    ptv = str(row["product_type_name"]) if pd.notna(row["product_type_name"]) else ""
+    nmv = str(row["prod_name"]) if pd.notna(row["prod_name"]) else ""
+    item: dict | None = None
+    if classify_item(ptv, nmv) == "footwear":
+        facets = row["facets"] if "facets" in df.columns else None
         facets = facets if isinstance(facets, dict) else {}
-        out[gender].append(
-            {
-                "article_id": str(aid),
-                "prod_name": nmv,
-                "display_name": getattr(row, "display_name", nmv),
-                "colour": facets.get("colour_group_name", ""),
-                "product_type": ptv,
-                "detail_desc": getattr(row, "detail_desc", None),
-                "gender": gender,
-                "price_inr": float(price),
-                "store": getattr(row, "store", None),
-            }
-        )
-    for rows in out.values():
-        rows.sort(key=lambda r: r["price_inr"])
-    return out
+        display = row["display_name"] if "display_name" in df.columns else nmv
+        item = {
+            "article_id": str(df.index[pos]),
+            "prod_name": nmv,
+            "display_name": display,
+            "colour": facets.get("colour_group_name", ""),
+            "product_type": ptv,
+            "detail_desc": row["detail_desc"] if "detail_desc" in df.columns else None,
+            "gender": str(row["gender"]).lower(),
+            "price_inr": float(row["price_inr"]),
+            "store": row["store"] if "store" in df.columns else None,
+        }
+    items[pos] = item
+    return item
+
+
+def _ascending_footwear_items(state: dict, gender: str) -> Iterator[dict]:
+    """Footwear-class items for ``gender``, cheapest first, built lazily."""
+    for pos in state["order"].get(gender, []):
+        item = _footwear_item(state, int(pos))
+        if item is not None:
+            yield item
 
 
 @dataclass
@@ -468,7 +496,17 @@ def compose_outfit(
     )
     _footwear_floor: float | None = None
     if budget_inr is not None and _footwear_idx is not None:
-        _footwear_floor = footwear_price_floor(retriever, effective_gender, occasion_slug)
+        try:
+            _footwear_floor = footwear_price_floor(retriever, effective_gender, occasion_slug)
+        except Exception:  # noqa: BLE001 - floor only improves packing; never block a look
+            global _FLOOR_FAILURE_LOGGED
+            if not _FLOOR_FAILURE_LOGGED:
+                _FLOOR_FAILURE_LOGGED = True
+                logger.warning(
+                    "footwear price floor failed; composing without a footwear reservation",
+                    exc_info=True,
+                )
+            _footwear_floor = None
 
     for slot_idx, slot_spec in enumerate(fill_slots):
         slot_budget: float | None = budget_inr - running_total if budget_inr is not None else None
