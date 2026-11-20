@@ -446,6 +446,18 @@ def _suppression_reason(slot_name: str, gender: str) -> str:
     return f"No {gender}'s {label} that match this look in our partner stores yet"
 
 
+def probe_reusable_as_base(gender: str, brand_gender_default: str | None) -> bool:
+    """True when ``compose_outfit_tool``'s probe look equals variant 0 of
+    ``compose_outfit_variants`` for the same inputs.
+
+    The tool wrapper fixes ``pairing_stats=None`` and leaves ``brand_gender_default`` at
+    compose_outfit's "women" default, and the variants call passes ``pairing_stats=None`` too.
+    ``brand_gender_default`` is only read to resolve a "unisex" gender, so the two compositions
+    can differ only for gender == "unisex" with a non-"women" brand default.
+    """
+    return gender != "unisex" or (brand_gender_default or "women") == "women"
+
+
 def compose_outfit_variants(
     catalogue_df: pd.DataFrame,
     retriever: HybridRetriever,
@@ -460,6 +472,7 @@ def compose_outfit_variants(
     body_type: str | None = None,
     body_modifiers: list[str] | None = None,
     formality_override: str | None = None,
+    base_look: dict | None = None,
 ) -> list[dict]:
     """Compose 2-3 look variants around the same seed and occasion.
 
@@ -500,23 +513,32 @@ def compose_outfit_variants(
         formality_override:  Batch 2 — see ``compose_outfit`` docstring. Applied
             to every variant (base + biased).
 
+        base_look:           An already-composed base look to use as variant 0 instead of
+            recomposing it (the outfit node's viability probe is exactly this call). The
+            caller guarantees it came from compose_outfit with arguments identical to the
+            ones passed here (see ``probe_reusable_as_base``); it is labelled "Base" in place.
+
     Returns:
         List of 1–3 look dicts.  Always non-empty (falls back to base-only).
     """
-    # Variant 0: base look — standard behaviour
-    base = compose_outfit(
-        catalogue_df,
-        retriever,
-        seed_article_id=seed_article_id,
-        occasion_slug=occasion_slug,
-        gender=gender,
-        budget_inr=budget_inr,
-        pairing_stats=pairing_stats,
-        brand_gender_default=brand_gender_default,
-        owned_anchor=owned_anchor,
-        body_type=body_type,
-        body_modifiers=body_modifiers,
-        formality_override=formality_override,
+    # Variant 0: base look — standard behaviour (or the caller's identical, already-composed one)
+    base = (
+        base_look
+        if base_look is not None
+        else compose_outfit(
+            catalogue_df,
+            retriever,
+            seed_article_id=seed_article_id,
+            occasion_slug=occasion_slug,
+            gender=gender,
+            budget_inr=budget_inr,
+            pairing_stats=pairing_stats,
+            brand_gender_default=brand_gender_default,
+            owned_anchor=owned_anchor,
+            body_type=body_type,
+            body_modifiers=body_modifiers,
+            formality_override=formality_override,
+        )
     )
     base["variant_label"] = "Base"
 

@@ -18,6 +18,7 @@ from src.agents.outfit.coherence import is_athletic_register_occasion
 from src.agents.outfit.composer import (
     compose_biased_look,
     compose_outfit_variants,
+    probe_reusable_as_base,
     swap_slot_in_look,
 )
 from src.agents.outfit.partner import (
@@ -3739,6 +3740,13 @@ def build_graph(
                 body_type=body_type,
                 body_modifiers=body_modifiers,
                 formality_override=_formality_override,
+                # The probe above is the identical base composition (same args); reuse it
+                # instead of paying for a second full compose pass.
+                base_look=(
+                    probe
+                    if probe_reusable_as_base(gender, _brand_cfg.gender_default)
+                    else None
+                ),
             )
         except Exception as _ve:
             logger.warning("[outfit] compose_outfit_variants failed (%s) — using probe", _ve)
