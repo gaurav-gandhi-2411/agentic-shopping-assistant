@@ -115,19 +115,96 @@ def test_cached_vector_is_read_only(sparse) -> None:
         vec[0] = 99.0
 
 
-def test_swapping_the_bm25_object_invalidates(sparse, tmp_path) -> None:
-    before = sparse.search("red saree")
-    # >=3 docs: BM25Okapi's idf is 0 for a term in half of a 2-doc corpus.
-    df = pd.DataFrame(
-        {
-            "article_id": ["z0", "z1", "z2"],
-            "search_text": ["red saree", "blue jeans", "green cap"],
-        }
-    )
+def test_caller_mutating_returned_array_cannot_corrupt_cache(sparse) -> None:
+    tokens = SparseRetriever._tokenize("red saree")
+    want = np.array(sparse.bm25.get_scores(tokens))  # independent uncached copy
+    for _ in range(2):  # first call = miss path, second = hit path
+        got = sparse._get_scores(tokens)
+        with pytest.raises(ValueError):
+            got[0] = 123.0
+        with pytest.raises(ValueError):
+            got.flags.writeable = True  # a view of a read-only base cannot be re-enabled
+        with pytest.raises(ValueError):
+            got *= 0  # in-place ops are writes too
+    np.testing.assert_array_equal(sparse._get_scores(tokens), want)
+
+
+def _swapped_in(sparse: SparseRetriever, tmp_path, docs: list[str]) -> SparseRetriever:
+    """Point ``sparse`` at a different bm25 over the SAME ids (a0..), return a fresh reference."""
+    df = pd.DataFrame({"article_id": [f"a{i}" for i in range(len(docs))], "search_text": docs})
     other = SparseRetriever({})
     other.build_index(df, tmp_path / "other")
     sparse.bm25, sparse.article_ids = other.bm25, other.article_ids
     sparse._id_to_pos = other._id_to_pos
-    after = sparse.search("red saree")
-    assert after != before
-    assert after[0][0] == "z0"
+    return other
+
+
+def test_swapping_the_bm25_object_invalidates(sparse, tmp_path) -> None:
+    # Same length and ids, but "red saree" now matches index 3 (was index 0): a stale vector
+    # would silently keep answering a0.
+    before = sparse.search("red saree", top_k=1)
+    assert before[0][0] == "a0"
+    docs = ["blue cotton kurta", "black heels", "navy blazer", "red silk saree", "white shirt",
+            "gold earrings"]
+    other = _swapped_in(sparse, tmp_path, docs)
+    after = sparse.search("red saree", top_k=1)
+    assert after[0][0] == "a3"
+    other._init_score_cache(0)  # uncached reference answer
+    assert after == other.search("red saree", top_k=1)
+
+
+def test_replaced_bm25_is_not_confused_with_old_one_after_id_reuse(sparse, tmp_path) -> None:
+    """The cache pins its bm25 (strong ref), so a replacement can never share its identity."""
+    sparse.search("red saree")
+    old_ref = sparse._score_cache_owner
+    assert old_ref is sparse.bm25
+    docs = ["blue cotton kurta", "black heels", "navy blazer", "red silk saree", "white shirt",
+            "gold earrings"]
+    _swapped_in(sparse, tmp_path, docs)
+    del old_ref
+    import gc
+
+    gc.collect()
+    # Old bm25 is still alive (pinned) until the next search drops it, so its id is not reusable.
+    assert sparse._score_cache_owner is not sparse.bm25
+    assert sparse.search("red saree", top_k=1)[0][0] == "a3"
+    assert sparse._score_cache_owner is sparse.bm25
+
+
+def test_masked_search_does_not_poison_unmasked_search(sparse) -> None:
+    q = "men shirt kurta"
+    masked = sparse.search(q, top_k=6, allowed_ids=np.array(["a5"]))
+    assert {aid for aid, _ in masked} == {"a5"}
+    unmasked = sparse.search(q, top_k=6)  # must come from the RAW vector, not the masked one
+    sparse._init_score_cache(0)
+    assert unmasked == sparse.search(q, top_k=6)
+    assert len({aid for aid, _ in unmasked}) > 1
+
+
+def test_concurrent_searches_match_uncached(sparse) -> None:
+    import threading
+
+    queries = ["red saree", "blue kurta", "black heels", "gold earrings", "navy blazer",
+               "white shirt men"]
+    sparse._init_score_cache(2)  # tiny: forces constant eviction races
+    results: dict[tuple[int, int], list] = {}
+    errors: list[BaseException] = []
+
+    def worker(tid: int) -> None:
+        try:
+            for rnd in range(40):
+                q = queries[(tid + rnd) % len(queries)]
+                results[(tid, rnd)] = (q, sparse.search(q, top_k=4))
+        except BaseException as exc:  # noqa: BLE001 - surfaced via assertion below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(t,)) for t in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    sparse._init_score_cache(0)
+    expected = {q: sparse.search(q, top_k=4) for q in queries}
+    assert len(results) == 8 * 40
+    assert all(res == expected[q] for q, res in results.values())

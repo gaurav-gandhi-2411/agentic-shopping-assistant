@@ -36,35 +36,40 @@ class SparseRetriever:
         self._score_cache: OrderedDict[tuple[str, ...], np.ndarray] = OrderedDict()
         # Requests run on a threadpool; the lookup and move_to_end/popitem must not interleave.
         self._score_cache_lock = threading.Lock()
-        self._score_cache_owner: int | None = None
+        # Strong reference to the bm25 the cached vectors were computed from. Compared with
+        # `is`, never id(): a freed object's id can be reused by its replacement, which would
+        # let stale vectors survive a swap. Holding the reference keeps the id unique.
+        self._score_cache_owner: object | None = None
 
     def _get_scores(self, tokens: list[str]) -> np.ndarray:
         """BM25 score vector for ``tokens``, memoised per exact token tuple (LRU).
 
-        The returned array is shared and read-only; callers must not mutate it.
+        The returned array is a read-only VIEW of the cached vector: a caller can neither write
+        to it nor re-enable writing (numpy refuses writeable=True on a view of a read-only base).
         """
         # getattr: instances built without __init__/load() (tests, tooling) simply bypass.
         cache_on = getattr(self, "_score_cache_size", 0) > 0
         key = tuple(tokens)
-        owner = id(self.bm25)
+        owner = self.bm25
         if cache_on:
             with self._score_cache_lock:
-                if self._score_cache_owner != owner:  # index object swapped: drop stale vectors
+                if self._score_cache_owner is not owner:  # index swapped: drop stale vectors
                     self._score_cache.clear()
                     self._score_cache_owner = owner
                 cached = self._score_cache.get(key)
                 if cached is not None:
                     self._score_cache.move_to_end(key)
-                    return cached
+                    return cached.view()
         scores = np.asarray(self.bm25.get_scores(tokens))
         if cache_on:
             scores.flags.writeable = False
             with self._score_cache_lock:
-                if self._score_cache_owner == owner:
+                if self._score_cache_owner is owner:
                     self._score_cache[key] = scores
                     self._score_cache.move_to_end(key)
                     while len(self._score_cache) > self._score_cache_size:
                         self._score_cache.popitem(last=False)
+            return scores.view()
         return scores
 
     def build_index(self, catalogue_df: pd.DataFrame, save_dir: Path) -> None:
