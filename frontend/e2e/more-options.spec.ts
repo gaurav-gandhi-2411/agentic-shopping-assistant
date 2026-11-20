@@ -163,6 +163,9 @@ test("AFTER: six options under the look with buy links, 390 px layout, keyboard 
     expect(await links.nth(i).getAttribute("rel")).toContain("noopener")
   }
   await expect(row.getByText("Buy at Libas").first()).toBeVisible()
+  // the removed per-card "Option" badge (and any slot badge) must not exist on option cards
+  await expect(row.getByText("Option", { exact: true })).toHaveCount(0)
+  await expect(row.getByText("Item", { exact: true })).toHaveCount(0)
 
   // below the look, not overlapping it
   const lookBox = await page.getByText("Zari Jutti (Gold)").boundingBox()

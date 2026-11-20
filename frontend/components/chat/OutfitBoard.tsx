@@ -720,7 +720,7 @@ export function OutfitBoard({
                 pdpUrlTemplate={brandConfig?.pdp_url_template}
                 isSeed={false}
                 overrideBuyUrl={resolveItemUrl(item)}
-                labelOverride={MORE_OPTIONS_COPY.cardLabel}
+                hideLabel
                 ctaLabel={MORE_OPTIONS_COPY.buyCta(
                   item.store_display ?? getStoreDisplayName(item.store) ?? item.store ?? "",
                 )}
@@ -834,15 +834,15 @@ function SlotCard({
   overrideBuyUrl,
   anchorImageUrl,
   onSend,
-  labelOverride,
+  hideLabel,
   ctaLabel,
   ariaLabel,
 }: {
   item: ItemSummary
   pdpUrlTemplate: string | undefined
   isSeed: boolean
-  /** Replaces the slot badge text (the "More options" row labels its cards, not slots). */
-  labelOverride?: string
+  /** Omit the slot badge entirely (the "More options" cards are not slots and carry no label). */
+  hideLabel?: boolean
   /** Optional visible call-to-action line under the card body, e.g. "Buy at Snitch". */
   ctaLabel?: string
   /** Optional accessible name for the card link. */
@@ -866,9 +866,7 @@ function SlotCard({
         ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
         : null))
 
-  const slotLabel = labelOverride
-    ? labelOverride
-    : isOwned
+  const slotLabel = isOwned
     ? "Your item"
     : isSeed
       ? "Hero"
@@ -896,14 +894,16 @@ function SlotCard({
           alt={isOwned ? "Your uploaded photo" : item.prod_name}
           sizes="(max-width: 640px) 50vw, 33vw"
         />
-        <span
-          className={cn(
-            "absolute top-1.5 left-1.5 rounded-sm text-[10px] font-semibold px-1.5 py-0.5",
-            isOwned ? "bg-[#E8A33D] text-white" : "bg-background/90 text-foreground",
-          )}
-        >
-          {slotLabel}
-        </span>
+        {!hideLabel && (
+          <span
+            className={cn(
+              "absolute top-1.5 left-1.5 rounded-sm text-[10px] font-semibold px-1.5 py-0.5",
+              isOwned ? "bg-[#E8A33D] text-white" : "bg-background/90 text-foreground",
+            )}
+          >
+            {slotLabel}
+          </span>
+        )}
       </div>
       <div className="p-1.5">
         <p className="text-xs font-medium leading-tight line-clamp-2">{item.prod_name}</p>

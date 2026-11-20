@@ -78,7 +78,14 @@ describe("OutfitBoard — More options row", () => {
       "Mustard Anarkali, ₹849, Libas. Opens the store page in a new tab.",
     )
     expect(within(links[0]).getByText("Buy at Libas")).toBeTruthy()
-    expect(within(links[0]).getByText("Option")).toBeTruthy() // badge, not a slot name
+    // no badge of any kind on option cards: neither the removed "Option" label nor a slot name
+    for (const a of links) {
+      expect(within(a).queryByText("Option")).toBeNull()
+      expect(within(a).queryByText("Item")).toBeNull()
+    }
+    // ...while the look's own cards keep their slot badges
+    expect(screen.getByText("Hero")).toBeTruthy()
+    expect(screen.getByText("Accessory")).toBeTruthy()
     // below the look: the row comes after the look's own cards in document order
     const lookCard = screen.getByText("Seed Kurti")
     expect(lookCard.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

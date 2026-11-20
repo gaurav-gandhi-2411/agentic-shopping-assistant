@@ -2,16 +2,15 @@
 // Pure helpers + ALL user-visible strings for the row, in one place.
 
 /**
- * PENDING GG APPROVAL: every string below is PROPOSED wording and has NOT been approved.
- * Rules (same as lib/copy.ts): neutral and accurate; no counts, accuracy figures,
- * superlatives, or claims about stock or availability. Do not merge as final copy until GG
- * signs off. Strings are exactly what the UI renders (functions fill the placeholders).
+ * APPROVED by GG, 2026-11-20 (relayed by the architect); badge removed.
+ * The per-card "Option" badge was NOT approved and no longer exists: option cards carry no label
+ * badge at all. Rules (same as lib/copy.ts): neutral and accurate; no counts, accuracy figures,
+ * superlatives, or claims about stock or availability. Strings are exactly what the UI renders
+ * (functions fill the placeholders); change them only with GG's sign-off.
  */
 export const MORE_OPTIONS_COPY = {
   /** Row heading and the region's accessible name. `budget` is the stated budget in INR. */
   heading: (budget: number): string => `More options under ₹${formatInr(budget)}`,
-  /** Small badge on each card (where the look's cards show the slot name). */
-  cardLabel: "Option",
   /** Per-card call to action; the whole card is also the link. `store` is the store name. */
   buyCta: (store: string): string => `Buy at ${store}`,
   /** Accessible name of a card link: name, price, store, and what the link does. */

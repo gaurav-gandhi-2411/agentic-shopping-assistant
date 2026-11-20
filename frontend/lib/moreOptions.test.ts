@@ -7,7 +7,14 @@ import {
   messageStatesBudget,
 } from "./moreOptions"
 
-describe("MORE_OPTIONS_COPY (PENDING GG APPROVAL strings)", () => {
+describe("MORE_OPTIONS_COPY (APPROVED by GG 2026-11-20; badge removed)", () => {
+  it("has exactly the approved string slots and no card label", () => {
+    expect(Object.keys(MORE_OPTIONS_COPY).sort()).toEqual(
+      ["buyCta", "cardAriaLabel", "errorMessage", "heading", "loadingLabel"].sort(),
+    )
+    expect(MORE_OPTIONS_COPY.loadingLabel).toBe("Loading more options")
+    expect(MORE_OPTIONS_COPY.errorMessage).toBe("More options couldn't be shown right now.")
+  })
   it("heading carries the stated budget with Indian grouping", () => {
     expect(MORE_OPTIONS_COPY.heading(3000)).toBe("More options under ₹3,000")
     expect(MORE_OPTIONS_COPY.heading(15000)).toBe("More options under ₹15,000")
