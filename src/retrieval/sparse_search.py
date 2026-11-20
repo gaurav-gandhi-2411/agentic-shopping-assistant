@@ -1,6 +1,8 @@
 import logging
 import pickle
 import re
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +10,14 @@ import pandas as pd
 from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
+
+# Bounded LRU of raw BM25 score vectors, keyed on the exact tokenised query.  An outfit turn
+# re-issues the same few slot queries across its base/colour/formality compositions and
+# rank_bm25's pure-Python get_scores is ~68% of a search, so reusing the vector removes the
+# repeats.  Only the RAW vector is cached (a pure function of the immutable index and the
+# tokens); allowed_ids masking and top-k selection run afterwards on every call, so
+# exclusion/filter arguments never see a stale result.  0 disables the cache (bypass).
+SCORE_CACHE_SIZE = 16
 
 
 class SparseRetriever:
@@ -19,6 +29,42 @@ class SparseRetriever:
         # filtering doesn't pay an O(n) np.isin scan over the full (68k+) object
         # dtype article_ids array on every call.
         self._id_to_pos: dict[str, int] | None = None
+        self._init_score_cache()
+
+    def _init_score_cache(self, size: int = SCORE_CACHE_SIZE) -> None:
+        self._score_cache_size = size
+        self._score_cache: OrderedDict[tuple[str, ...], np.ndarray] = OrderedDict()
+        # Requests run on a threadpool; the lookup and move_to_end/popitem must not interleave.
+        self._score_cache_lock = threading.Lock()
+        self._score_cache_owner: int | None = None
+
+    def _get_scores(self, tokens: list[str]) -> np.ndarray:
+        """BM25 score vector for ``tokens``, memoised per exact token tuple (LRU).
+
+        The returned array is shared and read-only; callers must not mutate it.
+        """
+        # getattr: instances built without __init__/load() (tests, tooling) simply bypass.
+        if getattr(self, "_score_cache_size", 0) <= 0:
+            return self.bm25.get_scores(tokens)
+        key = tuple(tokens)
+        owner = id(self.bm25)
+        with self._score_cache_lock:
+            if self._score_cache_owner != owner:  # index object swapped: drop stale vectors
+                self._score_cache.clear()
+                self._score_cache_owner = owner
+            cached = self._score_cache.get(key)
+            if cached is not None:
+                self._score_cache.move_to_end(key)
+                return cached
+        scores = np.asarray(self.bm25.get_scores(tokens))
+        scores.flags.writeable = False
+        with self._score_cache_lock:
+            if self._score_cache_owner == owner:
+                self._score_cache[key] = scores
+                self._score_cache.move_to_end(key)
+                while len(self._score_cache) > self._score_cache_size:
+                    self._score_cache.popitem(last=False)
+        return scores
 
     def build_index(self, catalogue_df: pd.DataFrame, save_dir: Path) -> None:
         save_dir = Path(save_dir)
@@ -46,6 +92,7 @@ class SparseRetriever:
             str(save_dir / "bm25_article_ids.npy"), allow_pickle=True
         )
         instance._id_to_pos = {aid: i for i, aid in enumerate(instance.article_ids)}
+        instance._init_score_cache()
         return instance
 
     def search(
@@ -55,7 +102,7 @@ class SparseRetriever:
         allowed_ids: np.ndarray | None = None,
     ) -> list[tuple[str, float]]:
         tokens = self._tokenize(query)
-        scores = self.bm25.get_scores(tokens)
+        scores = self._get_scores(tokens)
         if allowed_ids is not None:
             # Zero out scores for items not in the allowed set so only pre-filtered
             # items compete for the top-k slots.  np.isin over the full (68k+)
