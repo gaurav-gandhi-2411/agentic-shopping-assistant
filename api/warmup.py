@@ -16,6 +16,7 @@ Contract (tested):
 """
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import threading
@@ -135,8 +136,8 @@ def _run_steps(
 
     for query, filters in WARMUP_SEARCHES:
         name = f"search_{(filters or {}).get('gender', 'plain')}"
-        _step(name, lambda q=query, f=filters: retriever.search(q, top_k=10, filters=f))
-    _step("outfit_turn", lambda: _outfit_turn(retriever, catalogue_df, config))
+        _step(name, functools.partial(retriever.search, query, top_k=10, filters=filters))
+    _step("outfit_turn", functools.partial(_outfit_turn, retriever, catalogue_df, config))
     for name, step in (extra_steps or {}).items():  # e.g. the CLIP stack (loads index + encoder)
         _step(name, step)
     return failures
