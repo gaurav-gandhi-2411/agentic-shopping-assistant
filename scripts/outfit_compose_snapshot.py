@@ -99,9 +99,11 @@ def compose_turn(query: str, df: Any, retriever: Any) -> dict:
         return {"occasion": occasion, "gender": gender, "budget": budget, "variants": []}
     vkwargs = dict(kwargs, brand_gender_default="women", pairing_stats=None)
     # "base_look" exists only after the probe-reuse change; same call site before and after.
-    params = inspect.signature(compose_outfit_variants).parameters
-    if "base_look" in params:
-        vkwargs["base_look"] = probe
+    if "base_look" in inspect.signature(compose_outfit_variants).parameters:
+        from src.agents.outfit.composer import probe_reusable_as_base
+
+        if probe_reusable_as_base(gender, "women"):
+            vkwargs["base_look"] = probe
     variants = compose_outfit_variants(df, retriever, seed_article_id=None, **vkwargs)
     return {"occasion": occasion, "gender": gender, "budget": budget, "variants": variants}
 
