@@ -2,8 +2,10 @@ import logging
 import pickle
 import re
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,6 +20,60 @@ logger = logging.getLogger(__name__)
 # tokens); allowed_ids masking and top-k selection run afterwards on every call, so
 # exclusion/filter arguments never see a stale result.  0 disables the cache (bypass).
 SCORE_CACHE_SIZE = 16
+
+
+class _CscBm25:
+    """Column-compressed (term -> postings) copy of a BM25Okapi's term frequencies that
+    reproduces ``BM25Okapi.get_scores`` without its per-query Python loop over every document.
+
+    rank_bm25 evaluates, per query token ``q`` (repeats included, in order)::
+
+        score += idf[q] * (tf * (k1 + 1) / (tf + k1 * (1 - b + b * doc_len / avgdl)))
+
+    over ALL documents, where tf is 0 for documents lacking ``q`` (adding exactly 0.0). Here the
+    identical expression is evaluated only on the documents that contain ``q`` and accumulated in
+    the same token order, using the same float64 operations in the same order, so the resulting
+    vector is bit-identical to rank_bm25's (asserted in tests and on the real index).
+    """
+
+    def __init__(self, bm25: Any) -> None:
+        doc_freqs = bm25.doc_freqs
+        n = len(doc_freqs)
+        self.corpus_size: int = n
+        self.k1: float = bm25.k1
+        self.idf: dict[str, float] = bm25.idf
+        # Exactly rank_bm25's `self.k1 * (1 - self.b + self.b * doc_len / self.avgdl)`.
+        doc_len = np.array(bm25.doc_len)
+        self.norm: np.ndarray = bm25.k1 * (1 - bm25.b + bm25.b * doc_len / bm25.avgdl)
+        self.term_id: dict[str, int] = {t: i for i, t in enumerate(self.idf)}
+        lens = np.fromiter((len(d) for d in doc_freqs), dtype=np.int64, count=n)
+        nnz = int(lens.sum())
+        tid = self.term_id
+        cols = np.fromiter((tid[t] for d in doc_freqs for t in d), dtype=np.int32, count=nnz)
+        vals = np.fromiter(
+            (v for d in doc_freqs for v in d.values()), dtype=np.float64, count=nnz
+        )
+        rows = np.repeat(np.arange(n, dtype=np.int32), lens)
+        order = np.argsort(cols, kind="stable")  # stable: rows stay ascending inside a column
+        self.rows: np.ndarray = rows[order]
+        self.tf: np.ndarray = vals[order]
+        self.indptr: np.ndarray = np.concatenate(
+            ([0], np.cumsum(np.bincount(cols, minlength=len(tid))))
+        )
+
+    def get_scores(self, tokens: list[str]) -> np.ndarray:
+        score = np.zeros(self.corpus_size)
+        k1p1 = self.k1 + 1
+        for q in tokens:
+            idf = self.idf.get(q) or 0
+            t = self.term_id.get(q)
+            if t is None or idf == 0:
+                continue  # rank_bm25 adds an all-zero vector here
+            lo, hi = self.indptr[t], self.indptr[t + 1]
+            rows = self.rows[lo:hi]
+            tf = self.tf[lo:hi]
+            score[rows] += idf * (tf * k1p1 / (tf + self.norm[rows]))
+        return score
 
 
 class SparseRetriever:
@@ -41,6 +97,28 @@ class SparseRetriever:
         # let stale vectors survive a swap. Holding the reference keeps the id unique.
         self._score_cache_owner: object | None = None
 
+    def _csc_for(self, bm25: Any) -> _CscBm25 | None:
+        """Postings structure for ``bm25`` (built once per bm25 object, rebuilt on swap), or
+        None when the vectorised path is off or ``bm25`` is not a BM25Okapi-shaped object."""
+        if not getattr(self, "_vectorised", True) or not hasattr(bm25, "doc_freqs"):
+            return None
+        lock = self.__dict__.setdefault("_csc_lock", threading.Lock())
+        with lock:
+            csc = self.__dict__.get("_csc")
+            if csc is None or self.__dict__.get("_csc_owner") is not bm25:
+                t0 = time.perf_counter()
+                csc = _CscBm25(bm25)
+                self.csc_build_seconds = time.perf_counter() - t0
+                logger.info("BM25 postings built in %.2fs", self.csc_build_seconds)
+                self._csc, self._csc_owner = csc, bm25  # strong ref: see _score_cache_owner
+        return csc
+
+    def _compute_scores(self, tokens: list[str]) -> np.ndarray:
+        csc = self._csc_for(self.bm25)
+        if csc is not None:
+            return csc.get_scores(tokens)
+        return self.bm25.get_scores(tokens)
+
     def _get_scores(self, tokens: list[str]) -> np.ndarray:
         """BM25 score vector for ``tokens``, memoised per exact token tuple (LRU).
 
@@ -60,7 +138,7 @@ class SparseRetriever:
                 if cached is not None:
                     self._score_cache.move_to_end(key)
                     return cached.view()
-        scores = np.asarray(self.bm25.get_scores(tokens))
+        scores = np.asarray(self._compute_scores(tokens))
         if cache_on:
             scores.flags.writeable = False
             with self._score_cache_lock:
@@ -99,6 +177,7 @@ class SparseRetriever:
         )
         instance._id_to_pos = {aid: i for i, aid in enumerate(instance.article_ids)}
         instance._init_score_cache()
+        instance._csc_for(instance.bm25)  # build at startup, not on the first user query
         return instance
 
     def search(

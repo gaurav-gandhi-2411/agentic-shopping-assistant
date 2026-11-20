@@ -29,13 +29,13 @@ def sparse(tmp_path) -> SparseRetriever:
 
 def _count_calls(r: SparseRetriever, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     calls: list[list[str]] = []
-    real = r.bm25.get_scores
+    real = r._compute_scores  # the engine call (vectorised or rank_bm25) the memo sits in front of
 
     def spy(tokens: list[str]) -> np.ndarray:
         calls.append(list(tokens))
         return real(tokens)
 
-    monkeypatch.setattr(r.bm25, "get_scores", spy)
+    monkeypatch.setattr(r, "_compute_scores", spy)
     return calls
 
 
