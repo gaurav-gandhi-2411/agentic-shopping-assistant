@@ -4,6 +4,10 @@ Loads evals/fixtures/outfit_compose_snapshot.json (recorded from the UNMODIFIED 
 at commit 285e533, public view of the unified index, LLM-free) and recomposes every query with
 the current code: same ordered item IDs per variant, same totals, same empty slots.
 
+One entry ("reception outfit for women") was re-recorded when the hash-seed-dependent word order
+in slots.split_accessory_query_by_family was fixed: at 285e533 that query was nondeterministic
+(on master too) and the fixture held one of its two possible outputs. The other 29 are unchanged.
+
 Needs the built unified index. Point OUTFIT_SNAPSHOT_INDEX_DIR at it (default
 data/processed/unified); skipped when absent.
 """

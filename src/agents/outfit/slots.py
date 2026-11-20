@@ -800,7 +800,11 @@ def split_accessory_query_by_family(query: str) -> list[str]:
     matched: list[tuple[frozenset[str], list[str]]] = []
     residual = q
     for family in _ACCESSORY_FAMILIES:
-        words_present = [kw for kw in family if _contains_word(q, kw)]
+        # sorted(): `family` is a frozenset of str, whose iteration order depends on
+        # PYTHONHASHSEED. The words are joined into the sub-query TEXT and the dense embedding
+        # is word-order sensitive, so unordered iteration made the retrieved pool (and, on
+        # near-ties, the picked item) differ from process to process.
+        words_present = [kw for kw in sorted(family) if _contains_word(q, kw)]
         if words_present:
             matched.append((family, words_present))
             for w in words_present:
