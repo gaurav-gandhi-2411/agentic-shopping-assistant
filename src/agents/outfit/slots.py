@@ -694,7 +694,15 @@ def classify_item(product_type: str, prod_name: str = "") -> str:
     combined = pt + " " + name
     if any(_contains_word(combined, kw) for kw in ACCESSORY_KEYWORDS):
         return "accessory"
-    return classify_anchor(product_type, prod_name)
+    resolved = classify_anchor(product_type, prod_name)
+    # 2026-11 (more-options D1): product_type "footwear" is authoritative that the item IS footwear;
+    # a garment word in the NAME ("Men's Sherwani Jutti" -> men_formalwear, 39 real rows) names the
+    # occasion/style, not the item. The generic-facet name scan above exists for outerwear-style
+    # buckets ("Nehru Jacket" typed outerwear); it must not turn a pair of juttis into a garment.
+    # Accessory outcomes (footwear+bag combos) are deliberately left as they were.
+    if _pt_stripped == "footwear" and resolved not in ("footwear", "accessory", "unknown"):
+        return "footwear"
+    return resolved
 
 
 # Slot name -> the set of classify_item() classes allowed to fill it.  A
