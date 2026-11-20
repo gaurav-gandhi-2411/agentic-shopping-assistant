@@ -44,26 +44,27 @@ class SparseRetriever:
         The returned array is shared and read-only; callers must not mutate it.
         """
         # getattr: instances built without __init__/load() (tests, tooling) simply bypass.
-        if getattr(self, "_score_cache_size", 0) <= 0:
-            return self.bm25.get_scores(tokens)
+        cache_on = getattr(self, "_score_cache_size", 0) > 0
         key = tuple(tokens)
         owner = id(self.bm25)
-        with self._score_cache_lock:
-            if self._score_cache_owner != owner:  # index object swapped: drop stale vectors
-                self._score_cache.clear()
-                self._score_cache_owner = owner
-            cached = self._score_cache.get(key)
-            if cached is not None:
-                self._score_cache.move_to_end(key)
-                return cached
+        if cache_on:
+            with self._score_cache_lock:
+                if self._score_cache_owner != owner:  # index object swapped: drop stale vectors
+                    self._score_cache.clear()
+                    self._score_cache_owner = owner
+                cached = self._score_cache.get(key)
+                if cached is not None:
+                    self._score_cache.move_to_end(key)
+                    return cached
         scores = np.asarray(self.bm25.get_scores(tokens))
-        scores.flags.writeable = False
-        with self._score_cache_lock:
-            if self._score_cache_owner == owner:
-                self._score_cache[key] = scores
-                self._score_cache.move_to_end(key)
-                while len(self._score_cache) > self._score_cache_size:
-                    self._score_cache.popitem(last=False)
+        if cache_on:
+            scores.flags.writeable = False
+            with self._score_cache_lock:
+                if self._score_cache_owner == owner:
+                    self._score_cache[key] = scores
+                    self._score_cache.move_to_end(key)
+                    while len(self._score_cache) > self._score_cache_size:
+                        self._score_cache.popitem(last=False)
         return scores
 
     def build_index(self, catalogue_df: pd.DataFrame, save_dir: Path) -> None:
