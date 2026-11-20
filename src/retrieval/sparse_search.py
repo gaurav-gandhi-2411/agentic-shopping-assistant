@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from rank_bm25 import BM25Okapi
 
+from src.utils.timing_log import first_call
+
 logger = logging.getLogger(__name__)
 
 # Bounded LRU of raw BM25 score vectors, keyed on the exact tokenised query.  An outfit turn
@@ -138,7 +140,8 @@ class SparseRetriever:
                 if cached is not None:
                     self._score_cache.move_to_end(key)
                     return cached.view()
-        scores = np.asarray(self._compute_scores(tokens))
+        with first_call("bm25_score"):
+            scores = np.asarray(self._compute_scores(tokens))
         if cache_on:
             scores.flags.writeable = False
             with self._score_cache_lock:

@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import api.deps as deps
+from api import warmup
 from api.logging_config import setup_logging
 from api.routes.auth import router as auth_router
 from api.routes.brand import router as brand_router
@@ -41,6 +42,7 @@ from api.routes.feedback import router as feedback_router
 from api.routes.health import router as health_router
 from api.routes.image_style import router as image_style_router
 from api.routes.looks import router as looks_router
+from src.utils import timing_log
 from src.utils.redact import Redactor, install_log_redaction
 
 logger = logging.getLogger(__name__)
@@ -126,12 +128,31 @@ def _init_sentry(**options: Any) -> bool:
     return True
 
 
+def _run_startup_warmup(
+    retriever: Any,
+    df: Any,
+    config: dict,
+    *,
+    extra_steps: dict[str, Any] | None = None,
+) -> warmup.WarmupResult | None:
+    """Run the startup warm-up if enabled. NEVER raises: readiness must not depend on it."""
+    if not warmup.warmup_enabled():
+        logger.info("startup warm-up disabled (STARTUP_WARMUP)")
+        return None
+    try:
+        return warmup.run_warmup(retriever, df, config, extra_steps=extra_steps)
+    except Exception:  # noqa: BLE001 - belt and braces; run_warmup already contains failures
+        logger.warning("startup warm-up wrapper failed; continuing startup", exc_info=True)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ------------------------------------------------------------------
     # Startup
     # ------------------------------------------------------------------
     setup_logging()
+    _t_startup = _t_stage = time.perf_counter()
     logger.info("Starting up Shopping Assistant API")
 
     # Sentry — initialise early so startup errors are captured.
@@ -157,6 +178,7 @@ async def lifespan(app: FastAPI):
     from src.llm.client import get_llm_client
 
     config = load_config(_CONFIG_PATH)
+    _t_stage = timing_log.mark("config_load", _t_stage)
     # Allow env var to override LLM provider (e.g. groq on Fly, ollama locally).
     if os.environ.get("LLM_PROVIDER"):
         config["llm"]["provider"] = os.environ["LLM_PROVIDER"]
@@ -246,6 +268,7 @@ async def lifespan(app: FastAPI):
         _manifest.build_id if _manifest is not None else "legacy",
     )
 
+    _t_stage = timing_log.mark("index_load", _t_stage)
     logger.info("Initialising LLM client (provider=%s)", config["llm"]["provider"])
     llm = get_llm_client(config)
     # W4: fail the revision (lifespan raises -> container never listens -> Cloud Run's
@@ -253,6 +276,7 @@ async def lifespan(app: FastAPI):
     if hasattr(llm, "verify_models"):
         logger.info("LLM model check: %s", llm.verify_models())
     logger.info("LLM client ready")
+    _t_stage = timing_log.mark("llm_init", _t_stage)
 
     # LangSmith tracing — enabled when LANGSMITH_API_KEY is present.
     langsmith_key = os.environ.get("LANGSMITH_API_KEY", "")
@@ -279,6 +303,7 @@ async def lifespan(app: FastAPI):
         pinned_build_id=_pin.build_id,
         pin_failure=_pin_failure,
     )
+    _t_stage = timing_log.mark("session_store_and_graph_compile", _t_stage)
 
     # V3(b) hot reload: a daemon thread checks pointers/ every INDEX_RELOAD_INTERVAL_S and swaps
     # the whole snapshot atomically (see src/retrieval/index_reload.py). Default OFF; enable only with INDEX_HOT_RELOAD=1.
@@ -366,7 +391,14 @@ async def lifespan(app: FastAPI):
             elapsed_ms = round((time.monotonic() - t0) * 1000)
             logger.warning("CLIP warm-load failed after %dms: %s", elapsed_ms, exc)
 
-    threading.Thread(target=_warm_clip_stack, daemon=True, name="clip-warm-load").start()
+    if warmup.warmup_enabled():
+        # Warm-up runs HERE, before the port opens (so also before Cloud Run sends traffic), on
+        # the startup CPU boost. CLIP is one of its steps: as a background thread it used to start
+        # exactly when the first request arrived and compete with it for the single vCPU.
+        _run_startup_warmup(retriever, df, config, extra_steps={"clip": _warm_clip_stack})
+    else:
+        threading.Thread(target=_warm_clip_stack, daemon=True, name="clip-warm-load").start()
+    timing_log.mark("startup_total", _t_startup)
 
     yield
 

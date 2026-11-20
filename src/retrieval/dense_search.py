@@ -16,6 +16,8 @@ tqdm.tqdm.monitor_interval = 0
 
 from sentence_transformers import SentenceTransformer  # noqa: E402
 
+from src.utils.timing_log import first_call  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,10 +97,12 @@ class DenseRetriever:
         as an unrestricted one — confirmed via eval/diagnose_pushdown_mechanism.py
         (30ms restricted vs 32ms unfiltered, full 112k-item index).
         """
-        query_vec = self.model.encode(
-            [query], normalize_embeddings=True, show_progress_bar=False
-        ).astype(np.float32)
-        scores, indices = self.index.search(query_vec, top_k, params=params)
+        with first_call("dense_encode"):
+            query_vec = self.model.encode(
+                [query], normalize_embeddings=True, show_progress_bar=False
+            ).astype(np.float32)
+        with first_call("faiss_search_masked" if params is not None else "faiss_search"):
+            scores, indices = self.index.search(query_vec, top_k, params=params)
         results = []
         for score, idx in zip(scores[0], indices[0]):
             if idx >= 0:
