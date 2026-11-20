@@ -148,6 +148,48 @@ def test_non_fashion_and_unsellable_rows_are_dropped() -> None:
     assert [it["article_id"] for it in out or []] == ["ok"]
 
 
+def test_footwear_typed_rows_never_anchor_even_when_the_name_says_sherwani() -> None:
+    """D1: classify_item('footwear', "... Men's Sherwani Jutti") is men_formalwear (name token
+    beats the facet), which let 'Sherwani Juttis' into the row. The structured type wins."""
+    pool = [
+        _a("jutti1", "RoyalGold Silk Men's Sherwani Jutti", pt="footwear", store="snitch"),
+        _a("jutti2", "Black Silk Men's Sherwani Juttis", pt="footwear", store="powerlook"),
+        _a("mojari", "Cream Jute Men's Wedding Sherwani Mojaris", pt="footwear", store="fashor"),
+        _a("ok", "Men's Cotton Kurta Set", pt="kurta", store="virgio"),
+    ]
+    for it in pool:
+        it["gender"] = "men"
+    out = build_more_options([_look(_a("s", "Seed"), [], pool)], 3000.0)
+    assert [it["article_id"] for it in out or []] == ["ok"]
+
+
+def test_swim_inner_and_night_wear_never_anchor() -> None:
+    """D2/D3: Bikini Bottom, Panty (globalrepublic) and standalone Pyjama/Churidar nightwear."""
+    pool = [
+        _a("bikini", "Women Beige Low Rise Bikini Bottom", pt="swimwear", store="snitch"),
+        _a("panty", "Women Blue Printed Panty", pt="innerwear", store="powerlook"),
+        _a("pyj", "VASTRAMAY Men's Blue Cotton Silk Blend Pyjama", pt="nightwear", store="fashor"),
+        _a("churi", "VASTRAMAY Men's Grey Solid Churidar", pt="nightwear", store="virgio"),
+        _a("nsuit", "Pink Printed Cotton Night Suit Set", pt="night suit", store="snitch"),
+        _a("vest", "Men White Cotton Vest", pt="vest", store="powerlook"),
+        _a("typed_generic", "Women Blue Printed Panty", pt="Fashion", store="fashor"),
+        _a("ok", "Cotton Anarkali Set", pt="anarkali", store="virgio"),
+    ]
+    out = build_more_options([_look(_a("s", "Seed"), [], pool)], 3000.0)
+    assert [it["article_id"] for it in out or []] == ["ok"]
+
+
+def test_kurta_and_pyjama_set_typed_nightwear_is_kept_and_standalone_bottoms_stay() -> None:
+    pool = [
+        _a("kps", "Men's Yellow Lehariya Cotton Kurta & Pyjama Set", pt="nightwear",
+           store="snitch"),
+        _a("pal", "Cotton Palazzo", pt="palazzo", store="powerlook"),
+        _a("pant", "Slim Fit Cotton Pant", pt="trousers", store="fashor"),
+    ]
+    out = build_more_options([_look(_a("s", "Seed"), [], pool)], 3000.0)
+    assert {it["article_id"] for it in out or []} == {"kps", "pal", "pant"}
+
+
 def test_colourways_of_one_product_collapse() -> None:
     pool = [
         _a("r", "Zari Silk Lehenga Set - Red", store="snitch"),
@@ -332,3 +374,62 @@ def test_real_index_sangeet_3000_women_row() -> None:
     assert max(per_store.values()) <= 2
     shown = {look["seed_item"]["article_id"], *(c["article_id"] for c in look["complements"])}
     assert not shown & {r["article_id"] for r in row}
+
+
+def _real_index_or_skip() -> None:
+    if not (_INDEX_DIR / "catalogue.parquet").exists():
+        pytest.skip(f"no built unified index at {_INDEX_DIR}")
+    if os.environ.get("INCLUDE_NON_PUBLIC_STORES"):
+        pytest.skip("public view only")
+
+
+def test_real_rows_footwear_swim_inner_night_types_are_never_anchors() -> None:
+    """Every REAL public row typed footwear/swimwear/innerwear/vest/briefs/... is rejected, incl.
+    the 39 men's 'Sherwani Jutti' rows (kraftojodhpur) that classify as men_formalwear by name."""
+    _real_index_or_skip()
+    from src.agents.outfit.composer import _NON_ANCHOR_TYPES, _is_outfit_garment
+    from src.retrieval.snapshot import public_catalogue
+
+    df = public_catalogue(pd.read_parquet(_INDEX_DIR / "catalogue.parquet"))
+    pt = df["product_type_name"].fillna("").astype(str)
+    nm = df["prod_name"].fillna("").astype(str)
+    typed = df[pt.str.strip().str.lower().isin(_NON_ANCHOR_TYPES)]
+    assert len(typed) > 4000  # footwear alone is ~3,985
+    sherwani_juttis = df[(pt.str.lower() == "footwear") & nm.str.contains("Sherwani", case=False)]
+    assert len(sherwani_juttis) >= 30, "the real D1 rows must be present"
+    allowed_exception = typed["prod_name"].astype(str).str.contains(
+        r"\b(?:kurta|kurti|sherwani|bandhgala|achkan|lehenga|saree|sari|anarkali|sharara)\b",
+        case=False, regex=True,
+    ) & ~typed["product_type_name"].astype(str).str.lower().isin({"footwear", "socks"})
+    bad = [
+        (a, b)
+        for a, b, ok in zip(
+            typed["product_type_name"].astype(str), typed["prod_name"].astype(str),
+            ~allowed_exception, strict=True,
+        )
+        if ok and _is_outfit_garment(a, b)
+    ]
+    assert bad == []
+    assert not any(
+        _is_outfit_garment("footwear", n) for n in sherwani_juttis["prod_name"].astype(str)
+    )
+
+
+def test_real_72_cell_row_grid_has_no_footwear_swim_inner_or_night_cards() -> None:
+    _real_index_or_skip()
+    from scripts import outfit_compose_snapshot as snap
+    from scripts import outfit_more_options_grid as grid
+
+    retriever, df = snap.load_retriever(_INDEX_DIR)
+    rows = grid.run_grid(retriever, df)
+    assert len(rows) == 72
+    s = grid.summarise(rows)
+    assert s["audit_counts"].get("footwear", 0) == 0
+    assert s["audit_counts"].get("swimwear", 0) == 0
+    assert s["audit_counts"].get("innerwear", 0) == 0
+    # only the intentionally-kept ethnic set typed nightwear ("Kurta & Pyjama Set") may remain
+    night = [leak for leak in s["leaks"] if leak[3] == "nightwear"]
+    assert all("kurta" in str(leak[6]).lower() for leak in night)
+    assert s["absent_row_cells"] == []
+    # the empty rows are catalogue floors: no garment under 0.4 x the budget exists
+    assert all(cell[2] == 800 and cell[0] == "men" for cell in s["empty_row_cells"])

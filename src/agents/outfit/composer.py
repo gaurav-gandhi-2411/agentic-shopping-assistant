@@ -654,6 +654,60 @@ MORE_OPTIONS_MAX: int = 6
 MORE_OPTIONS_MAX_PER_STORE: int = 2
 
 
+# Structured product_type facet values (lowercased) that are never an outfit anchor. Grounded in
+# the public catalogue's own vocabulary (inner/swim/night/foot types and counts: nightwear 382,
+# night suit 88, innerwear 61, vest 50, men loungers 21, sports_bra 21, lounge wear 17, w briefs 8,
+# swimwear 4, footwear 3,985).
+_NON_ANCHOR_TYPES: frozenset[str] = frozenset(
+    {
+        "footwear",
+        "swimwear", "bikini", "innerwear", "lingerie", "vest", "w briefs", "briefs", "bra",
+        "sports_bra", "sports bra", "boxers", "socks",
+        "nightwear", "night suit", "men loungers", "lounge wear", "loungewear", "sleepwear",
+    }
+)
+# The sleep/swim/inner types are mislabelled for a handful of real ethnic sets ("Kurta & Pyjama
+# Set" typed nightwear): for THOSE types only, an ethnic garment word in the name keeps the item.
+_SLEEP_SWIM_INNER_TYPES: frozenset[str] = _NON_ANCHOR_TYPES - {"footwear", "socks"}
+_ETHNIC_GARMENT_NAME_RE = re.compile(
+    r"\b(kurta|kurti|sherwani|bandhgala|achkan|lehenga|saree|sari|anarkali|sharara)\b", re.I
+)
+# Name-level terms that are never an anchor whatever the facet says (the facet is primary; this
+# is the tie-break for rows typed generically, e.g. "Fashion").
+_NON_ANCHOR_NAME_RE = re.compile(
+    r"\b(bikini|swimsuit|swimwear|panty|panties|lingerie|briefs?|bra|bras|boxers?|innerwear|"
+    r"night\s?suit|nightsuit|nightwear|nighty|night\s?dress|sleepwear|loungewear)\b",
+    re.I,
+)
+
+
+def _is_outfit_garment(product_type: str, prod_name: str) -> bool:
+    """True when the item can anchor a look: a garment by its STRUCTURED product_type first.
+
+    Order matters (a men's "Sherwani Jutti", product_type footwear, classifies as men_formalwear
+    when the name is scanned, which is how footwear reached the row):
+      1. the facet alone (name blanked) resolving to footwear/accessory is final;
+      2. facet in the footwear/inner/swim/night deny set is final, except sleep/swim/inner-typed
+         ethnic sets (name has kurta/sherwani/...), which stay;
+      3. the name only breaks ties: non-anchor words reject; the full classification must be a
+         known garment class.
+    """
+    pt = product_type.strip().lower()
+    if classify_item(product_type, "") in NON_OUTFIT_ITEM_CLASSES:
+        return False
+    if pt in _NON_ANCHOR_TYPES:
+        if pt in _SLEEP_SWIM_INNER_TYPES and _ETHNIC_GARMENT_NAME_RE.search(prod_name):
+            pass  # falls through to the name / class checks below
+        else:
+            return False
+    if _NON_ANCHOR_NAME_RE.search(prod_name) and not (
+        _ETHNIC_GARMENT_NAME_RE.search(prod_name) and pt in _SLEEP_SWIM_INNER_TYPES
+    ):
+        return False
+    item_class = classify_item(product_type, prod_name)
+    return item_class not in NON_OUTFIT_ITEM_CLASSES and item_class != "unknown"
+
+
 def build_more_options(
     looks: list[dict],
     budget_inr: float | None,
@@ -698,9 +752,8 @@ def build_more_options(
         name = item.get("prod_name") or item.get("display_name") or ""
         if aid in shown or price is None or not 0 < price <= budget_inr:
             continue
-        item_class = classify_item(item.get("product_type") or "", name)
-        if item_class in NON_OUTFIT_ITEM_CLASSES or item_class == "unknown":
-            continue  # an anchor is a garment: no accessories/footwear, nothing unclassifiable
+        if not _is_outfit_garment(item.get("product_type") or "", name):
+            continue  # an anchor is a garment: no footwear/accessories/innerwear/swim/nightwear
         if (
             is_fabric_bolt_text(name)
             or is_occasion_merchandise_type(item.get("product_type"))

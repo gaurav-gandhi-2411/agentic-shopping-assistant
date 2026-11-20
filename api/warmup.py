@@ -117,19 +117,29 @@ def _run_steps(
     config: dict,
     result: WarmupResult,
     extra_steps: dict[str, Callable[[], None]] | None = None,
-) -> None:
+) -> list[str]:
+    """Run every step independently; one failing step never skips the later ones.
+
+    Returns the failures as ``"<step>: <ExcType>: <message>"`` strings (empty = all steps ran).
+    """
+    failures: list[str] = []
+
+    def _step(name: str, fn: Callable[[], None]) -> None:
+        t0 = time.perf_counter()
+        try:
+            fn()
+        except Exception as exc:  # noqa: BLE001 - contained: later steps must still run
+            failures.append(f"{name}: {type(exc).__name__}: {exc}")
+        finally:
+            result.steps_ms[name] = round((time.perf_counter() - t0) * 1000)
+
     for query, filters in WARMUP_SEARCHES:
         name = f"search_{(filters or {}).get('gender', 'plain')}"
-        t0 = time.perf_counter()
-        retriever.search(query, top_k=10, filters=filters)
-        result.steps_ms[name] = round((time.perf_counter() - t0) * 1000)
-    t0 = time.perf_counter()
-    _outfit_turn(retriever, catalogue_df, config)
-    result.steps_ms["outfit_turn"] = round((time.perf_counter() - t0) * 1000)
+        _step(name, lambda q=query, f=filters: retriever.search(q, top_k=10, filters=f))
+    _step("outfit_turn", lambda: _outfit_turn(retriever, catalogue_df, config))
     for name, step in (extra_steps or {}).items():  # e.g. the CLIP stack (loads index + encoder)
-        t0 = time.perf_counter()
-        step()
-        result.steps_ms[name] = round((time.perf_counter() - t0) * 1000)
+        _step(name, step)
+    return failures
 
 
 def run_warmup(
@@ -147,11 +157,15 @@ def run_warmup(
 
     def _target() -> None:
         try:
-            _run_steps(retriever, catalogue_df, config, result, extra_steps)
-            result.ok = True
+            failures = _run_steps(retriever, catalogue_df, config, result, extra_steps)
         except Exception as exc:  # noqa: BLE001 - warm-up must never block startup
-            result.error = f"{type(exc).__name__}: {exc}"
+            failures = [f"warm-up: {type(exc).__name__}: {exc}"]
+        if failures:
+            result.error = "; ".join(failures)
+            # one line for the whole warm-up, however many steps failed
             logger.warning("startup warm-up failed (continuing, ready anyway): %s", result.error)
+        else:
+            result.ok = True
 
     worker = threading.Thread(target=_target, name="startup-warmup", daemon=True)
     worker.start()

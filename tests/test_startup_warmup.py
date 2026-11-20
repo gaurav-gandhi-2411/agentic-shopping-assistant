@@ -86,9 +86,40 @@ def test_failure_in_the_outfit_turn_is_contained(monkeypatch: pytest.MonkeyPatch
     assert not res.ok and "graph exploded" in (res.error or "")
 
 
+def test_a_failing_step_does_not_skip_the_later_steps(
+    monkeypatch: pytest.MonkeyPatch, _no_outfit_graph: list[int]
+) -> None:
+    """D4: a failing search must not stop the outfit turn nor the CLIP step."""
+    ran: list[str] = []
+    r = _Retriever(fail_on="kurta")  # both gender searches raise; the plain one does not
+    res = warmup.run_warmup(
+        r, pd.DataFrame(), {}, timeout_s=5, extra_steps={"clip": lambda: ran.append("clip")}
+    )
+    assert not res.ok
+    assert _no_outfit_graph == [1], "outfit turn must still run after failing searches"
+    assert ran == ["clip"], "CLIP step must still run after failing searches"
+    assert res.error is not None and res.error.count("boom in search") == 2
+    assert {"search_plain", "search_women", "search_men", "outfit_turn", "clip"} <= set(res.steps_ms)
+
+
+def test_a_failing_outfit_turn_does_not_skip_the_clip_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[str] = []
+
+    def boom(*a: Any, **k: Any) -> None:
+        raise ValueError("graph exploded")
+
+    monkeypatch.setattr(warmup, "_outfit_turn", boom)
+    res = warmup.run_warmup(
+        _Retriever(), pd.DataFrame(), {}, timeout_s=5, extra_steps={"clip": lambda: ran.append("c")}
+    )
+    assert not res.ok and ran == ["c"]
+
+
 def test_bounded_by_the_timeout_and_startup_continues(monkeypatch: pytest.MonkeyPatch) -> None:
     release = threading.Event()
-    monkeypatch.setattr(warmup, "_run_steps", lambda *a, **k: release.wait(10))
+    monkeypatch.setattr(warmup, "_run_steps", lambda *a, **k: (release.wait(10), [])[1])
     t0 = time.perf_counter()
     res = warmup.run_warmup(_Retriever(), pd.DataFrame(), {}, timeout_s=0.3)
     elapsed = time.perf_counter() - t0
