@@ -521,6 +521,33 @@ fits on day 3. A day stop writes `variants_partial.json` and exits with `STOPPED
 same command the next day continues from the cache. Check afterwards: `finish_reason` counts
 (A2 must show 0 `length`), the outcome counts, and that no row was recorded for a stop.
 
+**Day 2 live, UTC 2026-11-20 (A2 partial, C not started).** Command above at `38ac0f1`, 51 live A2
+calls, all status 200, 0 x 429, no busy signal, then `BudgetExhaustedError` (98,913 tokens used, next
+call would need ~2,461): 98,913 of 100,000 (prompt 87,770, completion 11,143, reasoning 8,505).
+Not done: A2 for q58 and q60 (2 live queries); C for all 53. Rows are in the untracked
+`variants_partial.json` (A2: 55 rows = 51 live + 4 pool <= 5), calls in `ledger.jsonl`.
+- **A2 outcomes (51 live):** ok 46, partial 1, empty_selection 3 (q12 q22 q29, no_exact_match),
+  length 1. **The length check FAILS: 1 of 51 calls (q53) hit the 600 cap** (completion 600,
+  reasoning 598; its row is the explicit retrieval-order fallback). A2 reasoning tokens over the
+  51 calls: median 140, p90 309, max 598; completion median 184. So 600 was not enough for the
+  tail: the reasoning distribution day 1 could only see up to 148 reaches at least 598. A cap of
+  ~1,000 would be the next size; not applied, no rerun made.
+- **Latency (ms):** p50 1,118, p95 1,576, max 3,452. Tokens per live turn: 1,722 prompt + 218
+  completion (98,913 / 51 = 1,939 total).
+- **Consensus-label metrics on the 51 queries both arms have (primary, pool > 5; q58 q60 pending),
+  nDCG@5 n = 47, P@5 n = 51** (bootstrap 95% CI):
+
+| arm | nDCG@5 | P@5, label >= 1 | P@5, label >= 2 |
+|---|---|---|---|
+| A (rep 1) | 0.666 [0.563, 0.766] | 0.639 [0.529, 0.745] | 0.541 [0.431, 0.651] |
+| A2 (rep 1) | 0.856 [0.784, 0.921] | 0.765 [0.663, 0.859] | 0.655 [0.549, 0.757] |
+| B | 0.635 [0.537, 0.731] | 0.612 [0.506, 0.714] | 0.506 [0.404, 0.608] |
+| paired A2 - B | +0.221 [+0.133, +0.317] | +0.153 [+0.094, +0.220] | |
+| paired A2 - A | +0.190 [+0.102, +0.288] | +0.125 [+0.067, +0.192] | |
+
+These are PARTIAL numbers (51 of 53 queries, no C): the decision rule is not applied until A2 and
+C both complete.
+
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
 Re-labels the strict-gold labels with the same three blind judges (gpt-oss-120b, qwen3.8-27b via
