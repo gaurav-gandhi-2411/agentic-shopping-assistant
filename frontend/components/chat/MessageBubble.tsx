@@ -9,6 +9,7 @@ import type { ChatMessage } from "@/lib/api/types"
 import { api } from "@/lib/api/client"
 import { ItemCard } from "./ItemCard"
 import { OutfitBoard } from "./OutfitBoard"
+import { MoreOptionsRow } from "./MoreOptionsRow"
 
 interface Props {
   message: ChatMessage
@@ -167,6 +168,13 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant, signI
         )}
       </div>
 
+      {/* "More options" skeleton while a budgeted outfit-style answer streams (cleared on done). */}
+      {!isUser && message.isStreaming && message.moreOptionsLoading && (
+        <div className="w-full max-w-[85%]">
+          <MoreOptionsRow status="loading" budget={0} />
+        </div>
+      )}
+
       {/* Product cards (assistant messages only) */}
       {!isUser && message.items.length > 0 && (() => {
         const isOutfit = message.items.some((it) => it.slot_role != null)
@@ -182,6 +190,9 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant, signI
                 budgetTotalInr={message.budgetTotalInr}
                 outfitRationale={message.outfitRationale}
                 outfitVariants={message.outfitVariants}
+                moreOptions={message.moreOptions}
+                moreOptionsBudgetInr={message.moreOptionsBudgetInr}
+                moreOptionsLoading={message.moreOptionsLoading}
                 cartUrl={message.cartUrl}
                 itemLinks={message.itemLinks}
                 suppressedSlots={message.suppressedSlots}

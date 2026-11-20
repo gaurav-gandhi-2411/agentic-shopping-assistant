@@ -212,6 +212,12 @@ export interface ChatMessage {
   budgetTotalInr?: number | null
   outfitRationale?: string | null
   outfitVariants?: OutfitVariant[] | null
+  /** "More options": alternate anchors under the stated budget (see lib/moreOptions.ts). */
+  moreOptions?: ItemSummary[] | null
+  /** The stated budget the "More options" row is under. */
+  moreOptionsBudgetInr?: number | null
+  /** True while a budgeted turn is streaming: shows the row's loading skeleton. */
+  moreOptionsLoading?: boolean
   /** Shopify cart URL for the base (first) look; null for non-Shopify brands. */
   cartUrl?: string | null
   /** Per-item buy links for non-Shopify brands. */
@@ -282,6 +288,9 @@ export type WsFrame =
         budget_total_inr?: number | null
         outfit_rationale?: string | null
         outfit_variants?: OutfitVariant[] | null
+        /** Alternate anchors under the budget; null/absent = no row, [] = hidden. */
+        more_options?: ItemSummary[] | null
+        more_options_budget_inr?: number | null
         /** Shopify cart permalink for the look; null for non-Shopify brands. */
         cart_url?: string | null
         /** Per-item buy links for non-Shopify brands. */

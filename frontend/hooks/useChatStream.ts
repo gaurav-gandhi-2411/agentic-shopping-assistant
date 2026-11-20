@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getWsFallbackTarget, getWsTarget } from "@/lib/api/client"
 import { openChatSocket, type WsTarget } from "@/lib/api/wsConnect"
+import { expectsMoreOptions } from "@/lib/moreOptions"
 import { noticeFromCloseReason, noticeFromErrorFrame, type LimitNotice } from "@/lib/limits"
 import type {
   ChatMessage,
@@ -191,6 +192,8 @@ export function useChatStream({
                     content: "",
                     items: [],
                     isStreaming: true,
+                    // Budgeted outfit-style ask: show the "More options" skeleton while it streams.
+                    moreOptionsLoading: expectsMoreOptions(text),
                   },
                 ])
               }
@@ -225,6 +228,8 @@ export function useChatStream({
               const budgetTotalInr = frame.final_state.budget_total_inr ?? null
               const outfitRationale = frame.final_state.outfit_rationale ?? null
               const outfitVariants = frame.final_state.outfit_variants ?? null
+              const moreOptions = frame.final_state.more_options ?? null
+              const moreOptionsBudgetInr = frame.final_state.more_options_budget_inr ?? null
               const cartUrl = frame.final_state.cart_url ?? null
               const itemLinks = frame.final_state.item_links ?? null
               const suggestionChips = frame.final_state.suggestion_chips ?? null
@@ -254,6 +259,9 @@ export function useChatStream({
                         budgetTotalInr,
                         outfitRationale,
                         outfitVariants,
+                        moreOptions,
+                        moreOptionsBudgetInr,
+                        moreOptionsLoading: false,
                         cartUrl,
                         itemLinks,
                         suggestionChips,

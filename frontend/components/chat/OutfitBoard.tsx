@@ -8,6 +8,8 @@ import { getStoreDisplayName } from "@/lib/stores"
 import { cn } from "@/lib/utils"
 import { COPY } from "@/lib/copy"
 import { formatSlotLabel } from "@/lib/displayFormat"
+import { MORE_OPTIONS_COPY, isValidOptionList } from "@/lib/moreOptions"
+import { MoreOptionsRow } from "@/components/chat/MoreOptionsRow"
 import type {
   ItemLink,
   ItemSummary,
@@ -71,6 +73,15 @@ interface OutfitBoardProps {
   itemLinks?: ItemLink[] | null
   /** Top-level suppressed slots for non-variant flow; variant-level takes precedence when present. */
   suppressedSlots?: SuppressedSlot[] | null
+  /**
+   * "More options": alternate anchors under the stated budget (additive payload field).
+   * undefined/null = no row; [] = row hidden (empty state); malformed = error line.
+   */
+  moreOptions?: ItemSummary[] | null
+  /** The stated budget the row is "under" (backend `more_options_budget_inr`). */
+  moreOptionsBudgetInr?: number | null
+  /** Skeleton row while the answer streams for a message that states a budget. */
+  moreOptionsLoading?: boolean
   /** "partner" marks this board as a partner-anchored look; absent/"primary" is the user's own look. */
   lookRole?: "primary" | "partner" | null
   /** Board heading override for partner looks — falls back to "Your partner's look" when absent. */
@@ -182,6 +193,9 @@ export function OutfitBoard({
   cartUrl: topLevelCartUrl,
   itemLinks: topLevelItemLinks,
   suppressedSlots: topLevelSuppressedSlots,
+  moreOptions,
+  moreOptionsBudgetInr,
+  moreOptionsLoading,
   lookRole,
   lookTitle,
   coordinatedWith,
@@ -690,6 +704,38 @@ export function OutfitBoard({
         </div>
       )}
 
+      {/* "More options" — alternate anchors under the budget, below the look. Reuses the look's
+          own SlotCard (same buy-link resolution). Empty list / no budget → nothing rendered. */}
+      {moreOptionsLoading ? (
+        <MoreOptionsRow status="loading" budget={moreOptionsBudgetInr ?? 0} />
+      ) : moreOptions != null && moreOptionsBudgetInr != null ? (
+        !isValidOptionList(moreOptions) ? (
+          <MoreOptionsRow status="error" budget={moreOptionsBudgetInr} />
+        ) : moreOptions.length > 0 ? (
+          <MoreOptionsRow status="ready" budget={moreOptionsBudgetInr}>
+            {moreOptions.map((item) => (
+              <SlotCard
+                key={item.article_id}
+                item={item}
+                pdpUrlTemplate={brandConfig?.pdp_url_template}
+                isSeed={false}
+                overrideBuyUrl={resolveItemUrl(item)}
+                labelOverride={MORE_OPTIONS_COPY.cardLabel}
+                ctaLabel={MORE_OPTIONS_COPY.buyCta(
+                  item.store_display ?? getStoreDisplayName(item.store) ?? item.store ?? "",
+                )}
+                ariaLabel={MORE_OPTIONS_COPY.cardAriaLabel(
+                  item.prod_name,
+                  item.price_inr ?? null,
+                  item.store_display ?? getStoreDisplayName(item.store) ?? item.store ?? null,
+                )}
+                onSend={onSend}
+              />
+            ))}
+          </MoreOptionsRow>
+        ) : null
+      ) : null}
+
       {/* Save + share controls — interactive mode only */}
       {onSend && (
         <div className="space-y-2">
@@ -788,10 +834,19 @@ function SlotCard({
   overrideBuyUrl,
   anchorImageUrl,
   onSend,
+  labelOverride,
+  ctaLabel,
+  ariaLabel,
 }: {
   item: ItemSummary
   pdpUrlTemplate: string | undefined
   isSeed: boolean
+  /** Replaces the slot badge text (the "More options" row labels its cards, not slots). */
+  labelOverride?: string
+  /** Optional visible call-to-action line under the card body, e.g. "Buy at Snitch". */
+  ctaLabel?: string
+  /** Optional accessible name for the card link. */
+  ariaLabel?: string
   overrideBuyUrl: string | null
   /** The user's own uploaded photo — only meaningful when this card is the owned seed. */
   anchorImageUrl?: string | null
@@ -811,7 +866,9 @@ function SlotCard({
         ? pdpUrlTemplate.replace("{handle}", item.pdp_handle)
         : null))
 
-  const slotLabel = isOwned
+  const slotLabel = labelOverride
+    ? labelOverride
+    : isOwned
     ? "Your item"
     : isSeed
       ? "Hero"
@@ -862,6 +919,12 @@ function SlotCard({
             {item.store_display ?? getStoreDisplayName(item.store) ?? item.store}
           </p>
         )}
+        {ctaLabel && buyUrl && (
+          <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-primary">
+            <ExternalLink className="h-3 w-3" aria-hidden />
+            {ctaLabel}
+          </p>
+        )}
       </div>
     </>
   )
@@ -894,7 +957,8 @@ function SlotCard({
       href={buyUrl ?? undefined}
       target={buyUrl ? "_blank" : undefined}
       rel="noopener noreferrer"
-      className="group rounded-lg border bg-background overflow-hidden hover:shadow-md transition-shadow"
+      className="group rounded-lg border bg-background overflow-hidden hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-shadow"
+      aria-label={ariaLabel}
       data-slot={dataSlotValue}
       data-gender={dataGenderValue}
     >
