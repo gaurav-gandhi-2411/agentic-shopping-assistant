@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
@@ -17,6 +19,7 @@ from src.agents.outfit.coherence import (
 from src.agents.outfit.occasions import get_occasion
 from src.agents.outfit.slots import (
     _FORMAL_ETHNIC_OCCASIONS,
+    FOOTWEAR_KEYWORDS,
     SLOT_ALLOWED_CLASSES,
     accessory_query_matches,
     classify_anchor,
@@ -83,6 +86,117 @@ STORE_DIVERSITY_PENALTY: float = 0.85
 # there, and an explicit high budget is an intentional request for
 # expensive items.
 _PRICE_OUTLIER_FACTOR: float = 8.0
+
+# Budget-aware anchor cap (2026-11): with a stated budget the seed/anchor may cost at most this
+# fraction of it, so the required accessory + footwear slots have money left. Chosen from the
+# 36-cell budget grid (scripts/outfit_budget_grid.py, 2026-11-20, women+men x sangeet/wedding
+# guest/office x Rs 1000..8000): cells reaching >=3 cards were 30 @0.3, 29 @0.4, 24 @0.5,
+# 25 @0.6 (9 before any change). 0.4 gives up one cell vs 0.3 but keeps pricier, more
+# representative anchors, so it is the default.
+ANCHOR_BUDGET_FRACTION: float = 0.4
+
+# Window for the one-shot retry when a budget-capped slot search yields no survivor (see
+# _find_best_candidate); the normal window stays 40.
+_BUDGET_RETRY_TOP_K: int = 200
+
+
+def warm_footwear_floors(retriever: HybridRetriever) -> None:
+    """Build the footwear-row table once, at index load, so the first budgeted outfit request
+    doesn't pay for it (~2 s on the 89k-row public catalogue). Per-(gender, occasion) floors
+    then cost well under a millisecond. Safe on retrievers without a catalogue (no-op)."""
+    footwear_price_floor(retriever, "women", "casual")
+
+
+def footwear_price_floor(
+    retriever: HybridRetriever, gender: str, occasion_slug: str
+) -> float | None:
+    """Cheapest footwear price that can actually pass the footwear slot's gates for this
+    gender and occasion, in the retriever's (public) catalogue.
+
+    Derived from the data, never hardcoded: every footwear row (classified by the slot gate's
+    own ``classify_item``) is sorted by price per gender once per retriever, and the floor is
+    the first row, cheapest first, that survives the SAME hard gates the slot applies
+    (``_score_candidates``: gender, slot type, occasion register/coherence, rugged-footwear
+    gate...). A plain catalogue minimum would be too low: e.g. a Rs 599 pair of slides is the
+    cheapest women's footwear but never fits a sangeet look. Cached per (gender, occasion) on
+    the underlying retriever (index lifetime); None when no eligible footwear exists or the
+    retriever has no catalogue (test stubs). Used to reserve footwear money before accessories
+    spend (see compose_outfit).
+    """
+    # _BiasedRetriever wraps the real retriever: resolve through it so every variant shares
+    # one cache on the underlying (index-lifetime) object.
+    base: Any = getattr(retriever, "_retriever", retriever)
+    catalogue_df = getattr(base, "catalogue_df", None)
+    if not isinstance(catalogue_df, pd.DataFrame):
+        return None  # stub/fake retrievers in tests: no catalogue, no reservation
+    state = getattr(base, "_footwear_floor_state", None)
+    if not isinstance(state, dict):
+        state = {"rows": _footwear_rows_by_gender(catalogue_df), "floors": {}}
+        base._footwear_floor_state = state  # type: ignore[attr-defined]
+    key = (gender, occasion_slug)
+    if key not in state["floors"]:
+        floor: float | None = None
+        for item in state["rows"].get(gender, []):  # ascending price: first survivor wins
+            if _score_candidates(
+                [item],
+                query="",
+                slot_name="footwear",
+                occasion_slug=occasion_slug,
+                gender=gender,
+                anchor_colour="",
+                seen_ids=set(),
+                seen_prod_colour=set(),
+                budget_remaining=None,
+                pairing_stats=None,
+                anchor_class="",
+                seen_stores=None,
+                neutral_fallback_ids=set(),
+            ):
+                floor = float(item["price_inr"])
+                break
+        state["floors"][key] = floor
+    return state["floors"][key]
+
+
+def _footwear_rows_by_gender(catalogue_df: pd.DataFrame) -> dict[str, list[dict]]:
+    """Footwear-class rows as retriever-shaped item dicts, per exact gender, price ascending."""
+    needed = {"product_type_name", "prod_name", "gender", "price_inr"}
+    if not needed <= set(catalogue_df.columns):
+        return {}
+    pt = catalogue_df["product_type_name"].fillna("").astype(str)
+    nm = catalogue_df["prod_name"].fillna("").astype(str)
+    text = (pt + " " + nm).str.lower()
+    # Substring prefilter (a superset of classify_item's word-boundary match) so the Python
+    # classifier only runs on footwear-looking rows, not the whole 100k+ catalogue.
+    pattern = "|".join(re.escape(k) for k in sorted(FOOTWEAR_KEYWORDS))
+    hit = text.str.contains(pattern, regex=True).to_numpy()
+    out: dict[str, list[dict]] = {"men": [], "women": []}
+    sub = catalogue_df[hit]
+    for aid, ptv, nmv, row in zip(sub.index, pt[hit], nm[hit], sub.itertuples(index=False)):
+        gender = str(getattr(row, "gender", "") or "").lower()
+        price = getattr(row, "price_inr", None)
+        if gender not in out or not isinstance(price, (int, float)) or not price > 0:
+            continue
+        if classify_item(ptv, nmv) != "footwear":
+            continue
+        facets = getattr(row, "facets", None)
+        facets = facets if isinstance(facets, dict) else {}
+        out[gender].append(
+            {
+                "article_id": str(aid),
+                "prod_name": nmv,
+                "display_name": getattr(row, "display_name", nmv),
+                "colour": facets.get("colour_group_name", ""),
+                "product_type": ptv,
+                "detail_desc": getattr(row, "detail_desc", None),
+                "gender": gender,
+                "price_inr": float(price),
+                "store": getattr(row, "store", None),
+            }
+        )
+    for rows in out.values():
+        rows.sort(key=lambda r: r["price_inr"])
+    return out
 
 
 @dataclass
@@ -199,30 +313,49 @@ def compose_outfit(
         # present so the budget gate has a meaningfully larger pool to draw
         # from. No-op (top_k stays 10) when no budget is stated.
         _anchor_top_k = 30 if budget_inr is not None else 10
-        candidates = retriever.search(anchor_query, top_k=_anchor_top_k, filters=anchor_filters)
+        # Budget-aware anchor window (2026-11 outfit budget fix): the anchor is the one
+        # piece the look is built around, and a seed priced near the whole budget leaves
+        # nothing for the required accessory + footwear (live: "sangeet outfit under
+        # ₹3000" seeded a ₹2,399 lehenga and shipped 2 cards). With a budget, push a price
+        # cap of ANCHOR_BUDGET_FRACTION x budget into the retrieval itself so affordable
+        # anchors outside the top-k window become visible, not merely post-filtered.
+        if budget_inr is None:
+            candidates = retriever.search(
+                anchor_query, top_k=_anchor_top_k, filters=anchor_filters
+            )
+        else:
+            candidates = retriever.search(
+                anchor_query,
+                top_k=_anchor_top_k,
+                filters={**(anchor_filters or {}), "price_max": budget_inr * ANCHOR_BUDGET_FRACTION},
+            )
         # Filter by occasion coherence AND gender compatibility. S5 fix: also
         # reject juniors/girls/boys/kids items as a look ANCHOR — the same
         # catalogue mislabeling that lets them fill complement slots (see
         # is_kids_item) would otherwise let one become the seed itself.
         _anchor_look_gender = gender if gender != "unisex" else "unisex"
-        valid = [
-            c
-            for c in candidates
-            if _anchor_matches_occasion(c, occasion_slug, _anchor_look_gender)
-            and gender_allowed((c.get("gender") or "unknown").lower(), _anchor_look_gender)
-            and not is_kids_item(
-                c.get("prod_name") or c.get("display_name") or "", c.get("detail_desc")
-            )
-            # 2026-08-06 cross-gender leak fix: the catalogue's own gender
-            # column is unreliable for a real, audited slice of rows (385,
-            # concentrated in vastramay/voylla/jompers) -- e.g. "Men's
-            # Yellow - Dupatta" carries gender="women". Name text is the
-            # more trustworthy signal here, same shape as is_kids_item()
-            # above. See has_gender_text_conflict's own docstring.
-            and not has_gender_text_conflict(
-                c.get("prod_name") or c.get("display_name") or "", _anchor_look_gender
-            )
-        ]
+
+        def _valid_anchors(cands: list[dict]) -> list[dict]:
+            return [
+                c
+                for c in cands
+                if _anchor_matches_occasion(c, occasion_slug, _anchor_look_gender)
+                and gender_allowed((c.get("gender") or "unknown").lower(), _anchor_look_gender)
+                and not is_kids_item(
+                    c.get("prod_name") or c.get("display_name") or "", c.get("detail_desc")
+                )
+                # 2026-08-06 cross-gender leak fix: the catalogue's own gender
+                # column is unreliable for a real, audited slice of rows (385,
+                # concentrated in vastramay/voylla/jompers) -- e.g. "Men's
+                # Yellow - Dupatta" carries gender="women". Name text is the
+                # more trustworthy signal here, same shape as is_kids_item()
+                # above. See has_gender_text_conflict's own docstring.
+                and not has_gender_text_conflict(
+                    c.get("prod_name") or c.get("display_name") or "", _anchor_look_gender
+                )
+            ]
+
+        valid = _valid_anchors(candidates)
         # Budget gate (live-proven bug: "I'm pear-shaped, sangeet look under
         # ₹8000" boarded a ₹9,900 lehenga ANCHOR — this filter previously
         # gated occasion/gender/kids only, never price, so `valid[0]` could
@@ -235,6 +368,29 @@ def compose_outfit(
         _pre_budget_valid = valid
         if budget_inr is not None:
             valid = [c for c in valid if (c.get("price_inr") or 0.0) <= budget_inr]
+            if not valid:
+                # Nothing relevant fits under the anchor cap: fall back to the cheapest
+                # relevant anchor that fits the budget at all (it may leave little for the
+                # complements, but a look beats an empty answer).
+                widened = _valid_anchors(
+                    retriever.search(
+                        anchor_query,
+                        top_k=_anchor_top_k,
+                        filters={**(anchor_filters or {}), "price_max": budget_inr},
+                    )
+                )
+                # price re-checked here: the pushdown is an optimisation, the budget gate is
+                # the guarantee (a retriever that ignores price_max must not over-budget a look).
+                valid = sorted(
+                    (c for c in widened if (c.get("price_inr") or 0.0) <= budget_inr),
+                    key=lambda c: c.get("price_inr") or 0.0,
+                )
+                if not valid:
+                    # Distinguish "all relevant anchors are over budget" (honest budget
+                    # message below) from "none exist": re-run without the price pushdown.
+                    _pre_budget_valid = _valid_anchors(
+                        retriever.search(anchor_query, top_k=_anchor_top_k, filters=anchor_filters)
+                    )
         if not valid:
             if budget_inr is not None and _pre_budget_valid:
                 # Occasion/gender-valid anchors existed but ALL were over budget —
@@ -303,7 +459,27 @@ def compose_outfit(
     if budget_inr is None and _anchor_price_for_cap > 0:
         price_outlier_cap = _anchor_price_for_cap * _PRICE_OUTLIER_FACTOR
 
-    for slot_spec in fill_slots:
+    # Footwear floor (2026-11 budget fix): when footwear is a required slot that has not been
+    # filled yet, accessories may not spend the money footwear needs. The floor is the cheapest
+    # eligible footwear in the catalogue for this gender (derived, not hardcoded).
+    _footwear_idx = next(
+        (i for i, s in enumerate(fill_slots) if s.slot_name == "footwear" and s.required), None
+    )
+    _footwear_floor: float | None = None
+    if budget_inr is not None and _footwear_idx is not None:
+        _footwear_floor = footwear_price_floor(retriever, effective_gender, occasion_slug)
+
+    for slot_idx, slot_spec in enumerate(fill_slots):
+        slot_budget: float | None = budget_inr - running_total if budget_inr is not None else None
+        if (
+            slot_budget is not None
+            and _footwear_floor is not None
+            and _footwear_idx is not None
+            and slot_idx < _footwear_idx
+            and slot_spec.slot_name == "accessory"
+            and slot_budget >= _footwear_floor  # if footwear cannot fit anyway, don't starve this
+        ):
+            slot_budget -= _footwear_floor
         candidate = _find_best_candidate(
             query=slot_spec.search_query,
             slot_name=slot_spec.slot_name,
@@ -313,7 +489,7 @@ def compose_outfit(
             seen_ids=seen_ids,
             seen_prod_colour=seen_prod_colour,
             retriever=retriever,
-            budget_remaining=budget_inr - running_total if budget_inr is not None else None,
+            budget_remaining=slot_budget,
             pairing_stats=pairing_stats,
             anchor_class=anchor_class,
             seen_stores=seen_stores,
@@ -338,7 +514,7 @@ def compose_outfit(
                 seen_ids=seen_ids,
                 seen_prod_colour=seen_prod_colour,
                 retriever=retriever,
-                budget_remaining=budget_inr - running_total if budget_inr is not None else None,
+                budget_remaining=slot_budget,
                 pairing_stats=pairing_stats,
                 anchor_class=anchor_class,
                 seen_stores=seen_stores,
@@ -1164,19 +1340,30 @@ def _find_best_candidate(
     # so every family gets a genuine, undiluted shot at being scored below —
     # a no-op (single retriever.search call, identical to before) for every
     # single-family accessory query and every non-accessory slot.
+    # Price pushdown (2026-11 budget fix): with a budget, push price_max into the fetch (the
+    # hybrid retriever applies it to both the dense and BM25 candidate masks) so affordable items
+    # that rank below the top-40 by relevance alone become visible, instead of being crowded out
+    # and then rejected by the post-fetch budget gate. No-op without a budget.
+    _search_filters: dict = {"gender": gender}
+    if budget_remaining is not None:
+        _search_filters["price_max"] = budget_remaining
     family_queries = (
         split_accessory_query_by_family(query) if slot_name == "accessory" else []
     )
-    if family_queries:
-        candidates = []
-        _seen_candidate_ids: set[str] = set()
+
+    def _fetch(top_k: int, text: str | None = None) -> list[dict]:
+        if not family_queries:
+            return retriever.search(text or query, top_k=top_k, filters=_search_filters)
+        pool: list[dict] = []
+        seen_pool_ids: set[str] = set()
         for family_query in family_queries:
-            for item in retriever.search(family_query, top_k=40, filters={"gender": gender}):
-                if item["article_id"] not in _seen_candidate_ids:
-                    candidates.append(item)
-                    _seen_candidate_ids.add(item["article_id"])
-    else:
-        candidates = retriever.search(query, top_k=40, filters={"gender": gender})
+            for item in retriever.search(family_query, top_k=top_k, filters=_search_filters):
+                if item["article_id"] not in seen_pool_ids:
+                    pool.append(item)
+                    seen_pool_ids.add(item["article_id"])
+        return pool
+
+    candidates = _fetch(40)
 
     # Gender-neutral accessory fallback: fires ONLY when the gendered search
     # above returned nothing for an accessory slot.  Widens to an unfiltered
@@ -1186,7 +1373,11 @@ def _find_best_candidate(
     # is NEVER filled this way; it falls through to honest suppression instead.
     neutral_fallback_ids: set[str] = set()
     if not candidates and slot_name == "accessory":
-        widened = retriever.search(query, top_k=40)
+        widened = retriever.search(
+            query,
+            top_k=40,
+            filters={"price_max": budget_remaining} if budget_remaining is not None else None,
+        )
         for item in widened:
             item_gender = (item.get("gender") or "unknown").lower()
             if item_gender == "unknown" and is_gender_neutral_accessory(
@@ -1238,7 +1429,10 @@ def _find_best_candidate(
         narrowed = retriever.search(
             query,
             top_k=40,
-            filters={"gender": gender, "product_type_name": _WESTERN_BOTTOM_FALLBACK_PRODUCT_TYPE},
+            filters={
+                **_search_filters,
+                "product_type_name": _WESTERN_BOTTOM_FALLBACK_PRODUCT_TYPE,
+            },
         )
         if narrowed:
             logger.info(
@@ -1248,6 +1442,42 @@ def _find_best_candidate(
             )
             scored = _score_candidates(
                 narrowed,
+                query=query,
+                slot_name=slot_name,
+                occasion_slug=occasion_slug,
+                gender=gender,
+                anchor_colour=anchor_colour,
+                seen_ids=seen_ids,
+                seen_prod_colour=seen_prod_colour,
+                budget_remaining=budget_remaining,
+                pairing_stats=pairing_stats,
+                anchor_class=anchor_class,
+                seen_stores=seen_stores,
+                neutral_fallback_ids=set(),
+                body_type=body_type,
+                body_modifiers=body_modifiers,
+                formality_override=formality_override,
+                price_outlier_cap=price_outlier_cap,
+            )
+
+    # Tight-budget window widening (2026-11 budget fix): a price cap removes the pricey,
+    # on-topic items from the pool, so the cheap items that remain can be dominated by
+    # off-slot ones that merely share the query's occasion words (live: a 32-candidate
+    # footwear pool under Rs 752 held zero footwear that passed the gates, while two
+    # sangeet-coherent pairs sat just below the top-40 cut). Retry ONCE with a wider
+    # window, same filters and same hard gates, only when the first pass found nothing.
+    if not scored and budget_remaining is not None and budget_remaining > 0:
+        # For footwear, also drop the register/embellishment words the slot query carries
+        # ("... festive embroidered"): under a tight cap they pull cheap embroidered garments
+        # above the cheap footwear. The footwear nouns alone name the slot.
+        core = None
+        if slot_name == "footwear":
+            core_words = [w for w in query.split() if w.lower() in FOOTWEAR_KEYWORDS]
+            core = " ".join(core_words) or None
+        wide = _fetch(_BUDGET_RETRY_TOP_K, core)
+        if len(wide) > len(candidates):
+            scored = _score_candidates(
+                wide,
                 query=query,
                 slot_name=slot_name,
                 occasion_slug=occasion_slug,

@@ -194,4 +194,13 @@ def load_index_parts(
     df = public_catalogue(pd.read_parquet(index_dir / "catalogue.parquet"))
     dense = DenseRetriever.load(config, index_dir, model=model)
     sparse = SparseRetriever.load(config, index_dir)
-    return HybridRetriever(dense, sparse, df, config), df
+    retriever = HybridRetriever(dense, sparse, df, config)
+    try:
+        # Outfit budget floors are derived from this catalogue once, at load (not on the first
+        # user request). Best-effort: a failure here must never block serving.
+        from src.agents.outfit.composer import warm_footwear_floors
+
+        warm_footwear_floors(retriever)
+    except Exception:  # noqa: BLE001 - warmup only; the lazy path recomputes on demand
+        logger.warning("footwear price-floor warmup failed; will compute lazily", exc_info=True)
+    return retriever, df
