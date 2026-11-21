@@ -102,6 +102,15 @@ def test_rate_limit_retries_once_then_succeeds(monkeypatch: pytest.MonkeyPatch) 
     assert len(calls) == 2 and sleeps == [1.0]
 
 
+def test_model_override_and_timeout_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, calls, _ = _client(monkeypatch, [_resp("1")])
+    out = client.complete(MSGS, temperature=0, max_tokens=10, model="openai/gpt-oss-120b",
+                          timeout_s=1.2)
+    assert out.model == "openai/gpt-oss-120b"
+    assert calls[0]["model"] == "openai/gpt-oss-120b" and calls[0]["timeout"] <= 1.2
+    assert calls[0]["reasoning_effort"] == "medium"  # gpt-oss-120b keeps the effort parameter
+
+
 def test_rate_limit_twice_raises_typed_error(monkeypatch: pytest.MonkeyPatch) -> None:
     e = FakeStatusError(429, "tokens per minute (TPM)")
     client, calls, _ = _client(monkeypatch, [e, e])

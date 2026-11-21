@@ -148,7 +148,8 @@ def estimate_tokens(text: str) -> int:
 
 
 def request_key(messages: Sequence[Mapping[str, str]], kw: Mapping[str, Any]) -> str:
-    blob = json.dumps({"m": list(messages), "kw": dict(sorted(kw.items()))}, sort_keys=True)
+    stable = {k: v for k, v in kw.items() if k not in ("timeout_s", "retry")}  # per-call, not identity
+    blob = json.dumps({"m": list(messages), "kw": stable}, sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:20]
 
 

@@ -51,15 +51,16 @@ def _done(text: str, finish: str | None = "stop", **kw: Any) -> LLMCompletion:
 class FakeComplete:
     """Stands in for GroqClient: records what `complete()` was asked for."""
 
-    def __init__(self, result: LLMCompletion | Exception) -> None:
-        self.result = result
+    def __init__(self, result: LLMCompletion | Exception | list[Any]) -> None:
+        self.script = result if isinstance(result, list) else [result]  # one item per call
         self.calls: list[tuple[list[dict], dict]] = []
 
     def complete(self, messages: list[dict], **kw: Any) -> LLMCompletion:
         self.calls.append((messages, kw))
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
+        item = self.script[min(len(self.calls), len(self.script)) - 1]
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 class FakeGenerate:
@@ -295,7 +296,8 @@ class TestRequestParameters:
         llm = FakeComplete(_done("1,2,3,4,5"))
         rerank("grey gown", POOL, llm)
         messages, kw = llm.calls[0]
-        assert kw == {"temperature": 0, "max_tokens": 400, "reasoning_effort": "low"}
+        assert kw == {"temperature": 0, "max_tokens": 400, "reasoning_effort": "low",
+                      "retry": False, "timeout_s": 1.8}  # no "model": primary default
         assert [m["role"] for m in messages] == ["system", "user"]
         assert (messages[0]["content"], messages[1]["content"]) == build_prompt("grey gown", POOL)
 

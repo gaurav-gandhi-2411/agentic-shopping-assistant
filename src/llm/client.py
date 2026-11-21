@@ -495,8 +495,14 @@ class GroqClient:
         max_tokens: int,
         reasoning_effort: str | None = None,
         retry: bool = True,
+        model: str | None = None,
+        timeout_s: float | None = None,
     ) -> LLMCompletion:
-        """One call to the PRIMARY model only (no fallback chain, no busy message).
+        """One call to ONE model (default: the primary; no fallback chain, no busy message).
+
+        `model` picks another model (the caller owns the fallback); `timeout_s` replaces the
+        chain budget as the hard wall-clock cap of this call (attempt timeouts and any retry
+        sleep are clamped to it).
 
         For callers that must see the real outcome (finish_reason, token usage, typed
         failure) and have their own fallback: the reranker degrades to retrieval order, so
@@ -505,8 +511,8 @@ class GroqClient:
         chain budget). Empty content is returned, not retried: the caller classifies it.
         Raises LLMCallError (never a bare provider exception) when the call fails."""
         turn_id = str(uuid.uuid4())
-        model = self.model
-        deadline = time.monotonic() + self._chain_budget_s
+        model = model or self.model
+        deadline = time.monotonic() + (timeout_s if timeout_s is not None else self._chain_budget_s)
         effort = reasoning_effort or self._reasoning_effort
         kwargs: dict = {}
         if effort and model.startswith("openai/gpt-oss"):

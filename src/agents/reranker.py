@@ -4,8 +4,9 @@ Candidates are numbered 1..N (never long article ids), one short line each; the 
 with the best 8 numbers, best first. The prompt text, the line format and the 400-token cap are
 byte-for-byte the eval's variant C (evals/retrieval/variants.py on feat/v4-retrieval-eval);
 tests/test_reranker.py pins them. Retired with the old reranker: the long production prompt, its
-JSON answer, the colour-diversity swap (the eval measured C without it) and the 150-token cap
-(the cause of the truncations the stage-2 eval found).
+JSON answer and the 150-token cap (the cause of the truncations the stage-2 eval found). The old
+prompt's hard rules (beach / occasion / season / colour) and the colour-diversity swap now live
+in code: src/agents/rerank_filters.py, applied after the model's order on every outcome.
 
 Every turn ends in exactly one logged outcome (see OUTCOMES); none is swallowed:
   ok               >= top_k valid distinct picks
@@ -17,7 +18,9 @@ Every turn ends in exactly one logged outcome (see OUTCOMES); none is swallowed:
   http_error       the provider call failed (timeout, 429/5xx, transport, malformed payload)
   budget           the provider's daily quota (TPD/RPD) is spent
   no_llm_call      <= top_k candidates, nothing to choose between (not logged)
-Every non-pick outcome returns the first top_k candidates in retrieval order.
+Every non-pick outcome returns the first top_k candidates in retrieval order (rules applied).
+The `path` log field says how the answer was obtained: primary, fallback_120b (one attempt on
+gpt-oss-120b after a 429/5xx/timeout) or retrieval_order (no usable model reply).
 """
 
 from __future__ import annotations
@@ -28,9 +31,20 @@ import re
 import time
 from typing import Any
 
+from src.agents.rerank_filters import apply_rules
 from src.llm.client import LLMCallError, LLMClient, LLMCompletion
 
 logger = logging.getLogger(__name__)
+
+# One turn's whole model budget (primary + at most one fallback). The primary gets up to
+# PRIMARY_TIMEOUT_S (stage-2 variant C latency: p50 951 ms, p95 1136 ms, max 1193 ms over 53
+# calls); the fallback gets what is left. Rate-limit/5xx/timeout on the primary only (a bad
+# reply from the primary is not retried: a second model would not fix a prompt-level miss).
+RERANK_BUDGET_S = 3.0
+PRIMARY_TIMEOUT_S = 1.8
+MIN_FALLBACK_S = 0.5
+FALLBACK_MODEL = "openai/gpt-oss-120b"
+FALLBACK_KINDS = ("rate_limit", "daily_quota", "server", "timeout")
 
 OUTCOMES = (
     "ok",
@@ -136,27 +150,56 @@ def validate_ids(raw: list[int], n: int) -> tuple[list[int], int, int]:
     return valid, n_unknown, n_duplicate
 
 
-def _call_model(llm: LLMClient, system: str, user: str) -> LLMCompletion:
-    """One reranker call. Clients with `complete()` (GroqClient) give finish_reason, tokens and
-    typed errors; plain `generate()` clients (Ollama, test stubs) give text only (finish_reason
-    unknown, so an empty reply there is a parse_error, never a trusted empty selection)."""
+def _call_model(
+    llm: LLMClient, system: str, user: str, t0: float
+) -> tuple[LLMCompletion | None, LLMCallError | None, str]:
+    """The reranker's model call: (reply, error, path); exactly one of reply/error is set.
+
+    Clients with `complete()` (GroqClient) give finish_reason, tokens and typed errors. Path:
+    one attempt on the primary (<= PRIMARY_TIMEOUT_S); if that fails with 429/5xx/timeout and
+    >= MIN_FALLBACK_S of the RERANK_BUDGET_S (measured from `t0`) is left, exactly one attempt on
+    FALLBACK_MODEL with the same prompt; then retrieval order. Plain `generate()` clients (Ollama,
+    test stubs) give text only (finish_reason unknown, so an empty reply there is a parse_error,
+    never a trusted empty selection) and have no fallback."""
     complete = getattr(llm, "complete", None)
-    if callable(complete):
+    if not callable(complete):
+        t_gen = time.monotonic()
+        try:
+            text = llm.generate(
+                user, system=system, max_tokens=RERANK_MAX_TOKENS, temperature=RERANK_TEMPERATURE
+            )
+        except Exception as exc:  # noqa: BLE001 - generate() has no typed errors; typed here
+            return None, LLMCallError("fatal", None, f"{type(exc).__name__}: {exc}"), "primary"
+        return LLMCompletion(
+            text, None, None, None, None, round((time.monotonic() - t_gen) * 1000)
+        ), None, "primary"
+
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def attempt(timeout_s: float, model: str | None) -> LLMCompletion:
+        extra: dict[str, Any] = {"model": model} if model else {}
         result: LLMCompletion = complete(
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            messages,
             temperature=RERANK_TEMPERATURE,
             max_tokens=RERANK_MAX_TOKENS,
             reasoning_effort=RERANK_REASONING_EFFORT,
+            retry=False,  # the single fallback attempt IS the retry; no backoff sleeps in a turn
+            timeout_s=timeout_s,
+            **extra,
         )
         return result
-    t0 = time.monotonic()
+
     try:
-        text = llm.generate(
-            user, system=system, max_tokens=RERANK_MAX_TOKENS, temperature=RERANK_TEMPERATURE
-        )
-    except Exception as exc:  # noqa: BLE001 - generate() has no typed errors; typed here, logged by rerank()
-        raise LLMCallError("fatal", None, f"{type(exc).__name__}: {exc}") from exc
-    return LLMCompletion(text, None, None, None, None, round((time.monotonic() - t0) * 1000))
+        return attempt(min(PRIMARY_TIMEOUT_S, RERANK_BUDGET_S), None), None, "primary"
+    except LLMCallError as exc:
+        err = exc
+    remaining = RERANK_BUDGET_S - (time.monotonic() - t0)
+    if err.kind not in FALLBACK_KINDS or remaining < MIN_FALLBACK_S:
+        return None, err, "retrieval_order"
+    try:
+        return attempt(remaining, FALLBACK_MODEL), None, "fallback_120b"
+    except LLMCallError as exc:
+        return None, exc, "retrieval_order"
 
 
 def _classify(reply: LLMCompletion, n: int, top_k: int) -> tuple[str, list[int], int, int]:
@@ -184,31 +227,32 @@ def rerank(
     """Rerank retrieved candidates with the LLM; retrieval order on every non-pick outcome.
 
     Takes the model's valid candidate numbers in its order, then fills the remainder from
-    retrieval order. Returns `top_k` items."""
+    retrieval order, then applies the deterministic rules (rerank_filters.apply_rules) to the
+    whole ordered list. Returns up to `top_k` items (fewer only if fewer comply with the rules)."""
     if len(items) <= top_k:
         return items
 
     system, user = build_prompt(query, items)
     t0 = time.monotonic()
-    reply: LLMCompletion | None = None
-    error_kind: str | None = None
+    reply, error, path = _call_model(llm, system, user, t0)
     picks: list[int] = []
     n_unknown = n_duplicate = 0
-    try:
-        reply = _call_model(llm, system, user)
-    except LLMCallError as exc:
-        error_kind = exc.kind
-        outcome = "budget" if exc.kind == "daily_quota" else "http_error"
-    else:
+    error_kind: str | None = None
+    if reply is not None:
         outcome, picks, n_unknown, n_duplicate = _classify(reply, len(items), top_k)
+    else:
+        assert error is not None  # _call_model returns exactly one of reply / error
+        error_kind = error.kind
+        outcome = "budget" if error.kind == "daily_quota" else "http_error"
 
-    selected = [items[i - 1] for i in picks]
-    seen = {it["article_id"] for it in selected}
-    selected += [it for it in items if it["article_id"] not in seen]
+    ordered = [items[i - 1] for i in picks]
+    seen = {it["article_id"] for it in ordered}
+    ordered += [it for it in items if it["article_id"] not in seen]
+    shown, rules = apply_rules(query, ordered, top_k)
 
     _log(outcome, reply, error_kind, len(items), len(picks), n_unknown, n_duplicate,
-         round((time.monotonic() - t0) * 1000))
-    return selected[:top_k]
+         round((time.monotonic() - t0) * 1000), path, rules)
+    return shown
 
 
 def _log(
@@ -220,6 +264,8 @@ def _log(
     n_unknown: int,
     n_duplicate: int,
     wall_ms: int,
+    path: str,
+    rules: dict[str, Any],
 ) -> None:
     """One structured line per turn. No query text; `n_selected` = valid model picks before the
     retrieval-order fill."""
@@ -240,6 +286,10 @@ def _log(
             "n_unknown": n_unknown,
             "n_duplicate": n_duplicate,
             "error_kind": error_kind,
+            "path": path,
+            "rules_removed": rules["n_removed"],
+            "rules_skipped": rules["skipped"],
+            "diversity_swap": rules["diversity_swap"],
             "model": reply.model if reply else None,
             "max_tokens": RERANK_MAX_TOKENS,
             "temperature": RERANK_TEMPERATURE,
