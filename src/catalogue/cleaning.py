@@ -162,8 +162,19 @@ _MEN_NAME_RE = re.compile(r"\b(men's|mens|for men)\b", re.IGNORECASE)
 _WOMEN_NAME_RE = re.compile(r"\b(women's|womens|for women)\b", re.IGNORECASE)
 _DUAL_GENDER_MARKETING_RE = re.compile(
     r"\bfor\s+men\s+women\b|\bmen\s*/\s*women\b|\bmens?\s*,\s*women|"
-    r"\bboys?\s*/\s*girls\b|\bmens?\b.*\bwomen\b.*\bcap\b",
+    r"\bboys?\s*/\s*girls\b|\bmens?\b.*\bwomen\b.*\bcap\b|"
+    # "Men & Women ...", "Men and Women ...", "Women Men ...", "Unisex ...": marketed to both.
+    r"\bmen\s+(?:and\s+|&\s+)?women\b|\bwomen\s+(?:and\s+|&\s+)?men\b|\bunisex\b",
     re.IGNORECASE,
+)
+# 2026-11 (budget-pushdown follow-up): a name that OPENS with a gender word ("Men Aqua Silk Blend
+# Embroidered Dupatta", "Men Pista Green ... Dupatta", gender column "women") states the target
+# gender just as firmly as "Men's"/"For Men" but matched neither pattern above. Price pushdown
+# exposed such rows in women's looks. Leading-token only, so a gender word later in a name
+# (a brand, a description) is not enough to conflict.
+_LEADING_MEN_RE = re.compile(r"^\W*(?:men|mens|men['’]s|boys?)\b", re.IGNORECASE)
+_LEADING_WOMEN_RE = re.compile(
+    r"^\W*(?:women|womens|women['’]s|ladies|lady|girls?)\b", re.IGNORECASE
 )
 
 
@@ -183,8 +194,8 @@ def has_gender_text_conflict(prod_name: str | None, look_gender: str) -> bool:
     if _DUAL_GENDER_MARKETING_RE.search(name):
         return False
     if look_gender == "women":
-        return bool(_MEN_NAME_RE.search(name))
-    return bool(_WOMEN_NAME_RE.search(name))
+        return bool(_MEN_NAME_RE.search(name) or _LEADING_MEN_RE.search(name))
+    return bool(_WOMEN_NAME_RE.search(name) or _LEADING_WOMEN_RE.search(name))
 
 
 # ---------------------------------------------------------------------------

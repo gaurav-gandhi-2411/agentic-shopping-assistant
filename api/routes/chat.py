@@ -101,6 +101,8 @@ def _build_invoke_state(session: dict, user_message: str) -> dict:
         # Outfit fields — reset each turn; populated by outfit_node only
         "outfit_rationale": None,
         "outfit_variants": None,
+        "more_options": None,
+        "more_options_budget_inr": None,
         # ConversationMemory for this conversation — accessed by LLMRouterBackend
         # via state["_memory"] so the compiled graph singleton is memory-agnostic.
         "_memory": session["_memory"],
@@ -175,6 +177,25 @@ def _build_outfit_variants(result: dict) -> list[OutfitVariant] | None:
             logger.warning("outfit_variants: skipping malformed variant: %s", _e)
 
     return out or None
+
+
+def _build_more_options(result: dict) -> list[ItemSummary] | None:
+    """Alternate anchors ("more options") from agent state as ItemSummary cards.
+
+    None when the turn produced none (no budget / no anchor stage) so the field is absent;
+    an empty list when the stage ran but nothing was eligible. Each card carries the same
+    server-built ``pdp_url`` as look cards. A malformed entry is skipped, never fatal.
+    """
+    raw = result.get("more_options")
+    if raw is None:
+        return None
+    out: list[ItemSummary] = []
+    for it in raw:
+        try:
+            out.append(ItemSummary.from_agent_item(it))
+        except Exception as _e:  # noqa: BLE001 - optional row; skip the bad entry
+            logger.warning("more_options: skipping malformed item: %s", _e)
+    return out
 
 
 def _build_base_cart_action(result: dict, brand: str) -> tuple[str | None, list[ItemLink] | None]:
@@ -391,6 +412,7 @@ def post_chat(
             )
         _brand = _resolve_brand()
         _outfit_variants = _build_outfit_variants(result)
+        _more_options = _build_more_options(result)
 
         # Populate base-look cart action (covers single-look responses that don't
         # go through the outfit_variants path, and gives a top-level cart_url).
@@ -422,6 +444,8 @@ def post_chat(
             budget_total_inr=result.get("budget_total_inr"),
             outfit_rationale=result.get("outfit_rationale"),
             outfit_variants=_outfit_variants,
+            more_options=_more_options,
+            more_options_budget_inr=result.get("more_options_budget_inr") if _more_options is not None else None,
             cart_url=_base_cart_url,
             item_links=_base_item_links,
             suggestion_chips=_chips,
@@ -784,6 +808,7 @@ async def run_chat_turn(
 
     _ws_brand = _resolve_brand()
     _ws_variants = _build_outfit_variants(result)
+    _ws_more = _build_more_options(result)
     _ws_base_cart_url, _ws_base_item_links = _build_base_cart_action(result, _ws_brand)
     _ws_partner_look = _partner_look_from_result(result, _ws_brand)
     done_msg = WSDoneMessage(
@@ -800,6 +825,13 @@ async def run_chat_turn(
             "outfit_variants": (
                 [v.model_dump() for v in _ws_variants]
                 if _ws_variants else None
+            ),
+            # Additive: None when absent; [] when the anchor stage ran but nothing was eligible.
+            "more_options": (
+                [it.model_dump() for it in _ws_more] if _ws_more is not None else None
+            ),
+            "more_options_budget_inr": (
+                result.get("more_options_budget_inr") if _ws_more is not None else None
             ),
             "cart_url": _ws_base_cart_url,
             "item_links": (

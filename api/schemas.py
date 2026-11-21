@@ -203,6 +203,11 @@ class ChatResponse(BaseModel):
     budget_total_inr: float | None = None
     outfit_rationale: str | None = None
     outfit_variants: list[OutfitVariant] | None = None
+    # "More options": alternate anchors under the stated budget (additive; None = absent, i.e. no
+    # budget or no anchor stage; [] = ran but nothing eligible). Same ItemSummary as look cards,
+    # incl. the server-built pdp_url. more_options_budget_inr is the budget the row is "under".
+    more_options: list[ItemSummary] | None = None
+    more_options_budget_inr: float | None = None
     # Cart action fields — populated for outfit responses; None otherwise.
     cart_url: str | None = None
     item_links: list[ItemLink] | None = None
