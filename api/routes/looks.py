@@ -17,6 +17,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from api.look_render import render_snapshot
 from api.schemas import SaveLookRequest, SaveLookResponse, SharedLookResponse
 from src.storage.saved_looks import get_look, get_look_memory, save_look, save_look_memory
 
@@ -139,7 +140,7 @@ async def get_look_by_id(look_id: str, request: Request) -> SharedLookResponse:
             occasion=record["occasion"],
             look_gender=record["look_gender"],
             look_total_inr=record["look_total_inr"],
-            snapshot=record["snapshot"],
+            snapshot=render_snapshot(record["snapshot"], record["brand"]),
             created_at=record["created_at"],
         )
 
@@ -158,6 +159,6 @@ async def get_look_by_id(look_id: str, request: Request) -> SharedLookResponse:
         occasion=record["occasion"],
         look_gender=record["look_gender"],
         look_total_inr=record["look_total_inr"],
-        snapshot=record["snapshot"],
+        snapshot=render_snapshot(record["snapshot"], record["brand"]),
         created_at=record["created_at"],
     )
