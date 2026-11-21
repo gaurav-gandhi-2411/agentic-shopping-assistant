@@ -412,7 +412,8 @@ def summarize(
                 if ids is None:
                     return
                 items = pools[str(r["query_id"])]
-                v = sum(len(rule_violations(str(r["text"]), items[a])) for a in ids if a in items)
+                v = sum([len(rule_violations(str(r["text"]), cast(Any, items[a])))
+                         for a in ids if a in items])
                 total, queries = total + v, queries + (1 if v else 0)
             violations[label] = {"violations": total, "queries_with_violation": queries}
 
@@ -564,6 +565,11 @@ def main(argv: list[str] | None = None) -> int:
     llm = GateLLM(source, JsonlStore(out / f"cache_{mode}.jsonl"), JsonlStore(out / f"ledger_{mode}.jsonl"),
                   token_cap=args.token_cap,
                   min_interval_s=MIN_INTERVAL_S if args.live else 0.0)  # pacing only matters live
+
+    # Windows consoles default to cp1252: titles carry the rupee sign, and a crash AFTER the live
+    # spend would lose the verdict. Never let printing fail a run.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     def say(msg: str) -> None:
         print(msg, flush=True)

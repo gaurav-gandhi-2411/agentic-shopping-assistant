@@ -115,11 +115,12 @@ class TestSeasonRules:
 
 
 class TestColourConstraint:
-    def test_named_colour_is_a_hard_constraint(self) -> None:
-        assert "colour_constraint" in rule_violations("black kurta", it(1, "Kurta", "Red"))
-        assert rule_violations("black kurta", it(1, "Kurta", "Black")) == []
-        assert rule_violations("black kurta", it(1, "Kurta", "Black/White")) == []
-        assert rule_violations("blue shirt", it(1, "Shirt", "Navy Blue")) == []
+    def test_named_colour_is_enforced_upstream_not_here(self) -> None:
+        # regression: substring matching flagged label-2 "Dark Blue" items for a "navy" query
+        # (stage-2 q05); the catalogue's colour families live in intent_parser / retrieval
+        navy = it(1, "Navy Shimmery Sheath Party Dress", "Dark Blue")
+        assert rule_violations("navy outfit for reception party", navy) == []
+        assert rule_violations("black kurta", it(2, "Kurta", "Red")) == []
 
     def test_style_words_and_unknown_colour_do_not_trigger(self) -> None:
         assert rule_violations("minimalist elegant kurta", it(1, "Kurta", "Red")) == []

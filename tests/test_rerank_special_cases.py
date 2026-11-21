@@ -29,6 +29,17 @@ def test_new_rules_leave_zero_violations(rows: list[dict]) -> None:
     assert [r["new_rules"]["violations"] for r in rows] == [0] * 10
 
 
+def test_chip_pools_are_the_eight_landing_chips_and_go_to_the_llm() -> None:
+    from scripts import rerank_gate as g
+
+    chips = g.load_pools(g.DEFAULT_CHIPS)
+    assert [c["text"] for c in chips] == [
+        "Sangeet outfit under ₹3,000", "Haldi kurta set", "Wedding guest saree",
+        "Office wear under ₹1,500", "Men's kurta for a wedding", "sherwani for groom",
+        "lehenga for sangeet", "men's blazer for the office"]
+    assert all(len(c["items"]) > g.TOP_K for c in chips)  # > top_k: the reranker is called
+
+
 def test_kurta_pyjama_set_is_ethnic_wear_not_nightwear() -> None:
     from src.agents.rerank_filters import rule_violations
 

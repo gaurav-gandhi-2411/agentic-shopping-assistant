@@ -25,7 +25,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
@@ -80,7 +80,7 @@ def evaluate(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
         q, items = c["text"], c["items"]
         before = items[:5]
         old = old_enforce_colour_diversity(items[:5], items, q)
-        new = rerank(q, items, RetrievalOrderModel(), top_k=5)
+        new = rerank(q, items, cast(Any, RetrievalOrderModel()), top_k=5)
         rows.append({
             "id": c["id"], "query": q,
             "no_rules": {"violations": _count(q, before), "n": len(before), "colours": _colours(q, before)},
