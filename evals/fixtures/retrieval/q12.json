@@ -1,0 +1,17 @@
+{
+  "id": "q12",
+  "text": "Need men's kolhapuri sandals for shaadi yaar, budget 1000 max",
+  "language_style": "en_hinglish",
+  "occasion": "accessory_footwear",
+  "gender": "men",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "kolhapuri sandals",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

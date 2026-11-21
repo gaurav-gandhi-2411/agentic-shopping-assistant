@@ -1,0 +1,17 @@
+{
+  "id": "q28",
+  "text": "Can you suggest saree for a woman to wear to a wedding? I want it to look elegant but stay comfortable. Please keep it under ₹3000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "wedding_guest",
+  "gender": "women",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "saree",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

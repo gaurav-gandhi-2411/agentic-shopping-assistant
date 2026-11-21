@@ -1,0 +1,17 @@
+{
+  "id": "q44",
+  "text": "roz pehenne ke liye pink indo-western casual shirt chahiye ladkon ke liye, 1000 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "casual_daily",
+  "gender": "men",
+  "budget_inr": 1000,
+  "hard": true,
+  "constraints": {
+    "gender": "men",
+    "colour": "pink",
+    "category": "casual shirt",
+    "max_price": 1000,
+    "style_term": "indo-western"
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget + style term 'indo-western')"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q41",
+  "text": "grey sare cocktail women <5000",
+  "language_style": "keyword_typo",
+  "occasion": "reception_cocktail",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "grey",
+    "category": "saree",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

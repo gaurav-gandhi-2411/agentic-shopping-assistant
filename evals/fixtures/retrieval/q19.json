@@ -1,0 +1,17 @@
+{
+  "id": "q19",
+  "text": "men's navy kurta pyjama set for diwali under ₹1000",
+  "language_style": "plain_en",
+  "occasion": "festive_diwali",
+  "gender": "men",
+  "budget_inr": 1000,
+  "hard": true,
+  "constraints": {
+    "gender": "men",
+    "colour": "navy",
+    "category": "kurta pyjama set",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget)"
+}

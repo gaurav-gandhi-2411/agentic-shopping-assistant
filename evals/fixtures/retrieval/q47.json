@@ -1,0 +1,17 @@
+{
+  "id": "q47",
+  "text": "men's maroon jacket for a party under ₹3000",
+  "language_style": "plain_en",
+  "occasion": "travel_party",
+  "gender": "men",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "maroon",
+    "category": "jacket",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

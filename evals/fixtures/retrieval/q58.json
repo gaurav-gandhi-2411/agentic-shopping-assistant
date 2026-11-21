@@ -1,0 +1,17 @@
+{
+  "id": "q58",
+  "text": "Need women's dress for date night yaar, budget 5000 max",
+  "language_style": "en_hinglish",
+  "occasion": "date_night",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "dress",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

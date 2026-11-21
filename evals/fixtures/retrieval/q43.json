@@ -1,0 +1,17 @@
+{
+  "id": "q43",
+  "text": "diwali ke liye blue anarkali chahiye ladkiyon ke liye, 5000 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "festive_diwali",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "blue",
+    "category": "anarkali",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q14",
+  "text": "men's kurta pyjama set for a haldi ceremony under ₹3000",
+  "language_style": "plain_en",
+  "occasion": "haldi",
+  "gender": "men",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "kurta pyjama set",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

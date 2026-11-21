@@ -1,0 +1,17 @@
+{
+  "id": "q18",
+  "text": "Need women's trousers for office wear yaar, kuch accha dikhao",
+  "language_style": "en_hinglish",
+  "occasion": "office_formal",
+  "gender": "women",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "trousers",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

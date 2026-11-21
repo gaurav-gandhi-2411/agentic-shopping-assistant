@@ -1,0 +1,17 @@
+{
+  "id": "q27",
+  "text": "men's yellow kurta for mehendi",
+  "language_style": "plain_en",
+  "occasion": "mehendi",
+  "gender": "men",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "yellow",
+    "category": "kurta",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

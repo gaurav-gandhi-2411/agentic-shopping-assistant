@@ -1,0 +1,17 @@
+{
+  "id": "q37",
+  "text": "men's green kurta set for sangeet under ₹1500",
+  "language_style": "plain_en",
+  "occasion": "sangeet",
+  "gender": "men",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "green",
+    "category": "kurta set",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

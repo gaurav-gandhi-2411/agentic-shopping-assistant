@@ -1,0 +1,17 @@
+{
+  "id": "q30",
+  "text": "office ke liye blazer chahiye, 5000 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "office_formal",
+  "gender": "either",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": null,
+    "category": "blazer",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

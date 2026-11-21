@@ -1,0 +1,17 @@
+{
+  "id": "q50",
+  "text": "white otfit haldi <1500",
+  "language_style": "keyword_typo",
+  "occasion": "haldi",
+  "gender": "either",
+  "budget_inr": 1500,
+  "hard": true,
+  "constraints": {
+    "gender": null,
+    "colour": "white",
+    "category": "outfit",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget)"
+}

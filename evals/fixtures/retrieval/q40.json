@@ -1,0 +1,17 @@
+{
+  "id": "q40",
+  "text": "outit wedding guest <5000",
+  "language_style": "keyword_typo",
+  "occasion": "wedding_guest",
+  "gender": "either",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": null,
+    "category": "outfit",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

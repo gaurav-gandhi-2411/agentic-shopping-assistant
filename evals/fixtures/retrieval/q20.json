@@ -1,0 +1,17 @@
+{
+  "id": "q20",
+  "text": "Can you suggest co-ord set for someone to wear to daily wear? I want it to look elegant but stay comfortable. Please keep it under ₹1500.",
+  "language_style": "stylist_descriptive",
+  "occasion": "casual_daily",
+  "gender": "either",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": null,
+    "category": "co-ord set",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

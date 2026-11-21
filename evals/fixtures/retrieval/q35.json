@@ -1,0 +1,17 @@
+{
+  "id": "q35",
+  "text": "blue jaket party <1000",
+  "language_style": "keyword_typo",
+  "occasion": "travel_party",
+  "gender": "either",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": "blue",
+    "category": "jacket",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q09",
+  "text": "red hodie college men <5000",
+  "language_style": "keyword_typo",
+  "occasion": "college",
+  "gender": "men",
+  "budget_inr": 5000,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "red",
+    "category": "hoodie",
+    "max_price": 5000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

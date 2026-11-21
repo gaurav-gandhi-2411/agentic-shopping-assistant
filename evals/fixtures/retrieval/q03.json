@@ -1,0 +1,17 @@
+{
+  "id": "q03",
+  "text": "Can you suggest pink palazzo kurta set for a woman to wear to mehendi? I want it to look elegant but stay comfortable.",
+  "language_style": "stylist_descriptive",
+  "occasion": "mehendi",
+  "gender": "women",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "pink",
+    "category": "palazzo kurta set",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

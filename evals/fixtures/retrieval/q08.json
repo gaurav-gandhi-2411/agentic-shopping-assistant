@@ -1,0 +1,17 @@
+{
+  "id": "q08",
+  "text": "coton kurta casual daily women <3000",
+  "language_style": "keyword_typo",
+  "occasion": "casual_daily",
+  "gender": "women",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "cotton kurta",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

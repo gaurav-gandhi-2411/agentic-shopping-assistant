@@ -1,0 +1,42 @@
+{
+ "query_id": "q13",
+ "text": "Need women's blue fusion lehenga for sangeet night yaar, budget 5000 max",
+ "route": "graph_rerank",
+ "pool_size_before_cap": 2,
+ "n_candidates": 2,
+ "llm_stub_calls": 0,
+ "items": [
+  {
+   "rank": 1,
+   "article_id": "8060790079650",
+   "store": "5-elements",
+   "prod_name": "Aparna Blue (Lehenga)",
+   "display_name": "Aparna Blue (Lehenga) (Blue lehenga)",
+   "price_inr": 39900.0,
+   "product_type": "lehenga",
+   "department": "N/A",
+   "gender": "women",
+   "colour": "Blue",
+   "detail_desc": "The Aparna Blue Lehenga radiates artisanal charm with its handcrafted bandhani on rich modal satin, accentuated by ghungroos delicately stitched along each panel for a melodic flourish. The contemporary Mashru silk blouse, styled as a bandeau, features ghungroo embellishments on the edges, lending a",
+   "snippet": "The Aparna Blue Lehenga radiates artisanal charm with its handcrafted bandhani on rich modal satin, accentuated by ghungroos delicately stitched along each panel for a melodic flourish. The contempora",
+   "rrf_score": 0.03252247488101534,
+   "pdp_handle": "aparna-blue-lehenga"
+  },
+  {
+   "rank": 2,
+   "article_id": "7798096429278",
+   "store": "tjori",
+   "prod_name": "Set of 3 - Berry Blue Floral Handblock Cotton Lehenga Set",
+   "display_name": "Set of 3 - Berry Blue Floral Handblock Cotton Lehenga Set (Blue lehenga)",
+   "price_inr": 997.15,
+   "product_type": "lehenga",
+   "department": "N/A",
+   "gender": "women",
+   "colour": "Blue",
+   "detail_desc": "The Berry Blue Floral Handblock Cotton Lehenga Set by Tjori celebrates the art of traditional Indian block printing. Each piece features vibrant berry blue floral motifs handcrafted by skilled artisans on soft breathable cotton. Key Features Authentic handblock printed cotton in vibrant berry blue f",
+   "snippet": "The Berry Blue Floral Handblock Cotton Lehenga Set by Tjori celebrates the art of traditional Indian block printing. Each piece features vibrant berry blue floral motifs handcrafted by skilled artisan",
+   "rrf_score": 0.03252247488101534,
+   "pdp_handle": "set-of-3-berry-blue-floral-handblock-cotton-lehenga-set"
+  }
+ ]
+}

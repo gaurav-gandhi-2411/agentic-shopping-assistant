@@ -1,0 +1,17 @@
+{
+  "id": "q51",
+  "text": "Need women's pink fusion palazzo kurta set for mehendi function yaar, budget 5000 max",
+  "language_style": "en_hinglish",
+  "occasion": "mehendi",
+  "gender": "women",
+  "budget_inr": 5000,
+  "hard": true,
+  "constraints": {
+    "gender": "women",
+    "colour": "pink",
+    "category": "palazzo kurta set",
+    "max_price": 5000,
+    "style_term": "fusion"
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget + style term 'fusion')"
+}

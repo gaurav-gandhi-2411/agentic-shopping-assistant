@@ -1,0 +1,17 @@
+{
+  "id": "q46",
+  "text": "date night ke liye top chahiye ladkiyon ke liye",
+  "language_style": "romanised_hinglish",
+  "occasion": "date_night",
+  "gender": "women",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "top",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

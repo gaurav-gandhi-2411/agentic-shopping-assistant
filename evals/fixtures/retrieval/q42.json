@@ -1,0 +1,17 @@
+{
+  "id": "q42",
+  "text": "Need men's trousers for office wear yaar, budget 1500 max",
+  "language_style": "en_hinglish",
+  "occasion": "office_formal",
+  "gender": "men",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "trousers",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}
