@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Iterator, Protocol, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Protocol, cast
 
 from src.llm.context import llm_user_id_var
 from src.llm.cost import TurnCost
@@ -93,6 +93,37 @@ def retry_wait_seconds(info: ErrorInfo, cap_s: float) -> float | None:
         return None
     wait = max(1.0 + random.uniform(0.0, 1.0), info.retry_after or 0.0)
     return wait if wait <= cap_s else None
+
+
+@dataclass(frozen=True)
+class LLMCompletion:
+    """One completed (HTTP 200) chat call with the metadata `chat()` discards.
+
+    `text` may be empty (a reasoning model can legitimately answer with nothing, or spend its
+    cap on reasoning: `finish_reason` tells which). Token fields are None when the provider
+    did not report them."""
+
+    text: str
+    finish_reason: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    reasoning_tokens: int | None
+    latency_ms: int
+    model: str = ""
+
+
+class LLMCallError(Exception):
+    """A single-model call failed. `kind` is ErrorInfo.kind ("daily_quota", "rate_limit",
+    "server", "timeout", "fatal") or "malformed" (200 with an unusable payload)."""
+
+    def __init__(
+        self, kind: str, status: int | None = None, message: str = "",
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message or f"LLM call failed: {kind} (status={status})")
+        self.kind = kind
+        self.status = status
+        self.retry_after = retry_after  # seconds the provider asked us to wait, if it said
 
 
 class LLMClient(Protocol):
@@ -455,6 +486,85 @@ class GroqClient:
         else:
             logger.error(json.dumps({"event": "llm_busy_message", "turn_id": turn_id}))
         return LLM_BUSY_MESSAGE
+
+    def complete(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float,
+        max_tokens: int,
+        reasoning_effort: str | None = None,
+        retry: bool = True,
+        model: str | None = None,
+        timeout_s: float | None = None,
+    ) -> LLMCompletion:
+        """One call to ONE model (default: the primary; no fallback chain, no busy message).
+
+        `model` picks another model (the caller owns the fallback); `timeout_s` replaces the
+        chain budget as the hard wall-clock cap of this call (attempt timeouts and any retry
+        sleep are clamped to it).
+
+        For callers that must see the real outcome (finish_reason, token usage, typed
+        failure) and have their own fallback: the reranker degrades to retrieval order, so
+        walking the chain (up to 3 models, 20 s) would only add latency. Same bounded retry
+        policy as chat() for the primary (one backoff retry on 429/5xx/timeout, inside the
+        chain budget). Empty content is returned, not retried: the caller classifies it.
+        Raises LLMCallError (never a bare provider exception) when the call fails."""
+        turn_id = str(uuid.uuid4())
+        model = model or self.model
+        deadline = time.monotonic() + (timeout_s if timeout_s is not None else self._chain_budget_s)
+        effort = reasoning_effort or self._reasoning_effort
+        kwargs: dict = {}
+        if effort and model.startswith("openai/gpt-oss"):
+            kwargs["reasoning_effort"] = effort
+        last_err: LLMCallError | None = None
+        for attempt in (1, 2):
+            attempt_timeout = self._attempt_timeout(deadline)
+            if attempt_timeout is None:
+                break
+            t_start = time.monotonic()
+            try:
+                resp = self._client.chat.completions.create(
+                    model=model,
+                    messages=cast("Any", messages),  # SDK wants TypedDict params; ours are dicts
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=attempt_timeout,
+                    **kwargs,
+                )
+            except Exception as exc:  # noqa: BLE001 - translated to a typed LLMCallError below
+                info = classify_error(exc)
+                wait = self._retry_delay(info, attempt, deadline) if retry else None
+                self._log_attempt_failed(
+                    model, attempt, info.kind, info.status,
+                    round((time.monotonic() - t_start) * 1000), wait, turn_id,
+                )
+                last_err = LLMCallError(
+                    info.kind, info.status, f"{type(exc).__name__}: {exc}", info.retry_after
+                )
+                if wait is None:
+                    raise last_err from exc
+                self._sleep_within(wait, deadline)
+                continue
+            latency_ms = round((time.monotonic() - t_start) * 1000)
+            try:
+                choice = resp.choices[0]
+                usage = resp.usage
+                prompt_t = usage.prompt_tokens if usage else None
+                comp_t = usage.completion_tokens if usage else None
+                details = getattr(usage, "completion_tokens_details", None) if usage else None
+                reasoning_t = getattr(details, "reasoning_tokens", None) if details else None
+                pdetails = getattr(usage, "prompt_tokens_details", None) if usage else None
+                cached = (getattr(pdetails, "cached_tokens", 0) or 0) if pdetails else 0
+                text = choice.message.content or ""
+                finish = getattr(choice, "finish_reason", None)
+            except (AttributeError, IndexError, TypeError) as exc:
+                self._log_attempt_failed(model, attempt, "malformed", None, latency_ms, None, turn_id)
+                raise LLMCallError("malformed", None, "unexpected completion payload") from exc
+            self.last_finish_reason = finish
+            self._log_llm_call(model, prompt_t or 0, comp_t or 0, cached, latency_ms, turn_id)
+            return LLMCompletion(text, finish, prompt_t, comp_t, reasoning_t, latency_ms, model)
+        raise last_err or LLMCallError("timeout", None, "chain budget spent before the call")
 
     def probe(self) -> dict:
         """Minimal real LLM call (max_tokens=1) through the whole chain, for /readyz.
