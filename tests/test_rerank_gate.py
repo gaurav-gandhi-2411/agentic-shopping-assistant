@@ -15,7 +15,7 @@ from src.llm.client import LLMCallError, LLMCompletion
 
 
 def _reply(text: str = "2,1,4,3,6,5,8,7", **kw: Any) -> LLMCompletion:
-    return LLMCompletion(text, kw.get("finish", "stop"), 600, 100, 80, 900, "m")
+    return LLMCompletion(text, kw.get("finish", "stop"), 600, 100, 80, 900, kw.get("model", "m"))
 
 
 class ScriptedInner:
@@ -188,6 +188,81 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path]:
         (run / f"labels_{j}.json").write_text(json.dumps(labels[j]))
     (run / "variants_partial.json").write_text(json.dumps({"C": c_rows}))
     return pools, run
+
+
+class TestSharedKeyGuard:
+    """Shared Groq key: the gate uses gpt-oss-20b only; 120b/qwen are production's fallback."""
+
+    def test_gate_default_passes_allow_fallback_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pools, run = _fixture(tmp_path)
+        seen: list[Any] = []
+        real = g.rr.rerank
+
+        def spy(*a: Any, **kw: Any) -> Any:
+            seen.append(kw.get("allow_fallback"))
+            return real(*a, **kw)
+
+        monkeypatch.setattr(g.rr, "rerank", spy)
+        g.main(["--mock", "--pools", str(pools), "--run-dir", str(run), "--out", str(tmp_path / "o")])
+        assert seen and all(v is False for v in seen)
+        seen.clear()
+        g.main(["--mock", "--allow-fallback", "--pools", str(pools), "--run-dir", str(run),
+                "--out", str(tmp_path / "o2")])
+        assert seen and all(v is True for v in seen)
+
+    def test_a_20b_429_makes_no_120b_call(self, tmp_path: Path) -> None:
+        inner = ScriptedInner([LLMCallError("rate_limit", 429, "x"),
+                               _reply(model="openai/gpt-oss-20b")])
+        llm = _gate(tmp_path, inner, required_model=g.GATE_MODEL)
+        case = {"id": "q01", "text": "q", "items": [
+            {"article_id": f"a{i}", "display_name": f"I{i}", "colour": "Black", "price_inr": 900.0}
+            for i in range(1, 9)]}
+        rows = g.run_queries([case], llm, inner, lambda _m: None)  # allow_fallback defaults False
+        assert len(rows) == 1 and rows[0]["path"] == "primary"
+        assert all("model" not in c for c in inner.calls)  # only the 20b default, never model=120b
+
+    def test_three_429s_still_stop_the_run_without_a_second_model(self, tmp_path: Path) -> None:
+        inner = ScriptedInner([LLMCallError("rate_limit", 429, "x")] * 3)
+        llm = _gate(tmp_path, inner, required_model=g.GATE_MODEL)
+        with pytest.raises(g.GateStop, match="3 consecutive 429s"):
+            llm.complete(MSGS, **KW)
+        assert all("model" not in c for c in inner.calls)
+
+    def test_foreign_model_response_aborts_and_is_not_cached(self, tmp_path: Path) -> None:
+        inner = ScriptedInner([_reply(model="openai/gpt-oss-120b")])
+        llm = _gate(tmp_path, inner, required_model=g.GATE_MODEL)
+        with pytest.raises(g.ForeignModelError, match="gpt-oss-120b"):
+            llm.complete(MSGS, **KW)
+        assert llm.cache.records == [] and llm.ledger.records[-1]["event"] == "foreign_model"
+
+    def test_a_request_for_another_model_is_refused_before_the_call(self, tmp_path: Path) -> None:
+        inner = ScriptedInner([_reply(model="openai/gpt-oss-120b")])
+        llm = _gate(tmp_path, inner, required_model=g.GATE_MODEL)
+        with pytest.raises(g.ForeignModelError, match="aborting before the call"):
+            llm.complete(MSGS, model="openai/gpt-oss-120b", **KW)
+        assert inner.calls == []
+
+    def test_expected_model_response_passes(self, tmp_path: Path) -> None:
+        inner = ScriptedInner([_reply(model=g.GATE_MODEL)])
+        llm = _gate(tmp_path, inner, required_model=g.GATE_MODEL)
+        assert llm.complete(MSGS, **KW).model == g.GATE_MODEL
+
+    def test_allow_fallback_live_needs_the_env_var(self) -> None:
+        with pytest.raises(SystemExit, match=g.ALLOW_120B_ENV_FLAG):
+            g.assert_fallback_allowed(True, True, {})
+        g.assert_fallback_allowed(True, True, {g.ALLOW_120B_ENV_FLAG: "1"})
+        g.assert_fallback_allowed(False, True, {})
+        g.assert_fallback_allowed(True, False, {})  # offline: nothing real to protect
+
+    def test_main_refuses_allow_fallback_live_without_the_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(g.LIVE_ENV_FLAG, "1")
+        monkeypatch.delenv(g.ALLOW_120B_ENV_FLAG, raising=False)
+        with pytest.raises(SystemExit, match=g.ALLOW_120B_ENV_FLAG):
+            g.main(["--live", "--allow-fallback", "--out", str(tmp_path)])
 
 
 class TestEndToEndMock:

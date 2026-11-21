@@ -151,7 +151,7 @@ def validate_ids(raw: list[int], n: int) -> tuple[list[int], int, int]:
 
 
 def _call_model(
-    llm: LLMClient, system: str, user: str, t0: float
+    llm: LLMClient, system: str, user: str, t0: float, allow_fallback: bool = True
 ) -> tuple[LLMCompletion | None, LLMCallError | None, str]:
     """The reranker's model call: (reply, error, path); exactly one of reply/error is set.
 
@@ -160,7 +160,9 @@ def _call_model(
     >= MIN_FALLBACK_S of the RERANK_BUDGET_S (measured from `t0`) is left, exactly one attempt on
     FALLBACK_MODEL with the same prompt; then retrieval order. Plain `generate()` clients (Ollama,
     test stubs) give text only (finish_reason unknown, so an empty reply there is a parse_error,
-    never a trusted empty selection) and have no fallback."""
+    never a trusted empty selection) and have no fallback. `allow_fallback=False` (eval/gate
+    runs on the shared Groq key, which must never touch the 120b tier) skips the fallback
+    attempt: a failed primary goes straight to retrieval order."""
     complete = getattr(llm, "complete", None)
     if not callable(complete):
         t_gen = time.monotonic()
@@ -194,7 +196,7 @@ def _call_model(
     except LLMCallError as exc:
         err = exc
     remaining = RERANK_BUDGET_S - (time.monotonic() - t0)
-    if err.kind not in FALLBACK_KINDS or remaining < MIN_FALLBACK_S:
+    if not allow_fallback or err.kind not in FALLBACK_KINDS or remaining < MIN_FALLBACK_S:
         return None, err, "retrieval_order"
     try:
         return attempt(remaining, FALLBACK_MODEL), None, "fallback_120b"
@@ -223,18 +225,21 @@ def rerank(
     items: list[dict],
     llm: LLMClient,
     top_k: int = 5,
+    allow_fallback: bool = True,
 ) -> list[dict]:
     """Rerank retrieved candidates with the LLM; retrieval order on every non-pick outcome.
 
     Takes the model's valid candidate numbers in its order, then fills the remainder from
     retrieval order, then applies the deterministic rules (rerank_filters.apply_rules) to the
-    whole ordered list. Returns up to `top_k` items (fewer only if fewer comply with the rules)."""
+    whole ordered list. Returns up to `top_k` items (fewer only if fewer comply with the rules).
+    `allow_fallback` (production default True) permits the one gpt-oss-120b attempt; the live
+    gate passes False so eval traffic never reaches the tier production depends on."""
     if len(items) <= top_k:
         return items
 
     system, user = build_prompt(query, items)
     t0 = time.monotonic()
-    reply, error, path = _call_model(llm, system, user, t0)
+    reply, error, path = _call_model(llm, system, user, t0, allow_fallback)
     picks: list[int] = []
     n_unknown = n_duplicate = 0
     error_kind: str | None = None

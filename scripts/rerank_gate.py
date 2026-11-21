@@ -25,6 +25,12 @@ cached (resume = rerun the same command, nothing is requested twice). GROQ_API_K
 name only (from the process env, else from the `--env-file` line of that exact name); the rest of
 the .env is never loaded and no value is printed.
 
+Shared Groq key: prod and evals use ONE key and gpt-oss-120b/qwen are production's fallback
+tier, so the gate runs rerank(allow_fallback=False) on gpt-oss-20b only and aborts the run
+(ForeignModelError) if any request/response involves another model. `--allow-fallback` is for
+deliberate use only; with `--live` it also needs RERANK_GATE_ALLOW_120B=1. Fallback-path counts
+stay in the report (0 by construction); that path is covered by unit tests, not by the gate.
+
 Offline modes (no network, no key): `--mock` (deterministic fake model) and
 `--replay-eval-cache PATH` (re-serves the stage-2 eval's variant C replies from its cache.jsonl:
 the prompt is byte-identical, so production's parse/validate/fill logic is exercised on the real
@@ -82,10 +88,17 @@ TOKEN_CAP = 60_000
 MAX_CONSECUTIVE_429 = 3
 LIVE_ENV_FLAG = "RERANK_GATE_LIVE_OK"
 KEY_NAME = "GROQ_API_KEY"
+GATE_MODEL = "openai/gpt-oss-20b"  # shared Groq key: the gate may only ever use this model
+ALLOW_120B_ENV_FLAG = "RERANK_GATE_ALLOW_120B"
 
 
 class GateStop(RuntimeError):
     """Stop the whole run (busy signal, quota, repeated 429, budget, fatal): never a row."""
+
+
+class ForeignModelError(RuntimeError):
+    """A live request/response involved a model other than the gate's allowed one. Aborts the
+    run (not a resumable stop): the shared key's 120b/qwen tier belongs to production."""
 
 
 class CompleteLike(Protocol):
@@ -192,6 +205,7 @@ class GateLLM:
     now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)  # noqa: E731
     query_id: str = ""
     last_cached: bool = False
+    required_model: str | None = None  # live: every request/response must be this model
     _last_request: float | None = None
     _consecutive_429: int = 0
 
@@ -230,6 +244,11 @@ class GateLLM:
                 f"token cap: {used} used today + ~{est} for this call > {self.token_cap}; "
                 "rerun the same command later (the cache resumes)"
             )
+        if self.required_model and kw.get("model") not in (None, self.required_model):
+            raise ForeignModelError(
+                f"{self.query_id}: request for model {kw.get('model')!r}, only "
+                f"{self.required_model!r} is allowed: aborting before the call"
+            )
         while True:
             self._throttle()
             try:
@@ -248,6 +267,16 @@ class GateLLM:
                 # daily_quota, server/timeout/transport (busy), fatal, malformed: stop the run
                 raise GateStop(f"{exc.kind} (status={exc.status}): stopping") from exc
             self._consecutive_429 = 0
+            if self.required_model and reply.model != self.required_model:
+                self.ledger.append({
+                    "ts": self.now().isoformat(), "event": "foreign_model",
+                    "query_id": self.query_id, "model": reply.model,
+                    "total_tokens": (reply.prompt_tokens or 0) + (reply.completion_tokens or 0),
+                })
+                raise ForeignModelError(
+                    f"{self.query_id}: response attributed to {reply.model!r}, only "
+                    f"{self.required_model!r} is allowed: run aborted"
+                )
             total = (reply.prompt_tokens or 0) + (reply.completion_tokens or 0)
             self.ledger.append({
                 "ts": self.now().isoformat(), "event": "ok", "query_id": self.query_id,
@@ -330,7 +359,8 @@ class _EventCapture(logging.Handler):
 
 
 def run_queries(
-    cases: Sequence[Mapping[str, Any]], llm: GateLLM, source: Any, say: Callable[[str], None]
+    cases: Sequence[Mapping[str, Any]], llm: GateLLM, source: Any, say: Callable[[str], None],
+    allow_fallback: bool = False,
 ) -> list[dict[str, Any]]:
     """Production `rerank()` on each case's pool; one row per case that reached the LLM."""
     cap = _EventCapture()
@@ -346,7 +376,8 @@ def run_queries(
             if hasattr(source, "query_id"):
                 source.query_id = str(c["id"])
             cap.events.clear()
-            shown = rr.rerank(str(c["text"]), list(pool), cast(Any, llm), top_k=TOP_K)
+            shown = rr.rerank(str(c["text"]), list(pool), cast(Any, llm), top_k=TOP_K,
+                              allow_fallback=allow_fallback)
             if len(cap.events) != 1:  # <= top_k candidates: no LLM call, no event
                 say(f"  {c['id']}: no LLM call ({len(pool)} candidates)")
                 continue
@@ -517,6 +548,17 @@ def assert_live_allowed(
         raise SystemExit(f"refusing a live call: UTC day is {today}, expected {expect_day}")
 
 
+def assert_fallback_allowed(
+    allow_fallback: bool, live: bool, environ: Mapping[str, str]
+) -> None:
+    """--allow-fallback with --live needs RERANK_GATE_ALLOW_120B=1 (shared key: 120b is prod's)."""
+    if allow_fallback and live and environ.get(ALLOW_120B_ENV_FLAG) != "1":
+        raise SystemExit(
+            "refusing --allow-fallback --live: the 120b tier is production's fallback on the "
+            f"shared Groq key; set {ALLOW_120B_ENV_FLAG}=1 only for a deliberate run"
+        )
+
+
 def build_live_client(env_file: Path) -> CompleteLike:
     """The real production GroqClient (config.yaml llm section), key read by name only."""
     import yaml
@@ -540,6 +582,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--chips-pools", default=str(DEFAULT_CHIPS),
                     help="dir of chip pool files (same format as --pools); 'none' skips the chips")
     ap.add_argument("--live", action="store_true")
+    ap.add_argument("--allow-fallback", action="store_true",
+                    help="let rerank() use the gpt-oss-120b fallback (default off; with --live "
+                         f"also needs {ALLOW_120B_ENV_FLAG}=1)")
     ap.add_argument("--mock", action="store_true")
     ap.add_argument("--replay-eval-cache", default=None)
     ap.add_argument("--expect-utc-day", default=None)
@@ -556,6 +601,11 @@ def main(argv: list[str] | None = None) -> int:
     source: Any
     if args.live:
         assert_live_allowed(True, args.expect_utc_day, os.environ, dt.datetime.now(dt.timezone.utc))
+        assert_fallback_allowed(args.allow_fallback, True, os.environ)
+        if args.allow_fallback:
+            print("WARNING: --allow-fallback --live: gpt-oss-120b may be called on the SHARED "
+                  f"Groq key (production's fallback tier); {ALLOW_120B_ENV_FLAG}=1 is set.",
+                  flush=True)
         source = build_live_client(Path(args.env_file))
     elif args.mock:
         source = MockComplete()
@@ -564,7 +614,8 @@ def main(argv: list[str] | None = None) -> int:
     # separate cache/ledger per mode: a mock or replay run can never be mistaken for a live resume
     llm = GateLLM(source, JsonlStore(out / f"cache_{mode}.jsonl"), JsonlStore(out / f"ledger_{mode}.jsonl"),
                   token_cap=args.token_cap,
-                  min_interval_s=MIN_INTERVAL_S if args.live else 0.0)  # pacing only matters live
+                  min_interval_s=MIN_INTERVAL_S if args.live else 0.0,
+                  required_model=GATE_MODEL if args.live and not args.allow_fallback else None)  # pacing only matters live
 
     # Windows consoles default to cp1252: titles carry the rupee sign, and a crash AFTER the live
     # spend would lose the verdict. Never let printing fail a run.
@@ -582,13 +633,14 @@ def main(argv: list[str] | None = None) -> int:
     eval_c = load_eval_c(Path(args.run_dir))
     say(f"mode={mode}: {len(big)} queries with pool > {TOP_K} (of {len(cases)} pools)")
     try:
-        rows = run_queries(big, llm, source, say)
+        rows = run_queries(big, llm, source, say, args.allow_fallback)
         chips: list[dict[str, Any]] = []
         if args.chips_pools.lower() == "none" or mode == "replay":
             say("chip queries skipped" + (" (no eval replies exist for them)" if mode == "replay" else ""))
         else:
             say("chip queries:")
-            chips = run_queries(load_pools(Path(args.chips_pools)), llm, source, say)
+            chips = run_queries(load_pools(Path(args.chips_pools)), llm, source, say,
+                               args.allow_fallback)
     except GateStop as exc:
         say(f"STOPPED: {exc}\nrerun the same command to resume from the cache ({out}).")
         return 3

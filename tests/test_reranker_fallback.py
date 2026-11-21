@@ -85,3 +85,23 @@ class TestFallbackPath:
 
     def test_budget_constants(self) -> None:
         assert rr.RERANK_BUDGET_S == 3.0 and rr.PRIMARY_TIMEOUT_S < rr.RERANK_BUDGET_S
+
+
+class TestAllowFallbackSwitch:
+    def test_explicit_true_is_the_production_behaviour(self) -> None:
+        llm = FakeComplete([LLMCallError("rate_limit", 429), _done("7,3,9,1,12")])
+        rerank("q", POOL, llm, allow_fallback=True)
+        assert [c[1].get("model") for c in llm.calls] == [None, "openai/gpt-oss-120b"]
+
+    @pytest.mark.parametrize("kind", ["rate_limit", "daily_quota", "server", "timeout"])
+    def test_false_makes_no_second_call_and_classifies_the_primary_failure(
+        self, kind: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        llm = FakeComplete([LLMCallError(kind, 429), _done("7,3,9,1,12")])
+        out = rerank("q", POOL, llm, allow_fallback=False)
+        assert _ids(out) == RETRIEVAL_TOP5 and len(llm.calls) == 1
+        assert "model" not in llm.calls[0][1]
+        log = _last_log(caplog)
+        assert (log["path"], log["error_kind"]) == ("retrieval_order", kind)
+        assert log["outcome"] == ("budget" if kind == "daily_quota" else "http_error")
