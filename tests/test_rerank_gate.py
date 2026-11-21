@@ -200,7 +200,7 @@ class TestEndToEndMock:
         res = json.loads((out / "gate_mock.json").read_text())["summary"]
         assert res["n_llm_queries"] == 2  # q03 has 4 candidates: no LLM call
         assert res["excluded"]["pool_le_top_k_or_empty"] == 1
-        assert rc == 0 and res["pass_ndcg"] and res["pass_clean_valid"]
+        assert rc == 0 and res["pass_ndcg"] and res["pass_failure_bar"]
         assert "Reranker gate" in capsys.readouterr().out  # printed the report
 
     def test_mock_outcomes_and_metric_wiring(self, tmp_path: Path) -> None:

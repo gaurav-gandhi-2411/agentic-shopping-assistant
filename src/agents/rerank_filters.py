@@ -33,6 +33,7 @@ _PROF_Q = re.compile(r"\b(office|work|workwear|meeting)\b", re.I)
 _NIGHT_SWIM = re.compile(
     r"\b(sleepwear|nightwear|nightdress|nighty|night\s+suit|pyjamas?|pajamas?|lounge\s?wear"
     r"|underwear|lingerie|bra|briefs|swimwear|swimsuit|swimming|bikini|monokini|swim)\b", re.I)
+_KURTA_PYJAMA = re.compile(r"\bkurtas?\s*(?:and|&|\+|with)?\s*(?:pyjamas?|pajamas?)\b", re.I)
 _SWIM = re.compile(r"\b(swimwear|swimsuit|swimming|bikini|monokini|swim|board\s+shorts)\b", re.I)
 _CASUAL_NEUTRAL = re.compile(
     r"\b(beige|camel|brown|pastel|baby\s+pink|light\s+pink|peach|mint|lilac|lavender"
@@ -87,7 +88,10 @@ def rule_violations(query: str, it: dict[str, Any]) -> list[str]:
     wanted = named_colours(query)
     q = query.lower()
     swim = bool(_SWIM.search(text))
-    if (_FORMAL_Q.search(query) or _PROF_Q.search(query)) and _NIGHT_SWIM.search(text):
+    # "Kurta Pyjama Set" is ethnic wear (stage-2 pools: label-2 for haldi/sangeet), not nightwear
+    if (_FORMAL_Q.search(query) or _PROF_Q.search(query)) and _NIGHT_SWIM.search(
+        _KURTA_PYJAMA.sub(" ", text)
+    ):
         out.append("occasion_sleep_swim")
     if _DATE_NIGHT_Q.search(query):
         # a colour the user asked for is never "casual" (e.g. "light blue" for query "blue")
@@ -107,8 +111,10 @@ def rule_violations(query: str, it: dict[str, Any]) -> list[str]:
         out.append("winter_light_item")
     if _SUMMER_Q.search(query) and _SUMMER_BAD.search(text):
         out.append("summer_heavy_item")
-    if wanted and colour and not _colour_matches(colour, wanted):
-        out.append("colour_constraint")
+    # NOT ported: the old prompt's "a named colour is a hard constraint". Substring matching
+    # cannot know the catalogue's colour families (stage-2 pools: query "navy", items tagged
+    # "Dark Blue" were flagged, 5 label-2 items in q05 alone). It is enforced where the families
+    # live: intent_parser._COLOUR_FAMILY + the retrieval colour pushdown, before the reranker.
     return out
 
 

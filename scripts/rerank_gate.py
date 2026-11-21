@@ -6,10 +6,15 @@ variant C rows. Gate criteria (architect, 2026-11-21):
 
   1. nDCG@5 on consensus labels: lower bound of the paired bootstrap 95% CI of
      (production - eval C) >= -0.03 (10,000 resamples, seed 42, percentile CI over queries);
-  2. clean outcome rate >= 90% over the primary queries (see CLEAN_OUTCOMES);
-  3. reported, not gated: tokens/turn, latency p50/p95, n, excluded queries.
-Then (optional, `--chips-pools`) the chip queries: outcomes/tokens/latency and the shown titles
-for review; they have no consensus labels, so they are never scored.
+  2. failure outcomes (parse_error, length, http_error, budget) <= 5% of calls; ok / partial /
+     empty_selection are valid answers, reported separately and not part of the bar (the exit
+     code uses this bar only);
+  3. reported, not gated: tokens/turn, latency p50/p95, answer path (primary / fallback_120b /
+     retrieval_order), hard-rule violations in the shown top-5 (production vs eval C vs the old
+     master reranker A), n, excluded queries.
+Then the chip queries (`--chips-pools`, default: evals/fixtures/rerank_chip_pools, the 8 landing
+chips): outcomes/tokens/latency and the shown titles for review; they have no consensus labels,
+so they are never scored.
 
 Live safety (the stage-2 rules, kept): refuses live unless `--live` AND RERANK_GATE_LIVE_OK=1
 (and today's UTC date == `--expect-utc-day` when given); at most one request per 8 s; a token
@@ -54,6 +59,7 @@ if str(REPO) not in sys.path:  # run as `python scripts/rerank_gate.py` from any
     sys.path.insert(0, str(REPO))
 
 from src.agents import reranker as rr  # noqa: E402
+from src.agents.rerank_filters import rule_violations  # noqa: E402
 from src.llm.client import LLMCallError, LLMCompletion  # noqa: E402
 
 STAGE2 = Path("C:/Users/gaura/ml-projects/agentic-shopping-assistant-wt-work")
@@ -66,11 +72,11 @@ TOP_K = 5
 N_BOOT = 10_000
 SEED = 42
 MARGIN = -0.03
-CLEAN_RATE_MIN = 0.90
-# Outcomes that are a valid answer (the model answered; nothing failed). `ok` alone is the strict
-# reading; `partial` (1-4 valid picks, rest filled) and `empty_selection` (model: nothing fits,
-# finish=stop) are valid answers too. The gate reports both rates; see main()'s verdict.
-CLEAN_OUTCOMES = ("ok", "partial", "empty_selection")
+FAILURE_RATE_MAX = 0.05  # architect 2026-11-21
+# Outcomes where the turn fell back because something failed. ok / partial (1-4 valid picks, rest
+# filled) / empty_selection (model: nothing fits, finish=stop) are valid answers, not failures.
+FAILURE_OUTCOMES = ("parse_error", "length", "http_error", "budget")
+DEFAULT_CHIPS = REPO / "evals" / "fixtures" / "rerank_chip_pools"
 MIN_INTERVAL_S = 8.0
 TOKEN_CAP = 60_000
 MAX_CONSECUTIVE_429 = 3
@@ -352,7 +358,8 @@ def run_queries(
                 "prompt_tokens": ev["prompt_tokens"], "completion_tokens": ev["completion_tokens"],
                 "reasoning_tokens": ev["reasoning_tokens"], "latency_ms": ev["latency_ms"],
                 "n_candidates": ev["n_candidates"], "n_selected": ev["n_selected"],
-                "cached": llm.last_cached,
+                "path": ev["path"], "rules_removed": ev["rules_removed"],
+                "diversity_swap": ev["diversity_swap"], "cached": llm.last_cached,
             })
             say(f"  {c['id']}: {ev['outcome']} finish={ev['finish_reason']} "
                 f"tok={ev['prompt_tokens']}+{ev['completion_tokens']} {ev['latency_ms']}ms"
@@ -372,8 +379,14 @@ def summarize(
     eval_c: Mapping[str, Mapping[str, Any]],
     consensus: Mapping[str, Mapping[str, float]],
     n_skipped_pool: int,
+    pools: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+    eval_a: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Gate numbers from production rows vs eval C rows (same queries, rep 1)."""
+    """Gate numbers from production rows vs eval C rows (same queries, rep 1).
+
+    `pools` (qid -> article_id -> item) enables the hard-rule violation counts in the shown
+    top-5: production (after the deterministic rules) vs eval C (no rules) vs eval A (the old
+    master reranker, rules in its prompt)."""
     prod_nd, c_nd, nan_qids = [], [], []
     for r in rows:
         lab = consensus.get(str(r["query_id"]), {})
@@ -388,8 +401,25 @@ def summarize(
     mean, lo, hi = bootstrap_mean_ci(diffs)
     outcomes = Counter(str(r["outcome"]) for r in rows)
     n = len(rows)
-    clean = sum(outcomes[o] for o in CLEAN_OUTCOMES) / n if n else float("nan")
-    strict = outcomes["ok"] / n if n else float("nan")
+    failure = sum(outcomes[o] for o in FAILURE_OUTCOMES) / n if n else float("nan")
+    paths = Counter(str(r.get("path")) for r in rows)
+    violations: dict[str, Any] = {}
+    if pools:
+        def count(label: str, get: Callable[[Mapping[str, Any]], Sequence[str] | None]) -> None:
+            total, queries = 0, 0
+            for r in rows:
+                ids = get(r)
+                if ids is None:
+                    return
+                items = pools[str(r["query_id"])]
+                v = sum(len(rule_violations(str(r["text"]), items[a])) for a in ids if a in items)
+                total, queries = total + v, queries + (1 if v else 0)
+            violations[label] = {"violations": total, "queries_with_violation": queries}
+
+        count("production", lambda r: r["final_ids"])
+        count("eval_c_no_rules", lambda r: eval_c[str(r["query_id"])]["final_ids"])
+        if eval_a:
+            count("eval_a_old_master", lambda r: eval_a.get(str(r["query_id"]), {}).get("final_ids"))
     tok = [(r["prompt_tokens"] or 0) + (r["completion_tokens"] or 0) for r in rows]
     lat = [r["latency_ms"] for r in rows if r["latency_ms"] is not None]
     return {
@@ -402,14 +432,14 @@ def summarize(
                               "n_boot": N_BOOT, "seed": SEED},
         "outcomes": dict(outcomes),
         "length_hits": outcomes["length"],
-        "clean_rate_valid": clean,
-        "clean_rate_strict_ok": strict,
+        "failure_rate": failure,
+        "paths": dict(paths),
+        "rule_violations_top5": violations,
         "tokens_per_turn_mean": float(np.mean(tok)) if tok else float("nan"),
         "latency_ms_p50": pct(lat, 50),
         "latency_ms_p95": pct(lat, 95),
         "pass_ndcg": bool(not math.isnan(lo) and lo >= MARGIN),
-        "pass_clean_valid": bool(clean >= CLEAN_RATE_MIN),
-        "pass_clean_strict_ok": bool(strict >= CLEAN_RATE_MIN),
+        "pass_failure_bar": bool(failure <= FAILURE_RATE_MAX),
     }
 
 
@@ -422,9 +452,14 @@ def load_pools(pools_dir: Path) -> list[dict[str, Any]]:
     return [load_pool_file(p) for p in sorted(pools_dir.glob("*.json")) if not p.name.startswith("_")]
 
 
-def load_eval_c(run_dir: Path) -> dict[str, dict[str, Any]]:
+def load_eval_arm(run_dir: Path, arm: str) -> dict[str, dict[str, Any]]:
+    """Rep-1 rows of one stage-2 arm (C = compact, A = the old master reranker), by query id."""
     vp = json.loads((run_dir / "variants_partial.json").read_text("utf-8"))
-    return {str(r["query_id"]): r for r in vp["C"] if int(r.get("rep", 1)) == 1}
+    return {str(r["query_id"]): r for r in vp.get(arm, []) if int(r.get("rep", 1)) == 1}
+
+
+def load_eval_c(run_dir: Path) -> dict[str, dict[str, Any]]:
+    return load_eval_arm(run_dir, "C")
 
 
 def render_md(res: Mapping[str, Any], chips: Sequence[Mapping[str, Any]]) -> str:
@@ -438,11 +473,11 @@ def render_md(res: Mapping[str, Any], chips: Sequence[Mapping[str, Any]]) -> str
         f"diff {d['mean']:+.3f} [{d['ci_lo']:+.3f}, {d['ci_hi']:+.3f}] "
         f"(paired bootstrap, {d['n_boot']} resamples, seed {d['seed']}); need lower bound >= {d['margin']}"
         f" -> {'PASS' if res['pass_ndcg'] else 'FAIL'}",
-        f"outcomes {json.dumps(res['outcomes'])}; length hits {res['length_hits']}",
-        f"clean rate (ok+partial+empty_selection) {res['clean_rate_valid']:.3f} "
-        f"-> {'PASS' if res['pass_clean_valid'] else 'FAIL'} (>= {CLEAN_RATE_MIN}); "
-        f"strict ok-only rate {res['clean_rate_strict_ok']:.3f} "
-        f"-> {'PASS' if res['pass_clean_strict_ok'] else 'FAIL'}",
+        f"outcomes {json.dumps(res['outcomes'])}; length hits {res['length_hits']}; "
+        f"paths {json.dumps(res['paths'])}",
+        f"failure rate (parse_error+length+http_error+budget) {res['failure_rate']:.3f} "
+        f"-> {'PASS' if res['pass_failure_bar'] else 'FAIL'} (<= {FAILURE_RATE_MAX})",
+        f"hard-rule violations in shown top-5: {json.dumps(res['rule_violations_top5'])}",
         f"tokens/turn {res['tokens_per_turn_mean']:.0f}; latency p50 {res['latency_ms_p50']:.0f} ms, "
         f"p95 {res['latency_ms_p95']:.0f} ms",
         "Labels are LLM consensus (three model families), not human ground truth.",
@@ -501,7 +536,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pools", default=str(DEFAULT_POOLS))
     ap.add_argument("--run-dir", default=str(DEFAULT_RUN_DIR), help="labels_*.json + variants_partial.json")
     ap.add_argument("--out", default=str(DEFAULT_OUT))
-    ap.add_argument("--chips-pools", default=None, help="dir of chip pool files (same format as --pools)")
+    ap.add_argument("--chips-pools", default=str(DEFAULT_CHIPS),
+                    help="dir of chip pool files (same format as --pools); 'none' skips the chips")
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--mock", action="store_true")
     ap.add_argument("--replay-eval-cache", default=None)
@@ -542,19 +578,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         rows = run_queries(big, llm, source, say)
         chips: list[dict[str, Any]] = []
-        if args.chips_pools:
+        if args.chips_pools.lower() == "none" or mode == "replay":
+            say("chip queries skipped" + (" (no eval replies exist for them)" if mode == "replay" else ""))
+        else:
             say("chip queries:")
             chips = run_queries(load_pools(Path(args.chips_pools)), llm, source, say)
     except GateStop as exc:
         say(f"STOPPED: {exc}\nrerun the same command to resume from the cache ({out}).")
         return 3
-    res = summarize(rows, eval_c, consensus, n_skipped_pool=len(cases) - len(big))
+    pool_items = {str(c["id"]): {str(i["article_id"]): i for i in c["items"]} for c in big}
+    res = summarize(rows, eval_c, consensus, n_skipped_pool=len(cases) - len(big), pools=pool_items,
+                    eval_a=load_eval_arm(Path(args.run_dir), "A"))
     res["mode"] = mode
     (out / f"gate_{mode}.json").write_text(json.dumps({"summary": res, "rows": rows, "chips": chips}, indent=1))
     md = render_md(res, chips)
     (out / f"gate_{mode}.md").write_text(md, encoding="utf-8")
     say(md)
-    return 0 if res["pass_ndcg"] and res["pass_clean_valid"] else 1
+    return 0 if res["pass_ndcg"] and res["pass_failure_bar"] else 1
 
 
 if __name__ == "__main__":
