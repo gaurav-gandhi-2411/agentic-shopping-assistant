@@ -116,10 +116,14 @@ class LLMCallError(Exception):
     """A single-model call failed. `kind` is ErrorInfo.kind ("daily_quota", "rate_limit",
     "server", "timeout", "fatal") or "malformed" (200 with an unusable payload)."""
 
-    def __init__(self, kind: str, status: int | None = None, message: str = "") -> None:
+    def __init__(
+        self, kind: str, status: int | None = None, message: str = "",
+        retry_after: float | None = None,
+    ) -> None:
         super().__init__(message or f"LLM call failed: {kind} (status={status})")
         self.kind = kind
         self.status = status
+        self.retry_after = retry_after  # seconds the provider asked us to wait, if it said
 
 
 class LLMClient(Protocol):
@@ -529,7 +533,9 @@ class GroqClient:
                     model, attempt, info.kind, info.status,
                     round((time.monotonic() - t_start) * 1000), wait, turn_id,
                 )
-                last_err = LLMCallError(info.kind, info.status, f"{type(exc).__name__}: {exc}")
+                last_err = LLMCallError(
+                    info.kind, info.status, f"{type(exc).__name__}: {exc}", info.retry_after
+                )
                 if wait is None:
                     raise last_err from exc
                 self._sleep_within(wait, deadline)

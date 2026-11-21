@@ -110,6 +110,14 @@ def test_rate_limit_twice_raises_typed_error(monkeypatch: pytest.MonkeyPatch) ->
     assert ei.value.kind == "rate_limit" and len(calls) == 2
 
 
+def test_retry_after_is_carried_on_the_typed_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    e = FakeStatusError(429, "tokens per minute (TPM). Please try again in 12.5s")
+    client, _, _ = _client(monkeypatch, [e], groq_retry_wait_cap_seconds=8)
+    with pytest.raises(LLMCallError) as ei:  # 12.5 s > the 8 s cap: no retry, wait reported
+        client.complete(MSGS, temperature=0, max_tokens=400)
+    assert (ei.value.kind, ei.value.retry_after) == ("rate_limit", 12.5)
+
+
 def test_retry_false_makes_a_single_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     client, calls, _ = _client(monkeypatch, [FakeStatusError(503, "overloaded"), _resp("1")])
     with pytest.raises(LLMCallError) as ei:
