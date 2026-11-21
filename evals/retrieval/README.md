@@ -548,6 +548,48 @@ Not done: A2 for q58 and q60 (2 live queries); C for all 53. Rows are in the unt
 These are PARTIAL numbers (51 of 53 queries, no C): the decision rule is not applied until A2 and
 C both complete.
 
+**Day 3 live, UTC 2026-11-21: A2 rep 1 and C rep 1 complete, A2 rep 2 partial.** Command
+`--stage variants --live --arms A2,C --reps 2` at `a5ba88f`, resumed from the cache: 84 live calls
+(2 A2 rep 1, 53 C rep 1, 29 A2 rep 2), all status 200, 0 x 429, no busy signal, then
+`BudgetExhaustedError` at 98,156 tokens today (A2 rep 1 4,304; C 39,871; A2 rep 2 53,981). Left for
+the next UTC day: A2 rep 2 for 24 of 53 live queries. The q53-at-cap-1,000 probe was NOT run (the
+three steps did not all finish). Rows are in the untracked `variants_partial.json` (A2: 57 rep 1 + 33
+rep 2 rows), calls in `ledger.jsonl`.
+- **A2 rep 1, 53 live:** ok 48, partial 1, empty_selection 3, length 1 (the day-2 q53 hit at the 600
+  cap; the length check still FAILS, 1 of 53). **A2 rep 2, 29 live:** ok 24, partial 1,
+  empty_selection 4, length 0.
+- **C rep 1, 53 live:** ok 41, partial 9, parse_error 3, length 0 (cap 400, every call finish
+  `stop`); mean 616 prompt + 136 completion tokens; latency p50 951 ms, p95 1,126 ms.
+- **A2 stability (rep 1 vs rep 2, the 29 queries done):** card count differs on 4 (13.8%), the
+  top-5 set differs on 13 (44.8%); N = 2 and partial, so indicative only.
+- **Consensus-label metrics, primary n = 53 (pool > 5), rep 1; nDCG@5 n = 49, P@5 n = 53:**
+
+| arm | nDCG@5 | P@5, label >= 1 | P@5, label >= 2 |
+|---|---|---|---|
+| A | 0.661 [0.559, 0.758] | 0.642 [0.532, 0.747] | 0.540 [0.430, 0.645] |
+| A2 | 0.847 [0.776, 0.912] | 0.766 [0.668, 0.857] | 0.653 [0.551, 0.751] |
+| B | 0.631 [0.533, 0.726] | 0.615 [0.509, 0.717] | 0.506 [0.404, 0.608] |
+| C | 0.864 [0.794, 0.923] | 0.774 [0.675, 0.868] | 0.660 [0.562, 0.755] |
+
+  Paired nDCG@5: A2 - B +0.216 [+0.129, +0.310]; A2 - A +0.186 [+0.099, +0.282]; C - B +0.233
+  [+0.145, +0.328]; C - A +0.203 [+0.110, +0.305]; **C - A2 +0.017 [-0.034, +0.072]**. Sensitivity
+  (all 57 queries with candidates, nDCG n = 53): C - A2 +0.016 [-0.031, +0.065].
+
+**Pre-registered decision rule applied** (`python -m evals.retrieval.decision`, artifacts
+`evals/retrieval/results/decision.md/json`): best by nDCG@5 = C (0.864). Lower bound of (variant -
+best): A -0.305, A2 **-0.072**, B -0.328, C best; only C clears -0.03, so **C is chosen**, also the
+cheapest (752 tokens per turn vs A2 1,947, A 1,862) and fastest (p50 951 ms vs 1,120 / 1,098). Read
+this honestly: A2 is excluded by the rule's strict bound, but C - A2 is statistically
+indistinguishable from zero (CI [-0.034, +0.072]) under every label scheme tried, so the data say
+"C and A2 tie on quality, C costs 2.6x fewer tokens", not "C is better". Both clear A and B by a wide
+margin. Caveat on C: 9 partial and 3 parse_error outcomes fall back (partly) to retrieval order.
+
+**Label-scheme robustness** (`python -m evals.retrieval.robustness`, `results/robustness.md`; Claude
+only, qwen only, gpt-oss only, consensus without gpt-oss-120b; rep 1, n = 53 queries): the sign and
+size of A2 - B (+0.19 to +0.22 nDCG@5) and A2 - A (+0.16 to +0.19) are stable and every CI excludes
+zero; C - A2 stays inside +-0.03 of zero in every scheme (+0.025 Claude, -0.009 qwen, +0.025
+gpt-oss, +0.011 without gpt-oss) and every CI spans zero.
+
 ## Consensus relabel (`relabel.py`, `relabel_p5.py`)
 
 Re-labels the strict-gold labels with the same three blind judges (gpt-oss-120b, qwen3.8-27b via
