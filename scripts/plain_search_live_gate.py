@@ -149,7 +149,7 @@ def main() -> int:
     config["llm"]["groq_fallback_models"] = []  # never the 120b / qwen tier on the shared key
     from src.agents import reranker as rr
 
-    rr.FALLBACK_KINDS = ()  # the reranker's own one-shot 120b fallback: off
+    setattr(rr, "FALLBACK_KINDS", ())  # the reranker's own one-shot 120b fallback: off
     from src.agents.graph import build_graph
     from src.llm.client import GroqClient
     from src.retrieval.snapshot import load_index_parts
