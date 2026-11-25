@@ -190,6 +190,22 @@ class TestInterleave:
         out, _ = pp.select_results(pool, 5, interleave_genders=True)
         assert _ids(out) == ["m1", "u1", "w1", "m2", "w2"]
 
+    def test_mix_window_ignores_a_gender_that_only_appears_behind_the_window(self) -> None:
+        pool = [_it(f"m{i}", f"s{i}", gender="men") for i in range(1, 7)] + [
+            _it("w1", "sw", gender="women")]
+        out, rep = pp.select_results(pool, 5, interleave_genders=True, mix_window=6)
+        assert _ids(out) == ["m1", "m2", "m3", "m4", "m5"]
+        assert rep["interleaved"] is False
+
+    def test_mix_window_mixes_inside_and_fills_from_behind(self) -> None:
+        pool = [_it("m1", "a", gender="men"), _it("w1", "b", gender="women"),
+                _it("m2", "c", gender="men"), _it("m3", "d", gender="men"),
+                _it("w2", "e", gender="women"), _it("w3", "f", gender="women")]
+        out, rep = pp.select_results(pool, 5, interleave_genders=True, mix_window=3)
+        # window = m1, w1, m2 -> alternate m1, w1, m2; then plain ranked order from behind it
+        assert _ids(out) == ["m1", "w1", "m2", "m3", "w2"]
+        assert rep["interleaved"] is True
+
     def test_interleave_off_keeps_rank_order(self) -> None:
         out, _ = pp.select_results(self._pool(), 5, interleave_genders=False)
         assert _ids(out) == ["m1", "m2", "m3", "m4", "w1"]

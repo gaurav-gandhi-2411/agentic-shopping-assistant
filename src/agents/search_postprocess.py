@@ -24,7 +24,9 @@ Rules (pre-registered in evals/retrieval/results/plain_search_gate_rule.md):
    shown as "within budget" and is not shown.
 4. Gender: when the query carries no gender, women's and men's results alternate (the gender of
    the best-ranked card goes first; each gender keeps its own ranked order; unisex/unknown cards
-   keep their rank and do not take a turn). With one gender only the order is unchanged.
+   keep their rank and do not take a turn). With one gender only the order is unchanged. Only
+   the reranker's own picks (`mix_window`) take part: a gender with nothing ranked well is not
+   padded with whatever retrieval put next.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from typing import Any
 from src.retrieval.hybrid_search import normalize_prod_name
 
 MAX_PER_STORE = 2
+MAX_GATE_PASSES = 4  # select -> result gates -> refill rounds in search_node before settling
 MIN_SUBSET_WORDS = 3  # shorter title must carry >= 3 words before containment counts as a copy
 GENDERS = ("women", "men")
 # Copy sent when a shopper taps the Women / Men refine control (the query is re-run with the
@@ -168,8 +171,14 @@ def select_results(
     price_max: float | None = None,
     interleave_genders: bool = False,
     max_per_store: int = MAX_PER_STORE,
+    mix_window: int | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """Pick up to `top_k` cards from `ranked` (best first). Returns (cards, report).
+
+    `mix_window`: with `interleave_genders`, only the first `mix_window` ranked items take part in
+    the alternation (the reranker's own picks); the items behind them are used only to fill slots
+    once the window is spent, so a gender with nothing good ranked is never padded with whatever
+    retrieval put next. None = the whole list.
 
     report: n_ranked, n_shown, removed {reason: count} (duplicate, store_cap, over_budget,
     no_price), interleaved (bool), short_reason (None, or why fewer than top_k were shown)."""
@@ -197,10 +206,11 @@ def select_results(
         per_store[_store(it)] += 1
 
     interleaved = False
-    if interleave_genders and len({gender_of(it) for it in ranked} & set(GENDERS)) == 2:
+    window = len(ranked) if mix_window is None else mix_window
+    if interleave_genders and len({gender_of(it) for it in ranked[:window]} & set(GENDERS)) == 2:
         interleaved = True
         queues: dict[str, list[tuple[int, dict]]] = {"women": [], "men": [], "other": []}
-        for idx, it in enumerate(ranked):
+        for idx, it in enumerate(ranked[:window]):
             queues[gender_of(it)].append((idx, it))
 
         def head(kind: str) -> tuple[int, dict] | None:
@@ -233,6 +243,14 @@ def select_results(
             take(pick[1])
             if kind in GENDERS:
                 turn = "men" if kind == "women" else "women"
+        for it in ranked[window:]:  # window spent: fill remaining slots in plain ranked order
+            if len(chosen) >= top_k:
+                break
+            why = reject_reason(it)
+            if why is None:
+                take(it)
+            else:
+                removed[why] += 1
     else:
         for it in ranked:
             if len(chosen) >= top_k:
