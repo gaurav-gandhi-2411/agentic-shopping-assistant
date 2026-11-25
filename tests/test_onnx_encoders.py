@@ -61,6 +61,25 @@ def test_encoder_backend_default_and_validation(monkeypatch: pytest.MonkeyPatch)
         oe.encoder_backend()
 
 
+def test_parse_cpu_max_and_budget(tmp_path: Path) -> None:
+    assert oe.parse_cpu_max("100000 100000") == 1
+    assert oe.parse_cpu_max("150000 100000") == 2  # a 1.5 CPU quota rounds up
+    assert oe.parse_cpu_max("max 100000") is None
+    assert oe.parse_cpu_max("garbage") is None
+    f = tmp_path / "cpu.max"
+    f.write_text("100000 100000\n")
+    assert oe.cpu_budget(str(f)) == 1
+    assert oe.cpu_budget(str(tmp_path / "missing")) >= 1  # no cgroup file: visible cores
+
+
+def test_session_thread_count_env_override(
+    monkeypatch: pytest.MonkeyPatch, model_root: Path
+) -> None:
+    monkeypatch.setenv("ORT_INTRA_OP_THREADS", "2")
+    enc = oe.OnnxTextEncoder("all-MiniLM-L6-v2", root=model_root)
+    assert enc.encode(["red dress"], normalize_embeddings=True).shape == (1, 4)
+
+
 def test_model_dir_uses_last_segment_and_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ONNX_MODEL_DIR", str(tmp_path))
     assert oe.onnx_model_dir("sentence-transformers/all-MiniLM-L6-v2") == (

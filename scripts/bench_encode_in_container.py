@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -37,6 +38,7 @@ def timed(fn, items, warm: int = 5) -> dict[str, float]:  # noqa: ANN001
 
 def main() -> None:
     queries = json.load(open(sys.argv[1], encoding="utf-8"))
+    enc: Any
     model_name = "sentence-transformers/all-MiniLM-L6-v2"
     out: dict = {"n_queries": len(queries)}
     t0 = time.perf_counter()

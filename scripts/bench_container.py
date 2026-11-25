@@ -23,6 +23,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,7 +72,7 @@ def mem_stats(name: str) -> dict[str, float]:
     return {"docker_stats_mem_mb": round(docker_mb, 1), "sum_vmrss_mb": round(rss_mb, 1)}
 
 
-def summ(xs: list[float]) -> dict[str, float]:
+def summ(xs: list[float]) -> dict[str, Any]:
     return {"n": len(xs), "median": round(statistics.median(xs), 2), "min": round(min(xs), 2),
             "max": round(max(xs), 2), "all": [round(x, 2) for x in xs]}
 

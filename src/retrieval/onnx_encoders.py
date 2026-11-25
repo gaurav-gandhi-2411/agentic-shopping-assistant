@@ -58,6 +58,32 @@ def onnx_model_dir(model_name: str, root: str | os.PathLike[str] | None = None) 
     return base / model_name.rsplit("/", 1)[-1]
 
 
+def parse_cpu_max(text: str) -> int | None:
+    """CPUs granted by a cgroup-v2 ``cpu.max`` line (``"<quota> <period>"`` or ``"max <period>"``).
+
+    Returns ceil(quota/period), or None when unlimited / unparsable.
+    """
+    try:
+        quota, period = text.split()
+        if quota == "max":
+            return None
+        return max(1, -(-int(quota) // int(period)))
+    except ValueError:
+        return None
+
+
+def cpu_budget(cpu_max_path: str = "/sys/fs/cgroup/cpu.max") -> int:
+    """CPUs this process can really use: the container CPU quota if one is set, else the visible
+    cores. ORT sizes its pool from visible cores and ignores the quota, so on a 1 vCPU Cloud Run
+    instance an unclamped pool of many threads spins against the throttle."""
+    visible = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    try:
+        quota = parse_cpu_max(Path(cpu_max_path).read_text())
+    except OSError:
+        quota = None
+    return min(visible, quota) if quota else visible
+
+
 def _session(path: Path) -> Any:
     """Create a CPU InferenceSession; raises RuntimeError with the export hint if missing."""
     if not path.is_file():
@@ -70,6 +96,8 @@ def _session(path: Path) -> Any:
 
     opts = ort.SessionOptions()
     opts.log_severity_level = 3  # errors only; ORT warns on every initializer it re-folds
+    # ORT_INTRA_OP_THREADS overrides; default = the container's real CPU budget (see cpu_budget)
+    opts.intra_op_num_threads = int(os.environ.get("ORT_INTRA_OP_THREADS") or cpu_budget())
     return ort.InferenceSession(str(path), sess_options=opts, providers=["CPUExecutionProvider"])
 
 

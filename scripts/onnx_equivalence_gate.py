@@ -224,8 +224,8 @@ def main() -> int:  # noqa: C901 - one linear measurement script
         from src.retrieval.clip_encoder import CLIPEncoder
 
         # the exact production torch path (incl. truncation patch), at the pinned revision
-        clip_mod._load_sentence_transformer = lambda mid: SentenceTransformer(
-            mid, revision=eo.CLIP_REVISION, device="cpu")
+        setattr(clip_mod, "_load_sentence_transformer", lambda mid: SentenceTransformer(
+            mid, revision=eo.CLIP_REVISION, device="cpu"))
         torch_clip = CLIPEncoder(CLIP)
         torch_cvecs = torch_clip.encode_texts(ctexts)
         report["C2_clip_text_vs_stored"] = {

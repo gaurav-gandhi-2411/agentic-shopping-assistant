@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Any
 
 import faiss
 import numpy as np
@@ -20,7 +21,7 @@ from src.utils.timing_log import first_call  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-def load_text_encoder(model_name: str) -> object:
+def load_text_encoder(model_name: str) -> Any:
     """Query/document encoder: ONNX Runtime by default (no torch in the production image);
     ``ENCODER_BACKEND=torch`` loads sentence-transformers for local dev (needs
     requirements-export.txt). Both expose ``encode(texts, ..., normalize_embeddings=True)``."""

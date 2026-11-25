@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import tqdm
@@ -55,7 +55,7 @@ _encoder_lock = threading.Lock()
 CLIP_DIM: int = 512
 
 
-def _load_sentence_transformer(model_id: str) -> object:
+def _load_sentence_transformer(model_id: str) -> Any:
     """Torch backend loader (local dev, ``ENCODER_BACKEND=torch``). The import is lazy because
     sentence-transformers/torch are not in the production image (requirements-export.txt)."""
     from sentence_transformers import SentenceTransformer
