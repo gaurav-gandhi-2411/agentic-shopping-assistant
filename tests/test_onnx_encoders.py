@@ -152,6 +152,41 @@ def test_clip_text_tower_is_loaded_lazily(model_root: Path) -> None:
     assert enc._text is not None
 
 
+def test_clip_text_truncates_at_77_tokens(model_root: Path, tables: dict[str, np.ndarray]) -> None:
+    enc = oe.OnnxCLIPEncoder("clip-ViT-B-32", root=model_root)
+    words = ["red", "dress", "blue", "shirt"]
+    text = " ".join(words[i % 4] for i in range(120))  # 122 tokens with specials
+    got = enc.encode_texts([text])[0]
+    # CLIP's hard limit: [CLS] + the first 75 words + [SEP] = 77 tokens, mean over those only
+    ids = [2] + [WORDS.index(words[i % 4]) for i in range(75)] + [3]
+    assert len(ids) == oe.CLIP_MAX_TOKENS == 77
+    exp = tables["clip"][ids].mean(axis=0)
+    np.testing.assert_allclose(got, exp / np.linalg.norm(exp), atol=1e-5)
+
+
+def test_session_threads_come_from_cpu_budget(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import onnxruntime as ort
+
+    seen: dict[str, int] = {}
+
+    def fake_session(path: str, sess_options: ort.SessionOptions, providers: list[str]) -> str:
+        seen["threads"] = sess_options.intra_op_num_threads
+        return "session"
+
+    model = tmp_path / "m.onnx"
+    model.write_bytes(b"x")
+    monkeypatch.delenv("ORT_INTRA_OP_THREADS", raising=False)
+    monkeypatch.setattr(oe, "cpu_budget", lambda: 3)
+    monkeypatch.setattr(ort, "InferenceSession", fake_session)
+    assert oe._session(model) == "session"
+    assert seen["threads"] == 3  # not ORT's own default (all visible cores)
+    monkeypatch.setenv("ORT_INTRA_OP_THREADS", "2")
+    oe._session(model)
+    assert seen["threads"] == 2
+
+
 def test_clip_text_batches_over_64(model_root: Path) -> None:
     enc = oe.OnnxCLIPEncoder("clip-ViT-B-32", root=model_root)
     texts = ["red dress", "blue shirt long kurta"] * 40  # 80 > the 64 batch size
