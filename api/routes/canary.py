@@ -22,7 +22,7 @@ rejected; if the header is present it alone decides). Cloud Run's own request lo
 request URL including the query string; that cannot be masked from this code (see DEPLOY.md).
 
 Budget (per instance; Cloud Run maxScale is low, so the fleet-wide bound is
-``instances x`` these numbers): a pass is cached for 60 min (-> at most 24 runs/day in steady
+``instances x`` these numbers): a pass is cached for 90 min (-> at most 16 runs/day in steady
 state, 1 LLM-backed query each; a failure only for FAIL_CACHE_TTL_S = 300 s so recovery shows
 within one pinger window) and a UTC-day counter caps real runs at 60/day so restarts (which
 empty the cache) cannot cause unbounded runs. When no run can start ``/canary/status`` serves
@@ -75,15 +75,18 @@ QUERIES: tuple[tuple[str, str], ...] = (
 )
 LATENCY_BUDGET_S = 15.0  # send -> done, strictly less (scripts/ops/canary.py LATENCY_BUDGET_MS)
 DEADLINE_S = 25.0  # the one query; the pinger is assumed to time out at 30 s
-CACHE_TTL_S = 60 * 60  # a PASS is reused this long (bounds spend: <= 24 runs/day)
+CACHE_TTL_S = 90 * 60  # a PASS is reused this long (bounds spend: <= 16 runs/day)
 # A FAIL is reused only briefly: after recovery the monitor must go green within one pinger
 # window, not stay red for up to an hour. 300 s (not 60) because a failing run costs one LLM
 # query and a 5-min pinger would otherwise re-run on nearly every hit; the 60/day run cap and
 # the cost guard still bound spend.
 FAIL_CACHE_TTL_S = 300
 STALE_WINDOW_FACTOR = 2  # a last-known result older than this many TTLs is never served
-MAX_RUNS_PER_DAY = 60  # hard per-instance cap; the 60 min pass cache alone gives <= 24
-ROTATION_SLOT_S = 30 * 60  # one query per wall-clock slot (runs 60 min apart still cover all 3)
+MAX_RUNS_PER_DAY = 60  # hard per-instance cap; the 90 min pass cache alone gives <= 16
+# One query per wall-clock slot. The slot must not divide the pass TTL by a multiple of
+# len(QUERIES): with 30 min slots, runs 90 min (3 slots) apart would hit the same query forever.
+# 45 min slots put runs 90 min apart 2 slots apart, and gcd(2, 3) = 1 covers all 3 queries.
+ROTATION_SLOT_S = 45 * 60
 _CANARY_USER_ID = "anon:canary-internal"  # anon: -> in-memory session path, no Postgres user row
 
 # V3d: an index older than this fails the canary. 36 h = one missed daily refresh (24 h) plus
@@ -116,7 +119,7 @@ def _index_stale() -> bool:
     transition to manifest-bearing builds must not page on the index we serve today. Once the
     first build is published and loaded the age is checked from then on. INDEX_FRESHNESS_STRICT=1
     additionally treats a missing manifest as stale (flip it after the first publish).
-    Evaluated on every call, independent of the cached query result: a pass cached for 60 min
+    Evaluated on every call, independent of the cached query result: a pass cached for 90 min
     must not hide an index that went stale in the meantime. No snapshot yet -> not this
     assertion's business (readiness and the query itself fail in that case).
     """
@@ -510,7 +513,7 @@ def _public_status(status: int, body: dict[str, Any]) -> tuple[int, dict[str, st
 async def canary_status() -> JSONResponse:
     """Public pass/fail for the external monitor (no token). See module docstring.
 
-    age = now - last result time; ttl = 3600 after a pass, 300 after a fail.
+    age = now - last result time; ttl = 5400 after a pass, 300 after a fail.
     - age <= ttl: the cached result.
     - older, or nothing observed yet: try one refresh (daily cap + single-flight apply).
       If it runs, its real result is returned.

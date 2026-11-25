@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import threading
@@ -378,31 +379,31 @@ def test_failure_is_cached_only_for_the_short_ttl_then_recovery_shows(
     still = _get(client)  # inside the window: the cached failure, no re-run (bounds spend)
     assert still.status_code == 500 and still.json()["cached"] is True
     assert b.invocations == 1
-    now[0] += 2  # past 300 s, far short of 60 min
+    now[0] += 2  # past 300 s, far short of 90 min
     ok = _get(client)
     assert ok.status_code == 200 and ok.json()["cached"] is False
     assert b.invocations == 2
 
 
-def test_fail_ttl_is_short_and_pass_still_cached_for_60_minutes(
+def test_fail_ttl_is_short_and_pass_still_cached_for_90_minutes(
     client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert canary.FAIL_CACHE_TTL_S == 300 and canary.CACHE_TTL_S == 60 * 60
+    assert canary.FAIL_CACHE_TTL_S == 300 and canary.CACHE_TTL_S == 90 * 60
     now = [1000.0]
     monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
     assert _get(client).status_code == 200
-    now[0] += 59 * 60  # well past the failure TTL: a pass is still served from cache
+    now[0] += 89 * 60  # well past the failure TTL: a pass is still served from cache
     cached = _get(client)
     assert cached.status_code == 200 and cached.json()["cached"] is True
     assert b.invocations == 1
-    now[0] += 2 * 60  # 61 min after the run
+    now[0] += 2 * 60  # 91 min after the run
     assert _get(client).json()["cached"] is False
 
 
 def test_pass_cached_before_outage_hides_it_only_until_ttl_but_failure_is_not_sticky(
     client: TestClient, b: _Behaviour, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A fresh failure after an expired pass is cached for 5 min only, not 60 min."""
+    """A fresh failure after an expired pass is cached for 5 min only, not 90 min."""
     now = [1000.0]
     monkeypatch.setattr(canary, "_monotonic", lambda: now[0])
     assert _get(client).status_code == 200
@@ -434,6 +435,11 @@ def test_daily_cap_and_utc_rollover(
     from datetime import datetime, timezone
 
     monkeypatch.setattr(canary, "CACHE_TTL_S", 0)  # every call wants a fresh run
+    # Deterministic on every platform: Windows Python <= 3.12 time.monotonic ticks at 15.6 ms, so
+    # two calls can read the same instant and `age <= 0` would serve the cache. Each read now
+    # advances one second, so age is always > TTL 0.
+    ticks = itertools.count(1000)
+    monkeypatch.setattr(canary, "_monotonic", lambda: float(next(ticks)))
     monkeypatch.setattr(canary, "MAX_RUNS_PER_DAY", 2)
     day = [datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)]
     monkeypatch.setattr(canary, "_utcnow", lambda: day[0])
