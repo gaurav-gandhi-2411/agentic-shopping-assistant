@@ -30,6 +30,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import export_onnx as eo  # noqa: E402  (the pinned HF revisions live there: one source of truth)
 
 MIN_COS = 0.9999
 MIN_OVERLAP = 0.99
@@ -78,6 +81,51 @@ def sample_positions(n_total: int, n: int, seed: int = SEED) -> np.ndarray:
     return np.random.default_rng(seed).choice(n_total, size=min(n, n_total), replace=False)
 
 
+MIN_REPRODUCED_FRACTION = 0.5  # below this the stored reference is not usable at all (INVALID)
+
+
+def controlled_stats(onnx_v: np.ndarray, torch_v: np.ndarray, stored: np.ndarray) -> dict[str, Any]:
+    """ONNX-vs-stored cosine over the items whose stored vector torch itself reproduces.
+
+    A stored vector is only a usable reference where torch fp32 on the rebuilt text gives it back
+    (cos >= MIN_COS); where it does not, the text that was indexed is unknown, so neither encoder
+    can be judged against it. The pass bar applies to the reproduced subset; the full-sample
+    numbers and the excluded count are reported next to it (rule amendment 1).
+    """
+    ctrl = cosines(torch_v, stored)
+    ok = ctrl >= MIN_COS
+    all_items = cosines(onnx_v, stored)
+    out: dict[str, Any] = {
+        "n_sample": int(len(ok)), "n_reproduced_by_torch": int(ok.sum()),
+        "n_excluded": int((~ok).sum()),
+        "valid": bool(ok.mean() >= MIN_REPRODUCED_FRACTION),
+        "control_torch_vs_stored_all": cos_stats(ctrl),
+        "onnx_vs_stored_all_items": cos_stats(all_items),
+        "onnx_vs_torch_all_items": cos_stats(cosines(onnx_v, torch_v)),
+    }
+    if ok.any():
+        out.update(cos_stats(all_items[ok]))
+        out["pass"] = bool(all_items[ok].min() >= MIN_COS)
+    else:
+        out["pass"] = False
+    return out
+
+
+def brand_texts(processed_dir: Path) -> dict[str, str]:
+    """article_id -> search_text from every data/processed/<brand>/catalogue.parquet that has a
+    data/processed/clip/<brand> index (the CLIP builder's input; later brands win on id clashes)."""
+    import pandas as pd
+
+    out: dict[str, str] = {}
+    for d in sorted((processed_dir / "clip").iterdir()):
+        cat = processed_dir / d.name / "catalogue.parquet"
+        if d.name == "unified" or not cat.exists():
+            continue
+        df = pd.read_parquet(cat, columns=["article_id", "search_text"])
+        out.update(zip(df["article_id"].astype(str), df["search_text"].fillna(""), strict=True))
+    return out
+
+
 def load_queries(queries_dir: Path) -> list[str]:
     """The `text` field of every q*.json fixture, in file order."""
     return [json.loads(p.read_text(encoding="utf-8"))["text"] for p in sorted(queries_dir.glob("q*.json"))]
@@ -102,7 +150,9 @@ def main() -> int:  # noqa: C901 - one linear measurement script
     ap.add_argument("--out-dir", type=Path, default=ROOT / "reports" / "onnx_equivalence")
     ap.add_argument("--n-text", type=int, default=2000)
     ap.add_argument("--n-images", type=int, default=200)
-    ap.add_argument("--control-n", type=int, default=200)
+    ap.add_argument("--brand-catalogues", type=Path, default=None,
+                    help="data/processed dir with per-brand catalogue.parquet + clip/<brand> "
+                         "(the text the CLIP builder encoded); default: unified catalogue text")
     ap.add_argument("--write-fixture", type=Path, default=None,
                     help="write the first --fixture-n sample items (text + stored vectors) as .npz")
     ap.add_argument("--fixture-n", type=int, default=20)
@@ -134,18 +184,18 @@ def main() -> int:  # noqa: C901 - one linear measurement script
     stored = np.stack([dense.reconstruct(int(p)) for p in pos])
 
     onnx_text = OnnxTextEncoder(MINILM)
-    c1 = cosines(onnx_text.encode(texts, batch_size=64, normalize_embeddings=True), stored)
-    report["C1_minilm_vs_stored"] = {**cos_stats(c1), "pass": bool(c1.min() >= MIN_COS)}
+    onnx_vecs = onnx_text.encode(texts, batch_size=64, normalize_embeddings=True)
 
     torch_text = None
     if have_torch:
         from sentence_transformers import SentenceTransformer
-        torch_text = SentenceTransformer(MINILM, device="cpu")
-        k = min(args.control_n, len(texts))
-        ctrl = cosines(torch_text.encode(texts[:k], normalize_embeddings=True, batch_size=64), stored[:k])
-        report["control_minilm_torch_vs_stored"] = {**cos_stats(ctrl), "valid": bool(ctrl.min() >= MIN_COS)}
+        torch_text = SentenceTransformer(MINILM, revision=eo.MINILM_REVISION, device="cpu")
+        torch_vecs = torch_text.encode(texts, normalize_embeddings=True, batch_size=64)
+        report["C1_minilm_vs_stored"] = controlled_stats(onnx_vecs, torch_vecs, stored)
+        reproduced = np.asarray(cosines(torch_vecs, stored) >= MIN_COS)
     else:
-        report["control_minilm_torch_vs_stored"] = "NOT RUN (torch not installed)"
+        report["C1_minilm_vs_stored"] = "NOT RUN (torch not installed: no validity control)"
+        reproduced = np.ones(len(texts), dtype=bool)
 
     # ---- text tower: CLIP text vs stored clip vectors ---------------------------------------
     clip_idx = faiss.read_index(str(args.clip_dir / "clip.faiss"))
@@ -153,28 +203,43 @@ def main() -> int:  # noqa: C901 - one linear measurement script
     clip_pos_of = {a: i for i, a in enumerate(clip_ids)}
     keep = [i for i, a in enumerate(dense_ids[pos]) if a in clip_pos_of]
     report["clip_sample_missing_from_clip_index"] = len(pos) - len(keep)
-    ctexts = [texts[i] for i in keep]
-    cstored = np.stack([clip_idx.reconstruct(clip_pos_of[dense_ids[pos][i]]) for i in keep])
+    # The unified CLIP index was concatenated from per-brand CLIP indices built BEFORE the
+    # catalogue clean-up that rewrote search_text, so the per-brand catalogues hold the text the
+    # CLIP builder actually encoded (rule amendment 1). Without them, unified text is used and
+    # the controlled-subset logic below drops the items whose text changed.
+    btext = brand_texts(args.brand_catalogues) if args.brand_catalogues else {}
+    ctext_source = "per-brand catalogues (CLIP builder input)" if btext else "unified catalogue"
+    ctexts = [btext.get(dense_ids[pos][i], texts[i]) for i in keep]
+    cids = [dense_ids[pos][i] for i in keep]
+    cstored = np.stack([clip_idx.reconstruct(clip_pos_of[a]) for a in cids])
     onnx_clip = OnnxCLIPEncoder(CLIP)
-    c2 = cosines(onnx_clip.encode_texts(ctexts), cstored)
-    report["C2_clip_text_vs_stored"] = {**cos_stats(c2), "pass": bool(c2.min() >= MIN_COS)}
+    onnx_cvecs = onnx_clip.encode_texts(ctexts)
 
     torch_clip = None
+    creproduced = np.ones(len(ctexts), dtype=bool)
     if have_torch:
+        import src.retrieval.clip_encoder as clip_mod
+        from sentence_transformers import SentenceTransformer
         from src.retrieval.clip_encoder import CLIPEncoder
-        torch_clip = CLIPEncoder(CLIP)  # the exact production torch path (incl. truncation patch)
-        k = min(args.control_n, len(ctexts))
-        ctrl = cosines(torch_clip.encode_texts(ctexts[:k]), cstored[:k])
-        report["control_clip_text_torch_vs_stored"] = {**cos_stats(ctrl), "valid": bool(ctrl.min() >= MIN_COS)}
+
+        # the exact production torch path (incl. truncation patch), at the pinned revision
+        clip_mod._load_sentence_transformer = lambda mid: SentenceTransformer(
+            mid, revision=eo.CLIP_REVISION, device="cpu")
+        torch_clip = CLIPEncoder(CLIP)
+        torch_cvecs = torch_clip.encode_texts(ctexts)
+        report["C2_clip_text_vs_stored"] = {
+            **controlled_stats(onnx_cvecs, torch_cvecs, cstored), "text_source": ctext_source}
+        creproduced = np.asarray(cosines(torch_cvecs, cstored) >= MIN_COS)
     else:
-        report["control_clip_text_torch_vs_stored"] = "NOT RUN (torch not installed)"
+        report["C2_clip_text_vs_stored"] = "NOT RUN (torch not installed: no validity control)"
 
     if args.write_fixture is not None:
         k = args.fixture_n
+        mi, ci = np.flatnonzero(reproduced)[:k], np.flatnonzero(creproduced)[:k]
         np.savez_compressed(
-            args.write_fixture, article_ids=dense_ids[pos][:k], texts=np.array(texts[:k]),
-            minilm_stored=stored[:k].astype(np.float32),
-            clip_texts=np.array(ctexts[:k]), clip_stored=cstored[:k].astype(np.float32))
+            args.write_fixture, article_ids=dense_ids[pos][mi], texts=np.array(texts)[mi],
+            minilm_stored=stored[mi].astype(np.float32),
+            clip_texts=np.array(ctexts)[ci], clip_stored=cstored[ci].astype(np.float32))
 
     # ---- C4: top-10 overlap over the 60 queries ---------------------------------------------
     queries = (load_queries(args.queries) if args.queries.is_dir()
@@ -232,13 +297,12 @@ def main() -> int:  # noqa: C901 - one linear measurement script
 
     gates = [k for k in report if k.startswith(("C1", "C2", "C3", "C4")) and isinstance(report[k], dict)
              and "pass" in report[k]]
-    not_run = [k for k in report if k.startswith(("C3", "C4")) and isinstance(report[k], str)]
-    controls = [v for k, v in report.items() if k.startswith("control_") and isinstance(v, dict)]
-    invalid = [v for v in controls if not v["valid"]]
+    not_run = [k for k in report if k.startswith(("C1", "C2", "C3", "C4")) and isinstance(report[k], str)]
+    invalid = [k for k in gates if report[k].get("valid") is False]
     report["not_run"] = not_run
-    report["control_valid"] = None if not controls else not invalid
     report["verdict"] = (
-        "INVALID (control failed: stored vectors are not reproduced by torch from the rebuilt text)"
+        f"INVALID ({', '.join(invalid)}: torch reproduces < {MIN_REPRODUCED_FRACTION:.0%} of the "
+        "stored vectors from the rebuilt text, so the stored reference is unusable)"
         if invalid else
         "PASS" if all(report[k]["pass"] for k in gates) and not not_run else
         "FAIL" if any(not report[k]["pass"] for k in gates) else "INCOMPLETE")
@@ -257,10 +321,14 @@ def render_md(r: dict[str, Any]) -> str:
     def row(name: str, v: Any) -> str:
         if isinstance(v, str):
             return f"| {name} | {v} | | | | |"
+        if "n_sample" in v:
+            return (f"| {name} | sample {v['n_sample']}, reproduced by torch {v['n_reproduced_by_torch']} "
+                    f"(excluded {v['n_excluded']}) | n={v['n']} min {v['min']:.7f} "
+                    f"| p1 {v['p1']:.7f} | median {v['median']:.7f} | {'PASS' if v['pass'] else 'FAIL'} |")
         if "min" in v and "mean" not in v:
-            ok = v.get("pass", v.get("valid"))
+            res = ("PASS" if v["pass"] else "FAIL") if "pass" in v else "info"
             return (f"| {name} | n={v['n']} | min {v['min']:.7f} | p1 {v['p1']:.7f} "
-                    f"| median {v['median']:.7f} | {'PASS' if ok else 'FAIL'} |")
+                    f"| median {v['median']:.7f} | {res} |")
         return (f"| {name} | n={v['n']} | mean {v['mean']:.4f} | min {v['min']:.2f} "
                 f"| below-1: {v['n_below_1']} | {'PASS' if v['pass'] else 'FAIL'} |")
 
@@ -268,8 +336,12 @@ def render_md(r: dict[str, Any]) -> str:
              f"Rule: `{r['rule']}`. Seed {r['seed']}. Note: {r['note'] or '-'}", "",
              "| check | n | stat | stat | stat | result |", "|---|---|---|---|---|---|"]
     for k, v in r.items():
-        if k.startswith(("C1", "C2", "C3", "C4", "control_minilm", "control_clip")) and k != "control_valid":
+        if k.startswith(("C1", "C2", "C3", "C4")):
             lines.append(row(k, v))
+            if isinstance(v, dict) and "n_sample" in v:
+                for sub in ("control_torch_vs_stored_all", "onnx_vs_stored_all_items",
+                            "onnx_vs_torch_all_items"):
+                    lines.append(row(f"&nbsp;&nbsp;{k.split('_')[0]} {sub}", v[sub]))
     lines += ["", "```json", json.dumps(r["environment"], indent=2), "```", ""]
     return "\n".join(lines)
 

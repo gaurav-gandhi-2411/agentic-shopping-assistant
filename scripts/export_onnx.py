@@ -89,7 +89,7 @@ def export_minilm(root: Path) -> None:
     st = SentenceTransformer(MINILM_REPO, revision=MINILM_REVISION, device="cpu")
     st.eval()
     assert st.max_seq_length == 256, st.max_seq_length  # hard-coded in OnnxTextEncoder
-    pooling = st[1].get_pooling_mode_str()
+    pooling = st[1].pooling_mode
     assert pooling == "mean", pooling  # OnnxTextEncoder mean-pools
 
     bert = st[0].auto_model

@@ -14,7 +14,7 @@ from tokenizers import Tokenizer, models, pre_tokenizers, processors
 from src.retrieval import onnx_encoders as oe
 
 FIX = Path(__file__).parent / "fixtures" / "onnx_tiny"
-WORDS = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "red", "dress", "blue", "shirt", "long", "kurta"]
+WORDS = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "red", "dress", "blue", "shirt", "long", "kurta", "<|endoftext|>"]
 
 
 def _toy_tokenizer(path: Path, cls: str = "[CLS]", sep: str = "[SEP]") -> None:

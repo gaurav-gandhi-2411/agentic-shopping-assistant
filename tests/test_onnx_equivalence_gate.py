@@ -52,3 +52,52 @@ def test_load_queries_reads_text_field_in_order(tmp_path: Path) -> None:
     (tmp_path / "q01.json").write_text('{"text": "first"}', encoding="utf-8")
     (tmp_path / "other.json").write_text('{"text": "ignored"}', encoding="utf-8")
     assert gate.load_queries(tmp_path) == ["first", "second"]
+
+
+def _unit(rows: np.ndarray) -> np.ndarray:
+    return (rows / np.linalg.norm(rows, axis=1, keepdims=True)).astype(np.float32)
+
+
+def test_controlled_stats_excludes_only_items_torch_cannot_reproduce() -> None:
+    rng = np.random.default_rng(1)
+    stored = _unit(rng.normal(size=(10, 8)))
+    torch_v = stored.copy()
+    torch_v[:3] = _unit(rng.normal(size=(3, 8)))  # 3 items whose indexed text we cannot rebuild
+    onnx_v = torch_v + 1e-7
+    s = gate.controlled_stats(onnx_v, torch_v, stored)
+    assert (s["n_sample"], s["n_reproduced_by_torch"], s["n_excluded"]) == (10, 7, 3)
+    assert s["pass"] and s["valid"] and s["min"] > 0.99999
+    # the exclusion must not hide a failure: full-sample numbers are reported and low
+    assert s["onnx_vs_stored_all_items"]["min"] < 0.99
+
+
+def test_controlled_stats_fails_when_onnx_is_wrong_on_a_reproduced_item() -> None:
+    rng = np.random.default_rng(2)
+    stored = _unit(rng.normal(size=(10, 8)))
+    onnx_v = stored.copy()
+    onnx_v[5] = _unit(rng.normal(size=(1, 8)))[0]
+    s = gate.controlled_stats(onnx_v, stored.copy(), stored)
+    assert s["n_excluded"] == 0 and not s["pass"]
+
+
+def test_controlled_stats_invalid_when_torch_reproduces_under_half() -> None:
+    rng = np.random.default_rng(3)
+    stored = _unit(rng.normal(size=(10, 8)))
+    torch_v = _unit(rng.normal(size=(10, 8)))
+    torch_v[:2] = stored[:2]
+    s = gate.controlled_stats(torch_v, torch_v, stored)
+    assert s["n_reproduced_by_torch"] == 2 and s["valid"] is False
+
+
+def test_brand_texts_reads_only_brands_with_a_clip_index(tmp_path: Path) -> None:
+    import pandas as pd
+
+    for brand, with_clip in (("a", True), ("b", False), ("unified", True)):
+        (tmp_path / brand).mkdir()
+        pd.DataFrame({"article_id": [1, 2], "search_text": [f"{brand} x", None]}).to_parquet(
+            tmp_path / brand / "catalogue.parquet"
+        )
+        if with_clip:
+            (tmp_path / "clip" / brand).mkdir(parents=True)
+    got = gate.brand_texts(tmp_path)
+    assert got == {"1": "a x", "2": ""}  # b has no clip dir; unified is excluded by name

@@ -154,6 +154,26 @@ docker build -t "${IMAGE}" .
 docker push "${IMAGE}"
 ```
 
+### ONNX encoders (no torch in the runtime image)
+
+The text encoder (MiniLM) and the CLIP encoder (text + image towers) run on `onnxruntime` CPU
+(`src/retrieval/onnx_encoders.py`). The runtime image has no torch, transformers or
+sentence-transformers. The Dockerfile has an `export` stage (the only stage with torch) that runs
+`scripts/export_onnx.py` at pinned Hugging Face revisions (recorded in each
+`onnx_models/<model>/manifest.json` together with file hashes), self-checks each export against
+torch (cosine >= 0.99999, else the build fails) and copies only the `.onnx` + `tokenizer.json`
+files into `/app/onnx_models` (`ONNX_MODEL_DIR`). The build needs network access to
+huggingface.co and the PyTorch CPU wheel index, as the old model-bake step did.
+
+- Local dev with the exported models: `pip install -r requirements-export.txt` then
+  `python scripts/export_onnx.py` (writes `onnx_models/`, git-ignored).
+- Local dev with the old torch path: `pip install -r requirements-export.txt` and set
+  `ENCODER_BACKEND=torch`.
+- Index builds (`scripts/build_*`) use whichever backend is configured (default ONNX).
+- Changing an encoder revision or the exporter requires re-running
+  `scripts/onnx_equivalence_gate.py` (rule: `evals/onnx_equivalence_rule.md`, report:
+  `reports/onnx_equivalence/`). Never quantise: the bar was set for fp32.
+
 ---
 
 ## Deploy backend (unified service)

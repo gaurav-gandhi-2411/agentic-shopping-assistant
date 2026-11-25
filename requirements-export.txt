@@ -1,0 +1,22 @@
+# BUILD-TIME / DEV ONLY. Never installed into the production runtime image (requirements.txt is
+# the runtime set and has no torch). Used by:
+#   - the Dockerfile `export` stage (scripts/export_onnx.py -> /export, only the .onnx/.json files
+#     are copied onward),
+#   - CI (export before the real-encoder tests and the equivalence gate),
+#   - local dev: `ENCODER_BACKEND=torch` (the old sentence-transformers path) and
+#     `python scripts/export_onnx.py`.
+#
+# Install against the PyTorch CPU index so torch never resolves to a CUDA build:
+#   pip install --index-url https://download.pytorch.org/whl/cpu \
+#       --extra-index-url https://pypi.org/simple -r requirements-export.txt
+torch==2.15.0
+sentence-transformers==5.7.0
+transformers==5.10.4
+# transformers 5.10.4 constrains tokenizers to <0.23; the runtime pin in requirements.txt is the
+# same version so the tokenizer.json written here is read by the identical library.
+tokenizers==0.22.2
+onnx==1.23.2
+onnxruntime==1.32.0
+numpy==2.4.6
+pillow==13.0.0
+tqdm==4.70.1

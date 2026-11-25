@@ -168,7 +168,7 @@ eliminating 6-iteration loops without relying on prompt instructions.
 
 | Layer | Choice |
 |---|---|
-| Agent framework | LangGraph StateGraph |
+| Dense retrieval | FAISS `IndexFlatIP` + `sentence-transformers/all-MiniLM-L6-v2` (384-dim), served as fp32 ONNX on onnxruntime CPU (no torch at runtime) |
 | Dense retrieval | FAISS `IndexFlatIP` + `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
 | Sparse retrieval | `rank_bm25` (BM25Okapi) |
 | Fusion | Reciprocal Rank Fusion (k=60) |
