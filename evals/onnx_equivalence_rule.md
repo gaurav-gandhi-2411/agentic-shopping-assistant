@@ -81,3 +81,32 @@ locally under Docker on Linux). Cloud Run cold-start numbers wait for a deploy a
 
 The PR is opened as DRAFT, the failing criterion and its number are stated in the title area of
 the body, and no re-tuning of the bar is done to make it pass.
+
+## Amendment 1 (made after a development smoke run, before any official measurement)
+
+Disclosure: a development smoke run on the Windows host (n=300 text items, 20 images; NOT the
+official measurement, not a Linux container, output discarded) showed the pre-registered validity
+control for the CLIP text tower failing (torch vs stored, min cosine 0.945, median 1.0). Cause,
+checked afterwards by comparing text: the unified `clip.faiss` is a concatenation of per-brand CLIP
+indices built (July 19-24) before the catalogue clean-up that rewrote `search_text` for the unified
+catalogue; 38,225 of the 112,425 stored CLIP vectors were built from per-brand text that differs
+from the unified `catalogue.parquet` text (whitespace/cleaning), the other 74,200 are identical.
+The pre-registered text source for CLIP ("rebuilt exactly as the index builder builds it") is
+therefore the per-brand `data/processed/<brand>/catalogue.parquet`, not the unified one. The dense
+(MiniLM) side was unaffected: control min cosine 0.9999999 on 200.
+
+Changes, in force for the official run and for any later run:
+
+1. CLIP-text source = per-brand catalogues (`--brand-catalogues`), same 2,000 sample positions.
+   Without per-brand catalogues (CI: only the unified index is downloadable) the unified text is
+   used and the rule below does the work.
+2. The control now runs on ALL sample items (both towers), not just the first 200. C1 and C2 are
+   evaluated on the items whose stored vector torch fp32 itself reproduces (cos >= 0.9999): where
+   torch cannot reproduce the stored vector the indexed text is unknown and neither encoder can be
+   judged against it. The number excluded, and ONNX-vs-stored / torch-vs-stored / ONNX-vs-torch
+   over ALL items, are reported next to the pass/fail number so the exclusion cannot hide a
+   failure. If fewer than 50% of the sample is reproduced the result is INVALID.
+3. The 0.9999 bar, the 2,000 sample, the 60 queries, the 0.99 overlap bar, fp32-only and the
+   Linux-container requirement are unchanged.
+4. The CI `eval` job cannot run C3 (no images on the runner); it runs C1, C2, C4 on the unified
+   text with `--skip-images --allow-incomplete`. C3 is a local-container result.
