@@ -22,6 +22,9 @@ Assertions per query (all evaluated; every failure is recorded):
     * cards         - >= 1 card. A card is an entry of the ``items`` frame (what the frontend
                       renders as ``pendingItems``); if no ``items`` frame arrived, the first
                       ``final_state.outfit_variants[*].items`` list is used instead.
+    * min_cards     - card-count floor, only for the CARD_CHECKS suite (data in
+                      canary_card_checks.json; most are >= 4). Fails with ``min_cards: N cards <
+                      M`` (query + count only, no tokens) through the normal prod-alert path.
     * price         - see PRICE INVARIANT.
     * latency       - ``user_message`` sent -> ``done`` received must be < LATENCY_BUDGET_MS
                       (15 000; exactly equal fails, the spec says "< 15 s"). Cloud Run cold start is absorbed by the (separately timed,
@@ -45,7 +48,14 @@ run on ``crosschecked == 0`` is deliberately NOT done (a stronger check against 
 is left to W10/W11). Owned items (``is_owned``: the user's own garment) are not for sale and are
 exempt from (a).
 
-BUDGET. The workflow runs ONCE a day (cron) = 3 queries nominal; the continuous 5-minute check is
+BUDGET (updated for the card-count suite; numbers in docs/ops/canary-budget.md). A run is the 3
+QUERIES plus the CARD_CHECKS (8) = QUERIES_PER_RUN = 11 turns, paced QUERY_SPACING_S apart so the
+run stays under the verified 8,000 tokens/minute Groq limit (one turn is ~3.3K tokens) and the
+demo per-IP limit (35/hr, one count per WS connection: 11 per run). Hard cap 33 queries/day = 3
+runs (scheduled + 2 re-runs) instead of 12/4 runs. The text below describes the original 3-query
+design; read "3 queries" as QUERIES_PER_RUN where it concerns spend.
+
+The workflow runs ONCE a day (cron) = 3 queries nominal; the continuous 5-minute check is
 the public ``GET /canary/status`` (one rotating query per fresh run, see docs/ops/canary-budget.md).
 Hard cap 12 chat queries/day (UTC) = 4 runs: the scheduled run plus manual dispatches/re-runs.
 Before sending
@@ -111,6 +121,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_BASE_URL = "https://asa-stylist-api-ec3mwppesa-el.a.run.app"
+CARD_CHECKS_PATH = Path(__file__).with_name("canary_card_checks.json")
 QUERIES: tuple[str, ...] = (
     "sangeet outfit under ₹3000 for women",
     "black kurta set for haldi",
@@ -119,7 +130,8 @@ QUERIES: tuple[str, ...] = (
 LATENCY_BUDGET_MS = 15_000
 WS_HARD_TIMEOUT_S = 30.0  # bound CI time/cost; the 15 s latency assertion fires well before
 HTTP_TIMEOUT_S = 75.0  # generous: Cloud Run cold starts measured at 45-60 s+ (uptime-alert.yml)
-DAILY_QUERY_CAP = 12  # once-a-day cron (3 queries) + manual dispatches; was 150 for */30
+QUERY_SPACING_S = 30.0  # 2 turns/min x ~3.3K tokens = ~6.5K TPM < verified 8,000 TPM Groq limit
+RUN_TIME_BUDGET_S = 1080.0  # stop starting queries after 18 min; job timeout is 25 min (canary.yml)
 SNIPPET_CHARS = 500
 ALERT_LABEL = "prod-alert"
 ALERT_TITLE = "StyleMaitri prod canary is failing"
@@ -140,6 +152,38 @@ GROUNDED_FALLBACK_EMPTY = (
     "or ask again and I'll take another look."
 )
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+@dataclasses.dataclass(frozen=True)
+class CardCheck:
+    """One daily card-count check: ``query`` must return at least ``min_cards`` cards."""
+
+    query: str
+    min_cards: int
+
+
+def load_card_checks(path: Path = CARD_CHECKS_PATH) -> tuple[CardCheck, ...]:
+    """Parse the card-check data file; raises ValueError on any malformed entry (fail loud)."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    entries = data.get("checks") if isinstance(data, dict) else None
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("card checks file needs a non-empty 'checks' list")
+    out: list[CardCheck] = []
+    for e in entries:
+        q = e.get("query") if isinstance(e, dict) else None
+        n = e.get("min_cards") if isinstance(e, dict) else None
+        if not isinstance(q, str) or not q.strip():
+            raise ValueError("card check has no query")
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+            raise ValueError(f"card check {q!r} has invalid min_cards {n!r}")
+        out.append(CardCheck(q, n))
+    return tuple(out)
+
+
+CARD_CHECKS: tuple[CardCheck, ...] = load_card_checks()
+QUERIES_PER_RUN = len(QUERIES) + len(CARD_CHECKS)
+# 3 runs/day (scheduled + 2 re-runs) x 11 queries; a forced run may add one more run.
+DAILY_QUERY_CAP = 3 * QUERIES_PER_RUN
 
 
 # --------------------------------------------------------------------------- redaction
@@ -435,8 +479,12 @@ def evaluate(
     latency_ms: float,
     budget_ms: float,
     protocol_error: str | None = None,
+    min_cards: int | None = None,
 ) -> QueryResult:
-    """Pure assertion logic for one query's collected response."""
+    """Pure assertion logic for one query's collected response.
+
+    ``min_cards`` (card-count suite only) adds a ``min_cards`` failure when fewer cards came back.
+    """
     res = QueryResult(query=query, latency_ms=round(latency_ms, 1), answer=answer)
     if protocol_error:
         res.failures.append(protocol_error)
@@ -455,6 +503,8 @@ def evaluate(
     res.cards = len(cards)
     if not cards:
         res.failures.append("no product cards returned")
+    if min_cards is not None and len(cards) < min_cards:
+        res.failures.append(f"min_cards: {len(cards)} cards < {min_cards}")
     price_failures, res.crosschecked = check_prices(cards, reference_prices(final_state))
     res.failures += price_failures
     if latency_ms >= budget_ms:  # spec: latency must be < 15 s
@@ -471,6 +521,7 @@ def run_query(
     query: str,
     budget_ms: float,
     ws_timeout_s: float = WS_HARD_TIMEOUT_S,
+    min_cards: int | None = None,
 ) -> QueryResult:
     """Run ws-ticket -> WS chat for ``query`` and evaluate it. Never raises CanaryError."""
     base = base_url.rstrip("/")
@@ -550,7 +601,7 @@ def run_query(
     try:
         res = evaluate(query, answer="".join(tokens), items_frame=items_frame,
                        final_state=final_state, latency_ms=latency_ms, budget_ms=budget_ms,
-                       protocol_error=error)
+                       protocol_error=error, min_cards=min_cards)
     except Exception as exc:  # noqa: BLE001 - hostile response shape must not skip the alert
         res = QueryResult(query=query, latency_ms=round(latency_ms, 1),
                           failures=[f"unexpected: {type(exc).__name__}"])
@@ -562,23 +613,23 @@ def run_query(
 
 
 def count_queries_today(run_rows: list[tuple[str, str, str]], current_run_id: str) -> int:
-    """Queries already spent today: 3 per workflow run other than this one, excluding skipped.
+    """Queries already spent today: QUERIES_PER_RUN per other workflow run, excluding skipped.
 
     ``run_rows`` are (id, status, conclusion). Over-counts runs that died before querying; that
     only makes the cap stricter.
     """
     prior = [r for r in run_rows if r[0] != current_run_id and r[2] != "skipped"]
-    return len(prior) * len(QUERIES)
+    return len(prior) * QUERIES_PER_RUN
 
 
 def would_exceed_cap(spent: int, cap: int = DAILY_QUERY_CAP, forced: bool = False) -> bool:
-    """True if running another len(QUERIES) queries would pass ``cap``.
+    """True if running another QUERIES_PER_RUN queries would pass ``cap``.
 
     A forced-failure run (the alert-path proof) may exceed the cap by one run: it is allowed
-    when spent + 3 <= cap + 3. That costs at most 3 extra queries.
+    when spent + QUERIES_PER_RUN <= cap + QUERIES_PER_RUN.
     """
-    allowed = cap + (len(QUERIES) if forced else 0)
-    return spent + len(QUERIES) > allowed
+    allowed = cap + (QUERIES_PER_RUN if forced else 0)
+    return spent + QUERIES_PER_RUN > allowed
 
 
 GhRunner = Callable[[list[str], str | None], str]
@@ -775,6 +826,36 @@ def _write(path: str, result: dict[str, Any]) -> None:
     Path(path).write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
+def suite_specs(suite: str) -> list[tuple[str, int | None]]:
+    """(query, min_cards) pairs: ``core`` = the 3 original queries, ``all`` = core + card checks."""
+    specs: list[tuple[str, int | None]] = [(q, None) for q in QUERIES]
+    if suite == "all":
+        specs += [(c.query, c.min_cards) for c in CARD_CHECKS]
+    return specs
+
+
+def run_suite(
+    base: str, token: str, budget_ms: float, specs: list[tuple[str, int | None]], pace_s: float,
+    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+) -> list[QueryResult]:
+    """Run the queries one by one, ``pace_s`` apart (TPM limit), within RUN_TIME_BUDGET_S.
+
+    A query not started because the time budget is spent is recorded as a failure (fail closed:
+    a canary that silently skipped its checks must not look green).
+    """
+    started = clock()
+    results: list[QueryResult] = []
+    for i, (query, min_cards) in enumerate(specs):
+        if i and pace_s > 0:
+            sleep(pace_s)
+        if clock() - started > RUN_TIME_BUDGET_S:
+            results.append(QueryResult(
+                query=query, failures=[f"run time budget {RUN_TIME_BUDGET_S:.0f} s exhausted"]))
+            continue
+        results.append(run_query(base, token, query, budget_ms, min_cards=min_cards))
+    return results
+
+
 def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
     budget = result["budget_ms"]
     forced = bool(args.force_fail)
@@ -825,7 +906,8 @@ def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
             first.capped = True
         results = [first]
     else:
-        results = [run_query(base, token, q, budget) for q in QUERIES]
+        results = run_suite(base, token, budget, suite_specs(getattr(args, "suite", "all")),
+                            float(getattr(args, "pace_s", 0.0)))
     result["queries"] = [dataclasses.asdict(r) | {"ok": r.ok, "answer": snippet(r.answer)}
                          for r in results]
     result["status"] = classify(results)
@@ -842,7 +924,7 @@ def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
 
 
 def run_canary(args: argparse.Namespace) -> int:
-    """`run` subcommand: cap check, 3 queries, ALWAYS write a result JSON. Exit 1 on failure."""
+    """`run` subcommand: cap check, the queries (3 core + card checks), ALWAYS write a result JSON. Exit 1 on failure."""
     budget = -1.0 if args.force_fail else float(LATENCY_BUDGET_MS)
     # Default to "fail": if anything below crashes, the issue step must still see a failure.
     result: dict[str, Any] = {"status": "fail", "timestamp": now_utc().isoformat(timespec="seconds"),
@@ -880,6 +962,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--out", default="canary-result.json")
     r.add_argument("--force-fail", action="store_true",
                    help="assert a -1 ms latency budget (impossible: even 0.0 ms exceeds it) without extra LLM calls")
+    r.add_argument("--suite", choices=("core", "all"), default="all",
+                   help="core = the 3 original queries; all = core + the card-count checks")
+    r.add_argument("--pace-s", type=float, default=QUERY_SPACING_S,
+                   help="seconds between queries (keeps the run under the Groq TPM limit)")
     r.add_argument("--repo", default="", help="owner/name; enables the daily-cap check via gh")
     r.add_argument("--workflow", default="canary.yml")
     r.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
