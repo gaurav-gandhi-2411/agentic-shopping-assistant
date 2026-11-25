@@ -46,6 +46,30 @@ def _cos(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return (a * b).sum(axis=1) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1))
 
 
+def assert_parity(got: np.ndarray, stored_vecs: np.ndarray) -> None:
+    """The parity bar as a pure function: every row's cosine to the stored vector >= MIN_COS."""
+    c = _cos(got, stored_vecs)
+    assert c.min() >= MIN_COS, f"min cosine {c.min():.7f}"
+
+
+def test_parity_bar_catches_a_perturbed_stored_vector() -> None:
+    """Model-free: the committed fixture alone proves the bar is enforced at 0.9999."""
+    fx = np.load(FIXTURE, allow_pickle=False)
+    stored_vecs = fx["minilm_stored"].astype(np.float64)
+    assert_parity(stored_vecs, stored_vecs)  # identical vectors pass
+    rng = np.random.default_rng(42)
+    noise = rng.normal(size=stored_vecs[0].shape)
+    noise -= noise.dot(stored_vecs[0]) * stored_vecs[0]  # orthogonal to row 0
+    noise /= np.linalg.norm(noise)
+    off = stored_vecs.copy()
+    off[0] = stored_vecs[0] + 0.02 * noise  # cosine ~ 0.9998 < 0.9999
+    assert 0.9990 < _cos(off, stored_vecs)[0] < 0.9999
+    with pytest.raises(AssertionError, match="min cosine"):
+        assert_parity(off, stored_vecs)
+    off[0] = stored_vecs[0] + 0.005 * noise  # cosine ~ 0.999988 >= 0.9999
+    assert_parity(off, stored_vecs)
+
+
 def test_fixture_is_the_expected_shape(stored: dict[str, np.ndarray]) -> None:
     assert stored["minilm_stored"].shape == (20, 384)
     assert stored["clip_stored"].shape == (20, 512)
@@ -56,11 +80,9 @@ def test_minilm_matches_stored_dense_vectors(stored: dict[str, np.ndarray]) -> N
     got = OnnxTextEncoder(MINILM).encode(
         [str(t) for t in stored["texts"]], normalize_embeddings=True
     )
-    c = _cos(got, stored["minilm_stored"])
-    assert c.min() >= MIN_COS, f"min cosine {c.min():.7f}"
+    assert_parity(got, stored["minilm_stored"])
 
 
 def test_clip_text_matches_stored_clip_vectors(stored: dict[str, np.ndarray]) -> None:
     got = OnnxCLIPEncoder(CLIP).encode_texts([str(t) for t in stored["clip_texts"]])
-    c = _cos(got, stored["clip_stored"])
-    assert c.min() >= MIN_COS, f"min cosine {c.min():.7f}"
+    assert_parity(got, stored["clip_stored"])
