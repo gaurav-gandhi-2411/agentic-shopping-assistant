@@ -188,6 +188,13 @@ class PartnerLook(BaseModel):
     coordinated_with: str | None = None
 
 
+class GenderRefineOption(BaseModel):
+    """One option of the Women / Men refine control: the same request constrained to a gender."""
+
+    gender: Literal["women", "men"]
+    query: str  # sent as the next user message when the option is tapped
+
+
 class ChatResponse(BaseModel):
     conversation_id: str
     response: str
@@ -218,6 +225,9 @@ class ChatResponse(BaseModel):
     # Front-end renders these as tappable chip buttons that retrigger search with
     # the chosen colour filter applied to the current context.
     suggestion_chips: list[str] | None = None
+    # Plain search with no gender in the query and both genders in the candidates: the one-tap
+    # Women / Men refine options (additive; None = not offered).
+    gender_refine: list[GenderRefineOption] | None = None
     # Phase B Part 2: cross-gender PARTNER styling board-level fields. "partner"
     # marks a SEPARATE companion look (never mixed into the primary look) — None
     # (omitted) for every regular/primary board.

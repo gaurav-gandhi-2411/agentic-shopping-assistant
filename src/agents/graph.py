@@ -7,6 +7,7 @@ import statistics
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
+from src.agents import search_postprocess as _pp
 from src.agents.grounding import grounded_fallback_reply, validate_response
 from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
 from src.agents.outfit.body_type import (
@@ -38,7 +39,7 @@ from src.agents.outfit.slots import (
     is_athletic_footwear_item,
     resolve_look_gender,
 )
-from src.agents.reranker import rerank
+from src.agents.reranker import rerank_ranked
 from src.agents.state import AgentState
 from src.agents.tools import (
     apply_filter,
@@ -57,7 +58,7 @@ from src.catalogue.cleaning import (
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
-from src.retrieval.hybrid_search import _RELEVANCE_FLOOR, HybridRetriever, normalize_prod_name
+from src.retrieval.hybrid_search import _RELEVANCE_FLOOR, HybridRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -2609,6 +2610,10 @@ def build_graph(
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
+        # The Women / Men refine control re-runs the previous query with a gender added: a fresh
+        # search of the same request, so what the shopper already saw must stay eligible.
+        if refinement and _pp.is_gender_refine_rerun(raw_query, state.get("messages", [])):
+            refinement = False
 
         # For refinement turns (e.g. "in blue"): augment the raw query with the
         # dominant product type from prior results so embeddings score "in blue dress"
@@ -2921,27 +2926,25 @@ def build_graph(
         ):
             candidates = _prefer_single_garment_pool(candidates, top_k)
 
-        items_out = rerank(query, candidates, llm, top_k=top_k)
+        _shown_k, _rest = rerank_ranked(query, candidates, llm, top_k=top_k)
+        _ranked = _shown_k + _rest
 
-        # Dedup by (prod_name, colour): H&M lists same product in many colours;
-        # backfill from the wider candidates pool if dedup drops below top_k.
-        seen_prod: set[tuple[str, str]] = set()
-        deduped: list[dict] = []
-        for item in items_out:
-            key = (normalize_prod_name(item.get("prod_name", item["display_name"])), (item.get("colour") or "").lower())
-            if key not in seen_prod:
-                seen_prod.add(key)
-                deduped.append(item)
-        if len(deduped) < top_k:
-            seen_ids_dedup = {it["article_id"] for it in deduped}
-            for item in candidates:
-                if len(deduped) >= top_k:
-                    break
-                key = (normalize_prod_name(item.get("prod_name", item["display_name"])), (item.get("colour") or "").lower())
-                if item["article_id"] not in seen_ids_dedup and key not in seen_prod:
-                    seen_prod.add(key)
-                    deduped.append(item)
-        items_out = deduped
+        # Plain-search post-processing (src/agents/search_postprocess.py), applied to the
+        # reranker's ranked list with backfill from deeper candidates: de-duplication (same
+        # store + same product; also the legacy name+colour key H&M needed), at most 2 cards per
+        # store, the budget cap, and — only when the query fixed no gender — a women/men mix.
+        # A list with none of those problems comes back unchanged. Fewer than top_k cards are
+        # shown only when the ranked list cannot supply more; the reason is logged.
+        _pp_gender = _pp.query_gender(merged)
+        _pp_cap = _pp.budget_cap(merged, _qualifier_intent.budget_max_inr)
+        items_out, _pp_report = _pp.select_results(
+            _ranked,
+            top_k,
+            price_max=_pp_cap,
+            interleave_genders=_pp_gender is None,
+        )
+        if _pp_report["removed"] or _pp_report["short_reason"] or _pp_report["interleaved"]:
+            logger.info(json.dumps({"event": "plain_search_postprocess", **_pp_report}))
 
         # Beach/summer queries: cap at 2 items per product_type to ensure variety
         # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
@@ -3183,6 +3186,17 @@ def build_graph(
         # untouched when the user actually said plus-size/curvy.
         items_out = demote_size_mismatched_items(items_out, raw_query)
 
+        # Final budget guard on exactly what is about to be shown (the selection above applied
+        # the cap too; this catches anything a later gate or sort could have let through).
+        _pp_guarded = _pp.enforce_budget(items_out, _pp_cap)
+        if len(_pp_guarded) != len(items_out):
+            logger.warning(json.dumps({
+                "event": "plain_search_budget_guard_removed",
+                "n_removed": len(items_out) - len(_pp_guarded),
+                "price_max": _pp_cap,
+            }))
+            items_out = _pp_guarded
+
         search_meta: dict = {"query": query, "filters": merged}
         if few_gender_results:
             search_meta["few_gender_results"] = True
@@ -3205,6 +3219,10 @@ def build_graph(
         }
         update["filters"] = effective_filters
         update["suggestion_chips"] = _chip_colours
+        # One-tap Women / Men refine: only when the query fixed no gender and the candidates
+        # hold both (additive response field; never on refinement turns such as "in blue").
+        if items_out and not refinement and _pp.gender_refine_options(merged, _ranked):
+            update["gender_refine"] = _pp.refine_queries(raw_query)
         if excluded_colours:
             update["excluded_colours"] = excluded_colours
         return update
