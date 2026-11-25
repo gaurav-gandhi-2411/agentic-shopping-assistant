@@ -2,7 +2,7 @@
   "rule": "evals/onnx_equivalence_rule.md",
   "seed": 42,
   "torch_available": true,
-  "note": "linux container from repo Dockerfile, image asa-onnx-bench:onnx-6b9914d (4a94d8a55342); torch/ST 5.7.0 installed ephemerally via pip --target for the torch reference only; Docker Desktop 29.6.1 (WSL2), --cpus 4",
+  "note": "linux container from repo Dockerfile, image asa-onnx-bench:onnx-6dc78c9 (d45888d3d5af); torch/ST 5.7.0 installed ephemerally via pip --target for the torch reference only; Docker Desktop 29.6.1 (WSL2), --cpus 4",
   "C1_minilm_vs_stored": {
     "n_sample": 2000,
     "n_reproduced_by_torch": 2000,
@@ -139,7 +139,8 @@
           "transformers": "5.10.4"
         },
         "files": {
-          "model.onnx": "9e026acac817c9a73d81767987429abafe1afafb8335eaddcc172c483eed716c",
+          "model.onnx": "3daa0d7afabb354c88ddeb99e9097def5faf87e4eec135138c3d74c60989a049",
+          "model.onnx.data": "f088b7984e821e25d4ce5b42190cb1825f08dc455c91f2ea7ebfb565b04223fc",
           "tokenizer.json": "851ca67100d372ca3ae031a6abd168f53489eebfd7d89523f35c5c9b4d372c3c"
         },
         "max_seq_length": 256,
@@ -157,9 +158,11 @@
           "transformers": "5.10.4"
         },
         "files": {
-          "text.onnx": "97af1b31dc3dcf702a814aa18e71893f293cb393f9cf69a44544ee214c2e80fe",
+          "text.onnx": "f76894e822cd13e9cce5cb1441f6fb052398cda46f8a249e71d1ac865bf79b79",
+          "text.onnx.data": "e6c180f1ef47ea1e4c311b9f775d890ba4c46b8e28e2c4cc30577d227f9fda8a",
           "tokenizer.json": "d656a0f8bc9d30a93ea9f2858ebf4f076b1ff914b8e79290ed9687721e7ac74a",
-          "vision.onnx": "bd49c07715cd56dc2eeab76a10a28b7b1526ecb1408f820aef17b5a0e9fb9225"
+          "vision.onnx": "67ce3d320db996e5eedc613cac35f82fc92c9c27cb0103ddb1a0d15ccb2d3c08",
+          "vision.onnx.data": "4e5a6a036de433823b2e81a24fabba8fead32998686e82955691e6aa32aa99cb"
         },
         "image_size": 224,
         "max_tokens": 77,
