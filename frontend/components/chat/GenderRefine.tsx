@@ -16,10 +16,12 @@ interface Props {
  * mix both). Labels come from COPY.refine only.
  *
  * States: empty = renders nothing when the backend offered no options (a gendered query such
- * as "Men's kurta ..." or "saree"); loading = after a tap both buttons are disabled and
- * aria-busy until the new turn replaces this message; error = a failed turn leaves this
- * message as the latest assistant message again, so the control remounts enabled and the
- * existing chat error notice explains the failure.
+ * as "Men's kurta ..." or "saree"); loading = a tap disables both buttons at once (no double
+ * send) and the new turn then replaces this message as the latest assistant message, so the
+ * control leaves while the chat's own typing indicator runs; error = the control has no error UI of
+ * its own: a failed turn becomes the latest assistant message with the existing chat error
+ * text (and rate-limit / busy notice), so this control is no longer shown and the shopper
+ * re-asks the same way as after any other failed turn.
  *
  * Real <button>s (keyboard: Tab / Enter / Space), a visible plum focus ring, 44 px minimum
  * tap height (min-h-11) like the landing chips.
