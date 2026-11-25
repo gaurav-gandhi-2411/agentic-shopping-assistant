@@ -60,8 +60,30 @@ def test_alembic_still_copied_for_readyz_schema_gate() -> None:
 
 def test_writable_cache_env_vars_declared() -> None:
     envs = " ".join(a for w, a in _final_stage() if w == "ENV")
-    for var in ("HF_HOME", "SENTENCE_TRANSFORMERS_HOME", "HOME", "MPLCONFIGDIR", "XDG_CACHE_HOME"):
+    # HF_HOME / SENTENCE_TRANSFORMERS_HOME are gone with the model bake: the runtime has no HF client
+    for var in ("HOME", "MPLCONFIGDIR", "XDG_CACHE_HOME"):
         assert re.search(rf"\b{var}=", envs), f"{var} not set in final stage"
+
+
+def test_final_stage_has_onnx_models_and_no_torch_stack() -> None:
+    stage = _final_stage()
+    copies = [a for w, a in stage if w == "COPY"]
+    assert any(re.search(r"--from=export\s+/export\s+/app/onnx_models", a) for a in copies)
+    assert any(w == "ENV" and "ONNX_MODEL_DIR=/app/onnx_models" in a for w, a in stage)
+    runs = " ".join(a for w, a in stage if w == "RUN")
+    assert not re.search(r"torch|transformers|sentence", runs, re.I)
+
+
+def test_only_the_export_stage_installs_torch() -> None:
+    reqs = Path(__file__).resolve().parent.parent
+    runtime = (reqs / "requirements.txt").read_text(encoding="utf-8").lower()
+    for banned in ("torch", "transformers", "sentence-transformers"):
+        assert not re.search(rf"^{banned}\b", runtime, re.M), f"{banned} is in requirements.txt"
+    export = (reqs / "requirements-export.txt").read_text(encoding="utf-8").lower()
+    assert re.search(r"^torch==", export, re.M)
+    stages = re.split(r"^FROM\b", DOCKERFILE.read_text(encoding="utf-8"), flags=re.M)[1:]
+    with_export_reqs = [s for s in stages if "requirements-export.txt" in s]
+    assert len(with_export_reqs) == 1 and " AS export" in with_export_reqs[0].splitlines()[0]
 
 
 def test_download_target_is_chowned_to_app_user() -> None:

@@ -218,8 +218,9 @@ def main() -> int:  # noqa: C901 - one linear measurement script
     torch_clip = None
     creproduced = np.ones(len(ctexts), dtype=bool)
     if have_torch:
-        import src.retrieval.clip_encoder as clip_mod
         from sentence_transformers import SentenceTransformer
+
+        import src.retrieval.clip_encoder as clip_mod
         from src.retrieval.clip_encoder import CLIPEncoder
 
         # the exact production torch path (incl. truncation patch), at the pinned revision
