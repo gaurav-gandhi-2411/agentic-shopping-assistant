@@ -125,10 +125,11 @@ COPY brands/ ./brands/
 COPY alembic.ini .
 COPY alembic/ ./alembic/
 
-# Build-time smoke as the runtime user: both encoders must load from /app/onnx_models. A file the
-# app user cannot read (the external-data files came out 0600 once) fails the BUILD here, not the
-# first request after a deploy.
-RUN python -c 'from src.retrieval.onnx_encoders import OnnxCLIPEncoder, OnnxTextEncoder; OnnxTextEncoder("all-MiniLM-L6-v2"); OnnxCLIPEncoder("clip-ViT-B-32")'
+# Build-time smoke as the runtime user: both encoders must load from /app/onnx_models, including
+# the CLIP text-tower session that is lazy at runtime (constructed here, in this throwaway process
+# only, so its memory cost never reaches the service). A file the app user cannot read (the
+# external-data files came out 0600 once) fails the BUILD here, not the first request after a deploy.
+RUN python -c 'from src.retrieval.onnx_encoders import OnnxCLIPEncoder, OnnxTextEncoder; OnnxTextEncoder("all-MiniLM-L6-v2"); OnnxCLIPEncoder("clip-ViT-B-32")._text_session()'
 
 # Indices are loaded from GCS at startup via INDEX_STORE_URI.
 # data/processed is created and chowned to the app user earlier (writable download target).

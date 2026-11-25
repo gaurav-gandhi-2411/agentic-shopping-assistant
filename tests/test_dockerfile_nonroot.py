@@ -72,6 +72,8 @@ def test_final_stage_has_onnx_models_and_no_torch_stack() -> None:
     assert any(w == "ENV" and "ONNX_MODEL_DIR=/app/onnx_models" in a for w, a in stage)
     runs = " ".join(a for w, a in stage if w == "RUN")
     assert not re.search(r"torch|transformers|sentence", runs, re.I)
+    # build smoke must touch all three towers: MiniLM, CLIP vision (eager) and CLIP text (lazy)
+    assert "OnnxTextEncoder(" in runs and "OnnxCLIPEncoder(" in runs and "_text_session()" in runs
 
 
 def test_only_the_export_stage_installs_torch() -> None:
