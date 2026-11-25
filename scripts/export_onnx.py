@@ -65,6 +65,9 @@ def _externalise(path: Path) -> None:
     model = onnx.load(str(path), load_external_data=True)
     onnx.save_model(model, str(path), save_as_external_data=True, all_tensors_to_one_file=True,
                     location=path.name + ".data", size_threshold=1024)
+    # onnx writes the data file 0600 and the runtime user is not the build user (found the hard
+    # way: ORT fails with SystemError 13 as uid 10001), so make it world-readable.
+    path.with_name(path.name + ".data").chmod(0o644)
 
 
 def _cos_min(a, b) -> float:  # noqa: ANN001

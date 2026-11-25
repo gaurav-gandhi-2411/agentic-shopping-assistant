@@ -46,7 +46,8 @@ RUN pip install --no-cache-dir \
 COPY src/retrieval/onnx_encoders.py ./src/retrieval/onnx_encoders.py
 COPY scripts/export_onnx.py ./scripts/export_onnx.py
 RUN touch src/__init__.py src/retrieval/__init__.py \
-    && python scripts/export_onnx.py --out-dir /export
+    && python scripts/export_onnx.py --out-dir /export \
+    && chmod -R a+rX /export
 
 # ---------------------------------------------------------------------------
 # Final stage: runtime only. build-essential is never installed here at all,
@@ -123,6 +124,11 @@ COPY brands/ ./brands/
 # with this image's head (api/routes/health.py check "schema"). Nothing runs them at startup.
 COPY alembic.ini .
 COPY alembic/ ./alembic/
+
+# Build-time smoke as the runtime user: both encoders must load from /app/onnx_models. A file the
+# app user cannot read (the external-data files came out 0600 once) fails the BUILD here, not the
+# first request after a deploy.
+RUN python -c 'from src.retrieval.onnx_encoders import OnnxCLIPEncoder, OnnxTextEncoder; OnnxTextEncoder("all-MiniLM-L6-v2"); OnnxCLIPEncoder("clip-ViT-B-32")'
 
 # Indices are loaded from GCS at startup via INDEX_STORE_URI.
 # data/processed is created and chowned to the app user earlier (writable download target).
