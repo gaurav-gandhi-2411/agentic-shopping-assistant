@@ -341,12 +341,12 @@ def rows(n: int, conclusion: str = "success") -> list[tuple[str, str, str]]:
 
 def test_cap_counts_prior_runs_excluding_current_and_skipped() -> None:
     r = rows(10) + [("99", "completed", "skipped"), ("500", "in_progress", "")]
-    assert canary.count_queries_today(r, "500") == 10 * canary.QUERIES_PER_RUN
+    assert canary.count_queries_today(r, "500") == 10 * canary.RUN_QUERY_BUDGET
 
 
 def test_cap_boundary() -> None:
     cap = canary.DAILY_QUERY_CAP
-    per = canary.QUERIES_PER_RUN
+    per = canary.RUN_QUERY_BUDGET
     assert not canary.would_exceed_cap(cap - per)  # exactly one more run fits
     assert canary.would_exceed_cap(cap - per + 1)
     assert canary.would_exceed_cap(cap)
@@ -361,7 +361,7 @@ def _args(tmp_path: Path, **kw: Any):
 
 
 def test_run_skips_without_querying_when_over_cap(tmp_path: Path, monkeypatch) -> None:
-    n = canary.DAILY_QUERY_CAP // canary.QUERIES_PER_RUN  # runs that exactly spend the cap
+    n = canary.DAILY_QUERY_CAP // canary.RUN_QUERY_BUDGET  # runs that exactly spend the cap
     monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n) + CURRENT)
     called = []
     monkeypatch.setattr(canary, "http_post_json", lambda *a, **k: called.append(a) or {})
@@ -555,7 +555,7 @@ def test_lookup_counts_when_current_present_and_retries(monkeypatch) -> None:
         if len(calls) == 1:
             raise canary.CanaryError("gh api failed")
         return "1\tcompleted\tsuccess\n2\tcompleted\tsuccess\n500\tin_progress\t\n"
-    assert canary.lookup_spent("o/r", "canary.yml", "2026-11-03", "500", runner) == 2 * canary.QUERIES_PER_RUN
+    assert canary.lookup_spent("o/r", "canary.yml", "2026-11-03", "500", runner) == 2 * canary.RUN_QUERY_BUDGET
     assert len(calls) == 2
 
 
@@ -734,7 +734,7 @@ def test_forced_run_may_exceed_cap_by_one_run() -> None:
 
 
 def test_forced_run_at_cap_proceeds_and_beyond_cap_errors(tmp_path: Path, monkeypatch, capsys) -> None:
-    n = canary.DAILY_QUERY_CAP // canary.QUERIES_PER_RUN  # runs that exactly spend the cap
+    n = canary.DAILY_QUERY_CAP // canary.RUN_QUERY_BUDGET  # runs that exactly spend the cap
     monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(n) + CURRENT)
     with _Server({"frames": good_frames()}) as srv:
         rc = canary.run_canary(_args(tmp_path, base_url=srv.url, force_fail=True))
@@ -820,9 +820,11 @@ def test_shipped_card_checks_match_decision_and_frontend_chips() -> None:
         assert chip in checks and chip in copy_ts  # byte-equal to what the landing page shows
     for extra in ("sherwani for groom", "lehenga for sangeet", "men's blazer for the office"):
         assert extra in checks
-    # The known gap is the only reduced floor (see the note in canary_card_checks.json).
-    assert {q: n for q, n in checks.items() if n != 4} == {chips[0]: 2}
-    assert canary.QUERIES_PER_RUN == 11 and canary.DAILY_QUERY_CAP == 33
+    # EVERY chip needs >= 4 cards: no per-chip exceptions (the Sangeet gap was fixed by #135).
+    assert set(checks.values()) == {4}
+    assert canary.QUERIES_PER_RUN == 11
+    assert canary.RUN_QUERY_BUDGET == 11 + canary.MAX_RETRIES_PER_RUN
+    assert canary.DAILY_QUERY_CAP == 3 * canary.RUN_QUERY_BUDGET
 
 
 @pytest.mark.parametrize("payload", [
@@ -841,7 +843,7 @@ def test_load_card_checks_rejects_malformed(tmp_path: Path, payload: str) -> Non
 def test_suite_specs_core_and_all() -> None:
     assert canary.suite_specs("core") == [(q, None) for q in canary.QUERIES]
     full = canary.suite_specs("all")
-    assert len(full) == canary.QUERIES_PER_RUN and full[3] == ("Sangeet outfit under ₹3,000", 2)
+    assert len(full) == canary.QUERIES_PER_RUN and full[3] == ("Sangeet outfit under ₹3,000", 4)
 
 
 def test_run_suite_paces_between_queries_only(monkeypatch) -> None:
@@ -868,10 +870,168 @@ def test_full_suite_run_alerts_on_min_cards_with_redacted_details(tmp_path: Path
         rc = canary.run_canary(_args(tmp_path, base_url=srv.url, repo="", suite="all"))
     out = json.loads((tmp_path / "r.json").read_text())
     assert rc == 1 and out["status"] == "fail" and len(out["queries"]) == canary.QUERIES_PER_RUN
-    assert len(srv.seen_user_messages) == canary.QUERIES_PER_RUN
+    # 11 queries + the 2 retries (failed queries only, capped per run)
+    assert len(srv.seen_user_messages) == canary.QUERIES_PER_RUN + canary.MAX_RETRIES_PER_RUN
+    assert out["retries"] == canary.MAX_RETRIES_PER_RUN
     failed = {q["query"]: q["failures"] for q in out["queries"] if q["failures"]}
-    assert "Sangeet outfit under ₹3,000" not in failed  # floor 2: 2 cards passes
-    assert len(failed) == 7 and all(f == ["min_cards: 2 cards < 4"] for f in failed.values())
+    assert len(failed) == 8 and all(f == ["min_cards: 2 cards < 4"] for f in failed.values())
     body = canary.build_issue_body(out, "https://x/run/1", "## Canary failed")
     assert "min_cards: 2 cards < 4" in body and "Haldi kurta set" in body
     assert "SECRET-SESSION-TOKEN" not in body and "tick123456" not in body
+
+
+# ---- warm budget, cold start, card definition, retries -------------------------------------------
+
+
+def test_warm_budget_is_8_seconds_strict() -> None:
+    assert canary.LATENCY_BUDGET_MS == 8000
+    assert any("exceeds budget" in f for f in _eval(latency_ms=8000, budget_ms=8000).failures)
+    assert _eval(latency_ms=7999.9, budget_ms=8000).ok
+
+
+def test_outfit_turn_counts_first_look_plus_more_options() -> None:
+    fs = {"outfit_variants": [{"items": _cards(3)}, {"items": _cards(5)}],
+          "more_options": _cards(2)}
+    assert len(canary.collect_cards(None, fs)) == 5  # first look only (3) + more_options (2)
+    assert len(canary.collect_cards(_cards(9), fs)) == 5  # an items frame does not add to it
+    res = _eval(items_frame=None, final_state=fs, min_cards=5)
+    assert res.ok and res.cards == 5
+    assert not _eval(items_frame=None, final_state=fs, min_cards=6).ok
+
+
+@pytest.mark.parametrize("more", [None, [], "junk", [1, "x", None]])
+def test_outfit_turn_without_usable_more_options_counts_the_look_only(more: Any) -> None:
+    fs = {"outfit_variants": [{"items": _cards(3)}], "more_options": more}
+    assert len(canary.collect_cards(None, fs)) == 3
+
+
+def test_search_turn_counts_the_items_frame_only() -> None:
+    fs = {"more_options": _cards(4), "outfit_variants": None}  # no look: not an outfit turn
+    assert len(canary.collect_cards(_cards(3), fs)) == 3
+
+
+def test_more_options_prices_are_checked_too() -> None:
+    bad = [{"article_id": "m1", "price_inr": 0}]
+    fs = {"outfit_variants": [{"items": _cards(4)}], "more_options": bad}
+    res = _eval(items_frame=None, final_state=fs)
+    assert any("m1" in f and "price_inr invalid" in f for f in res.failures)
+
+
+def _stub_queries(monkeypatch: Any, plan: dict[str, list[list[str]]]) -> list[tuple[str, float]]:
+    """run_query stub: per query a list of failure-lists, one per attempt. Returns the call log."""
+    calls: list[tuple[str, float]] = []
+    left = {q: list(v) for q, v in plan.items()}
+
+    def fake(base: str, token: str, query: str, budget: float, min_cards: Any = None) -> Any:
+        calls.append((query, budget))
+        fails = left[query].pop(0) if left.get(query) else []
+        return canary.QueryResult(query=query, latency_ms=10.0, failures=list(fails))
+
+    monkeypatch.setattr(canary, "run_query", fake)
+    return calls
+
+
+SPECS3 = [("a", None), ("b", None), ("c", None)]
+
+
+def test_retry_only_failed_queries_once_and_pass_after_retry(monkeypatch) -> None:
+    calls = _stub_queries(monkeypatch, {"b": [["boom"], []]})
+    out = canary.run_suite("u", "t", 8000, SPECS3, 0.0)
+    assert [c[0] for c in calls] == ["a", "b", "c", "b"]  # passing queries are never re-run
+    assert out[1].ok and out[1].attempts == 2 and out[1].first_failures == ["boom"]
+    assert out[0].attempts == 1 and out[2].attempts == 1
+
+
+def test_query_failing_twice_stays_failed_and_is_retried_only_once(monkeypatch) -> None:
+    calls = _stub_queries(monkeypatch, {"b": [["boom"], ["boom again"], ["third"]]})
+    out = canary.run_suite("u", "t", 8000, SPECS3, 0.0)
+    assert [c[0] for c in calls].count("b") == 2
+    assert out[1].failures == ["boom again"] and out[1].first_failures == ["boom"]
+    assert canary.classify(out) == "fail"
+
+
+def test_retries_are_capped_for_the_whole_run_first_failures_first(monkeypatch) -> None:
+    n = canary.MAX_RETRIES_PER_RUN
+    names = [f"q{i}" for i in range(n + 3)]
+    calls = _stub_queries(monkeypatch, {q: [["x"], []] for q in names})
+    out = canary.run_suite("u", "t", 8000, [(q, None) for q in names], 0.0)
+    assert len(calls) == len(names) + n  # budget accounting: first pass + exactly the cap
+    assert [r.attempts for r in out] == [2] * n + [1] * 3
+    assert all(r.failures for r in out[n:])  # beyond the cap they stay failed
+
+
+def test_retries_are_paced_and_skipped_when_capped_or_out_of_time(monkeypatch) -> None:
+    sleeps: list[float] = []
+    plan = {"a": [["x"], []], "b": [[], []], "c": [[], []]}
+    _stub_queries(monkeypatch, plan)
+    canary.run_suite("u", "t", 8000, SPECS3, 30.0, sleep=sleeps.append)
+    assert sleeps == [30.0, 30.0, 30.0]  # 2 between the 3 queries + 1 before the retry
+    calls = _stub_queries(monkeypatch, {"a": [["x"], []]})
+    ticks = iter([0.0, 0.0, 0.0, 0.0, canary.RUN_TIME_BUDGET_S + 1])
+    out = canary.run_suite("u", "t", 8000, SPECS3, 0.0, clock=lambda: next(ticks))
+    assert [c[0] for c in calls] == ["a", "b", "c"] and out[0].failures == ["x"]
+
+
+def test_capped_queries_are_not_retried(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake(base: str, token: str, query: str, budget: float, min_cards: Any = None) -> Any:
+        calls.append(query)
+        return canary.QueryResult(query=query, capped=True)
+
+    monkeypatch.setattr(canary, "run_query", fake)
+    canary.run_suite("u", "t", 8000, SPECS3, 0.0)
+    assert calls == ["a", "b", "c"]
+
+
+def test_first_query_gets_the_cold_budget_retry_gets_the_warm_one(monkeypatch) -> None:
+    calls = _stub_queries(monkeypatch, {"a": [["x"], []]})
+    canary.run_suite("u", "t", 8000, SPECS3, 0.0, first_budget_ms=120000.0)
+    assert calls == [("a", 120000.0), ("b", 8000), ("c", 8000), ("a", 8000)]
+
+
+def test_forced_run_does_not_retry(tmp_path: Path) -> None:
+    with _Server({"frames": good_frames()}) as srv:
+        canary.run_canary(_args(tmp_path, base_url=srv.url, repo="", force_fail=True, suite="all"))
+    assert len(srv.seen_user_messages) == canary.QUERIES_PER_RUN  # no extra LLM calls
+
+
+def test_cold_start_is_reported_daily_and_stays_out_of_the_warm_budget(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    seen: list[float] = []
+    monkeypatch.setattr(canary, "_now_s", iter([0.0, 7.0]).__next__)  # session start, end: 7 s
+    orig = canary.http_post_json
+
+    def slow_session(url: str, headers: Any = None, timeout: float = 75.0) -> Any:
+        seen.append(timeout)
+        return orig(url, headers, timeout)
+
+    monkeypatch.setattr(canary, "http_post_json", slow_session)
+    with _Server({"frames": good_frames()}) as srv:
+        rc = canary.run_canary(_args(tmp_path, base_url=srv.url, repo=""))
+    out = json.loads((tmp_path / "r.json").read_text())
+    assert seen[0] == canary.SESSION_TIMEOUT_S  # /demo/session may absorb a cold start
+    assert out["cold"] is True and out["cold_start_ms"] >= 7000
+    assert rc == 0 and out["status"] == "pass"  # 7 s cold start is far below the 120 s alert
+    assert "COLD_START: cold_start_ms=" in capsys.readouterr().out
+
+
+def test_warm_run_still_records_cold_start_ms(tmp_path: Path, capsys) -> None:
+    with _Server({"frames": good_frames()}) as srv:
+        canary.run_canary(_args(tmp_path, base_url=srv.url, repo=""))
+    out = json.loads((tmp_path / "r.json").read_text())
+    assert out["cold"] is False and 0 <= out["cold_start_ms"] < canary.COLD_DETECT_MS
+    assert out["retries"] == 0 and "cold_start_ms" in capsys.readouterr().out
+
+
+def test_cold_start_over_120s_fails_the_run_and_nothing_else_does(
+    tmp_path: Path, monkeypatch
+) -> None:
+    assert canary.COLD_START_ALERT_MS == 120_000
+    monkeypatch.setattr(canary, "_now_s", iter([0.0, 121.0]).__next__)  # a 121 s session call
+    with _Server({"frames": good_frames()}) as srv:
+        rc = canary.run_canary(_args(tmp_path, base_url=srv.url, repo=""))
+    out = json.loads((tmp_path / "r.json").read_text())
+    assert rc == 1 and out["status"] == "fail" and out["cold_start_ms"] > 120_000
+    assert any(f.startswith("cold_start:") for q in out["queries"] for f in q["failures"])

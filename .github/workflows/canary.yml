@@ -4,9 +4,12 @@ name: Canary
 # for the full assertion definitions, price invariant and budget maths).
 #
 # 3 fixed queries + 8 card-count checks (scripts/ops/canary_card_checks.json: 5 landing chips and
-# 3 more, each asserting a min_cards floor, mostly >= 4) = 11 queries ONCE A DAY through
+# 3 more, every one asserting >= 4 cards) = 11 queries ONCE A DAY through
 # /demo/session -> /auth/ws-ticket -> WS /chat/stream, exactly as the browser demo does, spaced
-# 30 s apart (Groq 8,000 tokens/min limit). Hard cap: 33 chat queries/day (UTC) = 3 runs,
+# 30 s apart (Groq 8,000 tokens/min limit). Warm turns must finish < 8 s; the cold start is
+# timed separately (cold_start_ms, fails only above 120 s). After the run ONLY failed queries
+# are retried, once each, at most MAX_RETRIES_PER_RUN per run. Hard cap: 3 runs/day x
+# (11 + MAX_RETRIES_PER_RUN) chat queries (UTC), counted from the workflow-runs API,
 # enforced by the script via the workflow-runs API; a capped run is a SKIP, never a failure.
 # Budget maths: docs/ops/canary-budget.md.
 # The continuous 5-minute check is the public GET /canary/status polled by an external monitor
@@ -20,7 +23,7 @@ name: Canary
 #
 # Forced-failure proof (after merge, run by GG):
 #   gh workflow run canary.yml -f force_fail=true
-# This asserts an impossible latency budget on the normal 11 queries (no extra LLM calls),
+# This asserts an impossible latency budget on the normal 11 queries (no retries, no extra LLM calls),
 # so it opens/updates the prod-alert issue; the next normal run closes it again.
 #
 # TODO(owner: GG, W9 part B, separate PR): Cloud Run ERROR-log count for the last 30 min
@@ -50,7 +53,7 @@ permissions:
 jobs:
   canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # 11 queries paced 30 s apart ~7 min nominal; script stops starting queries at 18 min
+    timeout-minutes: 25  # 11 queries (+ <= 2 retries) paced 30 s apart ~7-8 min; script stops starting queries at 18 min
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       FORCE_FAIL: ${{ inputs.force_fail }}

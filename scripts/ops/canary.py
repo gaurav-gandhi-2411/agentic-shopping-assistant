@@ -19,16 +19,34 @@ Assertions per query (all evaluated; every failure is recorded):
     * answer        - the streamed ``token`` text is non-empty after strip().
     * llm_degraded  - the answer is the LLM-busy message or a grounded-fallback reply (the LLM
                       chain is dead; cards still render). A failure, never ``capped``.
-    * cards         - >= 1 card. A card is an entry of the ``items`` frame (what the frontend
-                      renders as ``pendingItems``); if no ``items`` frame arrived, the first
-                      ``final_state.outfit_variants[*].items`` list is used instead.
+    * cards         - >= 1 card; see CARD COUNT below for exactly what is counted.
     * min_cards     - card-count floor, only for the CARD_CHECKS suite (data in
-                      canary_card_checks.json; most are >= 4). Fails with ``min_cards: N cards <
-                      M`` (query + count only, no tokens) through the normal prod-alert path.
+                      canary_card_checks.json; EVERY chip must show >= 4, no per-chip
+                      exceptions). Fails with ``min_cards: N cards < M`` (query + count only,
+                      no tokens) through the normal prod-alert path.
     * price         - see PRICE INVARIANT.
-    * latency       - ``user_message`` sent -> ``done`` received must be < LATENCY_BUDGET_MS
-                      (15 000; exactly equal fails, the spec says "< 15 s"). Cloud Run cold start is absorbed by the (separately timed,
-                      generous) /demo/session call, so it does not count against the budget.
+    * latency       - a WARM turn, ``user_message`` sent -> ``done`` received, must be <
+                      LATENCY_BUDGET_MS (8 000; exactly equal fails, the spec says "< 8 s").
+                      Cold start never counts against it, see COLD START.
+
+CARD COUNT (``collect_cards``; what the user sees). An OUTFIT turn is one whose ``done``
+``final_state.outfit_variants`` holds a look: its count is the number of items in the FIRST
+look plus ``len(final_state.more_options)`` (the "more options" row, field added in #135;
+absent/null counts 0). Every other turn is a SEARCH turn: its count is the number of entries of
+the ``items`` frame (what the frontend renders as ``pendingItems``). Non-dict entries never count.
+
+COLD START (reported every day, never part of the warm budget). ``cold_start_ms`` is the time of
+the first request, POST /demo/session. If that took >= COLD_DETECT_MS (5 000 ms) the instance was
+cold, so the first WS turn (lazy loads) is added to it and is judged against COLD_START_ALERT_MS
+instead of the warm budget. ``cold_start_ms`` goes into the SUMMARY/COLD_START lines and the
+result JSON; the run FAILS on it only above COLD_START_ALERT_MS (120 s).
+
+RETRIES. After the whole run, ONLY the failed queries are re-run, at most once each, and at most
+MAX_RETRIES_PER_RUN of them per run (first failures in query order; capped and
+time-budget-skipped queries are not retried). A query that fails twice stays failed. Budget
+accounting counts retries: a run is charged RUN_QUERY_BUDGET = QUERIES_PER_RUN +
+MAX_RETRIES_PER_RUN queries against the daily cap. The cap value comes from
+scripts/ops/canary_budget.py (all scheduled checks together <= 25% of the primary model's TPD).
 
 PRICE INVARIANT ("every card price present in item data"). The API returns no separate item
 database; the only item data is ``ItemSummary`` (api/schemas.py) as it appears in the ``items``
@@ -51,9 +69,9 @@ exempt from (a).
 BUDGET (updated for the card-count suite; numbers in docs/ops/canary-budget.md). A run is the 3
 QUERIES plus the CARD_CHECKS (8) = QUERIES_PER_RUN = 11 turns, paced QUERY_SPACING_S apart so the
 run stays under the verified 8,000 tokens/minute Groq limit (one turn is ~3.3K tokens) and the
-demo per-IP limit (35/hr, one count per WS connection: 11 per run). Hard cap 33 queries/day = 3
-runs (scheduled + 2 re-runs) instead of 12/4 runs. The text below describes the original 3-query
-design; read "3 queries" as QUERIES_PER_RUN where it concerns spend.
+demo per-IP limit (35/hr, one count per WS connection: 11 + retries per run). Hard cap = 3 runs
+(scheduled + 2 re-runs) x RUN_QUERY_BUDGET per day. The text below describes the original 3-query
+design; read "3 queries" as RUN_QUERY_BUDGET where it concerns spend.
 
 The workflow runs ONCE a day (cron) = 3 queries nominal; the continuous 5-minute check is
 the public ``GET /canary/status`` (one rotating query per fresh run, see docs/ops/canary-budget.md).
@@ -127,9 +145,19 @@ QUERIES: tuple[str, ...] = (
     "black kurta set for haldi",
     "formal shirts for office under 1500",
 )
-LATENCY_BUDGET_MS = 15_000
-WS_HARD_TIMEOUT_S = 30.0  # bound CI time/cost; the 15 s latency assertion fires well before
+LATENCY_BUDGET_MS = 8_000  # WARM turn, strict < (cold start is measured separately)
+COLD_DETECT_MS = 5_000  # /demo/session this slow or slower => the instance was cold
+COLD_START_ALERT_MS = 120_000  # cold_start_ms above this fails the run (and only this)
+WS_HARD_TIMEOUT_S = 30.0  # bound CI time/cost; the 8 s latency assertion fires well before
 HTTP_TIMEOUT_S = 75.0  # generous: Cloud Run cold starts measured at 45-60 s+ (uptime-alert.yml)
+# /demo/session is the first request and absorbs the cold start. Its timeout must exceed
+# COLD_START_ALERT_MS, otherwise a 75-120 s cold start would be a transport error instead of a
+# measured value and the 120 s alert threshold could never trip.
+SESSION_TIMEOUT_S = 130.0
+# Retries after the whole run: failed queries only, once each, at most this many per run. 2 is the
+# largest value for which ALL scheduled checks stay <= 25% of the primary model's TPD (50,000
+# tokens/day): scripts/ops/canary_budget.py computes it and tests/test_canary_budget.py gates it.
+MAX_RETRIES_PER_RUN = 2
 QUERY_SPACING_S = 30.0  # 2 turns/min x ~3.3K tokens = ~6.5K TPM < verified 8,000 TPM Groq limit
 RUN_TIME_BUDGET_S = 1080.0  # stop starting queries after 18 min; job timeout is 25 min (canary.yml)
 SNIPPET_CHARS = 500
@@ -182,8 +210,10 @@ def load_card_checks(path: Path = CARD_CHECKS_PATH) -> tuple[CardCheck, ...]:
 
 CARD_CHECKS: tuple[CardCheck, ...] = load_card_checks()
 QUERIES_PER_RUN = len(QUERIES) + len(CARD_CHECKS)
-# 3 runs/day (scheduled + 2 re-runs) x 11 queries; a forced run may add one more run.
-DAILY_QUERY_CAP = 3 * QUERIES_PER_RUN
+# A run is charged its worst case: every query plus every allowed retry (over-counting only makes
+# the cap stricter). 3 runs/day (scheduled + 2 re-runs); a forced run may add one more run.
+RUN_QUERY_BUDGET = QUERIES_PER_RUN + MAX_RETRIES_PER_RUN
+DAILY_QUERY_CAP = 3 * RUN_QUERY_BUDGET
 
 
 # --------------------------------------------------------------------------- redaction
@@ -395,6 +425,11 @@ class QueryResult:
     failures: list[str] = dataclasses.field(default_factory=list)
     # Server said demo/rate limit hit (CAP_CODES / HTTP 429): not an outage, not a pass.
     capped: bool = False
+    # Retry bookkeeping: attempts == 2 means this is the retry's result; the first attempt's
+    # failures and latency are kept so a pass-after-retry stays visible (flaky, not clean).
+    attempts: int = 1
+    first_failures: list[str] = dataclasses.field(default_factory=list)
+    first_latency_ms: float | None = None
 
     @property
     def ok(self) -> bool:
@@ -411,13 +446,32 @@ def _is_price(value: Any) -> bool:
 
 
 def collect_cards(items_frame: list[dict[str, Any]] | None, final_state: dict[str, Any]) -> list[dict[str, Any]]:
-    """Cards the user sees: the ``items`` frame, else the first outfit variant's items."""
-    if items_frame:
-        return [c for c in items_frame if isinstance(c, dict)]
+    """Cards the user sees (see CARD COUNT in the module docstring).
+
+    Outfit turn (``outfit_variants`` holds a look): the first look's items plus ``more_options``.
+    Otherwise: the ``items`` frame. Non-dict entries never count.
+    """
     variants = _as_list(final_state.get("outfit_variants"))
     if variants and isinstance(variants[0], dict):
-        return [c for c in _as_list(variants[0].get("items")) if isinstance(c, dict)]
-    return []
+        look = [c for c in _as_list(variants[0].get("items")) if isinstance(c, dict)]
+        more = [c for c in _as_list(final_state.get("more_options")) if isinstance(c, dict)]
+        return look + more
+    return [c for c in (items_frame or []) if isinstance(c, dict)]
+
+
+def price_cards(items_frame: list[dict[str, Any]] | None, final_state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cards the PRICE INVARIANT is applied to.
+
+    The ``items`` frame when there is one (so it can be cross-checked against the look items in
+    ``done``), else the first look's items; plus every ``more_options`` card.
+    """
+    shown = [c for c in (items_frame or []) if isinstance(c, dict)]
+    if not shown:
+        variants = _as_list(final_state.get("outfit_variants"))
+        if variants and isinstance(variants[0], dict):
+            shown = [c for c in _as_list(variants[0].get("items")) if isinstance(c, dict)]
+    more = [c for c in _as_list(final_state.get("more_options")) if isinstance(c, dict)]
+    return shown + more
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -505,9 +559,10 @@ def evaluate(
         res.failures.append("no product cards returned")
     if min_cards is not None and len(cards) < min_cards:
         res.failures.append(f"min_cards: {len(cards)} cards < {min_cards}")
-    price_failures, res.crosschecked = check_prices(cards, reference_prices(final_state))
+    price_failures, res.crosschecked = check_prices(
+        price_cards(items_frame, final_state), reference_prices(final_state))
     res.failures += price_failures
-    if latency_ms >= budget_ms:  # spec: latency must be < 15 s
+    if latency_ms >= budget_ms:  # spec: warm latency must be < LATENCY_BUDGET_MS
         res.failures.append(f"latency {latency_ms:.0f} ms exceeds budget {budget_ms:.0f} ms")
     return res
 
@@ -613,23 +668,23 @@ def run_query(
 
 
 def count_queries_today(run_rows: list[tuple[str, str, str]], current_run_id: str) -> int:
-    """Queries already spent today: QUERIES_PER_RUN per other workflow run, excluding skipped.
+    """Queries already spent today: RUN_QUERY_BUDGET (queries + allowed retries) per other run.
 
-    ``run_rows`` are (id, status, conclusion). Over-counts runs that died before querying; that
-    only makes the cap stricter.
+    ``run_rows`` are (id, status, conclusion); skipped runs are excluded. Over-counts runs that
+    died before querying or retried less than the maximum; that only makes the cap stricter.
     """
     prior = [r for r in run_rows if r[0] != current_run_id and r[2] != "skipped"]
-    return len(prior) * QUERIES_PER_RUN
+    return len(prior) * RUN_QUERY_BUDGET
 
 
 def would_exceed_cap(spent: int, cap: int = DAILY_QUERY_CAP, forced: bool = False) -> bool:
-    """True if running another QUERIES_PER_RUN queries would pass ``cap``.
+    """True if running another RUN_QUERY_BUDGET queries would pass ``cap``.
 
     A forced-failure run (the alert-path proof) may exceed the cap by one run: it is allowed
-    when spent + QUERIES_PER_RUN <= cap + QUERIES_PER_RUN.
+    when spent + RUN_QUERY_BUDGET <= cap + RUN_QUERY_BUDGET.
     """
-    allowed = cap + (QUERIES_PER_RUN if forced else 0)
-    return spent + QUERIES_PER_RUN > allowed
+    allowed = cap + (RUN_QUERY_BUDGET if forced else 0)
+    return spent + RUN_QUERY_BUDGET > allowed
 
 
 GhRunner = Callable[[list[str], str | None], str]
@@ -801,6 +856,9 @@ def apply_issue_action(repo: str, result: dict[str, Any], run_url: str, runner: 
 # --------------------------------------------------------------------------- CLI
 
 
+_now_s: Callable[[], float] = time.perf_counter  # times /demo/session; patched in tests
+
+
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -810,7 +868,8 @@ def summarize(results: list[QueryResult]) -> str:
     return (f"SUMMARY: queries={len(results)} passed={sum(r.ok for r in results)} "
             f"capped={sum(r.capped for r in results)} "
             f"cards={sum(r.cards for r in results)} "
-            f"crosschecked_total={sum(r.crosschecked for r in results)}")
+            f"crosschecked_total={sum(r.crosschecked for r in results)} "
+            f"retries={sum(r.attempts > 1 for r in results)}")
 
 
 def classify(results: list[QueryResult]) -> str:
@@ -834,14 +893,24 @@ def suite_specs(suite: str) -> list[tuple[str, int | None]]:
     return specs
 
 
+TIME_BUDGET_FAILURE = f"run time budget {RUN_TIME_BUDGET_S:.0f} s exhausted"
+
+
 def run_suite(
     base: str, token: str, budget_ms: float, specs: list[tuple[str, int | None]], pace_s: float,
     sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+    first_budget_ms: float | None = None, max_retries: int = MAX_RETRIES_PER_RUN,
 ) -> list[QueryResult]:
     """Run the queries one by one, ``pace_s`` apart (TPM limit), within RUN_TIME_BUDGET_S.
 
     A query not started because the time budget is spent is recorded as a failure (fail closed:
     a canary that silently skipped its checks must not look green).
+
+    ``first_budget_ms`` replaces ``budget_ms`` for the FIRST query only (a cold instance: see
+    COLD START). Then, after the whole run, the failed queries (not capped, not time-skipped) are
+    retried once each, in query order, at most ``max_retries`` in total, paced and time-boxed like
+    the first pass. A retry's result replaces the original (keeping its first failures); a query
+    that fails twice stays failed, and failures beyond the cap are never retried.
     """
     started = clock()
     results: list[QueryResult] = []
@@ -849,10 +918,26 @@ def run_suite(
         if i and pace_s > 0:
             sleep(pace_s)
         if clock() - started > RUN_TIME_BUDGET_S:
-            results.append(QueryResult(
-                query=query, failures=[f"run time budget {RUN_TIME_BUDGET_S:.0f} s exhausted"]))
+            results.append(QueryResult(query=query, failures=[TIME_BUDGET_FAILURE]))
             continue
-        results.append(run_query(base, token, query, budget_ms, min_cards=min_cards))
+        bud = first_budget_ms if i == 0 and first_budget_ms is not None else budget_ms
+        results.append(run_query(base, token, query, bud, min_cards=min_cards))
+    retryable = [i for i, r in enumerate(results)
+                 if r.failures and not r.capped and TIME_BUDGET_FAILURE not in r.failures]
+    for i in retryable[:max(0, max_retries)]:
+        if pace_s > 0:
+            sleep(pace_s)
+        if clock() - started > RUN_TIME_BUDGET_S:
+            break  # no time left: the original failure stands
+        query, min_cards = specs[i]
+        first = results[i]
+        again = run_query(base, token, query, budget_ms, min_cards=min_cards)
+        if again.capped:
+            continue  # a demo limit says nothing about the query: the original failure stands
+        again.attempts = 2
+        again.first_failures = list(first.failures)
+        again.first_latency_ms = first.latency_ms
+        results[i] = again
     return results
 
 
@@ -894,11 +979,16 @@ def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
             return 0
     base = args.base_url.rstrip("/")
     results: list[QueryResult] = []
+    t_session = _now_s()
+    cold = False
     try:
-        token = http_post_json(f"{base}/demo/session").get("session_token")
+        token = http_post_json(f"{base}/demo/session", timeout=SESSION_TIMEOUT_S).get(
+            "session_token")
+        session_ms = (_now_s() - t_session) * 1000
         if not isinstance(token, str) or not token:
             raise CanaryError("POST /demo/session response has no session_token")
     except CanaryError as exc:
+        session_ms = (_now_s() - t_session) * 1000
         first = evaluate(QUERIES[0], answer="", items_frame=None, final_state=None,
                          latency_ms=0, budget_ms=budget, protocol_error=str(exc))
         if exc.http_status == 429:  # frontend treats 429 as "daily limit", not an outage
@@ -906,8 +996,26 @@ def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
             first.capped = True
         results = [first]
     else:
+        cold = session_ms >= COLD_DETECT_MS
+        # A cold instance's first turn is judged against the cold alert threshold, not the warm
+        # budget (a forced run keeps its impossible budget so the alert path is still proven).
+        first_budget = float(COLD_START_ALERT_MS) if cold and budget > 0 else None
         results = run_suite(base, token, budget, suite_specs(getattr(args, "suite", "all")),
-                            float(getattr(args, "pace_s", 0.0)))
+                            float(getattr(args, "pace_s", 0.0)), first_budget_ms=first_budget,
+                            max_retries=0 if forced else MAX_RETRIES_PER_RUN)
+    first_turn_ms = 0.0
+    if cold and results:
+        r0 = results[0]
+        first_turn_ms = (r0.first_latency_ms if r0.attempts > 1 else r0.latency_ms) or 0.0
+    cold_start_ms = round(session_ms + first_turn_ms, 1)
+    if cold_start_ms > COLD_START_ALERT_MS and results:
+        results[0].failures.append(
+            f"cold_start: {cold_start_ms:.0f} ms exceeds alert threshold {COLD_START_ALERT_MS} ms")
+    retries = sum(r.attempts > 1 for r in results)
+    result["cold_start_ms"] = cold_start_ms
+    result["session_ms"] = round(session_ms, 1)
+    result["cold"] = cold
+    result["retries"] = retries
     result["queries"] = [dataclasses.asdict(r) | {"ok": r.ok, "answer": snippet(r.answer)}
                          for r in results]
     result["status"] = classify(results)
@@ -916,7 +1024,12 @@ def _run_inner(args: argparse.Namespace, result: dict[str, Any]) -> int:
         print(f"{'PASS' if r.ok else 'CAPPED' if r.capped else 'FAIL'} {r.query!a}: "
               f"latency={r.latency_ms} ms cards={r.cards} crosschecked={r.crosschecked} "
               f"answer_chars={len(r.answer)}"
+              + (f" attempts={r.attempts} first_failures={ascii(r.first_failures)}"
+                 if r.attempts > 1 else "")
               + ("" if not r.failures else f" failures={ascii(r.failures)}"))
+    print(f"COLD_START: cold_start_ms={cold_start_ms:.0f} session_ms={session_ms:.0f} "
+          f"cold={'true' if cold else 'false'} first_turn_ms={first_turn_ms:.0f} "
+          f"(alert > {COLD_START_ALERT_MS} ms)")
     print(summarize(results))
     if result["status"] == "capped":
         print("::warning::Demo daily/rate cap hit - canary inconclusive (not a pass, no alert change)")
