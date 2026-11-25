@@ -123,7 +123,10 @@ class TestPromptParityWithEvalC:
         assert variants.build_compact_prompt("grey gown <3000", POOL) == build_prompt(
             "grey gown <3000", POOL
         )
-        assert variants.C_MAX_TOKENS == RERANK_MAX_TOKENS
+        # The prompt is byte-identical; the cap is NOT: eval C ran at 400, production at 700 after
+        # the live gate of 2026-11-25 (q15 finish_reason=length at 400).
+        assert variants.C_MAX_TOKENS == 400
+        assert RERANK_MAX_TOKENS == 700
 
 
 # --- parsing and ID validation --------------------------------------------------------------
@@ -296,7 +299,7 @@ class TestRequestParameters:
         llm = FakeComplete(_done("1,2,3,4,5"))
         rerank("grey gown", POOL, llm)
         messages, kw = llm.calls[0]
-        assert kw == {"temperature": 0, "max_tokens": 400, "reasoning_effort": "low",
+        assert kw == {"temperature": 0, "max_tokens": 700, "reasoning_effort": "low",
                       "retry": False, "timeout_s": 1.8}  # no "model": primary default
         assert [m["role"] for m in messages] == ["system", "user"]
         assert (messages[0]["content"], messages[1]["content"]) == build_prompt("grey gown", POOL)

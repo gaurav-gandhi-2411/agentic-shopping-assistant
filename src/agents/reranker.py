@@ -1,9 +1,9 @@
 """LLM reranker: stage-2 eval variant "C" (compact reranker), promoted to production.
 
 Candidates are numbered 1..N (never long article ids), one short line each; the model answers
-with the best 8 numbers, best first. The prompt text, the line format and the 400-token cap are
-byte-for-byte the eval's variant C (evals/retrieval/variants.py on feat/v4-retrieval-eval);
-tests/test_reranker.py pins them. Retired with the old reranker: the long production prompt, its
+with the best 8 numbers, best first. The prompt text and the line format are byte-for-byte the
+eval's variant C (evals/retrieval/variants.py on feat/v4-retrieval-eval); tests/test_reranker.py
+pins them. The completion cap is the one deliberate difference (700 here, 400 in the eval). Retired with the old reranker: the long production prompt, its
 JSON answer and the 150-token cap (the cause of the truncations the stage-2 eval found). The old
 prompt's hard rules (beach / occasion / season / colour) and the colour-diversity swap now live
 in code: src/agents/rerank_filters.py, applied after the model's order on every outcome.
@@ -57,12 +57,15 @@ OUTCOMES = (
     "no_llm_call",
 )
 
-# Completion cap. gpt-oss reasoning tokens count against it. Sized from the stage-2 variant C
-# ledger (53 live calls at reasoning_effort=low, cap 400, reports/wave1b/v4e/ledger.jsonl):
-# completion_tokens min 39, p50 123, p95 286.6, p99 312.9, max 316, finish_reason=stop on all 53.
-# 400 = 1.27x the observed max, so length = 0 on those 53. It is a ceiling, not a spend (the mean
-# completion was far below it).
-RERANK_MAX_TOKENS = 400
+# Completion cap. gpt-oss reasoning tokens count against it. It was 400, sized from the stage-2
+# variant C ledger (53 calls at reasoning_effort=low, reports/wave1b/v4e/ledger.jsonl: completion
+# max 316, p99 312.9, finish_reason=stop on all 53). The live gate of 2026-11-25 hit it: q15
+# returned finish_reason=length (400 completion, 385 of them reasoning) and fell back to
+# retrieval order, although the eval answered the same query in 316. So the reasoning tail is
+# wider than 53 calls showed. 700 covers the stage-2 A2 reasoning max (598). It is a ceiling, not
+# a spend (mean completion about 140 in both runs); only the worst-case reservation grows.
+# See evals/retrieval/results/gate_cap_decision.md.
+RERANK_MAX_TOKENS = 700
 # Groq accepts temperature 0 (the eval sent 0 on all 53 calls and got HTTP 200); it is the lowest
 # value the API allows, so this is what is sent.
 RERANK_TEMPERATURE = 0
