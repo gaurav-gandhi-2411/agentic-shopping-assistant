@@ -63,3 +63,8 @@ def test_status_run_cap_is_tied_to_the_endpoint_constant() -> None:
     src = (OPS.parents[1] / "api" / "routes" / "canary.py").read_text(encoding="utf-8")
     m = re.search(r"^MAX_RUNS_PER_DAY = (\d+)", src, re.M)
     assert m is not None and int(m.group(1)) == budget.STATUS_RUNS_PER_DAY
+
+
+def test_ws_daily_cap_equals_the_budgeted_runs() -> None:
+    per_run = canary.QUERIES_PER_RUN + canary.MAX_RETRIES_PER_RUN
+    assert canary.DAILY_QUERY_CAP == budget.WS_RUNS_PER_DAY * per_run == 13

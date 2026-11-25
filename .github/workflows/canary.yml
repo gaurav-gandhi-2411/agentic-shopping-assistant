@@ -8,9 +8,10 @@ name: Canary
 # /demo/session -> /auth/ws-ticket -> WS /chat/stream, exactly as the browser demo does, spaced
 # 30 s apart (Groq 8,000 tokens/min limit). Warm turns must finish < 8 s; the cold start is
 # timed separately (cold_start_ms, fails only above 120 s). After the run ONLY failed queries
-# are retried, once each, at most MAX_RETRIES_PER_RUN per run. Hard cap: 3 runs/day x
-# (11 + MAX_RETRIES_PER_RUN) chat queries (UTC), counted from the workflow-runs API,
-# enforced by the script via the workflow-runs API; a capped run is a SKIP, never a failure.
+# are retried, once each, at most MAX_RETRIES_PER_RUN per run. Hard cap: ONE run per UTC day
+# (11 + MAX_RETRIES_PER_RUN = 13 chat queries), counted from the workflow-runs API by the script,
+# which the token budget assumes. A manual dispatch or re-run on a day that already has a run is
+# SKIPPED (exit 0, status skip), never a failure; only force_fail may exceed the cap, by one run.
 # Budget maths: docs/ops/canary-budget.md.
 # The public GET /canary/status (api/routes/canary.py) is NOT polled by anything today and is
 # capped at 3 runs/day, so it is not a continuous monitor; this workflow is the daily WS-path proof.

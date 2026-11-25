@@ -69,8 +69,9 @@ exempt from (a).
 BUDGET (updated for the card-count suite; numbers in docs/ops/canary-budget.md). A run is the 3
 QUERIES plus the CARD_CHECKS (8) = QUERIES_PER_RUN = 11 turns, paced QUERY_SPACING_S apart so the
 run stays under the verified 8,000 tokens/minute Groq limit (one turn is ~3.3K tokens) and the
-demo per-IP limit (35/hr, one count per WS connection: 11 + retries per run). Hard cap = 3 runs
-(scheduled + 2 re-runs) x RUN_QUERY_BUDGET per day. The text below describes the original 3-query
+demo per-IP limit (35/hr, one count per WS connection: 11 + retries per run). Hard cap = 1 run
+(RUN_QUERY_BUDGET = 13 queries) per UTC day; a second run that day is skipped, not failed. The
+text below describes the original 3-query
 design; read "3 queries" as RUN_QUERY_BUDGET where it concerns spend.
 
 The workflow runs ONCE a day (cron) = 3 queries nominal; the continuous 5-minute check is
@@ -211,9 +212,11 @@ def load_card_checks(path: Path = CARD_CHECKS_PATH) -> tuple[CardCheck, ...]:
 CARD_CHECKS: tuple[CardCheck, ...] = load_card_checks()
 QUERIES_PER_RUN = len(QUERIES) + len(CARD_CHECKS)
 # A run is charged its worst case: every query plus every allowed retry (over-counting only makes
-# the cap stricter). 3 runs/day (scheduled + 2 re-runs); a forced run may add one more run.
+# the cap stricter). The budget (docs/ops/canary-budget.md) assumes ONE WS canary run a day, so the
+# daily cap is exactly one run: a same-day manual dispatch or re-run is SKIPPED (exit 0, status
+# skip, not a failure). A force_fail run may exceed the cap by one run (it makes no retries).
 RUN_QUERY_BUDGET = QUERIES_PER_RUN + MAX_RETRIES_PER_RUN
-DAILY_QUERY_CAP = 3 * RUN_QUERY_BUDGET
+DAILY_QUERY_CAP = RUN_QUERY_BUDGET
 
 
 # --------------------------------------------------------------------------- redaction

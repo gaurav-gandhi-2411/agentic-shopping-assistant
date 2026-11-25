@@ -36,8 +36,7 @@ the primary 429s. **Real user chat shares the same org limits** (and `DEMO_DAILY
 **All SCHEDULED checks combined must stay <= 25% of the primary model's tokens per day.** The
 200,000 TPD figure is **UNVERIFIED** (see above), so the ceiling is 50,000 tokens/day *if* that
 figure holds. Worst case = 3 deploys/day, `/readyz` cron at its nominal 96/day, the WS canary's
-single scheduled run. Manual re-runs of the canary (up to 2 more runs/day by the daily cap) are
-not "scheduled" and are not in the table.
+single run per day, which the daily cap enforces (manual re-runs the same day are skipped).
 
 The table is produced by a committed script, not by hand, and gated by a test:
 
@@ -74,7 +73,7 @@ turn because the cap cannot know which query will fail and a search turn is the 
 kind. Alternative bound, stated for completeness: priced at the cheaper outfit turn (1,390) three
 retries would fit (49,400), but a failing query is not known to be an outfit one, so the search
 price is used. The cap is `MAX_RETRIES_PER_RUN = 2` in `scripts/ops/canary.py`; the daily cap
-charges each run `11 + 2` queries (`RUN_QUERY_BUDGET`, `DAILY_QUERY_CAP` = 3 x 13 = 39).
+charges each run `11 + 2` queries (`RUN_QUERY_BUDGET`), and `DAILY_QUERY_CAP` equals one run (13), which is what this budget assumes: a manual dispatch or re-run on the same UTC day is skipped (exit 0, status `skip`, not a failure) and costs nothing. A `force_fail` dispatch (alert-path proof, no retries) may exceed the cap by one run. `tests/test_canary_budget.py` ties `DAILY_QUERY_CAP` to `WS_RUNS_PER_DAY x (11 + MAX_RETRIES_PER_RUN)`.
 
 ## Per minute, demo limit, time
 
@@ -82,8 +81,7 @@ charges each run `11 + 2` queries (`RUN_QUERY_BUDGET`, `DAILY_QUERY_CAP` = 3 x 1
   variant C, 6,690 with today's reranker (2 x 3,345), both under the limit; a real chat in the same
   minute can still push a minute over it.
 - Demo per-IP limit (35/hour, VERIFIED in `api/demo/guards.py`, one count per WS connection): at most
-  13 per run (11 + 2 retries), 39 for three runs inside one hour from one runner IP: a third run
-  inside one hour could hit it, which is `capped`, not a failure.
+  13 per run (11 + 2 retries) and one run a day, so it cannot be reached by the canary alone.
 - Time: pacing alone is 12 x 30 s = 6 min for 13 queries; the script stops starting queries after
   1,080 s (fail closed) and the job timeout is 25 min.
 

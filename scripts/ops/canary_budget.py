@@ -33,6 +33,8 @@ UPTIME_PROBES_PER_DAY = 96  # uptime-alert.yml cron */15, nominal worst case
 # api/routes/canary.py MAX_RUNS_PER_DAY (tied by a test): the public endpoint's hard daily cap.
 # Nothing calls it on a schedule today; this is the worst case if it is hammered.
 STATUS_RUNS_PER_DAY = 3
+# canary.py DAILY_QUERY_CAP (tied by a test): exactly one WS canary run per UTC day.
+WS_RUNS_PER_DAY = 1
 
 
 @dataclass(frozen=True)

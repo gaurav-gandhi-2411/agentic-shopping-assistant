@@ -824,7 +824,7 @@ def test_shipped_card_checks_match_decision_and_frontend_chips() -> None:
     assert set(checks.values()) == {4}
     assert canary.QUERIES_PER_RUN == 11
     assert canary.RUN_QUERY_BUDGET == 11 + canary.MAX_RETRIES_PER_RUN
-    assert canary.DAILY_QUERY_CAP == 3 * canary.RUN_QUERY_BUDGET
+    assert canary.DAILY_QUERY_CAP == canary.RUN_QUERY_BUDGET == 13  # exactly one run a day
 
 
 @pytest.mark.parametrize("payload", [
@@ -1035,3 +1035,14 @@ def test_cold_start_over_120s_fails_the_run_and_nothing_else_does(
     out = json.loads((tmp_path / "r.json").read_text())
     assert rc == 1 and out["status"] == "fail" and out["cold_start_ms"] > 120_000
     assert any(f.startswith("cold_start:") for q in out["queries"] for f in q["failures"])
+
+
+def test_same_day_manual_dispatch_is_skipped_not_failed(tmp_path: Path, monkeypatch, capsys) -> None:
+    """One run already spent today (the scheduled one): a manual dispatch/re-run is a skip."""
+    monkeypatch.setattr(canary, "fetch_run_rows", lambda *a, **k: rows(1) + CURRENT)
+    called: list[Any] = []
+    monkeypatch.setattr(canary, "http_post_json", lambda *a, **k: called.append(a) or {})
+    assert canary.run_canary(_args(tmp_path)) == 0  # exit 0: not a failure
+    out = json.loads((tmp_path / "r.json").read_text())
+    assert out["status"] == "skip" and "daily cap" in out["note"] and called == []
+    assert canary.classify([]) == "pass" and canary.decide_issue_action("skip", [4]).kind == "none"
