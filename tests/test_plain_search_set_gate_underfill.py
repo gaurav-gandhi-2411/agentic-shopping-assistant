@@ -85,7 +85,8 @@ def _catalogue(names: list[str]) -> pd.DataFrame:
             "price_inr": 5000.0 + i,
             "pdp_handle": f"h{i}",
             "pdp_live": True,
-            "store": "vastramay",
+            # spread over stores: plain search now shows at most 2 cards per store
+            "store": ("vastramay", "kisah", "jadeblue", "mohanlalsons", "rathore", "jompers")[i % 6],
             "gender": "men",
             "colour_group_name": "Gold",
             "product_type_name": "sherwani",

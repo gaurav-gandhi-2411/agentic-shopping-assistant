@@ -449,6 +449,7 @@ def post_chat(
             cart_url=_base_cart_url,
             item_links=_base_item_links,
             suggestion_chips=_chips,
+            gender_refine=result.get("gender_refine") or None,
             suppressed_slots=result.get("suppressed_slots") or None,
             look_role=_normalize_look_role(result.get("look_role")),
             look_title=result.get("look_title"),
@@ -839,6 +840,7 @@ async def run_chat_turn(
                 if _ws_base_item_links else None
             ),
             "suggestion_chips": result.get("suggestion_chips") or None,
+            "gender_refine": result.get("gender_refine") or None,
             "suppressed_slots": result.get("suppressed_slots") or None,
             "look_role": _normalize_look_role(result.get("look_role")),
             "look_title": result.get("look_title"),

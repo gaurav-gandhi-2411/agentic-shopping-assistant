@@ -154,4 +154,7 @@ def apply_rules(
             it for it in ok if not _BEACH_PREFER.search(_text(it))]
     shown, swapped = _diversity_swap(query, ok[:top_k], ok[top_k:])
     info["diversity_swap"] = swapped
+    # The whole rule-compliant ordered list (not only the top_k): plain-search post-processing
+    # (de-dup / store cap / budget / gender mix) backfills from it. Not part of the log line.
+    info["compliant"] = ok
     return shown, info

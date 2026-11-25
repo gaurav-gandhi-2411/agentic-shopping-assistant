@@ -237,8 +237,23 @@ def rerank(
     whole ordered list. Returns up to `top_k` items (fewer only if fewer comply with the rules).
     `allow_fallback` (production default True) permits the one gpt-oss-120b attempt; the live
     gate passes False so eval traffic never reaches the tier production depends on."""
+    return rerank_ranked(query, items, llm, top_k, allow_fallback)[0]
+
+
+def rerank_ranked(
+    query: str,
+    items: list[dict],
+    llm: LLMClient,
+    top_k: int = 5,
+    allow_fallback: bool = True,
+) -> tuple[list[dict], list[dict]]:
+    """`rerank()` plus the rest of the ranked list: (shown top_k, remaining compliant candidates).
+
+    `shown` is exactly what `rerank()` returns; `rest` is every other rule-compliant candidate in
+    the order the model then retrieval gave them, so a caller that drops cards from `shown`
+    (duplicates, store cap, budget) can backfill from it. Same single model call, same log line."""
     if len(items) <= top_k:
-        return items
+        return items, []
 
     system, user = build_prompt(query, items)
     t0 = time.monotonic()
@@ -260,7 +275,8 @@ def rerank(
 
     _log(outcome, reply, error_kind, len(items), len(picks), n_unknown, n_duplicate,
          round((time.monotonic() - t0) * 1000), path, rules)
-    return shown
+    shown_ids = {it["article_id"] for it in shown}
+    return shown, [it for it in rules["compliant"] if it["article_id"] not in shown_ids]
 
 
 def _log(
