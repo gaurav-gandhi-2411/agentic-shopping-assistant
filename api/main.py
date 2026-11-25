@@ -414,10 +414,15 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # DISABLE_API_DOCS=true removes /docs, /redoc and /openapi.json (default OFF: unchanged).
+    docs_off = os.environ.get("DISABLE_API_DOCS", "").strip().lower() in ("1", "true", "yes")
     app = FastAPI(
         title="Agentic Shopping Assistant API",
         version="1.0.0",
         lifespan=lifespan,
+        docs_url=None if docs_off else "/docs",
+        redoc_url=None if docs_off else "/redoc",
+        openapi_url=None if docs_off else "/openapi.json",
     )
 
     allowed_origins = os.environ.get(
