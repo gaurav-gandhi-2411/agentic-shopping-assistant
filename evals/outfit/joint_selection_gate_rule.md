@@ -72,3 +72,34 @@ Per anchor: slots <= 4, candidates <= 20 per slot, worst case 20^4 nodes, pruned
 (current + sum of remaining per-slot maxima, lexicographic) and by the remaining budget. Anchors
 <= 20. Retrieval is cached per (query, filters) inside one compose call. Wall budget constant
 `JOINT_WALL_BUDGET_S`; deadline checked at every search node and between anchors.
+
+## Amendments registered before any joint-selector result was computed
+
+Master was measured first (code at a99b4c1, identical to ad17f47 outside this doc), then these
+two clarifications were made, still before the joint selector had ever been run:
+
+* Item value normalisation: `final_score / max final_score` is taken over the slot's options
+  across all anchor plans of one compose call (one reference per slot name), not per (anchor,
+  slot) list; a per-list reference would give an anchor with poor slot options the same value
+  as one with excellent options. The anchor's value is its retrieval score over the best
+  retrieval score in the anchor pool.
+* Gate 6 reading: on master the 72-cell audit already reports 2 hits, both verified by hand as
+  audit false positives ("Black Printed Maxi Dress With Belt" matches `belt`; "Men's Yellow
+  Lehariya Cotton Kurta & Pyjama Set" is typed nightwear but is a real set). Gate 6 holds when
+  kids = 0, gender violations = 0 and the audit's hits are a subset of those two.
+
+## Master baseline (measured, index = recorded local build, venv Python 3.13)
+
+Commands: `outfit_compose_snapshot.py --check`, `outfit_joint_eval.py grid|rows|latency` run from a
+`git archive` export of a99b4c1 (plus this branch's two measurement-only scripts).
+
+| measure | master |
+|---|---|
+| snapshot --check | 30/30 identical (index fingerprint matched) |
+| grid cells with >= 3 cards | 29/36, over-budget cells 0 |
+| `casual outfit under ₹2500 for men`, Base look cards | 2 |
+| 72-cell row grid: cards / standalone bottoms | 335 / 25 (the #135 text said 23 of 358) |
+| 72-cell audit hits | 2 (the two false positives above), kids 0, gender violations 0 |
+| Sangeet women ₹3,000 turn, n=10 warm | median 2202 ms (min 2115, max 2312) |
+
+Latency limit (gate 5) = 2202 x 1.10 = 2422 ms.
