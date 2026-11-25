@@ -54,6 +54,28 @@ def test_load_queries_reads_text_field_in_order(tmp_path: Path) -> None:
     assert gate.load_queries(tmp_path) == ["first", "second"]
 
 
+def test_bars_are_the_pre_registered_numbers() -> None:
+    import re
+
+    assert gate.MIN_COS == 0.9999 and gate.MIN_OVERLAP == 0.99
+    rule = (Path(__file__).parents[1] / "evals" / "onnx_equivalence_rule.md").read_text(
+        encoding="utf-8"
+    )
+    bars = {float(x) for x in re.findall(r"^- C\d.*?>=\s*(\d+\.\d+)", rule, flags=re.M | re.S)}
+    assert bars == {gate.MIN_COS, gate.MIN_OVERLAP}
+
+
+def test_pass_flag_flips_at_the_cosine_bar() -> None:
+    stored = np.array([[1.0, 0.0]] * 4, dtype=np.float32)
+
+    def with_cos(c: float) -> dict:
+        v = np.array([[c, np.sqrt(1 - c * c)]] * 4, dtype=np.float32)
+        return gate.controlled_stats(v, stored.copy(), stored)
+
+    assert with_cos(0.99995)["pass"] is True
+    assert with_cos(0.99985)["pass"] is False  # below 0.9999
+
+
 def _unit(rows: np.ndarray) -> np.ndarray:
     return (rows / np.linalg.norm(rows, axis=1, keepdims=True)).astype(np.float32)
 
