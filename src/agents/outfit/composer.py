@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import functools
 import logging
 import math
 import re
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -18,12 +20,21 @@ from src.agents.outfit.coherence import (
     is_coherent_candidate,
     is_western_register_occasion,
 )
+from src.agents.outfit.joint import (
+    AnchorPlan,
+    JointTimeout,
+    Option,
+    SlotChoices,
+    select_joint,
+)
 from src.agents.outfit.occasions import get_occasion
 from src.agents.outfit.slots import (
     _FORMAL_ETHNIC_OCCASIONS,
+    ETHNIC_BOTTOM_KEYWORDS,
     FOOTWEAR_KEYWORDS,
     NON_OUTFIT_ITEM_CLASSES,
     SLOT_ALLOWED_CLASSES,
+    WESTERN_BOTTOM_KEYWORDS,
     accessory_query_matches,
     classify_anchor,
     classify_item,
@@ -105,6 +116,24 @@ _PRICE_OUTLIER_FACTOR: float = 8.0
 # 25 @0.6 (9 before any change). 0.4 gives up one cell vs 0.3 but keeps pricier, more
 # representative anchors, so it is the default.
 ANCHOR_BUDGET_FRACTION: float = 0.4
+
+# Joint seed + slot selection (see _joint_selection and src/agents/outfit/joint.py): with a stated
+# budget, the anchor and every slot item are chosen together to fill the most required slots, then
+# the most cards, then the most relevant set, within the budget. Switch off to get the greedy
+# path (the pre-joint behaviour, kept as the fallback and as the comparison baseline in
+# evals/outfit/joint_selection_gate_rule.md).
+JOINT_SELECTION_ENABLED: bool = True
+# Wall-clock budget for the joint stage of ONE compose_outfit call, searches included. On timeout
+# the greedy path runs instead (logged). A turn composes up to three looks (probe/base + two
+# variants), so the worst case is three of these on top of the greedy fallback.
+JOINT_WALL_BUDGET_S: float = 2.0
+_JOINT_TOP_N: int = 20  # options kept per slot
+# Slot fetch window. One search costs the same for any top_k (the fused window is fixed by
+# retrieval.top_k); a wide top_k just stops the diversified top 40 from hiding the cheap options a
+# tight budget needs.
+_JOINT_FETCH_K: int = 40
+_JOINT_MAX_ANCHORS: int = 8  # anchor candidates considered
+_JOINT_MAX_ANCHOR_CLASSES: int = 1  # distinct anchor classes (each needs its own slot searches)
 
 # Window for the one-shot retry when a budget-capped slot search yields no survivor (see
 # _find_best_candidate); the normal window stays 40.
@@ -319,6 +348,10 @@ def compose_outfit(
     # Gate-passing, in-budget anchor candidates of the occasion-driven anchor stage, kept (no
     # extra retrieval) so the caller can offer alternates. None unless that stage ran with a budget.
     anchor_alternates: list[dict] | None = None
+    # Set only by the budgeted occasion-driven anchor stage when joint selection succeeded.
+    joint: _JointChoice | None = None
+    # A joint look that left a slot empty: only used if it beats the greedy look (see Step 2).
+    joint_alt: _JointChoice | None = None
 
     # ── Step 1: resolve seed item ───────────────────────────────────────────
     if seed_article_id:
@@ -393,6 +426,20 @@ def compose_outfit(
                 and not has_gender_text_conflict(
                     c.get("prod_name") or c.get("display_name") or "", _anchor_look_gender
                 )
+                # Garment gate (joint-selection PR): the seed must be a real garment. A rakhi,
+                # belt or other accessory used to reach the seed when the price cap left only
+                # cheap non-garments (men's budget Rs 800); the more-options row already applied
+                # the same _is_outfit_garment predicate. Last in the chain: it is the costliest.
+                # Budgeted turns only: the no-budget path is held byte-identical (a bridal
+                # "Kalira" still seeds the no-budget reception look; a follow-up, with a fixture
+                # re-record, can extend the gate there).
+                and (
+                    budget_inr is None
+                    or _is_outfit_garment(
+                        c.get("product_type") or "",
+                        c.get("prod_name") or c.get("display_name") or "",
+                    )
+                )
             ]
 
         valid = _valid_anchors(candidates)
@@ -447,7 +494,27 @@ def compose_outfit(
                 f"Try a catalogue that stocks {gender}'s fashion."
             )
             return _empty_result(look_id, occasion_slug, gender, _no_anchor_msg)
-        seed_item = valid[0]
+        if budget_inr is not None and JOINT_SELECTION_ENABLED and not owned_anchor:
+            joint = _joint_selection(
+                retriever=retriever,
+                valid=valid,
+                budget=budget_inr,
+                occasion_slug=occasion_slug,
+                gender=gender,
+                brand_gender_default=brand_gender_default,
+                exclude_ids=exclude_ids or set(),
+                pairing_stats=pairing_stats,
+                body_type=body_type,
+                body_modifiers=body_modifiers,
+                formality_override=formality_override,
+            )
+        if joint is not None and joint.suppressed_slots:
+            # The joint pools come from one shared fetch, so cheap options a tight budget needs
+            # can be missing from them. When the joint look leaves ANY slot empty, also run the
+            # greedy path (its per-slot price caps see those options) and keep whichever fills
+            # more required slots, then more cards (see the end of Step 2).
+            joint_alt, joint = joint, None
+        seed_item = joint.seed if joint else valid[0]
         seed_item["_role"] = "seed"
         seed_article_id = seed_item["article_id"]
         if budget_inr is not None:
@@ -509,7 +576,7 @@ def compose_outfit(
         (i for i, s in enumerate(fill_slots) if s.slot_name == "footwear" and s.required), None
     )
     _footwear_floor: float | None = None
-    if budget_inr is not None and _footwear_idx is not None:
+    if budget_inr is not None and _footwear_idx is not None and joint is None:
         try:
             _footwear_floor = footwear_price_floor(retriever, effective_gender, occasion_slug)
         except Exception:  # noqa: BLE001 - floor only improves packing; never block a look
@@ -522,7 +589,8 @@ def compose_outfit(
                 )
             _footwear_floor = None
 
-    for slot_idx, slot_spec in enumerate(fill_slots):
+    # Joint selection already chose every slot item together with the seed: skip the greedy loop.
+    for slot_idx, slot_spec in enumerate([] if joint is not None else fill_slots):
         slot_budget: float | None = budget_inr - running_total if budget_inr is not None else None
         if (
             slot_budget is not None
@@ -610,8 +678,22 @@ def compose_outfit(
             if slot_spec.required:
                 empty_slots.append(slot_spec.slot_name)
 
+    if joint_alt is not None:
+        greedy_required = sum(1 for s in fill_slots if s.required) - len(empty_slots)
+        if (joint_alt.required_filled, joint_alt.cards) > (greedy_required, 1 + len(complements)):
+            joint = joint_alt  # strictly better than greedy; a tie keeps the greedy look
+            seed_item = joint.seed
+            seed_item["_role"] = "seed"
+            seed_article_id = seed_item["article_id"]
+            anchor_class = classify_anchor(seed_item.get("product_type") or "", _name(seed_item))
+    if joint is not None:
+        complements = list(joint.complements)
+        empty_slots = list(joint.empty_slots)
+        suppressed_slots = list(joint.suppressed_slots)
+        running_total = joint.total_price
+
     # ── Step 3: build rationale ─────────────────────────────────────────────
-    comp_names = [c.get("display_name") or c.get("prod_name") for c in complements]
+    comp_names =[c.get("display_name") or c.get("prod_name") for c in complements]
     seed_display = seed_item.get("display_name") or seed_item.get("prod_name") or "item"
     if comp_names:
         rationale = (
@@ -650,6 +732,256 @@ def compose_outfit(
     return look
 
 
+@dataclass
+class _JointChoice:
+    """Outcome of the joint stage: the seed and the finished slot results."""
+
+    seed: dict
+    complements: list[dict]
+    empty_slots: list[str]
+    suppressed_slots: list[dict]
+    total_price: float
+    required_filled: int
+    cards: int
+
+
+class _SearchMemo:
+    """Per-compose memo of retriever.search (same args -> one search).
+
+    The joint stage asks for the same slot pool for several anchors; retrieval dominates latency.
+    Returns a fresh list each call (callers append to it) over shared item dicts (the scoring
+    gates never mutate them). Lives for one compose_outfit call, so it cannot go stale.
+    """
+
+    def __init__(self, retriever: Any) -> None:
+        self._retriever = retriever
+        self._cache: dict[tuple, list[dict]] = {}
+        self.searches = 0
+
+    def search(
+        self, query: str, top_k: int = 20, filters: dict | None = None
+    ) -> list[dict]:
+        key = (query, top_k, tuple(sorted((k, repr(v)) for k, v in (filters or {}).items())))
+        if key not in self._cache:
+            self.searches += 1
+            self._cache[key] = self._retriever.search(query, top_k=top_k, filters=filters)
+        return list(self._cache[key])
+
+
+def _joint_selection(
+    *,
+    retriever: Any,
+    valid: list[dict],
+    budget: float,
+    occasion_slug: str,
+    gender: str,
+    brand_gender_default: str,
+    exclude_ids: set[str],
+    pairing_stats: dict | None,
+    body_type: str | None,
+    body_modifiers: list[str] | None,
+    formality_override: str | None,
+) -> _JointChoice | None:
+    """Choose the seed and every slot item together (see src/agents/outfit/joint.py).
+
+    Candidate anchors: the gate-passing anchors the greedy stage already found (``valid``, price
+    cap ANCHOR_BUDGET_FRACTION x budget; no extra anchor search, retrieval is the latency cost),
+    best retrieval score first, at most ``_JOINT_MAX_ANCHORS`` of at most
+    ``_JOINT_MAX_ANCHOR_CLASSES`` anchor class(es) (each class needs its own slot searches); the
+    greedy seed (``valid[0]``) is always among them, so its class is the one searched. One slot
+    fetch per slot query serves every anchor (price cap = budget minus the cheapest anchor, the
+    most any anchor leaves), and each anchor then gates the shared pool with its own remaining
+    budget. Every slot option passes the SAME hard gates as the greedy path (``_score_candidates``:
+    gender, slot type, kids, formality/register, colour/coherence, budget, no repeats) because
+    options come from ``_ranked_candidates``. Soft store diversity is applied against the anchor's
+    store only (it is sequential in the greedy path). Returns None (caller runs the greedy path)
+    when nothing fits, or on timeout, with the reason logged.
+    """
+    deadline = time.monotonic() + JOINT_WALL_BUDGET_S
+    memo = _SearchMemo(retriever)
+    try:
+        pool = list(valid)
+        greedy_seed = valid[0]
+        max_score = max((c.get("score") or 0.5) for c in pool)
+        ordered = sorted(pool, key=lambda c: (-(c.get("score") or 0.5), str(c["article_id"])))
+        anchors: list[dict] = [greedy_seed]
+        classes = {classify_anchor(greedy_seed.get("product_type") or "", _name(greedy_seed))}
+        for cand in ordered:
+            if len(anchors) >= _JOINT_MAX_ANCHORS:
+                break
+            if cand is greedy_seed or any(cand is a for a in anchors):
+                continue
+            cls = classify_anchor(cand.get("product_type") or "", _name(cand))
+            if cls not in classes and len(classes) >= _JOINT_MAX_ANCHOR_CLASSES:
+                continue
+            classes.add(cls)
+            anchors.append(cand)
+
+        # One slot fetch serves every anchor: its price cap is the most any anchor leaves.
+        fetch_cap = budget - min(float(a.get("price_inr") or 0.0) for a in anchors)
+        gate_cache: dict = {}
+        raw: list[tuple[dict, float, list[tuple[Any, list[tuple[float, dict]]]]]] = []
+        slot_best: dict[str, float] = {}
+        for anchor in anchors:
+            price = float(anchor.get("price_inr") or 0.0)
+            remaining = budget - price
+            eff_gender = gender if gender != "unisex" else _infer_gender(anchor, brand_gender_default)
+            a_class = classify_anchor(anchor.get("product_type") or "", _name(anchor))
+            a_colour = (anchor.get("colour") or "").lower()
+            a_store = anchor.get("store")
+            per_slot: list[tuple[Any, list[tuple[float, dict]]]] = []
+            for spec in get_fill_slots(a_class, eff_gender, occasion_slug, body_type, body_modifiers):
+                if time.monotonic() > deadline:
+                    raise JointTimeout("wall budget exhausted while building slot options")
+                ranked = _ranked_slot_options(
+                    spec,
+                    memo=memo,
+                    occasion_slug=occasion_slug,
+                    gender=eff_gender,
+                    anchor=anchor,
+                    anchor_class=a_class,
+                    anchor_colour=a_colour,
+                    anchor_store=a_store,
+                    remaining=remaining,
+                    fetch_cap=fetch_cap,
+                    gate_cache=gate_cache,
+                    exclude_ids=exclude_ids,
+                    pairing_stats=pairing_stats,
+                    body_type=body_type,
+                    body_modifiers=body_modifiers,
+                    formality_override=formality_override,
+                )[:_JOINT_TOP_N]
+                if ranked:
+                    slot_best[spec.slot_name] = max(slot_best.get(spec.slot_name, 0.0), ranked[0][0])
+                per_slot.append((spec, ranked))
+            raw.append((anchor, price, per_slot))
+
+        plans: list[AnchorPlan] = []
+        for anchor, price, per_slot in raw:
+            slots = tuple(
+                SlotChoices(
+                    spec.slot_name,
+                    spec.required,
+                    tuple(
+                        Option(
+                            item,
+                            score / slot_best[spec.slot_name] if slot_best[spec.slot_name] > 0 else 1.0,
+                            float(item.get("price_inr") or 0.0),
+                            (normalize_prod_name(_name(item)), (item.get("colour") or "").lower()),
+                        )
+                        for score, item in ranked
+                    ),
+                )
+                for spec, ranked in per_slot
+            )
+            plans.append(
+                AnchorPlan(
+                    Option(
+                        anchor,
+                        (anchor.get("score") or 0.5) / max_score,
+                        price,
+                        (normalize_prod_name(_name(anchor)), (anchor.get("colour") or "").lower()),
+                    ),
+                    slots,
+                )
+            )
+        solution = select_joint(plans, budget, deadline=deadline)
+    except JointTimeout as exc:
+        logger.warning("[composer/joint] falling back to greedy: %s", exc)
+        return None
+    except Exception:  # noqa: BLE001 - the joint stage only improves packing; never block a look
+        logger.warning("[composer/joint] falling back to greedy: unexpected error", exc_info=True)
+        return None
+    if solution is None:
+        logger.info("[composer/joint] falling back to greedy: no anchor fits the budget")
+        return None
+
+    plan = plans[solution.plan_index]
+    complements: list[dict] = []
+    empty: list[str] = []
+    suppressed: list[dict] = []
+    eff_gender = gender if gender != "unisex" else _infer_gender(
+        plan.anchor.item, brand_gender_default
+    )
+    for slot, pick in zip(plan.slots, solution.picks, strict=True):
+        if pick is None:
+            suppressed.append(
+                {"slot": slot.name, "reason": _suppression_reason(slot.name, eff_gender)}
+            )
+            if slot.required:
+                empty.append(slot.name)
+            continue
+        item = pick.item
+        item["_slot"] = slot.name
+        item["_role"] = "complement"
+        complements.append(item)
+    logger.debug(
+        "[composer/joint] anchors=%d searches=%d nodes=%d cards=%d total=%.0f/%.0f",
+        len(plans), memo.searches, solution.nodes, solution.cards, solution.total_price, budget,
+    )
+    return _JointChoice(
+        plan.anchor.item,
+        complements,
+        empty,
+        suppressed,
+        solution.total_price,
+        solution.required_filled,
+        solution.cards,
+    )
+
+
+def _name(item: dict) -> str:
+    return item.get("prod_name") or item.get("display_name") or ""
+
+
+def _ranked_slot_options(
+    spec: Any,
+    *,
+    memo: _SearchMemo,
+    occasion_slug: str,
+    gender: str,
+    anchor: dict,
+    anchor_class: str,
+    anchor_colour: str,
+    anchor_store: Any,
+    remaining: float,
+    fetch_cap: float,
+    gate_cache: dict,
+    exclude_ids: set[str],
+    pairing_stats: dict | None,
+    body_type: str | None,
+    body_modifiers: list[str] | None,
+    formality_override: str | None,
+) -> list[tuple[float, dict]]:
+    """Gate-passing, scored options for one slot of one anchor (best first), budget ``remaining``."""
+    if remaining <= 0:
+        return []
+    common: dict[str, Any] = dict(
+        slot_name=spec.slot_name,
+        occasion_slug=occasion_slug,
+        gender=gender,
+        anchor_colour=anchor_colour,
+        seen_ids={str(anchor["article_id"])} | exclude_ids,
+        seen_prod_colour={(normalize_prod_name(_name(anchor)), anchor_colour)},
+        retriever=memo,
+        budget_remaining=remaining,
+        pairing_stats=pairing_stats,
+        anchor_class=anchor_class,
+        seen_stores={str(anchor_store).lower()} if anchor_store else set(),
+        body_type=body_type,
+        body_modifiers=body_modifiers,
+        formality_override=formality_override,
+        fetch_price_max=fetch_cap,
+        fetch_k=_JOINT_FETCH_K,
+        gate_cache=gate_cache,
+    )
+    ranked = _ranked_candidates(query=spec.search_query, **common)
+    if not ranked and spec.slot_name == "bottom" and gender == "men":
+        # Same retry as the greedy path (live defect 2026-07-10): men's ethnic bottoms are thin.
+        ranked = _ranked_candidates(query="tailored trousers formal dark trousers", **common)
+    return ranked
+
+
 MORE_OPTIONS_MAX: int = 6
 MORE_OPTIONS_MAX_PER_STORE: int = 2
 
@@ -681,6 +1013,7 @@ _NON_ANCHOR_NAME_RE = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=8192)  # pure on two strings; ~2 ms per cold call, hot in every turn
 def _is_outfit_garment(product_type: str, prod_name: str) -> bool:
     """True when the item can anchor a look: a garment by its STRUCTURED product_type first.
 
@@ -706,6 +1039,30 @@ def _is_outfit_garment(product_type: str, prod_name: str) -> bool:
         return False
     item_class = classify_item(product_type, prod_name)
     return item_class not in NON_OUTFIT_ITEM_CLASSES and item_class != "unknown"
+
+
+_BOTTOM_PREFILTER_KEYWORDS: tuple[str, ...] = tuple(
+    sorted(ETHNIC_BOTTOM_KEYWORDS | WESTERN_BOTTOM_KEYWORDS)
+)
+
+
+def _is_standalone_bottom(product_type: str, prod_name: str) -> bool:
+    """True for a bottom sold alone (pant, palazzo, churidar, pyjama, jeans, skirt...).
+
+    A bottom that is part of a multi-piece set ("Kurta & Pyjama Set", "Anarkali Sharara Set")
+    is a whole outfit and stays, via the same ``is_multi_piece_set`` the complement slots use.
+    """
+    text = f"{product_type} {prod_name}".lower()
+    # Cheap substring prefilter (a superset of what classify_item resolves to a bottom class: it
+    # matches the same keyword sets, plus the "lower" facet): the full classification is ~1 ms per
+    # item and a row is scanned per candidate, so most items must never reach it.
+    if product_type.strip().lower() not in ("lower", "lowers") and not any(
+        kw in text for kw in _BOTTOM_PREFILTER_KEYWORDS
+    ):
+        return False
+    return classify_item(product_type, prod_name) in SLOT_ALLOWED_CLASSES[
+        "bottom"
+    ] and not is_multi_piece_set(product_type, prod_name)
 
 
 def build_more_options(
@@ -754,6 +1111,8 @@ def build_more_options(
             continue
         if not _is_outfit_garment(item.get("product_type") or "", name):
             continue  # an anchor is a garment: no footwear/accessories/innerwear/swim/nightwear
+        if _is_standalone_bottom(item.get("product_type") or "", name):
+            continue  # a pant/palazzo/churidar alone is half an outfit, not an alternate look
         if (
             is_fabric_bolt_text(name)
             or is_occasion_merchandise_type(item.get("product_type"))
@@ -1500,7 +1859,13 @@ def _score_candidates(
     return scored
 
 
-def _find_best_candidate(
+def _find_best_candidate(**kwargs: Any) -> dict | None:
+    """Best-scoring gate-passing candidate for one slot, or None (see ``_ranked_candidates``)."""
+    ranked = _ranked_candidates(**kwargs)
+    return ranked[0][1] if ranked else None
+
+
+def _ranked_candidates(
     *,
     query: str,
     slot_name: str,
@@ -1518,7 +1883,18 @@ def _find_best_candidate(
     body_modifiers: list[str] | None = None,
     formality_override: str | None = None,
     price_outlier_cap: float | None = None,
-) -> dict | None:
+    fetch_price_max: float | None = None,
+    fetch_k: int = 40,
+    gate_cache: dict | None = None,
+) -> list[tuple[float, dict]]:
+    """Every gate-passing candidate for one slot as (score, item), best first.
+
+    Joint selection only: ``fetch_price_max`` overrides the price cap pushed into retrieval so
+    one fetch can serve several anchors with different remaining budgets (``budget_remaining``
+    still gates every candidate individually; None, the greedy path, pushes ``budget_remaining``);
+    ``fetch_k`` widens the window so cheap options below the top 40 are visible; ``gate_cache``
+    shares the anchor-independent gate pass across anchors. Defaults are the greedy behaviour.
+    """
     # Hard gender filter AT RETRIEVAL TIME (Phase B Part 1).  Previously this call
     # was unfiltered top_k=20, and gender was ONLY a post-hoc score gate below —
     # for a thin slot (e.g. women's footwear) an unfiltered top-20 window could be
@@ -1546,7 +1922,9 @@ def _find_best_candidate(
     # that rank below the top-40 by relevance alone become visible, instead of being crowded out
     # and then rejected by the post-fetch budget gate. No-op without a budget.
     _search_filters: dict = {"gender": gender}
-    if budget_remaining is not None:
+    if fetch_price_max is not None:
+        _search_filters["price_max"] = fetch_price_max
+    elif budget_remaining is not None:
         _search_filters["price_max"] = budget_remaining
     family_queries = (
         split_accessory_query_by_family(query) if slot_name == "accessory" else []
@@ -1564,7 +1942,7 @@ def _find_best_candidate(
                     seen_pool_ids.add(item["article_id"])
         return pool
 
-    candidates = _fetch(40)
+    candidates = _fetch(fetch_k)
 
     # Gender-neutral accessory fallback: fires ONLY when the gendered search
     # above returned nothing for an accessory slot.  Widens to an unfiltered
@@ -1587,8 +1965,37 @@ def _find_best_candidate(
                 candidates.append(item)
                 neutral_fallback_ids.add(item["article_id"])
 
+    to_score = candidates
+    if gate_cache is not None and not neutral_fallback_ids:
+        # Joint selection scores ONE shared pool once per anchor. Every hard gate is independent
+        # of the anchor, budget and repeats, so run them once (budget off, nothing seen) and let
+        # each anchor re-score only the survivors; the survivors of any anchor are a subset.
+        gkey = (slot_name, query, gender, occasion_slug, fetch_price_max, fetch_k)
+        passed = gate_cache.get(gkey)
+        if passed is None:
+            passed = {
+                it["article_id"]
+                for _, it in _score_candidates(
+                    candidates,
+                    query=query,
+                    slot_name=slot_name,
+                    occasion_slug=occasion_slug,
+                    gender=gender,
+                    anchor_colour="",
+                    seen_ids=set(),
+                    seen_prod_colour=set(),
+                    budget_remaining=None,
+                    pairing_stats=None,
+                    anchor_class=anchor_class,
+                    seen_stores=None,
+                    neutral_fallback_ids=set(),
+                )
+            }
+            gate_cache[gkey] = passed
+        to_score = [c for c in candidates if c["article_id"] in passed]
+
     scored = _score_candidates(
-        candidates,
+        to_score,
         query=query,
         slot_name=slot_name,
         occasion_slug=occasion_slug,
@@ -1697,10 +2104,8 @@ def _find_best_candidate(
                 price_outlier_cap=price_outlier_cap,
             )
 
-    if not scored:
-        return None
     scored.sort(key=lambda t: t[0], reverse=True)
-    return scored[0][1]
+    return scored
 
 
 def swap_slot_in_look(

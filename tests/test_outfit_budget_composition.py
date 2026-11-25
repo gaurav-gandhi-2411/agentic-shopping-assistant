@@ -64,6 +64,13 @@ def _stub() -> _Stub:
     return _Stub(anchors, acc, shoes)
 
 
+@pytest.fixture
+def _greedy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The greedy path is still the fallback (timeout, error, incomplete joint look): tests of its
+    own mechanics (footwear reservation, per-slot caps) run with the joint stage switched off."""
+    monkeypatch.setattr(composer, "JOINT_SELECTION_ENABLED", False)
+
+
 def _anchor_calls(s: _Stub) -> list[dict]:
     return [c for c in s.calls if "lehenga" in c["query"].lower() or "sangeet" in c["query"].lower()]
 
@@ -106,6 +113,7 @@ def test_slot_searches_push_the_remaining_budget() -> None:
     assert all(c["filters"]["price_max"] <= 3000 for c in slot_calls)
 
 
+@pytest.mark.usefixtures("_greedy")
 def test_accessory_cannot_spend_the_footwear_floor(monkeypatch: pytest.MonkeyPatch) -> None:
     s = _stub()
     monkeypatch.setattr(composer, "footwear_price_floor", lambda *_a, **_k: 700.0)
@@ -118,6 +126,7 @@ def test_accessory_cannot_spend_the_footwear_floor(monkeypatch: pytest.MonkeyPat
     assert fw["filters"]["price_max"] > acc["filters"]["price_max"]  # footwear may use the floor
 
 
+@pytest.mark.usefixtures("_greedy")
 def test_optional_slot_before_required_footwear_also_reserves_the_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -138,6 +147,7 @@ def test_optional_slot_before_required_footwear_also_reserves_the_floor(
     assert outer["filters"]["price_max"] == pytest.approx(3000 - s.anchors[1]["price_inr"] - 700.0)
 
 
+@pytest.mark.usefixtures("_greedy")
 def test_required_non_footwear_slot_is_not_starved_by_the_reservation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -158,6 +168,7 @@ def test_required_non_footwear_slot_is_not_starved_by_the_reservation(
     assert bottom["filters"]["price_max"] == pytest.approx(3000 - s.anchors[1]["price_inr"])
 
 
+@pytest.mark.usefixtures("_greedy")
 def test_no_reservation_when_footwear_cannot_fit_anyway(monkeypatch: pytest.MonkeyPatch) -> None:
     s = _stub()
     monkeypatch.setattr(composer, "footwear_price_floor", lambda *_a, **_k: 99999.0)
@@ -183,6 +194,7 @@ def test_empty_pool_under_a_budget_retries_once_with_a_wider_window() -> None:
     assert any(c["top_k"] == composer._BUDGET_RETRY_TOP_K for c in n.calls)
 
 
+@pytest.mark.usefixtures("_greedy")
 def test_footwear_floor_failure_never_blocks_a_budgeted_look(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
