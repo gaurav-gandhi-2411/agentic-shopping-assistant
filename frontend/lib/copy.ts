@@ -62,6 +62,11 @@ export const COPY = {
     // /login description when the Google button is hidden (flag not set).
     descriptionEmailOnly: "Enter your email for a magic link.",
   },
+  refine: {
+    // One-tap gender refine under plain-search results whose query named no gender.
+    women: "Women", // approved (GG, 2026-11-21)
+    men: "Men", // approved (GG, 2026-11-21)
+  },
 } as const
 
 export type OccasionChip = (typeof OCCASION_CHIPS)[number]
