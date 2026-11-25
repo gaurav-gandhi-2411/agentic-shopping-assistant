@@ -1046,3 +1046,15 @@ def test_same_day_manual_dispatch_is_skipped_not_failed(tmp_path: Path, monkeypa
     out = json.loads((tmp_path / "r.json").read_text())
     assert out["status"] == "skip" and "daily cap" in out["note"] and called == []
     assert canary.classify([]) == "pass" and canary.decide_issue_action("skip", [4]).kind == "none"
+
+
+def test_workflow_timeout_covers_the_scripts_worst_case_wall_time() -> None:
+    import yaml
+
+    wf = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "canary.yml"
+    minutes = yaml.safe_load(wf.read_text(encoding="utf-8"))["jobs"]["canary"]["timeout-minutes"]
+    lookup = 3 * 60 + 2 * 5  # gh timeout x attempts + pauses in lookup_spent
+    last_query = 75 + 30 + 30  # ws-ticket HTTP timeout + WS connect + WS read
+    worst = lookup + canary.SESSION_TIMEOUT_S + canary.RUN_TIME_BUDGET_S + last_query
+    assert worst < minutes * 60, (worst, minutes)
+    assert canary.HTTP_TIMEOUT_S == 75 and canary.WS_HARD_TIMEOUT_S == 30  # inputs of last_query

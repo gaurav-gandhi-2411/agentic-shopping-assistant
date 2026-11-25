@@ -54,7 +54,11 @@ permissions:
 jobs:
   canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # 11 queries (+ <= 2 retries) paced 30 s apart ~7-8 min; script stops starting queries at 18 min
+    # Computed worst case, seconds: cap lookup 3 x 60 + 2 x 5 = 190, /demo/session timeout 130, no
+    # query started after RUN_TIME_BUDGET_S = 1080, last query 75 (ticket) + 30 (WS connect) + 30
+    # (WS read) = 135 -> 1,535 s = 25.6 min. Pacing alone is 10-12 sleeps x 30 s = 5-6 min; turn
+    # time is NOT MEASURED here. 30 min leaves margin; tests/test_canary.py pins the inequality.
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       FORCE_FAIL: ${{ inputs.force_fail }}
