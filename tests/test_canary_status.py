@@ -183,6 +183,26 @@ def test_fail_ttl_is_5_minutes_then_recovery_shows(
 # ----------------------------------------------------------------------------- stale / unknown
 
 
+def test_shipped_cap_is_3_runs_and_then_it_is_not_a_continuous_monitor(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    """Public, unauthenticated endpoint: 3 x 2,150 tokens/day is the budgeted worst case."""
+    assert canary.MAX_RUNS_PER_DAY == 3
+    now = _clock(monkeypatch)
+    for _ in range(3):  # a hammering caller that always waits out the pass TTL
+        assert _status(client).text == PASS_BODY
+        now[0] += canary.CACHE_TTL_S + 1
+    assert b.invocations == 3
+    r = _status(client)  # 4th run refused: last result, flagged stale
+    assert r.status_code == 200 and r.headers["x-canary-stale"] == "true"
+    assert b.invocations == 3
+    now[0] += canary.CACHE_TTL_S  # now older than 2 x TTL: no pass is served any more
+    assert _status(client).json() == {"status": "stale"}
+    assert b.invocations == 3
+
+
 def test_stale_with_cap_exhausted_returns_last_known_pass_with_headers(
     client: TestClient,
     b: _Behaviour,

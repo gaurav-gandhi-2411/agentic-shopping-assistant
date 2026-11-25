@@ -55,3 +55,11 @@ def test_query_mix_matches_the_canary_run() -> None:
 def test_table_renders_every_scenario() -> None:
     out = budget.table(canary.MAX_RETRIES_PER_RUN)
     assert "whole run retried" in out and "50,000" in out and "22,130" in out
+
+
+def test_status_run_cap_is_tied_to_the_endpoint_constant() -> None:
+    import re
+
+    src = (OPS.parents[1] / "api" / "routes" / "canary.py").read_text(encoding="utf-8")
+    m = re.search(r"^MAX_RUNS_PER_DAY = (\d+)", src, re.M)
+    assert m is not None and int(m.group(1)) == budget.STATUS_RUNS_PER_DAY

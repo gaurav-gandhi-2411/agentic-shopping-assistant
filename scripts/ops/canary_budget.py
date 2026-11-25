@@ -30,7 +30,9 @@ SEARCH_QUERIES = 9  # the other 9
 DEPLOYS_PER_DAY = 3
 READYZ_PROBES_PER_DEPLOY = 2  # tag URL + main URL
 UPTIME_PROBES_PER_DAY = 96  # uptime-alert.yml cron */15, nominal worst case
-STATUS_RUNS_PER_DAY = 3  # /canary/status is only hit by deploy smokes; pass TTL 90 min
+# api/routes/canary.py MAX_RUNS_PER_DAY (tied by a test): the public endpoint's hard daily cap.
+# Nothing calls it on a schedule today; this is the worst case if it is hammered.
+STATUS_RUNS_PER_DAY = 3
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ def other_checks(search_turn: int) -> list[Row]:
         Row("deploy smokes", smoke,
             f"{DEPLOYS_PER_DAY}/day x (1 chat {search_turn} + {READYZ_PROBES_PER_DEPLOY} readyz x {READYZ_PROBE})"),
         Row("/canary/status", STATUS_RUNS_PER_DAY * search_turn,
-            f"<= {STATUS_RUNS_PER_DAY} runs/day x {search_turn} (deploy smokes only; no external pinger)"),
+            f"<= {STATUS_RUNS_PER_DAY} runs/day x {search_turn} (the cap; no scheduled caller exists)"),
         Row("/readyz uptime-alert", UPTIME_PROBES_PER_DAY * READYZ_PROBE,
             f"{UPTIME_PROBES_PER_DAY}/day x {READYZ_PROBE} (cron */15, nominal = worst case)"),
     ]

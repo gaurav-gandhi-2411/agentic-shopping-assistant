@@ -12,8 +12,8 @@ name: Canary
 # (11 + MAX_RETRIES_PER_RUN) chat queries (UTC), counted from the workflow-runs API,
 # enforced by the script via the workflow-runs API; a capped run is a SKIP, never a failure.
 # Budget maths: docs/ops/canary-budget.md.
-# The continuous 5-minute check is the public GET /canary/status polled by an external monitor
-# (api/routes/canary.py, docs/ops/canary-budget.md); this workflow is the daily WS-path proof.
+# The public GET /canary/status (api/routes/canary.py) is NOT polled by anything today and is
+# capped at 3 runs/day, so it is not a continuous monitor; this workflow is the daily WS-path proof.
 #
 # CAVEAT: GitHub's scheduled cron is best-effort (the old */15 uptime cron's median gap was
 # 246 min), so the daily run may fire late. 21:23 UTC (02:53 IST) is an off-peak, off-:00 slot.

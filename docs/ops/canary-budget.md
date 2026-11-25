@@ -27,7 +27,7 @@ the primary 429s. **Real user chat shares the same org limits** (and `DEMO_DAILY
 | Reasoning tokens | NOT MEASURED in prod turns: the app logs `output_tokens` only. One direct probe (`max_tokens` 64, `gpt-oss-20b`) returned `reasoning_tokens` 17 of 35 completion tokens: a single tiny sample, not a p50 | direct probe 2026-11-13 |
 | `/readyz` LLM probe | 1 call per uncached hit, cache 60 s (`READYZ_LLM_CACHE_SECONDS`), about 100 tokens ESTIMATE (prompt "ping", `max_tokens=1`; only the call count is from code) | `api/routes/health.py`, `src/llm/client.py` `probe()` |
 | Callers of `/readyz` | `uptime-alert.yml` (cron `*/15` = 96/day nominal; measured GitHub median gap 246 min, about 6/day; the worst case uses 96) and 2 per deploy smoke (tag URL + main URL). Cloud Run's startupProbe is TCP; the Dockerfile HEALTHCHECK is in-container only. Liveness/keep-warm uses `/ping`, which makes no LLM call | `.github/workflows/`, `deploy/service.yaml` |
-| `/canary/status` | pass TTL 90 min (`CACHE_TTL_S`; at most 16 runs/day if something polled it every few minutes). **No external pinger calls it**; only the deploy smokes do, so at most 3 runs/day (one per deploy, pass-TTL-limited) | `api/routes/canary.py`, `.github/workflows/deploy.yml` |
+| `/canary/status` | public and unauthenticated; pass TTL 90 min (`CACHE_TTL_S`). **Nothing calls it on a schedule today** (not the deploy smokes, not any workflow or script; UptimeRobot was declined). `MAX_RUNS_PER_DAY = 3` bounds the worst case if someone hammers it: 3 runs x 2,150 = 6,450 tokens/day. After the 3rd run the last result is served as is for one TTL (90 min after a pass, 5 min after a fail), flagged `X-Canary-Stale: true` until 2 x TTL (3 h / 10 min), then `503 {"status":"stale"}` until UTC midnight (per instance; a restart resets the counter). So it is **not usable as a continuous monitor** in this configuration | `api/routes/canary.py` |
 | WS canary | `canary.yml`, once a day, 11 turns = 2 outfit (the "sangeet outfit" query and the Sangeet chip) + 9 search; failed queries retried once, at most `MAX_RETRIES_PER_RUN` per run | `scripts/ops/canary.py` |
 | Deploy smoke | 1 chat (a search-type turn) + `/readyz` on the tag and the main URL (2 probes x 100) | DEPLOY.md |
 
@@ -52,7 +52,7 @@ Output, with `MAX_RETRIES_PER_RUN = 2` (search turn 2,150 = variant C):
 |---|---:|---|
 | WS canary, no retry | 22,130 | 2 outfit x 1,390 + 9 search x 2,150 |
 | deploy smokes | 7,050 | 3/day x (1 chat 2,150 + 2 readyz x 100) |
-| `/canary/status` | 6,450 | <= 3 runs/day x 2,150 (deploy smokes only) |
+| `/canary/status` | 6,450 | 3 runs/day (`MAX_RUNS_PER_DAY`) x 2,150; worst case if hammered, no scheduled caller |
 | `/readyz` uptime-alert | 9,600 | 96/day x 100 |
 | **Total, no retry** | **45,230** (22.6% of TPD) | |
 | Total, <= 2 failed queries retried | 49,530 (24.8%) | 2 x 2,150; fits 50,000 |
