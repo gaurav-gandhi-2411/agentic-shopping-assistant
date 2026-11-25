@@ -101,6 +101,20 @@ def summarise(rows: list[dict]) -> dict:
             empty_cells.append((*key, c["pool"]))
         for card in c["row"]:
             cards += 1
+            from src.catalogue.cleaning import has_gender_text_conflict, is_kids_item
+
+            nm = card.get("prod_name") or ""
+            card_gender = str(card.get("gender") or "").lower()
+            extra = []
+            if is_kids_item(nm, card.get("detail_desc")):
+                extra.append("kids")
+            if (card_gender and card_gender != c["gender"]) or has_gender_text_conflict(
+                nm, c["gender"]
+            ):
+                extra.append("gender_violation")
+            for cat in extra:
+                cats[cat] += 1
+                leaks.append((*key, cat, card.get("store"), card.get("product_type"), nm))
             for cat in audit_card(card):
                 cats[cat] += 1
                 if cat != "standalone_bottom":
