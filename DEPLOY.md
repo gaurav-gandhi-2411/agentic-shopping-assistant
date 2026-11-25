@@ -1,5 +1,7 @@
 # Deployment Guide — Cloud Run + Vercel
 
+Launch checklist (owner / status / evidence per gate): [`docs/launch-gates.md`](docs/launch-gates.md).
+
 ## Architecture
 
 Three Cloud Run services (one per brand: `asa-snitch`, `asa-myntra`, `asa-flipkart`) run in
