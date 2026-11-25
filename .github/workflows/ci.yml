@@ -126,7 +126,18 @@ jobs:
           # not data/processed/unified/ — same index files, just also copied flat.
           cp data/processed/unified/* data/processed/
 
+      # The runtime has no torch: the encoders are ONNX files exported at build time (Dockerfile
+      # `export` stage). CI exports them the same way so tests/gates run the real ONNX encoders.
+      # torch/transformers here are build-time deps only (requirements-export.txt), installed
+      # AFTER lint/mypy so they cannot change the type-check result.
+      - name: Export ONNX encoders (CPU torch, build-time only)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple -r requirements-export.txt
+          python scripts/export_onnx.py --out-dir onnx_models
+
       - name: Test
+        env:
+          REQUIRE_ONNX_MODELS: "1"  # a missing export must fail the parity test, not skip it
         run: pytest -m "not requires_ollama and not eval_statistical" -v
 
       # Grounding smoke (#81): 10 prompts x REST+WS, mock LLM, stub agent over the committed
@@ -272,6 +283,24 @@ jobs:
         run: |
           mkdir -p data/processed/unified
           gcloud storage cp -r 'gs://asa-demo-indices-stylemaitri-prod/unified/unified/*' data/processed/unified/
+
+      # Same build-time export as the backend job (the runtime encoders are ONNX, not torch).
+      - name: Export ONNX encoders (CPU torch, build-time only)
+        if: steps.wif.outputs.available == 'true'
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple -r requirements-export.txt
+          python scripts/export_onnx.py --out-dir onnx_models
+
+      # Pre-registered equivalence gate (evals/onnx_equivalence_rule.md): ONNX vs the vectors
+      # STORED in the real index, plus torch-vs-ONNX top-10 overlap on the 60 stage-2 queries.
+      # No H&M images exist on the runner, so criterion C3 (image tower) is NOT RUN here and the
+      # step passes only with --skip-images; the C3 result comes from the committed local report.
+      - name: ONNX equivalence gate
+        if: steps.wif.outputs.available == 'true'
+        run: |
+          mkdir -p data/processed/clip/unified
+          gcloud storage cp 'gs://asa-demo-indices-stylemaitri-prod/unified/clip/unified/*' data/processed/clip/unified/
+          python scripts/onnx_equivalence_gate.py --index-dir data/processed/unified --clip-dir data/processed/clip/unified --queries evals/fixtures/onnx_equivalence/queries.json --skip-images --allow-incomplete --out-dir "${{ runner.temp }}/onnx-equivalence"
 
       - name: Relevance regression gate
         if: steps.wif.outputs.available == 'true'

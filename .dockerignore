@@ -5,7 +5,8 @@ spaces/
 
 # Test infrastructure
 tests/
-scripts/
+scripts/*
+!scripts/export_onnx.py
 reports/
 
 # Docs and notebooks
@@ -17,6 +18,8 @@ notebooks/
 models/
 data/                  # ALL local data — indices, CLIP, variant maps, raw — loaded from GCS at runtime
 demo_indices/          # local experiment indices; never baked into the image
+# local ONNX export output; the image builds its own in the export stage
+onnx_models/
 
 # Frontend build artefacts
 frontend/node_modules/
