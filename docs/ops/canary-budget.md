@@ -1,7 +1,7 @@
 # Canary LLM budget vs Groq limits
 
-Arithmetic reproduced by a throwaway script (not committed); inputs are listed so it can be
-redone. Everything labelled ESTIMATE or UNVERIFIED is not measured.
+The tables below are produced by `scripts/ops/canary_budget.py` (committed, tested); its
+inputs are listed here. Everything labelled ESTIMATE, UNVERIFIED or NOT MEASURED is not measured.
 
 ## Limits compared against
 
@@ -20,87 +20,88 @@ the primary 429s. **Real user chat shares the same org limits** (and `DEMO_DAILY
 
 | Input | Value | Source |
 |---|---|---|
-| Tokens per LLM call | p50 input 1,219 + p50 output 124 = 1,343 (p90: 1,905 in, 153 out) | MEASURED: 22 `llm_call` records in the prod Cloud Run logs, 2026-11-12 18:47Z to 2026-11-13 08:47Z, from the canary, WS canary and deploy-smoke chat turns. Models: `gpt-oss-20b` 21 calls, `gpt-oss-120b` 1 call |
-| LLM calls per chat turn | 2 (max 2 in the 8 conversations seen) | same 22 records |
-| Tokens per chat turn | p50 3,262, p90 3,399, max 3,402 (used below as the per-turn cost) | same 22 records |
-| Reasoning tokens | NOT MEASURED in prod turns: the app logs `output_tokens` only, not a reasoning split. One direct probe with `max_tokens` 64 on `gpt-oss-20b` returned `reasoning_tokens` 17 of 35 completion tokens: a single tiny sample, not a p50 | direct probe 2026-11-13 |
-| `/readyz` LLM probe | 1 call per uncached hit, cache 60 s (`READYZ_LLM_CACHE_SECONDS`), tokens ESTIMATE 100 per probe (prompt "ping", `max_tokens=1`; only the call count is from code) | `api/routes/health.py`, `src/llm/client.py` `probe()` |
-| Callers of `/readyz` in this repo | `uptime-alert.yml` (cron `*/15`: nominal 96/day, measured GitHub median gap 246 min = about 6/day) and 2 per deploy smoke (tag URL + main URL). Dockerfile HEALTHCHECK uses `/healthz`; Cloud Run startupProbe is a TCP probe. The external monitor must NOT hit `/readyz` | `.github/workflows/`, `Dockerfile`, `deploy/service.yaml` |
-| `/canary/status` runs per day | 24 nominal: pass TTL is 60 min, one query per run, 2 calls and 3,262 tokens per turn. Cap-bound worst case 60/day (`MAX_RUNS_PER_DAY`) | `api/routes/canary.py` |
-| Canary query cost | q2/q3-style search is 2 calls (measured above). q1 "sangeet outfit" is an outfit turn: router + reranker + respond + one rationale per look, ESTIMATE up to 6 calls (static ceiling from DEPLOY.md, not measured); priced in the pessimistic rows at 6 x 1,343 = 8,058 tokens | DEPLOY.md |
-| WS canary (`canary.yml`) | once a day x 3 queries (12 queries in the cap-bound rows) | `.github/workflows/canary.yml` |
-| Deploy smoke | 1 chat (2 calls, 3,262 tokens) + `/readyz` on tag and main URL (2 probes, 200 tokens) = 4 calls, 3,462 tokens | DEPLOY.md |
+| Outfit turn | about 1,390 tokens, 1 LLM call | MEASURED: n=11 Sangeet canary turns, Cloud Logging `llm_call` records 2026-11-18..21 (supplied to this change; not re-derived here). Supersedes the earlier "up to 6 calls" ESTIMATE |
+| Search turn, today | about 3,345 tokens = reranker about 2,000 + respond about 1,350 | MEASURED, same records |
+| Search turn with reranker variant C | about 2,150 tokens (752 per rerank) | PR #136, **not merged yet**: a projection until it is deployed |
+| Earlier measurement | p50 1,219 in + 124 out = 1,343 per call, 2 calls, 3,262 per turn (22 records, 2026-11-12..13) | kept for the provenance of the old tables; replaced by the two rows above |
+| Reasoning tokens | NOT MEASURED in prod turns: the app logs `output_tokens` only. One direct probe (`max_tokens` 64, `gpt-oss-20b`) returned `reasoning_tokens` 17 of 35 completion tokens: a single tiny sample, not a p50 | direct probe 2026-11-13 |
+| `/readyz` LLM probe | 1 call per uncached hit, cache 60 s (`READYZ_LLM_CACHE_SECONDS`), about 100 tokens ESTIMATE (prompt "ping", `max_tokens=1`; only the call count is from code) | `api/routes/health.py`, `src/llm/client.py` `probe()` |
+| Callers of `/readyz` | `uptime-alert.yml` (cron `*/15` = 96/day nominal; measured GitHub median gap 246 min, about 6/day; the worst case uses 96) and 2 per deploy smoke (tag URL + main URL). Cloud Run's startupProbe is TCP; the Dockerfile HEALTHCHECK is in-container only. Liveness/keep-warm uses `/ping`, which makes no LLM call | `.github/workflows/`, `deploy/service.yaml` |
+| `/canary/status` | pass TTL 90 min (`CACHE_TTL_S`; at most 16 runs/day if something polled it every few minutes). **No external pinger calls it**; only the deploy smokes do, so at most 3 runs/day (one per deploy, pass-TTL-limited) | `api/routes/canary.py`, `.github/workflows/deploy.yml` |
+| WS canary | `canary.yml`, once a day, 11 turns = 2 outfit (the "sangeet outfit" query and the Sangeet chip) + 9 search; failed queries retried once, at most `MAX_RETRIES_PER_RUN` per run | `scripts/ops/canary.py` |
+| Deploy smoke | 1 chat (a search-type turn) + `/readyz` on the tag and the main URL (2 probes x 100) | DEPLOY.md |
 
-## Daily load on the primary model
+## Rule and the worst case
 
-TPD column is against the UNVERIFIED 200,000; the RPD column is against the VERIFIED 1,000.
+**All SCHEDULED checks combined must stay <= 25% of the primary model's tokens per day.** The
+200,000 TPD figure is **UNVERIFIED** (see above), so the ceiling is 50,000 tokens/day *if* that
+figure holds. Worst case = 3 deploys/day, `/readyz` cron at its nominal 96/day, the WS canary's
+single scheduled run. Manual re-runs of the canary (up to 2 more runs/day by the daily cap) are
+not "scheduled" and are not in the table.
 
-| Scenario | Calls/day | RPD (of 1,000) | Tokens/day | TPD (of 200,000, UNVERIFIED) | Real-user headroom (conversations/day) |
-|---|---|---|---|---|---|
-| A nominal: 24 status runs x 2 calls, 96 probes, WS canary 3 queries, 1 deploy | 154 | 15.4% | 101,136 | 50.6% | 30 |
-| B as A but GitHub's measured cadence (6 probes) | 64 | 6.4% | 92,136 | 46.1% | 33 |
-| C pessimistic: 24 runs x 6 calls (ESTIMATE ceiling, 8,058 tokens per run) | 250 | 25.0% | 216,240 | 108.1% | 0 (overflows to the fallbacks) |
-| D cap-bound worst: 60 runs (the daily cap) x 2 calls, WS 12 queries, 3 deploys | 252 | 25.2% | 254,850 | 127.4% | 0 (overflows) |
-| E cap-bound worst, pessimistic: 60 runs x 6 calls | 492 | 49.2% | 542,610 | 271.3% | 0 (overflows) |
+The table is produced by a committed script, not by hand, and gated by a test:
 
-Headroom = (200,000 - tokens/day) / 3,262 tokens per conversation, rounded down, floored at 0.
+```
+python scripts/ops/canary_budget.py          # prints the tables below
+pytest tests/test_canary_budget.py           # worst case with MAX_RETRIES_PER_RUN <= 50,000
+```
 
-Breakdown (calls / tokens): A status runs 48 / 78,288, probes 96 / 9,600, WS canary 6 / 9,786,
-deploy 4 / 3,462. B differs only in probes 6 / 600. C status runs 144 / 193,392. D status runs
-120 / 195,720, WS 24 / 39,144, deploys 12 / 10,386. E status runs 360 / 483,480 with D's other
-lines.
+Output, with `MAX_RETRIES_PER_RUN = 2` (search turn 2,150 = variant C):
 
-## Reading it
+| Check | Tokens/day | Assumption |
+|---|---:|---|
+| WS canary, no retry | 22,130 | 2 outfit x 1,390 + 9 search x 2,150 |
+| deploy smokes | 7,050 | 3/day x (1 chat 2,150 + 2 readyz x 100) |
+| `/canary/status` | 6,450 | <= 3 runs/day x 2,150 (deploy smokes only) |
+| `/readyz` uptime-alert | 9,600 | 96/day x 100 |
+| **Total, no retry** | **45,230** (22.6% of TPD) | |
+| Total, <= 2 failed queries retried | 49,530 (24.8%) | 2 x 2,150; fits 50,000 |
+| Total, whole run retried (all 11 fail) | 67,360 (33.7%) | 2 x 22,130; **EXCEEDS** 50,000 |
 
-- Requests are not the constraint (15% of the verified 1,000 RPD nominal, 49% worst). **Tokens are,
-  if the 200K TPD figure holds** (UNVERIFIED): nominal, the 24 runs/day use about 39% of the
-  primary's TPD and the whole canary stack about 51%, leaving roughly 30 real conversations/day.
-  C, D and E exceed 100%, so the chain would overflow to `gpt-oss-120b`/`qwen3.8-27b` (their own
-  quotas) and real users share that overflow.
-- Pass TTL 30 -> 60 min halves the status runs (48 -> 24/day: 156,576 -> 78,288 tokens, about 78%
-  -> 39% of a 200K TPD) and lifts real-user headroom from about 6 (whole stack 179,424 tokens/day,
-  89.7% of TPD) to about 30 conversations/day. The 30 min figures are recomputed with the same
-  measured 3,262 tokens per turn, not taken from the previous version of this document.
-- Per minute (VERIFIED 8,000 TPM): one 2-call turn is 3,262 tokens, 41% of the limit; a real chat
-  in the same minute adds another 3,262. A 6-call outfit run (about 8,058 tokens, ESTIMATE) alone
-  reaches the 8,000 TPM limit, so q1 may 429-retry.
-- Failures: a fail TTL of 5 min would allow 288 runs/day, so the 60-run/day cap (D/E) is what
-  binds. Staleness of `/canary/status`: while the last result is at most 2 x its TTL old (2 h after
-  a pass, 10 min after a fail) and no refresh can run, it is served with `X-Canary-Stale: true`; older
-  than that, or with no result on a fresh instance and no run possible, it answers
-  `503 {"status":"stale"}`. A refresh is always attempted first under the daily cap, so a stale
-  state costs at most the cap, never more. A failing run retries each model once, so HTTP attempts
-  exceed logical calls (whether 429s count against RPD is not documented; UNVERIFIED).
-- Not included: real user chat, the cost guard's own accounting, retries on 429/5xx, the 124-token
-  output p50 possibly already containing reasoning tokens (NOT MEASURED; only the one probe above).
-- To refine: sum `llm_call` log events (`tokens_in`/`tokens_out`, user `anon:canary-internal`) per
-  day from Cloud Logging after a week of operation, and read the real TPD at
-  https://console.groq.com/settings/limits.
+Same arithmetic with today's reranker (search turn 3,345): WS canary 32,885, deploy smokes
+10,635, status 10,035, readyz 9,600 = **63,155 (31.6%) with zero retries, already over 25%**; 2
+retries 69,845 (34.9%); whole run retried 96,040 (48.0%). So the 25% rule is met only **after
+reranker variant C (PR #136) is deployed**; until then the scheduled stack is over the rule even
+without retries (`tests/test_canary_budget.py` pins that fact so it is not forgotten).
 
-## Card-count suite added to the WS canary (2026-11-16)
+### Why the retry is capped at 2 queries per run
 
-`canary.yml` now runs 3 core queries + 8 card-count checks (`scripts/ops/canary_card_checks.json`)
-= 11 turns per run, once a day, paced 30 s apart. Per-turn cost uses the MEASURED inputs above
-(2 calls, 3,262 tokens); arithmetic reproduced by a throwaway script (not committed).
+A retry of the WHOLE run when everything fails would cost 2 x 22,130 = 44,260 for the canary alone
+and 67,360 in total: over the limit. So retries are per query, failed queries only, once each, and
+capped: 22,130 + 23,100 (everything else) leaves 4,770 tokens, which fits floor(4,770 / 2,150) = 2
+retried queries (49,530); a third (51,680) would exceed it. A retried query is priced as a search
+turn because the cap cannot know which query will fail and a search turn is the more expensive
+kind. Alternative bound, stated for completeness: priced at the cheaper outfit turn (1,390) three
+retries would fit (49,400), but a failing query is not known to be an outfit one, so the search
+price is used. The cap is `MAX_RETRIES_PER_RUN = 2` in `scripts/ops/canary.py`; the daily cap
+charges each run `11 + 2` queries (`RUN_QUERY_BUDGET`, `DAILY_QUERY_CAP` = 3 x 13 = 39).
 
-| Item | Calls/day | Tokens/day | Share of limit |
-|---|---|---|---|
-| Added by the 8 checks, nominal (8 turns x 2 calls x 3,262) | +16 | +26,096 | 1.6% of 1,000 RPD (VERIFIED limit), 13.0% of 200,000 TPD (UNVERIFIED limit) |
-| Added, pessimistic (every check an outfit turn, 6 calls x 1,343 tokens, ESTIMATE ceiling) | +48 | +64,464 | 4.8% RPD, 32.2% TPD |
-| Whole WS canary now (11 turns nominal) | 22 | 35,882 | 2.2% RPD, 17.9% TPD |
-| Scenario A (nominal stack) before -> after | 154 -> 170 | 101,136 -> 127,232 | TPD 50.6% -> 63.6%; real-user headroom 30 -> 22 conversations/day |
-| Scenario D (cap-bound worst) before (12 WS queries) -> after (cap 33) | 252 -> 294 | 254,850 -> 323,352 | already over 100% TPD before (127.4%), 161.7% after |
+## Per minute, demo limit, time
 
-- Per minute: turns are 30 s apart, so at most 2 turns/min = 6,524 tokens against the VERIFIED
-  8,000 TPM. Back-to-back (about 8 s per turn, not measured here) would be about 24K TPM, which is
-  why the pacing exists. A real chat in the same minute can still push a minute over the limit.
-- Cap: `DAILY_QUERY_CAP` 12 -> 33 queries (3 runs/day: the scheduled run plus 2 re-runs); a forced
-  run may add one more run (44). The cap is enforced in `scripts/ops/canary.py`
-  (`would_exceed_cap`, via the workflow-runs API) before any query is sent.
-- Demo per-IP limit (35/hour, VERIFIED in `api/demo/guards.py`, one count per WS connection):
-  11 per run, 33 for three runs even if all land on one runner IP inside one hour. A 429 is
-  `capped`, not a failure.
-- Time: 11 x (turn + 30 s) is about 7 min nominal; the script stops starting queries after
-  1,080 s (recorded as failures, fail closed) and the job timeout is 25 min.
-- A correction to the planning estimate: 8 turns x 3.4K tokens is about 27K tokens/day, not 54K
-  (54K is 16 calls x 3.4K, which counts the per-turn token figure once per call).
+- Per minute (VERIFIED 8,000 TPM): turns are 30 s apart, so at most 2 turns/min: 4,300 tokens with
+  variant C, 6,690 with today's reranker (2 x 3,345), both under the limit; a real chat in the same
+  minute can still push a minute over it.
+- Demo per-IP limit (35/hour, VERIFIED in `api/demo/guards.py`, one count per WS connection): at most
+  13 per run (11 + 2 retries), 39 for three runs inside one hour from one runner IP: a third run
+  inside one hour could hit it, which is `capped`, not a failure.
+- Time: pacing alone is 12 x 30 s = 6 min for 13 queries; the script stops starting queries after
+  1,080 s (fail closed) and the job timeout is 25 min.
+
+## Cloud Scheduler (the only billable line seen)
+
+| Item | Value | Status |
+|---|---|---|
+| Job | `asa-keepwarm-healthz`, `GET` every 4 minutes (360 invocations/day); target `/openapi.json` today, `/ping` after the steps in `docs/ops/api-docs-switch.md` | |
+| Cost | about $0.10/month | Google's Cloud Scheduler pricing page: free allowance 3 jobs per billing account, then $0.10 per job per month. **UNCONFIRMED** here (not re-read in this change) |
+| Why it is billable | the billing account already has 4 jobs, so this one is above the free 3 | as stated by GG, not re-counted here |
+| Approval | GG-approved exception, 2026-11-21 | |
+| Other billable lines | none seen: the only billable line seen in the cost review this budget was built from | not independently verified in this change |
+
+## Not included
+
+Real user chat, the cost guard's own accounting, retries on 429/5xx inside one turn (a failing run
+retries each model once, so HTTP attempts exceed logical calls; whether 429s count against RPD is
+not documented), and the output p50 possibly already containing reasoning tokens (NOT MEASURED).
+To refine: sum `llm_call` log events (`tokens_in`/`tokens_out`, user `anon:canary-internal`) per day
+from Cloud Logging after a week of operation, and read the real TPD at
+https://console.groq.com/settings/limits.
