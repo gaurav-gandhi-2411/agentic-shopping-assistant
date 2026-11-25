@@ -145,6 +145,7 @@ COPY alembic/ ./alembic/
 EXPOSE 8080
 
 # Give the index-loading lifespan ~60 s before health checks start failing.
+# /healthz works in-container only: Cloud Run's front end 404s it externally (use /ping there).
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
     CMD curl -f http://localhost:${PORT:-8080}/healthz || exit 1
 

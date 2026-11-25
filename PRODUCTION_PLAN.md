@@ -268,7 +268,7 @@ The conversation content (messages) is stored verbatim in Postgres. Users may sh
 
 2. **Secrets management:** Use GitHub Secrets for `GCP_SA_KEY`, `GROQ_API_KEY`, `SENTRY_DSN`. Never commit `.env`.
 
-3. **Health check on deploy:** Cloud Run waits for `/healthz` to return 200 before routing traffic (startup probe). Add `/readyz` as the liveness probe so a deploy only succeeds if indices are loaded.
+3. **Health check on deploy:** the Cloud Run startup probe in `deploy/service.yaml` is a TCP probe on port 8080, not an HTTP check. Use `GET /ping` for liveness and `GET /readyz` for readiness (a deploy is only verified once `/readyz` is 200, i.e. indices are loaded; `scripts/ops/deploy_smoke.py` checks this on the tag URL before shifting traffic). `/healthz` returns 404 from Cloud Run's front end on this service.
 
 ### Caching strategy
 
