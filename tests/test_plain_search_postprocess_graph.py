@@ -37,15 +37,17 @@ class _LLM:
         yield "Here are some options."
 
 
-def _row(i: int, store: str, gender: str, title: str, price: float) -> dict[str, Any]:
+def _row(
+    i: int, store: str, gender: str, title: str, price: float, colour: str = "Blue"
+) -> dict[str, Any]:
     ign = "menswear" if gender == "men" else "ladieswear"
     return {
         "article_id": f"a{i:03d}", "prod_name": title, "display_name": title,
         "detail_desc": "Printed cotton kurta", "image_url": f"https://img.example/{i}.jpg",
         "price_inr": price, "pdp_handle": f"h{i}", "pdp_live": True, "store": store,
-        "gender": gender, "colour_group_name": "Blue", "product_type_name": "kurta",
+        "gender": gender, "colour_group_name": colour, "product_type_name": "kurta",
         "department_name": ign.title(), "index_group_name": ign,
-        "facets": {"colour_group_name": "Blue", "product_type_name": "kurta",
+        "facets": {"colour_group_name": colour, "product_type_name": "kurta",
                    "department_name": ign.title(), "index_group_name": ign},
     }
 
@@ -140,3 +142,25 @@ def test_narrow_pool_shows_fewer_instead_of_relaxing_the_store_cap() -> None:
     res = _run(rows, "women's kurta")
     stores = [i["store"] for i in _shown(res)]
     assert len(stores) == 2  # cap 2, nothing else to backfill from: shown short, never relaxed
+
+
+def test_cards_dropped_by_a_result_gate_are_refilled_from_deeper_candidates() -> None:
+    # haldi gate strips black items: they used to leave the list short with nothing refilling it
+    stores = ("libas", "fashor", "tjori", "vastramay", "kisah", "jadeblue", "rathore", "jompers")
+    rows = [
+        _row(i, stores[i], "women", f"Black Kurta {i}" if i < 3 else f"Yellow Kurta {i}",
+             1000.0 + i, colour="Black" if i < 3 else "Yellow")
+        for i in range(8)
+    ]
+    res = _run(rows, "kurta for haldi for women")
+    items = _shown(res)
+    assert len(items) == 5, [i["display_name"] for i in items]
+    assert not any((i.get("colour") or "").lower() == "black" for i in items)
+
+
+def test_gate_that_empties_the_list_is_not_refilled() -> None:
+    # honest zero-results: a loungewear-only pool for a wedding-tier ask stays empty
+    stores = ("libas", "fashor", "tjori", "vastramay", "kisah", "jadeblue")
+    rows = [_row(i, stores[i], "women", f"Cotton Night Dress {i}", 900.0 + i) for i in range(6)]
+    res = _run(rows, "kurta for sangeet for women")
+    assert _shown(res) == []
