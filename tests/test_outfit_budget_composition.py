@@ -370,8 +370,9 @@ def test_grid_cells_with_three_cards(_grid: list[dict], capsys: pytest.CaptureFi
 
 
 # Cells with >= 3 cards. 9/36 before the budget work; 29/36 greedy and 30/36 joint on the recorded
-# local build. CI's index differs, so this is set from CI's own measured value (see the test above).
-_GRID_FLOOR_CELLS_GE3 = 20  # placeholder until CI's measurement is read (next commit sets it)
+# local build. CI's index differs: CI measured 30/36 (run 45722848601, backend job, line
+# "OUTFIT_GRID_CELLS_GE3=30/36 joint=True"), so the floor is 30 - 1 = 29 (one cell of slack).
+_GRID_FLOOR_CELLS_GE3 = 29
 
 
 def test_sangeet_3000_women_has_three_cards(_grid: list[dict]) -> None:
