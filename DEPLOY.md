@@ -985,10 +985,10 @@ gcloud's documented behaviour, not observed in this session.
 retry of a failing GET at `deploy_smoke.py:90-100` adds none); `POST /demo/session` 0; `POST /chat`
 2 measured calls (`deploy_smoke.py:14-20`). That is 3 calls. Main-URL smoke (`--no-chat`):
 `/readyz` 1 probe. **Per rollout: 4 calls = 4 x 1,343 = 5,372 tokens** (1,343 = measured p50
-1,219 in + 124 out per call, `docs/ops/canary-budget.md:23`; the `/readyz` probe uses
+1,219 in + 124 out per call, `docs/ops/canary-budget.md` section "Inputs", row "Earlier measurement"; the `/readyz` probe uses
 `max_tokens=1`, so this overstates it). **At 1 rollout/day: 4 requests/day = 0.40 % of the 1,000
 RPD and 5,372 tokens/day = 2.69 % of the 200,000 TPD** (TPD is UNVERIFIED per
-`canary-budget.md:12`). The tag-URL part alone is 3 calls, 4,029 tokens (2.01 % TPD). Ordinary
+`canary-budget.md` section "Limits compared against"). The tag-URL part alone is 3 calls, 4,029 tokens (2.01 % TPD). Ordinary
 code deploys run the same smoke and share this cost; the calls are on top of the canary stack in
 `canary-budget.md`.
 
