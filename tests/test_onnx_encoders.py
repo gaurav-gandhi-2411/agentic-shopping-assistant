@@ -143,6 +143,15 @@ def test_clip_text_unit_norm_and_matches_numpy(model_root: Path, tables: dict[st
     np.testing.assert_allclose(vecs[0], exp / np.linalg.norm(exp), atol=1e-6)
 
 
+def test_clip_text_tower_is_loaded_lazily(model_root: Path) -> None:
+    enc = oe.OnnxCLIPEncoder("clip-ViT-B-32", root=model_root)
+    assert enc._text is None  # request path never needs it: ~250 MB saved in the real model
+    enc.encode_image(Image.new("RGB", (32, 32)))
+    assert enc._text is None
+    enc.encode_texts(["red dress"])
+    assert enc._text is not None
+
+
 def test_clip_text_batches_over_64(model_root: Path) -> None:
     enc = oe.OnnxCLIPEncoder("clip-ViT-B-32", root=model_root)
     texts = ["red dress", "blue shirt long kurta"] * 40  # 80 > the 64 batch size

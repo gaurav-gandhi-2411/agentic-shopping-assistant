@@ -8,8 +8,8 @@ only the output directory. Also run by CI before the tests that load the real en
 
 Output layout (``ONNX_MODEL_DIR`` points at ``--out-dir`` at runtime)::
 
-    all-MiniLM-L6-v2/model.onnx  tokenizer.json  manifest.json
-    clip-ViT-B-32/text.onnx  vision.onnx  tokenizer.json  manifest.json
+    all-MiniLM-L6-v2/model.onnx  model.onnx.data  tokenizer.json  manifest.json
+    clip-ViT-B-32/text.onnx  text.onnx.data  vision.onnx  vision.onnx.data  tokenizer.json  manifest.json
 
 Models are fetched at the pinned Hugging Face commits below (the same repos the code used before
 this change: config.yaml ``retrieval.dense_model`` and ``clip.model``). Bumping a revision is a
@@ -50,6 +50,21 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _externalise(path: Path) -> None:
+    """Move the weights out of ``<name>.onnx`` into ``<name>.onnx.data`` (same graph, same bytes).
+
+    onnxruntime memory-maps external initializers; with the weights embedded in the .onnx it reads
+    the whole file into anonymous memory instead. Measured in the runtime container (1 session each,
+    resident set after load): MiniLM 171 -> 98 MB, CLIP vision 679 -> 435 MB (total 3-session
+    probe 856 -> 600 MB). The weights are unchanged, so the equivalence results are unaffected.
+    """
+    import onnx
+
+    model = onnx.load(str(path), load_external_data=True)
+    onnx.save_model(model, str(path), save_as_external_data=True, all_tensors_to_one_file=True,
+                    location=path.name + ".data", size_threshold=1024)
 
 
 def _cos_min(a, b) -> float:  # noqa: ANN001
@@ -117,6 +132,7 @@ def export_minilm(root: Path) -> None:
         opset_version=OPSET, do_constant_folding=True, dynamo=False,
     )
     st.tokenizer.backend_tokenizer.save(str(out / "tokenizer.json"))
+    _externalise(path)
 
     # Self-check through the same code path production uses (tokenizers + ORT + numpy pooling).
     from src.retrieval.onnx_encoders import OnnxTextEncoder
@@ -184,6 +200,8 @@ def export_clip(root: Path) -> None:
         opset_version=OPSET, do_constant_folding=True, dynamo=False,
     )
     tok.backend_tokenizer.save(str(out / "tokenizer.json"))
+    _externalise(out / "text.onnx")
+    _externalise(out / "vision.onnx")
 
     from src.retrieval.onnx_encoders import OnnxCLIPEncoder
 

@@ -20,6 +20,7 @@ Backend selection (``encoder_backend``): env ``ENCODER_BACKEND`` = ``onnx`` (def
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -211,14 +212,29 @@ class OnnxCLIPEncoder:
     def __init__(self, model_id: str, root: str | os.PathLike[str] | None = None) -> None:
         self._model_id = model_id
         d = onnx_model_dir(model_id, root)
+        # The text tower is only needed to BUILD the CLIP text index (scripts/build_clip_index.py);
+        # the request path encodes images and searches the prebuilt index. It is loaded on first
+        # use: eagerly it costs ~250 MB of resident memory in a 4 GiB service for nothing.
+        self._text_path = d / "text.onnx"
+        self._text: Any = None
+        self._text_lock = threading.Lock()
         try:
-            self._text = _session(d / "text.onnx")
+            if not self._text_path.is_file():
+                raise RuntimeError(f"ONNX model file not found: {self._text_path}. See scripts/export_onnx.py.")
             self._vision = _session(d / "vision.onnx")
             self._tok = _tokenizer(d / "tokenizer.json", CLIP_MAX_TOKENS)
         except RuntimeError as exc:
             raise RuntimeError(f"Failed to load CLIP model '{model_id}': {exc}") from exc
         # CLIP pads with <|endoftext|>; pooling picks the first EOS (argmax), so pad id is inert.
         self._pad_id = self._tok.token_to_id("<|endoftext|>") or 49407
+
+    def _text_session(self) -> Any:
+        """The text-tower session, created on first use (thread-safe)."""
+        if self._text is None:
+            with self._text_lock:
+                if self._text is None:
+                    self._text = _session(self._text_path)
+        return self._text
 
     def encode_image(self, img: PILImage) -> np.ndarray:
         """Embed one in-memory PIL image; returns L2-normalised float32 ``(512,)``.
@@ -231,10 +247,11 @@ class OnnxCLIPEncoder:
 
     def encode_texts(self, texts: list[str]) -> np.ndarray:
         """Embed texts (truncated at 77 tokens); returns L2-normalised float32 ``(n, 512)``."""
-        out = np.zeros((len(texts), _out_dim(self._text)), dtype=np.float32)
+        text = self._text_session()
+        out = np.zeros((len(texts), _out_dim(text)), dtype=np.float32)
         for start in range(0, len(texts), 64):
             enc = self._tok.encode_batch(texts[start : start + 64])
             ids, mask, _ = _pad_batch(enc, self._pad_id)
-            emb = self._text.run(None, {"input_ids": ids, "attention_mask": mask})[0]
+            emb = text.run(None, {"input_ids": ids, "attention_mask": mask})[0]
             out[start : start + len(enc)] = emb
         return _l2_normalise(out)
