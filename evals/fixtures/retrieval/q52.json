@@ -1,0 +1,17 @@
+{
+  "id": "q52",
+  "text": "Need men's kurta set for shaadi yaar, kuch accha dikhao",
+  "language_style": "en_hinglish",
+  "occasion": "wedding_guest",
+  "gender": "men",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "kurta set",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

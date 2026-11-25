@@ -1,0 +1,17 @@
+{
+  "id": "q21",
+  "text": "Can you suggest blue jeans for a woman to wear to college? I want it to look elegant but stay comfortable. Please keep it under ₹1000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "college",
+  "gender": "women",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "blue",
+    "category": "jeans",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

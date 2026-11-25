@@ -1,0 +1,17 @@
+{
+  "id": "q60",
+  "text": "necklace set for a wedding under ₹3000",
+  "language_style": "plain_en",
+  "occasion": "accessory_footwear",
+  "gender": "either",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": null,
+    "category": "necklace set",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

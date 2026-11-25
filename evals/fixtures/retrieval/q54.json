@@ -1,0 +1,17 @@
+{
+  "id": "q54",
+  "text": "Can you suggest formal shirt for a man to wear to office? I want it to look elegant but stay comfortable. Please keep it under ₹1000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "office_formal",
+  "gender": "men",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": null,
+    "category": "formal shirt",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

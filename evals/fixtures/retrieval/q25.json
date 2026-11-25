@@ -1,0 +1,17 @@
+{
+  "id": "q25",
+  "text": "Need navy indo-western ethnic outfit for sangeet night yaar, budget 5000 max",
+  "language_style": "en_hinglish",
+  "occasion": "sangeet",
+  "gender": "either",
+  "budget_inr": 5000,
+  "hard": true,
+  "constraints": {
+    "gender": null,
+    "colour": "navy",
+    "category": "ethnic outfit",
+    "max_price": 5000,
+    "style_term": "indo-western"
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget + style term 'indo-western')"
+}

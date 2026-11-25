@@ -1,0 +1,17 @@
+{
+  "id": "q01",
+  "text": "grey indo-westen anarkali gown sangeet women <3000",
+  "language_style": "keyword_typo",
+  "occasion": "sangeet",
+  "gender": "women",
+  "budget_inr": 3000,
+  "hard": true,
+  "constraints": {
+    "gender": "women",
+    "colour": "grey",
+    "category": "anarkali gown",
+    "max_price": 3000,
+    "style_term": "indo-western"
+  },
+  "notes": "hard: multi-constraint (occasion + colour + budget + style term 'indo-western')"
+}

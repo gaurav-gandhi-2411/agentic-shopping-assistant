@@ -1,0 +1,17 @@
+{
+  "id": "q36",
+  "text": "shaadi ke liye jhumka earrings chahiye ladkiyon ke liye, 3000 se kam mein",
+  "language_style": "romanised_hinglish",
+  "occasion": "accessory_footwear",
+  "gender": "women",
+  "budget_inr": 3000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "jhumka earrings",
+    "max_price": 3000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

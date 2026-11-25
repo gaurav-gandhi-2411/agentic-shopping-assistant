@@ -1,0 +1,17 @@
+{
+  "id": "q53",
+  "text": "wite gown cocktail women <1500",
+  "language_style": "keyword_typo",
+  "occasion": "reception_cocktail",
+  "gender": "women",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "white",
+    "category": "gown",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q16",
+  "text": "Can you suggest lehenga for a woman to wear to a wedding? I want it to look elegant but stay comfortable. Please keep it under ₹1500.",
+  "language_style": "stylist_descriptive",
+  "occasion": "wedding_guest",
+  "gender": "women",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": null,
+    "category": "lehenga",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

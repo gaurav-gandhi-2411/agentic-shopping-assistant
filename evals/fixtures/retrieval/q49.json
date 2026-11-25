@@ -1,0 +1,17 @@
+{
+  "id": "q49",
+  "text": "Need men's red kurta set for sangeet night yaar, budget 1500 max",
+  "language_style": "en_hinglish",
+  "occasion": "sangeet",
+  "gender": "men",
+  "budget_inr": 1500,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "red",
+    "category": "kurta set",
+    "max_price": 1500,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q23",
+  "text": "Can you suggest navy dress for a woman to wear to a party? I want it to look elegant but stay comfortable. Please keep it under ₹1000.",
+  "language_style": "stylist_descriptive",
+  "occasion": "travel_party",
+  "gender": "women",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "navy",
+    "category": "dress",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

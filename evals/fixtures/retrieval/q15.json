@@ -1,0 +1,17 @@
+{
+  "id": "q15",
+  "text": "yellow outfit for mehendi under ₹1000",
+  "language_style": "plain_en",
+  "occasion": "mehendi",
+  "gender": "either",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": null,
+    "colour": "yellow",
+    "category": "outfit",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}

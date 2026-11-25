@@ -1,0 +1,17 @@
+{
+  "id": "q59",
+  "text": "party ke liye maroon shirt chahiye ladkon ke liye",
+  "language_style": "romanised_hinglish",
+  "occasion": "travel_party",
+  "gender": "men",
+  "budget_inr": null,
+  "hard": false,
+  "constraints": {
+    "gender": "men",
+    "colour": "maroon",
+    "category": "shirt",
+    "max_price": null,
+    "style_term": null
+  },
+  "notes": "standard"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "q31",
+  "text": "pink krta set diwali festive women <1000",
+  "language_style": "keyword_typo",
+  "occasion": "festive_diwali",
+  "gender": "women",
+  "budget_inr": 1000,
+  "hard": false,
+  "constraints": {
+    "gender": "women",
+    "colour": "pink",
+    "category": "kurta set",
+    "max_price": 1000,
+    "style_term": null
+  },
+  "notes": "standard"
+}
