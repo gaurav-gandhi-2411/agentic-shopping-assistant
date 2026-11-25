@@ -1,6 +1,12 @@
 version: 2
 updates:
   # Python — repo root (pip: no uv.lock present, requirements.txt-based)
+  # requirements-export.txt (torch / sentence-transformers / onnx, build-time only) lives in this
+  # same directory; whether Dependabot's pip updater picks it up under this entry is NOT verified
+  # (the config only takes a directory, there is no per-file syntax). Check the first weekly run
+  # for a PR touching it; until then bump it by hand together with scripts/export_onnx.py and
+  # re-run scripts/onnx_equivalence_gate.py. There is also no docker ecosystem entry, so the
+  # python:3.11-slim base image in the Dockerfile is not tracked.
   - package-ecosystem: pip
     directory: /
     schedule:
