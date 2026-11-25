@@ -1,0 +1,516 @@
+{
+ "model": "openai/gpt-oss-20b",
+ "live_calls": 18,
+ "tokens": 3149,
+ "models_seen": [
+  "openai/gpt-oss-20b"
+ ],
+ "turns": [
+  {
+   "run": 1,
+   "chip": "Sangeet outfit under ₹3,000",
+   "route": [
+    "router_decision",
+    "outfit"
+   ],
+   "price_max": null,
+   "gender_neutral": false,
+   "criteria": {
+    "plain_search": false,
+    "n_cards": 3,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 1,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": null,
+   "latency_s": 6.6,
+   "cards": [
+    {
+     "title": "Set of 2: Snow White Cotton Anarkali Kurti with Flared Pants (White kurti)",
+     "store": "tjori",
+     "price": 1069.0,
+     "gender": "women"
+    },
+    {
+     "title": "Women's Red Handcrafted Potli Clutch (Red bag)",
+     "store": "vastramay",
+     "price": 489.0,
+     "gender": "women"
+    },
+    {
+     "title": "Zari Jutti (Gold) (Burgundy footwear)",
+     "store": "taurjuttis",
+     "price": 1300.0,
+     "gender": "women"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "chip": "Haldi kurta set",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": null,
+   "gender_neutral": true,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 4,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": true,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": [
+    {
+     "gender": "women",
+     "query": "Haldi kurta set for women"
+    },
+    {
+     "gender": "men",
+     "query": "Haldi kurta set for men"
+    }
+   ],
+   "latency_s": 1.9,
+   "cards": [
+    {
+     "title": "Yellow Geometric Printed Kurta Set (Yellow kurta)",
+     "store": "kisah",
+     "price": 3299.0,
+     "gender": "men"
+    },
+    {
+     "title": "Mustard Knit Regular Fit Kurta Set (Yellow kurta)",
+     "store": "globalrepublic",
+     "price": 2299.0,
+     "gender": "women"
+    },
+    {
+     "title": "Yellow Printed Front Open Kurta Set (Yellow kurta)",
+     "store": "kisah",
+     "price": 3299.0,
+     "gender": "men"
+    },
+    {
+     "title": "Yellow Self Design Regular Fit Kurta Set | Azania (Yellow kurta)",
+     "store": "jadeblue",
+     "price": 3667.0,
+     "gender": "men"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "chip": "Wedding guest saree",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": null,
+   "gender_neutral": false,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 4,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": null,
+   "latency_s": 4.3,
+   "cards": [
+    {
+     "title": "Pink Embellished Satin Saree (Pink saree)",
+     "store": "libas",
+     "price": 5399.0,
+     "gender": "women"
+    },
+    {
+     "title": "Mustard Silk Blend Saree (Yellow saree)",
+     "store": "libas",
+     "price": 6299.0,
+     "gender": "women"
+    },
+    {
+     "title": "Dityaa Gold (Saree) (Red saree)",
+     "store": "5-elements",
+     "price": 41900.0,
+     "gender": "women"
+    },
+    {
+     "title": "Dityaa Silver (Saree) (Grey saree)",
+     "store": "5-elements",
+     "price": 41900.0,
+     "gender": "women"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "chip": "Office wear under ₹1,500",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": 1500.0,
+   "gender_neutral": true,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 2,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": false,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": [
+    {
+     "gender": "women",
+     "query": "Office wear under ₹1,500 for women"
+    },
+    {
+     "gender": "men",
+     "query": "Office wear under ₹1,500 for men"
+    }
+   ],
+   "latency_s": 11.0,
+   "cards": [
+    {
+     "title": "Off White Checked Slim Fit Formal Shirt | Greenfibre (Off White shirt)",
+     "store": "jadeblue",
+     "price": 656.0,
+     "gender": "men"
+    },
+    {
+     "title": "Light Blue Checked Slim Fit Formal Shirt | Metal (Light Blue shirt)",
+     "store": "jadeblue",
+     "price": 1078.0,
+     "gender": "men"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "chip": "Men's kurta for a wedding",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": null,
+   "gender_neutral": false,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 5,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": null,
+   "latency_s": 5.3,
+   "cards": [
+    {
+     "title": "Multi Color Cotton Printed Long Kurta ( kurta)",
+     "store": "kisah",
+     "price": 2299.0,
+     "gender": "men"
+    },
+    {
+     "title": "Multicolor Floral Printed Mid Kurta ( kurta)",
+     "store": "kisah",
+     "price": 3499.0,
+     "gender": "men"
+    },
+    {
+     "title": "Plus Men's Aqua Silk Blend Kurta ( kurta)",
+     "store": "vastramay",
+     "price": 989.0,
+     "gender": "men"
+    },
+    {
+     "title": "Festive Butter Cream Solid Kurta | The Kurta Company (Off White kurta)",
+     "store": "jadeblue",
+     "price": 1312.0,
+     "gender": "men"
+    },
+    {
+     "title": "Plus Men's Rose Gold Silk Blend Kurta (Pink kurta)",
+     "store": "vastramay",
+     "price": 989.0,
+     "gender": "men"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "chip": "Sangeet outfit under ₹3,000",
+   "route": [
+    "router_decision",
+    "outfit"
+   ],
+   "price_max": null,
+   "gender_neutral": false,
+   "criteria": {
+    "plain_search": false,
+    "n_cards": 3,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 1,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": null,
+   "latency_s": 9.3,
+   "cards": [
+    {
+     "title": "Set of 2: Snow White Cotton Anarkali Kurti with Flared Pants (White kurti)",
+     "store": "tjori",
+     "price": 1069.0,
+     "gender": "women"
+    },
+    {
+     "title": "Women's Red Handcrafted Potli Clutch (Red bag)",
+     "store": "vastramay",
+     "price": 489.0,
+     "gender": "women"
+    },
+    {
+     "title": "Zari Jutti (Gold) (Burgundy footwear)",
+     "store": "taurjuttis",
+     "price": 1300.0,
+     "gender": "women"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "chip": "Haldi kurta set",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": null,
+   "gender_neutral": true,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 3,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": false,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": [
+    {
+     "gender": "women",
+     "query": "Haldi kurta set for women"
+    },
+    {
+     "gender": "men",
+     "query": "Haldi kurta set for men"
+    }
+   ],
+   "latency_s": 8.3,
+   "cards": [
+    {
+     "title": "TAJ HALDI SHORT KURTA SET ( kurta)",
+     "store": "kalpraag",
+     "price": 17549.0,
+     "gender": "men"
+    },
+    {
+     "title": "Yellow Geometric Printed Kurta Set (Yellow kurta)",
+     "store": "kisah",
+     "price": 3299.0,
+     "gender": "men"
+    },
+    {
+     "title": "Chaitanya Haldi Kurta Set (Brown kurta)",
+     "store": "kalpraag",
+     "price": 16818.0,
+     "gender": "men"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "chip": "Wedding guest saree",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": null,
+   "gender_neutral": false,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 4,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": null,
+   "latency_s": 1.8,
+   "cards": [
+    {
+     "title": "Dityaa Gold (Saree) (Red saree)",
+     "store": "5-elements",
+     "price": 41900.0,
+     "gender": "women"
+    },
+    {
+     "title": "Burgundy Silk Blend Saree (Dark Red saree)",
+     "store": "libas",
+     "price": 6299.0,
+     "gender": "women"
+    },
+    {
+     "title": "Dityaa Pink (Saree) (Pink saree)",
+     "store": "5-elements",
+     "price": 39900.0,
+     "gender": "women"
+    },
+    {
+     "title": "Pink Embellished Satin Saree (Pink saree)",
+     "store": "libas",
+     "price": 5399.0,
+     "gender": "women"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "chip": "Office wear under ₹1,500",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": 1500.0,
+   "gender_neutral": true,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 2,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": false,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": [
+    {
+     "gender": "women",
+     "query": "Office wear under ₹1,500 for women"
+    },
+    {
+     "gender": "men",
+     "query": "Office wear under ₹1,500 for men"
+    }
+   ],
+   "latency_s": 1.7,
+   "cards": [
+    {
+     "title": "Off White Checked Slim Fit Formal Shirt | Greenfibre (Off White shirt)",
+     "store": "jadeblue",
+     "price": 656.0,
+     "gender": "men"
+    },
+    {
+     "title": "Light Blue Checked Slim Fit Formal Shirt | Metal (Light Blue shirt)",
+     "store": "jadeblue",
+     "price": 1078.0,
+     "gender": "men"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "chip": "Men's kurta for a wedding",
+   "route": [
+    "router_decision",
+    "search"
+   ],
+   "price_max": null,
+   "gender_neutral": false,
+   "criteria": {
+    "plain_search": true,
+    "n_cards": 5,
+    "duplicates": 0,
+    "pass_no_duplicates": true,
+    "max_per_store": 2,
+    "pass_store_cap": true,
+    "both_genders": false,
+    "pass_both_genders": true,
+    "over_budget": 0,
+    "pass_budget": true
+   },
+   "gender_refine": null,
+   "latency_s": 2.8,
+   "cards": [
+    {
+     "title": "Men Black Silk Embroidered Kurta (Black kurta)",
+     "store": "vastramay",
+     "price": 2199.0,
+     "gender": "men"
+    },
+    {
+     "title": "Mens Black Round Nack Solid Kurta (Black kurta)",
+     "store": "globalrepublic",
+     "price": 1259.0,
+     "gender": "men"
+    },
+    {
+     "title": "Plus Men's Black Cotton Linen Kurta (Black kurta)",
+     "store": "vastramay",
+     "price": 1339.0,
+     "gender": "men"
+    },
+    {
+     "title": "Maroon with Circular Bandhani Print Cotton Blend Men's Kurta (Dark Red kurta)",
+     "store": "jadeblue",
+     "price": 1312.0,
+     "gender": "men"
+    },
+    {
+     "title": "Haldi Yellow Printed Gold Brocade Kurta | The Kurta Company (Yellow kurta)",
+     "store": "jadeblue",
+     "price": 1640.0,
+     "gender": "men"
+    }
+   ]
+  }
+ ]
+}

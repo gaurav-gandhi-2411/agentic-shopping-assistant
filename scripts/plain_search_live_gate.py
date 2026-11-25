@@ -129,6 +129,12 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+    import logging
+
+    logging.basicConfig(level=logging.WARNING)
+    for name in ("src.agents.graph", "src.agents.reranker"):  # the rerank outcome + postprocess lines
+        logging.getLogger(name).setLevel(logging.INFO)
+
     key = os.environ.get(rg.KEY_NAME) or rg.read_named_key(Path(args.env_file))
     if not key:
         raise SystemExit(f"{rg.KEY_NAME} not found by name")
