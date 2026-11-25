@@ -47,6 +47,9 @@ from src.utils.redact import Redactor, install_log_redaction
 
 logger = logging.getLogger(__name__)
 
+# Keep-warm pings every few minutes would otherwise be most of the access log.
+_UNLOGGED_PATHS = frozenset({"/ping"})
+
 # Cover log lines emitted before lifespan (import time, uvicorn startup).
 install_log_redaction()
 
@@ -434,6 +437,8 @@ def create_app() -> FastAPI:
     async def access_log(request: Request, call_next: Any) -> Response:
         t0 = time.monotonic()
         response = await call_next(request)
+        if request.url.path in _UNLOGGED_PATHS:
+            return response
         latency_ms = round((time.monotonic() - t0) * 1000)
         logger.info(
             "%s %s %d",
