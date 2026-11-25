@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass
 
@@ -632,6 +633,7 @@ _ACCESSORY_FACET_VALUES: frozenset[str] = frozenset({
 })
 
 
+@functools.lru_cache(maxsize=16384)  # pure on two strings; the keyword scans cost ~1 ms cold
 def classify_item(product_type: str, prod_name: str = "") -> str:
     """Classify a CANDIDATE item (not just an anchor) into a slot-compatible class.
 
@@ -745,6 +747,7 @@ def is_slot_type_allowed(slot_name: str, product_type: str, prod_name: str = "")
     return classify_item(product_type, prod_name) in allowed
 
 
+@functools.lru_cache(maxsize=16384)  # pure on three strings (same reason as classify_item)
 def accessory_query_matches(query: str, product_type: str, prod_name: str) -> bool:
     """Return True if an accessory candidate's text shares a FAMILY with the
     slot query (e.g. a "dupatta ethnic dupatta" query must not accept a
@@ -1148,6 +1151,7 @@ _AMPERSAND_RE = re.compile(r"&")
 _BARE_SET_ZERO_NOUN_PRODUCT_TYPES: frozenset[str] = frozenset({"kurta", "kurti", "dress", "anarkali"})
 
 
+@functools.lru_cache(maxsize=16384)  # pure on two strings (same reason as classify_item)
 def is_multi_piece_set(product_type: str, prod_name: str) -> bool:
     """Return True if this item is a multi-piece SET listing (a whole outfit)
     rather than a single garment. See the module comment above
