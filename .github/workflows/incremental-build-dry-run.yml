@@ -99,7 +99,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      # Inert echo stub: read is enough. A real publish step must request contents: write here
+      # at the time it is added.
+      contents: read
     steps:
       - name: Show the upload that a later change would perform
         run: |
