@@ -77,13 +77,21 @@ charges each run `11 + 2` queries (`RUN_QUERY_BUDGET`), and `DAILY_QUERY_CAP` eq
 
 ## Per minute, demo limit, time
 
-- Per minute (VERIFIED 8,000 TPM): turns are 30 s apart, so at most 2 turns/min: 4,300 tokens with
-  variant C, 6,690 with today's reranker (2 x 3,345), both under the limit; a real chat in the same
-  minute can still push a minute over it.
+- Per minute (8,000 TPM, from the 2026-11-13 header measurement): the canary's gpt-oss-20b calls run
+  in about 5-8 s and use about 2,680 tokens per query (n=3 queries, about 8,000 tokens in one run,
+  read-only prod `llm_call` report 2026-11-26) = about 100% of the 8,000 TPM limit when queries run
+  back to back. Target <= 50% = 4,000 tokens/min, so at most one query per 60 s window:
+  `CANARY_QUERY_SPACING_S = 65` s between query starts (was 30 s = 2 turns/min = 5,360 tokens/min =
+  67%). At 65 s: 1 turn/min = about 2,680 tokens = 33.5% of the limit (about 2,150 = 27% with
+  variant C). A real chat in the same minute can still push a minute over it.
 - Demo per-IP limit (35/hour, VERIFIED in `api/demo/guards.py`, one count per WS connection): at most
   13 per run (11 + 2 retries) and one run a day, so it cannot be reached by the canary alone.
-- Time: pacing alone is 12 x 30 s = 6 min for 13 queries; the script stops starting queries after
-  1,080 s (fail closed) and the job timeout is 25 min.
+- Time: pacing alone is 12 x 65 s = 780 s = 13 min for 13 queries (11 + 2 retries), plus turn time
+  (warm turns < 8 s, a cold first turn up to 120 s): 780 + 12 x 8 + 120 = 996 s worst nominal, under
+  the 1,080 s point where the script stops starting queries (fail closed) and the 30 min job
+  timeout. The sleep is outside every latency and `cold_start_ms` measurement. Spacing is defence
+  in depth: the canary-day fallbacks measured since 2026-11-21 come from the old 150-token reranker
+  cap (replaced by `RERANK_MAX_TOKENS` 700 in #136), not from TPM.
 
 ## Cloud Scheduler (the only billable line seen)
 

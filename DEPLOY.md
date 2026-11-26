@@ -1397,7 +1397,7 @@ for one TTL, flagged stale up to 2 x TTL, then `503 {"status":"stale"}` until UT
 this configuration it is **not a continuous monitor**. The monitor must not hit `/readyz` (one real LLM call per hit).
 LLM budget against the Groq limits: `docs/ops/canary-budget.md`. The WS-path
 `.github/workflows/canary.yml` now runs once a day (3 core queries + 8 card-count checks, paced
-30 s apart; floors in `scripts/ops/canary_card_checks.json`). Background numbers:
+65 s apart; floors in `scripts/ops/canary_card_checks.json`). Background numbers:
 `reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
 ### Switch Cloud Run to the dedicated runtime service account

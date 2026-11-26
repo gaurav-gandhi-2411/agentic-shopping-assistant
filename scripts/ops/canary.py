@@ -67,8 +67,8 @@ is left to W10/W11). Owned items (``is_owned``: the user's own garment) are not 
 exempt from (a).
 
 BUDGET (updated for the card-count suite; numbers in docs/ops/canary-budget.md). A run is the 3
-QUERIES plus the CARD_CHECKS (8) = QUERIES_PER_RUN = 11 turns, paced QUERY_SPACING_S apart so the
-run stays under the verified 8,000 tokens/minute Groq limit (one turn is ~3.3K tokens) and the
+QUERIES plus the CARD_CHECKS (8) = QUERIES_PER_RUN = 11 turns, paced CANARY_QUERY_SPACING_S apart so the
+run stays under half of the 8,000 tokens/minute Groq limit (one turn is ~2.7-3.3K tokens) and the
 demo per-IP limit (35/hr, one count per WS connection: 11 + retries per run). Hard cap = 1 run
 (RUN_QUERY_BUDGET = 13 queries) per UTC day; a second run that day is skipped, not failed. The
 text below describes the original 3-query
@@ -159,7 +159,9 @@ SESSION_TIMEOUT_S = 130.0
 # largest value for which ALL scheduled checks stay <= 25% of the primary model's TPD (50,000
 # tokens/day): scripts/ops/canary_budget.py computes it and tests/test_canary_budget.py gates it.
 MAX_RETRIES_PER_RUN = 2
-QUERY_SPACING_S = 30.0  # 2 turns/min x ~3.3K tokens = ~6.5K TPM < verified 8,000 TPM Groq limit
+# >= 65 s between query starts = at most one turn per 60 s window (~2,680 tokens/turn measured =
+# ~33% of the 8,000 TPM limit, target <= 50%); the sleep is outside every latency measurement.
+CANARY_QUERY_SPACING_S = 65.0
 RUN_TIME_BUDGET_S = 1080.0  # stop starting queries after 18 min; job timeout is 25 min (canary.yml)
 SNIPPET_CHARS = 500
 ALERT_LABEL = "prod-alert"
@@ -1080,7 +1082,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="assert a -1 ms latency budget (impossible: even 0.0 ms exceeds it) without extra LLM calls")
     r.add_argument("--suite", choices=("core", "all"), default="all",
                    help="core = the 3 original queries; all = core + the card-count checks")
-    r.add_argument("--pace-s", type=float, default=QUERY_SPACING_S,
+    r.add_argument("--pace-s", type=float, default=CANARY_QUERY_SPACING_S,
                    help="seconds between queries (keeps the run under the Groq TPM limit)")
     r.add_argument("--repo", default="", help="owner/name; enables the daily-cap check via gh")
     r.add_argument("--workflow", default="canary.yml")

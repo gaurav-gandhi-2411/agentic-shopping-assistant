@@ -856,6 +856,28 @@ def test_run_suite_paces_between_queries_only(monkeypatch) -> None:
     assert seen == specs and len(out) == 3 and sleeps == [30.0, 30.0]
 
 
+def test_query_spacing_keeps_at_most_one_turn_per_minute_under_half_the_tpm() -> None:
+    tokens_per_query, tpm_limit = 2_680, 8_000  # canary-budget.md: measured / 2026-11-13 headers
+    assert canary.CANARY_QUERY_SPACING_S >= 65.0  # at most one query start per 60 s window
+    assert tokens_per_query * (60 / canary.CANARY_QUERY_SPACING_S) <= 0.5 * tpm_limit
+
+
+def test_default_spacing_fits_the_run_time_budget_with_a_cold_first_turn() -> None:
+    gaps = canary.RUN_QUERY_BUDGET - 1  # 11 queries + max retries, one sleep before each but the first
+    nominal = gaps * canary.CANARY_QUERY_SPACING_S + canary.RUN_QUERY_BUDGET * 8 + 120
+    assert nominal < canary.RUN_TIME_BUDGET_S, nominal  # no query is time-skipped (fail closed)
+
+
+def test_run_suite_sleep_is_not_part_of_the_measured_latency(monkeypatch) -> None:
+    """The sleep runs between run_query calls, so a query's own latency never includes it."""
+    events: list[str] = []
+    monkeypatch.setattr(canary, "run_query", lambda b, t, q, bud, min_cards=None:
+                        events.append(f"q:{q}") or canary.QueryResult(query=q))
+    canary.run_suite("u", "t", 8000, [("a", None), ("b", None)], 65.0,
+                     sleep=lambda s: events.append(f"sleep:{s:g}"))
+    assert events == ["q:a", "sleep:65", "q:b"]
+
+
 def test_run_suite_time_budget_exhausted_fails_closed(monkeypatch) -> None:
     called: list[str] = []
     monkeypatch.setattr(canary, "run_query", lambda b, t, q, bud, min_cards=None:
