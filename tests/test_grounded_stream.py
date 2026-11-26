@@ -280,13 +280,13 @@ def test_hold_mode_emits_whole_sentences_only() -> None:
 # ------------------------------------------------------------------ amendment 3
 
 
-def _boom_once(monkeypatch: pytest.MonkeyPatch) -> None:
+def _boom_once(monkeypatch: pytest.MonkeyPatch, nth: int = 1) -> None:
     real_check = gs.check
     calls = {"n": 0}
 
     def flaky(*a: Any, **k: Any) -> Any:
         calls["n"] += 1
-        if calls["n"] == 1:  # fails once, then "recovers": a dead stream must stay dead anyway
+        if calls["n"] == nth:  # fails once, then "recovers": a dead stream must stay dead anyway
             raise RuntimeError("checker exploded")
         return real_check(*a, **k)
 
@@ -305,6 +305,22 @@ def test_error_after_a_kept_sentence_appends_the_template_and_pins_the_full_text
     assert g.text == "Fine sentence. Another bit here.\n\nTEMPLATE"
     assert "".join(seen) == g.text  # what the caller was handed is exactly what is persisted
     assert g.failed_closed and g.replaced and "template_after_error" in g.flags
+
+
+def test_a_dead_stream_emits_nothing_more_even_when_the_checker_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The error hits a trigger-first sentence (no lead-in was sent, so there is no stale state
+    # that would make later sentences fail on their own): only the dead-stream guard stops them.
+    g = StreamGrounder(ITEMS, fallback="TEMPLATE")
+    _boom_once(monkeypatch, nth=2)
+    seen = g.feed("Fine sentence. Free shipping now. Third bit is here. Fourth.")
+    assert g.failed_closed
+    seen += g.feed(" Fifth bit is here. Sixth bit.")
+    seen += g.feed(" Seventh bit.")
+    seen += g.finish()
+    assert g.text == "Fine sentence.\n\nTEMPLATE"
+    assert "".join(seen) == g.text
 
 
 def test_error_with_a_dangling_lead_in_still_ends_in_the_template(

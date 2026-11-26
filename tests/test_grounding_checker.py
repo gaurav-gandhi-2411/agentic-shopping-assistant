@@ -619,6 +619,10 @@ def test_word_number_budget_echo_from_the_user_is_not_a_price_claim() -> None:
     reply = "The Gloss Wrap Skirt is under ₹2,000 as you asked."
     assert check(reply, [B], user_text="show me skirts under two thousand rupees") == []
     assert "price" in kinds(reply, [B], user_text="show me skirts under three thousand rupees")
+    # a bare word-number budget (no currency word) only parses through the normalisation
+    reply2 = "The Gloss Wrap Skirt is under ₹2,500 as you asked."
+    assert check(reply2, [B], user_text="skirts under two thousand five hundred") == []
+    assert "price" in kinds(reply2, [B], user_text="skirts under three thousand five hundred")
 
 
 @pytest.mark.parametrize(

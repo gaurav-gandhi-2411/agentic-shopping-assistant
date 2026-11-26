@@ -380,6 +380,21 @@ def test_ws_kill_switch_off_streams_raw_tokens(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.usefixtures("_ws")
+def test_ws_kill_switch_off_never_constructs_the_stream_grounder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import api.routes.chat as chat_mod
+
+    def exploding(*a: Any, **k: Any) -> Any:
+        raise AssertionError("StreamGrounder must not be built when the switch is off")
+
+    monkeypatch.setattr(chat_mod, "StreamGrounder", exploding)
+    monkeypatch.setenv(gr.KILL_SWITCH_ENV, "0")
+    frames, final = _ws_turn(_LLM("", chunks=["It is ", "40% off."]))
+    assert frames == ["It is ", "40% off."] and final == "It is 40% off."
+
+
+@pytest.mark.usefixtures("_ws")
 def test_ws_sentence_mode_never_leaves_a_lead_in_fragment(monkeypatch: pytest.MonkeyPatch) -> None:
     chunks = ["Love [item:1] ", "at [price:1]. ", "It is in stock."]
     _, token_mode = _ws_turn(_LLM("", chunks=chunks))
