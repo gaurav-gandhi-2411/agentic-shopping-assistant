@@ -83,7 +83,7 @@ jobs:
           cat out/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload state and report (artifacts only)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: incremental-build-dry-run
           path: |
