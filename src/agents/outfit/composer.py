@@ -693,7 +693,7 @@ def compose_outfit(
         running_total = joint.total_price
 
     # ── Step 3: build rationale ─────────────────────────────────────────────
-    comp_names =[c.get("display_name") or c.get("prod_name") for c in complements]
+    comp_names = [c.get("display_name") or c.get("prod_name") for c in complements]
     seed_display = seed_item.get("display_name") or seed_item.get("prod_name") or "item"
     if comp_names:
         rationale = (
@@ -1970,7 +1970,7 @@ def _ranked_candidates(
         # Joint selection scores ONE shared pool once per anchor. Every hard gate is independent
         # of the anchor, budget and repeats, so run them once (budget off, nothing seen) and let
         # each anchor re-score only the survivors; the survivors of any anchor are a subset.
-        gkey = (slot_name, query, gender, occasion_slug, fetch_price_max, fetch_k)
+        gkey = (slot_name, query, gender, occasion_slug, fetch_price_max, fetch_k, anchor_class)
         passed = gate_cache.get(gkey)
         if passed is None:
             passed = {

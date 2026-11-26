@@ -104,6 +104,62 @@ def test_no_budget_never_enters_the_joint_path(monkeypatch: pytest.MonkeyPatch) 
     assert _compose(_trap_stub(), budget=None)["seed_item"] is not None
 
 
+def test_no_budget_turn_logs_no_joint_fallback_or_any_joint_activity(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Parity cannot see joint running on budget None (an error there would silently fall back
+    to greedy): the joint stage logs every fallback and its debug line, so none may appear."""
+    with caplog.at_level(logging.DEBUG, logger=composer.logger.name):
+        assert _compose(_trap_stub(), budget=None)["seed_item"] is not None
+    assert [r.getMessage() for r in caplog.records if "[composer/joint]" in r.getMessage()] == []
+    assert not any("falling back to greedy" in r.getMessage() for r in caplog.records)
+
+
+def test_budgeted_turn_does_log_joint_activity() -> None:
+    """Control for the test above: the same probe sees the joint stage when it does run."""
+    import logging as _l
+
+    records: list[str] = []
+
+    class _H(_l.Handler):
+        def emit(self, record: _l.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    h = _H(level=_l.DEBUG)
+    old_level = composer.logger.level
+    composer.logger.addHandler(h)
+    composer.logger.setLevel(_l.DEBUG)
+    try:
+        _compose(_trap_stub())
+    finally:
+        composer.logger.removeHandler(h)
+        composer.logger.setLevel(old_level)
+    assert any("[composer/joint]" in m for m in records)
+
+
+def test_gate_cache_key_separates_anchor_classes() -> None:
+    stub = _trap_stub()
+    cache: dict = {}
+    common: dict[str, Any] = dict(
+        query="heels juttis ethnic footwear",
+        slot_name="footwear",
+        occasion_slug="sangeet",
+        gender="women",
+        anchor_colour="pink",
+        seen_ids=set(),
+        seen_prod_colour=set(),
+        retriever=stub,
+        budget_remaining=2000.0,
+        pairing_stats=None,
+        gate_cache=cache,
+    )
+    composer._ranked_candidates(anchor_class="ethnic_one_piece", **common)
+    composer._ranked_candidates(anchor_class="ethnic_top", **common)
+    assert len(cache) == 2
+    composer._ranked_candidates(anchor_class="ethnic_top", **common)
+    assert len(cache) == 2  # same class: a hit, not a new entry
+
+
 def test_timeout_falls_back_to_the_greedy_look_and_logs_why(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
