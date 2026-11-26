@@ -6,32 +6,36 @@ Nothing here is wired into prod; the builder only writes a state file and a repo
 
 ## 1. Content hash and reuse
 
+- Amended (architect decision, PR #143): the builder produces what prod uses, namely MiniLM
+  text vectors and CLIP TEXT vectors of `search_text` (the `scripts/build_clip_index.py` path).
+  No image is downloaded or embedded; image embeddings are out of scope (see section 6).
 - Item key: Shopify product id (string). Hash = sha256 of the canonical JSON of
-  `[title, price, available, image_url, sorted(tags)]` (title stripped; price as float).
-  Description, vendor and product_type are NOT hashed (the task fixes the field list). Known
-  consequence: a description-only edit does not refresh the stored text vector until another hashed
-  field changes. Accepted; revisit if the dry run shows it matters.
-- Same id AND same hash -> reuse the stored row, text vector and image vector. No embedding.
-- Same id, different hash -> "changed": re-prepare and re-embed text. The image vector is reused
-  when the image URL is unchanged, otherwise re-embedded (subject to the cap).
-- Id not in the previous state -> "new": prepare, embed text, embed image (subject to the cap).
+  `[title, product_type, body_html, price, available]` (title and product_type stripped; price as
+  float): the fields that feed `search_text` (name, type, description) plus availability and price.
+  image_url, tags and vendor are NOT hashed. Known consequences, accepted: a tag-only or
+  image-URL-only change is not picked up until another hashed field changes (the stored row keeps
+  the old image URL and gender label meanwhile); a description edit that does not change the
+  cleaned `search_text` re-prepares the row but re-embeds nothing.
+- Same id AND same hash -> reuse the stored row and both text vectors. No embedding.
+- Same id, different hash -> "changed": re-prepare the row. If the new `search_text` equals the
+  stored one, reuse both stored vectors (a price or availability-only edit embeds nothing). If it
+  differs, re-embed BOTH MiniLM and CLIP text for that row.
+- Id not in the previous state -> "new": prepare, embed MiniLM text and CLIP text.
 - Previous id absent from the fetched feed, or present but no longer kept (sold out, unpriced, or
   removed by the build filters) -> "dropped".
 - "kept" = survives the build filters (`build_unified_index._clean_brand_catalogue` replay, same
   as `feed_delta_funnel`). Items rejected by those filters are not stored, so they are re-prepared
   (cheap, no embedding) each run and never counted as new.
 
-## 2. Image-embedding cap
+## 2. Embedding cap (removed)
 
-- `IMAGE_EMBED_CAP_PER_RUN = 2000` new image embeddings per run (CLI `--image-cap`).
-- Work list is ordered by (store slug, article id), so the choice of what is embedded is
-  deterministic. The cap is global across stores.
-- Items beyond the cap are KEPT with their text vector, no image vector and `image_pending=true`.
-  The next run treats a pending row as needing an image embedding even if its hash is unchanged.
-  The report lists `cap_hit`, `images_embedded`, `images_deferred`, per-store deferred counts.
-- An embedder returning no vector for an image (download or decode failure) is also left pending
-  and counted as `images_failed`; never dropped, retried next run.
-- Items with no image URL have no image vector and are not pending.
+- Decision: the image cap machinery (`IMAGE_EMBED_CAP_PER_RUN`, `--image-cap`, `image_pending`,
+  image download) is REMOVED, not repurposed. Both vectors are local-model text encodes
+  (MiniLM, CLIP text), cheap on a CPU runner and uncapped, so there is no budget to ration and
+  no deferred state to carry. Simpler: every kept row always has both vectors.
+- CLIP text encoding must match `build_clip_index.py` exactly: `CLIPEncoder.encode_texts`
+  (`src/retrieval/clip_encoder.py`, truncation at 77 tokens, L2-normalised, float32) on
+  `search_text.fillna("")`, in batches of 64. Items are encoded by sorted article id.
 
 ## 3. Store status and carry-over
 
@@ -49,7 +53,10 @@ Nothing here is wired into prod; the builder only writes a state file and a repo
 
 - One file, `index-state.npz`, for a GitHub Release asset on a pre-release tag `index-state-*`.
   No GCS reads in the builder. Uses `numpy.savez_compressed`, loaded with `allow_pickle=False`.
-- Header JSON: `schema_version` (int, currently 1), `built_at`, `dims`, `store_status`, `checksum`.
+- Per row: store, article id, content hash, catalogue row JSON, `text_vec` (MiniLM, 384) and
+  `clip_vec` (CLIP text, 512). No image vectors.
+- Header JSON: `schema_version` (int, currently 2; v1 held image vectors and is refused),
+  `built_at`, `dims` (`text`, `clip`), `store_status`, `checksum`.
   Checksum = sha256 over the payload arrays (names, dtypes, shapes, bytes, in sorted-name order).
   The reader refuses an unknown schema version, wrong dims or a checksum mismatch; the builder
   treats an unreadable state as a hard error, never as "empty state".
@@ -94,3 +101,13 @@ must not fire on names where the first word is not a reliable gender signal.
 - Known residual: a name whose first word is a genuine gender word used non-semantically but not in
   the denylist is still corrected when no product_type/tags evidence exists. The correction log
   (`gender_corrections`) is the audit trail for that.
+
+## 6. Future item (nothing built): photo-match eval, image-to-image vs image-to-text
+
+Prod photo match embeds the uploaded photo with CLIP and searches the CLIP TEXT index of
+`search_text` (image -> text). Catalogue image embeddings (image -> image) were removed from this
+builder; they are a possible later experiment, not a commitment. Proposed eval before any build:
+a labelled set of query photos with known-good catalogue items, recall@k and precision@k for
+image->text (current) against image->image (catalogue images embedded offline) and a blend, with n
+and a noise floor stated, on a held-out query set. Only if image->image wins by a pre-registered
+margin would a separate, capped image-embedding stage be reintroduced (with its own rules section).
