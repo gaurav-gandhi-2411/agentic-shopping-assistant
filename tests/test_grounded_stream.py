@@ -133,6 +133,14 @@ def test_sentence_starting_with_a_trigger_emits_nothing_of_itself() -> None:
     assert g.fragments == 0
 
 
+def test_claim_checker_hit_trims_the_cue_words_of_a_multiword_claim() -> None:
+    # "last few" is a stock claim the keyword trigger does not know; the checker hit on the
+    # sentence so far moves the hold point back to its first word ("last"), which is not emitted.
+    out, g = run_stream(["Grab it, last few."])
+    assert out.startswith("Grab it,") and "last" not in out and "few" not in out
+    assert g.fragments == 1
+
+
 def test_removed_sentence_keeps_only_a_claim_free_lead_in_and_counts_it() -> None:
     """Documented residual G2: the lead-in before the first trigger was already sent."""
     out, g = run_stream(["Nice. ", "It is in ", "stock now. ", "Bye."])
@@ -176,12 +184,18 @@ def test_validator_error_stops_emission_and_serves_the_template(
     g.feed("Fine sentence. Another one. ")
     before = g.text
 
-    def boom(*a: Any, **k: Any) -> Any:
-        raise RuntimeError("checker exploded")
+    real_check = gs.check
+    calls = {"n": 0}
 
-    monkeypatch.setattr(gs, "check", boom)
+    def flaky(*a: Any, **k: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:  # fails once, then "recovers": a dead stream must stay dead anyway
+            raise RuntimeError("checker exploded")
+        return real_check(*a, **k)
+
+    monkeypatch.setattr(gs, "check", flaky)
     assert g.feed("Third one is here. Fourth.") == [] and g.failed_closed
-    assert g.feed("more text that must not pass") == []
+    assert g.feed("More text that must not pass. And more.") == []
     g.finish()
     assert g.text.startswith(before.rstrip()) and "Third" not in g.text and "more" not in g.text
     assert "validator_error" in g.flags
