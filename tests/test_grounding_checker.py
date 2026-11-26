@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from src.agents.claim_checker import check
 from evals.grounding.measure_checker import HOLDOUT, LABELS, measure
+from src.agents.claim_checker import check
 
 A = {"article_id": "a1", "display_name": "Riviera Sundress", "prod_name": "Riviera Sundress",
      "price_inr": 2999.0, "detail_desc": "Blue sundress. 100% cotton."}

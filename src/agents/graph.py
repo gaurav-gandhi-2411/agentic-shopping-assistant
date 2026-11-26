@@ -7,6 +7,7 @@ import statistics
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.grounded_render import add_id_rules, ground_reply, grounded_rendering_enabled
 from src.agents.grounding import grounded_fallback_reply, validate_response
 from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
 from src.agents.outfit.body_type import (
@@ -1402,7 +1403,7 @@ def _format_items_for_response(items: list[dict]) -> str:
         # was satisfiable. `or ""` blank when missing rather than literal "None".
         price = item.get("price_inr")
         price_str = f"₹{price:.0f}" if isinstance(price, (int, float)) else ""
-        lines.append(
+        line = (
             f"- display_name: {item.get('display_name', '')}\n"
             f"  colour: {item.get('colour', '')} | "
             f"type: {item.get('product_type', '')} | "
@@ -1410,6 +1411,11 @@ def _format_items_for_response(items: list[dict]) -> str:
             f"price: {price_str}\n"
             f"  description: {short}"
         )
+        if grounded_rendering_enabled():
+            # V5: the id the model must use in [item:ID] / [price:ID]; appended last so the
+            # line layout the W10 mock harness parses is untouched.
+            line += f"\n  id: {item.get('article_id', '')}"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -4025,6 +4031,8 @@ def build_graph(
             items=_format_items_for_response(items),
             conversation=_history,
         )
+        if grounded_rendering_enabled():
+            prompt = add_id_rules(prompt)
         if few_gender and gender_group:
             prompt += (
                 f"\n\nNote: this catalogue has limited {gender_group} stock. "
@@ -4055,6 +4063,14 @@ def build_graph(
                 getattr(llm, "model", "unknown"),
             )
             answer = grounded_fallback_reply(items)
+        if grounded_rendering_enabled():
+            # V5: render [item:ID]/[price:ID] from the records, strip unbacked claims, fail closed.
+            _grounded = ground_reply(answer, items[:5], user_text=state["user_query"])
+            if _grounded.flags:
+                logger.warning(
+                    "[grounding] render flags=%s query=%r", _grounded.flags, state["user_query"]
+                )
+            answer = _grounded.text
         # allow_price_mentions=True: items now legitimately carry price_inr (Part
         # B fix) — see validate_response's docstring for why the literal word
         # "price"/"cost" no longer needs to appear in an item's own field values.

@@ -64,12 +64,23 @@ def test_grounded_templates_produce_no_violations() -> None:
     assert sum(len(r["violations"]) for r in results) == 0
 
 
-def test_ungrounded_templates_are_all_caught_on_ws() -> None:
+def test_ungrounded_templates_are_all_caught_on_ws(monkeypatch: pytest.MonkeyPatch) -> None:
+    # V5 added a WS scrubber (GROUNDED_RENDERING). This test is about the CHECKER's recall on raw
+    # model text, so it pins the kill switch off; the scrubbed behaviour is the next test.
+    monkeypatch.setenv("GROUNDED_RENDERING", "0")
     results, gate = _run("ungrounded")
     assert gate["ok"], gate
     assert gate["injected_missed"] == []
     ws = [r for r in results if r["path"] == "ws"]
     assert len(ws) == 10 and all(r["violations"] for r in ws), "WS has no scrubber: all must flag"
+
+
+def test_ws_scrubber_leaves_no_violation_when_grounded_rendering_is_on() -> None:
+    results, gate = _run("ungrounded")
+    assert gate["ok"], gate
+    ws = [r for r in results if r["path"] == "ws"]
+    assert len(ws) == 10 and all(r["http_ok"] and r["text"].strip() for r in ws)
+    assert [r["id"] for r in ws if r["violations"]] == []
 
 
 def test_rest_path_scrubber_is_visible_in_the_gate() -> None:
@@ -79,6 +90,9 @@ def test_rest_path_scrubber_is_visible_in_the_gate() -> None:
 
 
 def test_gate_fails_if_the_checker_is_blinded(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With GROUNDED_RENDERING on every injected claim is scrubbed ("neutralised") before the
+    # oracle sees it, so a blinded oracle could no longer be told apart; pin the switch off.
+    monkeypatch.setenv("GROUNDED_RENDERING", "0")
     monkeypatch.setattr(harness, "check", lambda *a, **k: [])
     _, gate = _run("ungrounded")
     assert gate["ok"] is False and gate["injected_missed"]

@@ -45,6 +45,7 @@ from api.schemas import (
     WSUserMessage,
 )
 from api.session import SessionStore
+from src.agents.grounded_render import ground_reply, grounded_rendering_enabled
 from src.agents.grounding import grounded_fallback_reply
 from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
@@ -676,6 +677,12 @@ async def run_chat_turn(
     _accumulated_messages: list[dict] = result.get("messages", session["messages"])
 
     if plan.get("action") == "pending_respond":
+        # V5 grounding by construction: raw model tokens must not reach the user before the
+        # reply has been rendered and validated, so with the kill switch on the stream is
+        # buffered and emitted afterwards (frame types unchanged; token frames just arrive
+        # together). With it off, tokens are forwarded live exactly as before.
+        _ground = grounded_rendering_enabled()
+        _ground_items = list(result.get("retrieved_items", []))[:5]
         chunks: list[str] = []
         async for tok in _iter_tokens(llm, plan["prompt"]):
             if tok == STREAM_ERROR_SENTINEL:
@@ -684,9 +691,20 @@ async def run_chat_turn(
             if cancel_event.is_set():
                 await send(WSCancelledMessage())
                 return TurnOutcome("cancelled")
-            await send(WSTokenMessage(text=tok))
+            if not _ground:
+                await send(WSTokenMessage(text=tok))
             chunks.append(tok)
         full_response = "".join(chunks)
+        if _ground and full_response.strip():
+            _grounded = ground_reply(full_response, _ground_items, user_text=message)
+            if _grounded.flags:
+                logger.warning("[grounding] ws render flags=%s", _grounded.flags)
+            if _grounded.text == full_response:
+                for _tok in chunks:  # unchanged reply: replay the original frames
+                    await send(WSTokenMessage(text=_tok))
+            else:
+                full_response = _grounded.text
+                await send(WSTokenMessage(text=full_response))
         if not full_response.strip():
             # Empty stream with no error sentinel: a reasoning model spent its
             # token budget on hidden reasoning (finish_reason=length) or the
@@ -710,7 +728,11 @@ async def run_chat_turn(
                 logger.warning("ws empty-reply retry failed: %r", retry_exc)
             retry_text = (retry_text or "").strip()
             if retry_text and retry_text != STREAM_ERROR_SENTINEL:
-                full_response = retry_text
+                full_response = (
+                    ground_reply(retry_text, _ground_items, user_text=message).text
+                    if _ground
+                    else retry_text
+                )
             else:
                 logger.warning(
                     "ws empty reply persisted after retry: model=%s — "

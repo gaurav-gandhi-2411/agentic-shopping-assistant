@@ -18,6 +18,7 @@ import math
 import re
 from typing import TYPE_CHECKING
 
+from src.agents.grounded_render import ground_reply, grounded_rendering_enabled
 from src.agents.grounding import validate_rationale
 from src.agents.intent_parser import _COLOUR_MAP as _INTENT_COLOUR_MAP
 from src.agents.outfit.body_type import (
@@ -508,6 +509,17 @@ def generate_rationales(
                 )
                 results.append(_body_type_template_rationale(look, body_type, gender))
             else:
+                if grounded_rendering_enabled():
+                    # V5: last gate, any price/size/stock/discount claim the keyword scrub above
+                    # let through (it has no rupee-symbol or size-list pattern) is removed; the
+                    # look's template is the fail-closed replacement.
+                    cleaned = ground_reply(
+                        cleaned,
+                        all_items,
+                        user_text=user_context or "",
+                        extra_amounts=[budget_inr] if budget_inr else [],
+                        fallback=_body_type_template_rationale(look, body_type, gender),
+                    ).text
                 results.append(cleaned)
         else:
             results.append(_body_type_template_rationale(look, body_type, gender))
