@@ -179,7 +179,7 @@ def test_swim_inner_and_night_wear_never_anchor() -> None:
     assert [it["article_id"] for it in out or []] == ["ok"]
 
 
-def test_kurta_and_pyjama_set_typed_nightwear_is_kept_and_standalone_bottoms_stay() -> None:
+def test_kurta_and_pyjama_set_typed_nightwear_is_kept_and_standalone_bottoms_go() -> None:
     pool = [
         _a("kps", "Men's Yellow Lehariya Cotton Kurta & Pyjama Set", pt="nightwear",
            store="snitch"),
@@ -187,7 +187,37 @@ def test_kurta_and_pyjama_set_typed_nightwear_is_kept_and_standalone_bottoms_sta
         _a("pant", "Slim Fit Cotton Pant", pt="trousers", store="fashor"),
     ]
     out = build_more_options([_look(_a("s", "Seed"), [], pool)], 3000.0)
-    assert {it["article_id"] for it in out or []} == {"kps", "pal", "pant"}
+    assert {it["article_id"] for it in out or []} == {"kps"}
+
+
+@pytest.mark.parametrize(
+    ("pt", "name"),
+    [
+        ("palazzo", "Cotton Palazzo"),
+        ("trousers", "Slim Fit Cotton Pant"),
+        ("churidar", "Stretch Churidar Leggings"),
+        ("pyjama", "Men Cotton Pyjama"),
+        ("jeans", "Slim Fit Jeans"),
+        ("skirt", "Pleated Midi Skirt"),
+    ],
+)
+def test_standalone_bottoms_are_never_offered_as_an_alternate_look(pt: str, name: str) -> None:
+    out = build_more_options([_look(_a("s", "Seed"), [], [_a("b", name, pt=pt)])], 3000.0)
+    assert out == []
+
+
+@pytest.mark.parametrize(
+    ("pt", "name"),
+    [
+        ("kurta", "Cotton Kurta & Pyjama Set"),
+        ("lehenga", "Silk Lehenga Choli"),
+        ("anarkali", "Anarkali Sharara Set"),
+        ("kurta", "Men Cotton Kurta With Churidar"),
+    ],
+)
+def test_garments_and_real_sets_stay_in_the_row(pt: str, name: str) -> None:
+    out = build_more_options([_look(_a("s", "Seed"), [], [_a("g", name, pt=pt)])], 3000.0)
+    assert [it["article_id"] for it in out or []] == ["g"]
 
 
 def test_colourways_of_one_product_collapse() -> None:
