@@ -25,9 +25,9 @@ def rgb_to_hex(rgb: tuple[float, float, float]) -> str:
     return "#" + "".join(f"{round(max(0, min(1, c)) * 255):02X}" for c in rgb)
 
 
-def hsl_to_hex(h: float, s: float, l: float) -> str:
+def hsl_to_hex(h: float, s: float, light: float) -> str:
     """CSS-style hsl(h s% l%) to hex (the tokens in globals.css are HSL triples)."""
-    r, g, b = colorsys.hls_to_rgb(h / 360, l / 100, s / 100)
+    r, g, b = colorsys.hls_to_rgb(h / 360, light / 100, s / 100)
     return rgb_to_hex((r, g, b))
 
 
