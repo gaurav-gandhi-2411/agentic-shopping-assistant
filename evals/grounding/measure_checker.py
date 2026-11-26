@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from evals.grounding.checker import check
+from src.agents.claim_checker import check
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 LABELS = FIXTURES / "grounding_checker_labels.json"
