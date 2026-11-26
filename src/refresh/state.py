@@ -118,7 +118,8 @@ def write_state(state: IndexState, path: Path) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     with tmp.open("wb") as fh:
-        np.savez_compressed(fh, header=np.array(json.dumps(header, sort_keys=True)), **arrays)
+        payload = {"header": np.array(json.dumps(header, sort_keys=True)), **arrays}
+        np.savez_compressed(fh, **payload)  # type: ignore[arg-type]  # numpy stubs: kwargs typed bool
     tmp.replace(path)
     return checksum
 

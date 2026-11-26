@@ -176,7 +176,7 @@ def build_incremental(
             carry(st_status)
             continue
 
-        items = {}
+        items: dict[str, dict[str, Any]] = {}
         for p in feed.products:
             it = item_view(p)
             items.setdefault(it["id"], it)
