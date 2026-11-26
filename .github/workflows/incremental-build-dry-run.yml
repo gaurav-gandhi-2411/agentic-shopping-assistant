@@ -1,0 +1,105 @@
+name: Incremental build dry run
+
+# R3 6d/6e: manual dry run of the incremental index builder (docs/ops/incremental-build-rules.md).
+# workflow_dispatch ONLY: no schedule, no push trigger, no deploy, no cloud auth, no secrets other
+# than the job GITHUB_TOKEN (read-only here). It fetches the chosen stores politely (one pass,
+# scripts/ops/fetch_pass.py), builds into a scratch directory and uploads the state file and the
+# build report as workflow ARTIFACTS. It writes nothing to the index, a bucket or a release.
+#
+# Run (after merge, or from the branch):
+#   gh workflow run incremental-build-dry-run.yml --ref <branch> -f stores=voylla,libas
+#
+# The publish-state job is a STUB: it only prints what it would upload and is guarded to a manual
+# dispatch on a non-master branch. It never runs by itself and has no upload command yet.
+
+on:
+  workflow_dispatch:
+    inputs:
+      stores:
+        description: "Comma-separated store slugs to fetch (keep it small; 1 request/s per domain)"
+        required: true
+      embedder:
+        description: "fake = hash vectors, no models; real = MiniLM + CLIP text (no images)"
+        default: "fake"
+        type: choice
+        options: [fake, real]
+      prev_state_tag:
+        description: "Optional pre-release tag index-state-* to read the previous state from"
+        default: ""
+      publish:
+        description: "STUB: show the release-upload command only (never uploads)"
+        default: false
+        type: boolean
+
+concurrency:
+  group: incremental-build-dry-run
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      STORES: ${{ inputs.stores }}
+      EMBEDDER: ${{ inputs.embedder }}
+      PREV_TAG: ${{ inputs.prev_state_tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Previous state (optional)
+        run: |
+          mkdir -p prev
+          if [ -n "$PREV_TAG" ]; then
+            case "$PREV_TAG" in index-state-*) ;; *) echo "tag must match index-state-*"; exit 1;; esac
+            gh release download "$PREV_TAG" --repo "$GITHUB_REPOSITORY" --pattern index-state.npz --dir prev
+          fi
+
+      - name: Fetch pass (polite, one pass)
+        run: python scripts/ops/fetch_pass.py --out fetch.json --raw-dir raw --only "$STORES"
+
+      - name: Incremental build
+        run: |
+          mkdir -p out
+          PREV_ARG=""
+          if [ -f prev/index-state.npz ]; then PREV_ARG="--state-in prev/index-state.npz"; fi
+          python scripts/ops/incremental_build.py --fetch-summary fetch.json --raw-dir raw \
+            $PREV_ARG --state-out out/index-state.npz --report-json out/report.json \
+            --report-md out/report.md --embedder "$EMBEDDER"
+          cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload state and report (artifacts only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: incremental-build-dry-run
+          path: |
+            out/index-state.npz
+            out/report.json
+            out/report.md
+            fetch.json
+          retention-days: 7
+
+  publish-state:
+    # STUB, intentionally inert: no upload command. Guarded to manual dispatch on non-master.
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' && inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # Inert echo stub: read is enough. A real publish step must request contents: write here
+      # at the time it is added.
+      contents: read
+    steps:
+      - name: Show the upload that a later change would perform
+        run: |
+          echo "STUB: would run: gh release upload index-state-<UTC date> out/index-state.npz"
+          echo "(pre-release tag index-state-*; not implemented in this PR)"
