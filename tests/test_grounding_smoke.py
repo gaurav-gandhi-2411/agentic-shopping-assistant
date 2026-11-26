@@ -85,7 +85,7 @@ def test_gate_fails_if_the_checker_is_blinded(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_gate_fails_if_grounded_text_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
-    from evals.grounding.checker import Violation
+    from src.agents.claim_checker import Violation
 
     monkeypatch.setattr(harness, "check", lambda *a, **k: [Violation("price", "x", 0, 1, "forced")])
     _, gate = _run("grounded")

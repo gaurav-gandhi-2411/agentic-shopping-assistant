@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from evals.grounding.checker import check
+from src.agents.claim_checker import check
 from evals.grounding.measure_checker import HOLDOUT, LABELS, measure
 
 A = {"article_id": "a1", "display_name": "Riviera Sundress", "prod_name": "Riviera Sundress",

@@ -32,7 +32,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterator
 
-from evals.grounding.checker import check
+from src.agents.claim_checker import check
 from evals.grounding.mock_llm import SEED, MockLLM
 
 REPO = Path(__file__).resolve().parents[2]
