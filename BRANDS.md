@@ -5,13 +5,13 @@ Sales reference sheet — one row per demoable brand, ready to use in prospect m
 | Brand | BRAND= | Source | Items | Gender | Price range | Top categories | Demo query |
 |---|---|---|---|---|---|---|---|
 | **H&M** | `hm` | Kaggle HM dataset | ~20 K (sampled) | Men + Women | SEK | Ladieswear, Menswear, Sport | "Black slim fit jeans" |
-| **Desi Drip (sample)** | `sample_in` | Bundled sample | ~500 | Mixed | ₹499–₹4,999 | Kurtas, Dresses, Basics | "Casual kurtas for office" |
+| **Desi Drip (sample)** | `sample_in` | Bundled sample | 200 | Mixed | ₹499–₹4,999 | Kurtas, Dresses, Basics | "Casual kurtas for office" |
 | **Myntra** | `myntra` | Kaggle (hiteshsuthar101) | 14 k | Mixed | ₹169 – ₹47,999 | Kurtas, Dresses, Tops | "Black kurtas under ₹1500" |
 | **Flipkart** | `flipkart` | Kaggle (aaditshukla), 15 k subsample | 15 k | Mixed | ₹99 – ₹7,799 | Topwear, Bottomwear, Winter Wear | "Winter jackets for men" |
-| **Snitch** | `snitch` | snitch.co.in live | 15 k | Men | ₹219 – ₹5,699 | Shirts, T-Shirts, Jeans | "Oversized streetwear shirts" |
-| **Powerlook** | `powerlook` | powerlook.in live | 927 | Men | ₹399 – ₹2,599 | Shirts, T-Shirts, Bottoms | "Formal shirts for office" |
-| **Fashor** | `fashor` | fashor.com live | 3.6 k | Women | ₹499 – ₹7,799 | Kurta Sets, Dresses | "Ethnic kurta sets for wedding" |
-| **Virgio** | `virgio` | virgio.com live | 1.8 k | Women | ₹359 – ₹6,298 | Dresses, Tops, Shirts | "Sustainable linen dresses" |
+| **Snitch** | `snitch` | snitch.co.in live | 7,040 | Men | ₹219 – ₹5,699 | Shirts, T-Shirts, Jeans | "Oversized streetwear shirts" |
+| **Powerlook** | `powerlook` | powerlook.in live | 963 | Men | ₹399 – ₹2,599 | Shirts, T-Shirts, Bottoms | "Formal shirts for office" |
+| **Fashor** | `fashor` | fashor.com live | 2,343 | Women | ₹499 – ₹7,799 | Kurta Sets, Dresses | "Ethnic kurta sets for wedding" |
+| **Virgio** | `virgio` | virgio.com live | 1,615 | Women | ₹359 – ₹6,298 | Dresses, Tops, Shirts | "Sustainable linen dresses" |
 
 ---
 

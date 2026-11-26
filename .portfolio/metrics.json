@@ -5,7 +5,7 @@
   "metrics": [
     {
       "id": "style-maitri:intent-accuracy",
-      "label": "Intent-parsing accuracy",
+      "label": "Intent-parse exact-match (rule-based parser, own fixtures)",
       "value": "93.8% (n=211)",
       "source_file": "reports/final_scorecard_2026-07-12.txt",
       "source_line": 109,
