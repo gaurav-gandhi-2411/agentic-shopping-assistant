@@ -4,6 +4,7 @@ Acceptance rules (a)-(d) live in docs/grounding-v5-acceptance.md. Everything her
 LLM, no network, no real index (the respond_node test drives build_graph with a fake LLM and a
 retriever that must never be called).
 """
+
 from __future__ import annotations
 
 import json
@@ -56,8 +57,16 @@ def test_corpus_sizes_meet_the_pre_registered_minimums() -> None:
     assert len(corpus.adversarial()) >= 60
     assert len(corpus.clean()) >= 30
     cats = {c["category"] for c in corpus.adversarial()}
-    assert {"wrong_price", "wrong_currency", "invented_size", "stock", "discount",
-            "id_not_shown", "numeric_in_prose", "price_format_variant"} <= cats
+    assert {
+        "wrong_price",
+        "wrong_currency",
+        "invented_size",
+        "stock",
+        "discount",
+        "id_not_shown",
+        "numeric_in_prose",
+        "price_format_variant",
+    } <= cats
 
 
 def test_validator_latency_p95_is_far_below_the_5ms_budget() -> None:
@@ -184,7 +193,9 @@ def test_kill_switch_off_values(monkeypatch: pytest.MonkeyPatch, value: str) -> 
 
 
 @pytest.mark.parametrize("value", [None, "1", "true", "on", ""])
-def test_kill_switch_default_and_on_values(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
+def test_kill_switch_default_and_on_values(
+    monkeypatch: pytest.MonkeyPatch, value: str | None
+) -> None:
     if value is None:
         monkeypatch.delenv(gr.KILL_SWITCH_ENV, raising=False)
     else:
@@ -229,10 +240,19 @@ class _LLM:
 def _respond_state(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "messages": [{"role": "user", "content": "tell me about these"}],
-        "user_query": "tell me about these", "current_plan": None, "tool_calls": [],
-        "retrieved_items": items, "filters": {}, "final_answer": None, "iteration": 3,
-        "new_items_this_turn": False, "out_of_catalogue": False, "excluded_colours": None,
-        "anchor_article_id": None, "outfit_rationale": None, "outfit_variants": None,
+        "user_query": "tell me about these",
+        "current_plan": None,
+        "tool_calls": [],
+        "retrieved_items": items,
+        "filters": {},
+        "final_answer": None,
+        "iteration": 3,
+        "new_items_this_turn": False,
+        "out_of_catalogue": False,
+        "excluded_colours": None,
+        "anchor_article_id": None,
+        "outfit_rationale": None,
+        "outfit_variants": None,
         "_memory": None,
     }
 
@@ -253,7 +273,9 @@ def test_respond_node_renders_ids_and_strips_unbacked_claims() -> None:
     answer = _run_respond_node(llm)
     assert answer == "Riviera Cotton Sundress at ₹2,999 is lovely."
     respond_prompts = [p for p in llm.prompts if "fashion shopping assistant" in p]
-    assert respond_prompts and "[item:ID]" in respond_prompts[0] and "id: 1001" in respond_prompts[0]
+    assert (
+        respond_prompts and "[item:ID]" in respond_prompts[0] and "id: 1001" in respond_prompts[0]
+    )
 
 
 def test_respond_node_kill_switch_restores_the_old_prompt_and_path(
@@ -266,22 +288,37 @@ def test_respond_node_kill_switch_restores_the_old_prompt_and_path(
     assert "[item:ID]" not in prompt and "id: 1001" not in prompt
 
 
-_WS_ITEMS = [{
-    "article_id": "1", "prod_name": "Test Jacket", "display_name": "Test Jacket (Blue)",
-    "colour": "Blue", "product_type": "Jacket", "department": "Ladieswear",
-    "image_url": "https://example.com/1.jpg", "detail_desc": "A jacket.", "score": 0.9,
-    "price_inr": 1999,
-}]
+_WS_ITEMS = [
+    {
+        "article_id": "1",
+        "prod_name": "Test Jacket",
+        "display_name": "Test Jacket (Blue)",
+        "colour": "Blue",
+        "product_type": "Jacket",
+        "department": "Ladieswear",
+        "image_url": "https://example.com/1.jpg",
+        "detail_desc": "A jacket.",
+        "score": 0.9,
+        "price_inr": 1999,
+    }
+]
 
 
 class _WsAgent:
     def invoke(self, state: dict, **kwargs: Any) -> dict[str, Any]:
         return {
-            "retrieved_items": _WS_ITEMS, "filters": {}, "final_answer": None, "iteration": 1,
-            "tool_calls": [{"router_decision": {"action": "search", "query": "jacket"}},
-                           {"search": {"query": "jacket", "filters": {}}}],
+            "retrieved_items": _WS_ITEMS,
+            "filters": {},
+            "final_answer": None,
+            "iteration": 1,
+            "tool_calls": [
+                {"router_decision": {"action": "search", "query": "jacket"}},
+                {"search": {"query": "jacket", "filters": {}}},
+            ],
             "current_plan": json.dumps({"action": "pending_respond", "prompt": "Describe."}),
-            "new_items_this_turn": True, "out_of_catalogue": False, "excluded_colours": None,
+            "new_items_this_turn": True,
+            "out_of_catalogue": False,
+            "excluded_colours": None,
             "messages": state.get("messages", []),
         }
 
@@ -289,12 +326,19 @@ class _WsAgent:
 @pytest.fixture
 def _ws(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deps, "_session_store", InMemorySessionStore())
-    monkeypatch.setattr(deps, "_config", {
-        "agent": {"max_iterations": 3}, "memory": {"recent_turns": 6, "summary_trigger_turns": 12},
-    })
+    monkeypatch.setattr(
+        deps,
+        "_config",
+        {
+            "agent": {"max_iterations": 3},
+            "memory": {"recent_turns": 6, "summary_trigger_turns": 12},
+        },
+    )
     monkeypatch.setenv("JWT_VERIFICATION_DISABLED", "true")
     monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "10000")
-    monkeypatch.setattr(deps, "get_agent_factory", lambda: (lambda memory, streaming=False: _WsAgent()))
+    monkeypatch.setattr(
+        deps, "get_agent_factory", lambda: lambda memory, streaming=False: _WsAgent()
+    )
 
 
 def _ws_turn(llm: _LLM) -> tuple[list[str], str]:
@@ -368,8 +412,12 @@ class _RationaleLLM:
 
 
 def test_rationale_last_gate_strips_a_size_claim_the_keyword_scrub_misses() -> None:
-    look = {"occasion": "casual", "gender": "women", "seed_item": dict(ITEMS[0], _slot="dress"),
-            "complements": []}
+    look = {
+        "occasion": "casual",
+        "gender": "women",
+        "seed_item": dict(ITEMS[0], _slot="dress"),
+        "complements": [],
+    }
     text = "The blue dress is a calm choice. It comes in sizes S, M, L."
     out = generate_rationales([look], _RationaleLLM(text), occasion="casual", gender="women")
     assert out == ["The blue dress is a calm choice."]

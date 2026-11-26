@@ -11,6 +11,7 @@ text is replaced by a template sentence built from the records.
 Pure and deterministic (no I/O, no LLM). Kill switch: env ``GROUNDED_RENDERING`` set to
 ``0``/``false``/``off``/``no`` disables every caller; it is read on each call.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,7 +79,9 @@ def _record_price(item: dict[str, Any]) -> str | None:
     return f"₹{price:,.0f}"
 
 
-def _render_sentence(sentence: str, by_id: dict[str, dict[str, Any]], flags: list[str]) -> str | None:
+def _render_sentence(
+    sentence: str, by_id: dict[str, dict[str, Any]], flags: list[str]
+) -> str | None:
     """Substitute tokens in one sentence; None when the sentence must be dropped."""
     bad = False
 
@@ -132,11 +135,11 @@ def ground_reply(
         return GroundResult(text)
     flags: list[str] = []
     try:
-        by_id = {str(it.get("article_id")): it for it in shown_items if it.get("article_id") is not None}
+        by_id = {
+            str(it.get("article_id")): it for it in shown_items if it.get("article_id") is not None
+        }
         spans = _sentences(text)
-        rendered: list[str | None] = [
-            _render_sentence(text[s:e], by_id, flags) for s, e in spans
-        ]
+        rendered: list[str | None] = [_render_sentence(text[s:e], by_id, flags) for s, e in spans]
         keep = [r is not None for r in rendered]
 
         kept_text = "".join(r for r in rendered if r is not None)
@@ -208,7 +211,8 @@ def _drop_unattributed(
             bad = [v for v in check(sent, prev_scope, user_text=user_text, extra_amounts=extras)]
         else:
             bad = [
-                v for it in items
+                v
+                for it in items
                 for v in check(sent, [it], user_text=user_text, extra_amounts=extras)
                 if v.kind in _NON_PRICE_KINDS
             ]

@@ -6,6 +6,7 @@ Rules (docs/grounding-v5-acceptance.md): (a) adversarial survivors == 0, (b) cle
 unchanged apart from id substitution == all, (d) validator p95 < 5 ms. Deterministic, no LLM, no
 network. Exit code 1 when any rule fails.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,8 +37,16 @@ def evaluate() -> dict[str, Any]:
         oracle = [v.kind for v in check(out, items, user_text=c["user_text"])]
         lost = [k for k in c["must_keep"] if k not in out]
         if left or oracle or lost:
-            survivors.append({"id": c["id"], "reply": c["reply"], "output": out,
-                              "spans_left": left, "oracle": oracle, "keep_lost": lost})
+            survivors.append(
+                {
+                    "id": c["id"],
+                    "reply": c["reply"],
+                    "output": out,
+                    "spans_left": left,
+                    "oracle": oracle,
+                    "keep_lost": lost,
+                }
+            )
     changed: list[dict[str, str]] = []
     for c in clean:
         out = ground_reply(c["reply"], items, user_text=c["user_text"]).text
@@ -55,11 +64,16 @@ def evaluate() -> dict[str, Any]:
     times.sort()
     p95 = times[int(0.95 * len(times)) - 1]
     return {
-        "adversarial_n": len(adv), "adversarial_survivors": len(survivors),
+        "adversarial_n": len(adv),
+        "adversarial_survivors": len(survivors),
         "survivor_detail": survivors,
-        "clean_n": len(clean), "clean_changed": len(changed), "clean_changed_detail": changed,
-        "latency_samples": len(times), "latency_ms_p50": round(times[len(times) // 2], 3),
-        "latency_ms_p95": round(p95, 3), "latency_ms_max": round(times[-1], 3),
+        "clean_n": len(clean),
+        "clean_changed": len(changed),
+        "clean_changed_detail": changed,
+        "latency_samples": len(times),
+        "latency_ms_p50": round(times[len(times) // 2], 3),
+        "latency_ms_p95": round(p95, 3),
+        "latency_ms_max": round(times[-1], 3),
         "latency_budget_ms": P95_BUDGET_MS,
         "ok": not survivors and not changed and p95 < P95_BUDGET_MS,
     }

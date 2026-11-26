@@ -12,21 +12,59 @@ import re
 from typing import Any
 
 ITEMS: list[dict[str, Any]] = [
-    {"article_id": "1001", "display_name": "Riviera Cotton Sundress", "price_inr": 2999.0,
-     "colour": "blue", "product_type": "dress", "detail_desc": "Relaxed cotton sundress."},
-    {"article_id": "1002", "display_name": "Gloss Wrap Skirt", "price_inr": 1299.0,
-     "colour": "black", "product_type": "skirt", "detail_desc": "Satin wrap skirt."},
-    {"article_id": "1003", "display_name": "Indigo Block Print Kurta", "price_inr": 1499.0,
-     "colour": "indigo", "product_type": "kurta", "detail_desc": "Hand block printed kurta."},
-    {"article_id": "1004", "display_name": "Banarasi Silk Saree", "price_inr": 8499.0,
-     "colour": "red", "product_type": "saree", "detail_desc": "Woven silk saree.",
-     "in_stock": False},
-    {"article_id": "1005", "display_name": "Linen Co-ord Set", "price_inr": 3499.0,
-     "colour": "beige", "product_type": "set", "detail_desc": "Linen two piece set.",
-     "sizes": ["S", "M"], "in_stock": True},
-    {"article_id": "1006", "display_name": "Embroidered Juttis", "price_inr": 999.0,
-     "colour": "gold", "product_type": "juttis", "detail_desc": "Embroidered flat juttis.",
-     "mrp_inr": 1249.0, "discount_pct": 20.0},
+    {
+        "article_id": "1001",
+        "display_name": "Riviera Cotton Sundress",
+        "price_inr": 2999.0,
+        "colour": "blue",
+        "product_type": "dress",
+        "detail_desc": "Relaxed cotton sundress.",
+    },
+    {
+        "article_id": "1002",
+        "display_name": "Gloss Wrap Skirt",
+        "price_inr": 1299.0,
+        "colour": "black",
+        "product_type": "skirt",
+        "detail_desc": "Satin wrap skirt.",
+    },
+    {
+        "article_id": "1003",
+        "display_name": "Indigo Block Print Kurta",
+        "price_inr": 1499.0,
+        "colour": "indigo",
+        "product_type": "kurta",
+        "detail_desc": "Hand block printed kurta.",
+    },
+    {
+        "article_id": "1004",
+        "display_name": "Banarasi Silk Saree",
+        "price_inr": 8499.0,
+        "colour": "red",
+        "product_type": "saree",
+        "detail_desc": "Woven silk saree.",
+        "in_stock": False,
+    },
+    {
+        "article_id": "1005",
+        "display_name": "Linen Co-ord Set",
+        "price_inr": 3499.0,
+        "colour": "beige",
+        "product_type": "set",
+        "detail_desc": "Linen two piece set.",
+        "sizes": ["S", "M"],
+        "in_stock": True,
+    },
+    {
+        "article_id": "1006",
+        "display_name": "Embroidered Juttis",
+        "price_inr": 999.0,
+        "colour": "gold",
+        "product_type": "juttis",
+        "detail_desc": "Embroidered flat juttis.",
+        "mrp_inr": 1249.0,
+        "discount_pct": 20.0,
+    },
 ]
 BY_ID = {it["article_id"]: it for it in ITEMS}
 _TOKEN = re.compile(r"\[(item|price):(\d+)\]")
@@ -34,16 +72,30 @@ _TOKEN = re.compile(r"\[(item|price):(\d+)\]")
 
 def expected_render(text: str) -> str:
     """Independent re-implementation of id substitution used as the clean-corpus oracle."""
+
     def sub(m: re.Match[str]) -> str:
         it = BY_ID[m.group(2)]
         return it["display_name"] if m.group(1) == "item" else f"₹{it['price_inr']:,.0f}"
+
     return _TOKEN.sub(sub, text)
 
 
-def _case(cid: str, category: str, reply: str, bad: list[str], keep: list[str] | None = None,
-          user: str = "") -> dict[str, Any]:
-    return {"id": cid, "category": category, "reply": reply, "bad_spans": bad,
-            "must_keep": keep or [], "user_text": user}
+def _case(
+    cid: str,
+    category: str,
+    reply: str,
+    bad: list[str],
+    keep: list[str] | None = None,
+    user: str = "",
+) -> dict[str, Any]:
+    return {
+        "id": cid,
+        "category": category,
+        "reply": reply,
+        "bad_spans": bad,
+        "must_keep": keep or [],
+        "user_text": user,
+    }
 
 
 def adversarial() -> list[dict[str, Any]]:
@@ -51,8 +103,9 @@ def adversarial() -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     n = 0
 
-    def add(category: str, reply: str, bad: list[str], keep: list[str] | None = None,
-            user: str = "") -> None:
+    def add(
+        category: str, reply: str, bad: list[str], keep: list[str] | None = None, user: str = ""
+    ) -> None:
         nonlocal n
         n += 1
         cases.append(_case(f"adv{n:03d}", category, reply, bad, keep, user))
@@ -61,17 +114,32 @@ def adversarial() -> list[dict[str, Any]]:
         i = it["article_id"]
         wrong = int(it["price_inr"]) + 137  # never equals another fixture price
         add("wrong_price", f"You will love [item:{i}] at ₹{wrong:,} today.", [f"₹{wrong:,}"])
-        add("wrong_price", f"The {it['display_name']} costs ₹{wrong:,} which is a steal.",
-            [f"₹{wrong:,}"])
+        add(
+            "wrong_price",
+            f"The {it['display_name']} costs ₹{wrong:,} which is a steal.",
+            [f"₹{wrong:,}"],
+        )
     for sym, amt in (("$", "25"), ("€", "30"), ("£", "20"), ("USD ", "40")):  # wrong currency
         add("wrong_currency", f"[item:1002] is only {sym}{amt} right now.", [f"{sym}{amt}"])
-    for form in ("₹1,400", "Rs. 1400", "INR 1400", "1.4k", "Rs 1,400/-", "1400 rupees",
-                 "Rs.1450", "INR1450", "rs 1450", "1.45k", "₹1450 only", "one thousand four hundred rupees",
-                 "INR:1100", "Rupees-1100"):
+    for form in (
+        "₹1,400",
+        "Rs. 1400",
+        "INR 1400",
+        "1.4k",
+        "Rs 1,400/-",
+        "1400 rupees",
+        "Rs.1450",
+        "INR1450",
+        "rs 1450",
+        "1.45k",
+        "₹1450 only",
+        "one thousand four hundred rupees",
+        "INR:1100",
+        "Rupees-1100",
+    ):
         add("price_format_variant", f"The Gloss Wrap Skirt is available for {form}.", [form])
     for sizes in ("S, M and L", "XS, S, M", "XL"):  # invented size
-        add("invented_size", f"[item:1002] comes in sizes {sizes} so you can pick yours.",
-            [sizes])
+        add("invented_size", f"[item:1002] comes in sizes {sizes} so you can pick yours.", [sizes])
     add("invented_size", "[item:1003] runs small so order a size up.", ["runs small"])
     add("invented_size", "[item:1005] is available in XL as well.", ["XL"])
     add("invented_size", "Grab [item:1001] in UK 8 for a perfect fit.", ["UK 8"])
@@ -129,14 +197,18 @@ def clean() -> list[dict[str, Any]]:
         ("The Gloss Wrap Skirt is priced at INR 1299 and drapes well.", ""),
         ("The Gloss Wrap Skirt is about 1.3k and drapes well.", ""),
         ("The Gloss Wrap Skirt is Rs 1,299/- and drapes well.", ""),
-        ("I don't have size data so I couldn't filter by size; here are the options available.", ""),
+        (
+            "I don't have size data so I couldn't filter by size; here are the options available.",
+            "",
+        ),
         ("I don't have stock information, so check the product page for availability.", ""),
         ("I don't have size or fit information; check the product page.", "do you have size M"),
         ("I don't have pricing information for that one; check the product page.", ""),
-        ("These are within your budget of ₹2000: [item:1002] and [item:1003].",
-         "show me something under ₹2000"),
-        ("[item:1003] is under ₹2,000 as you asked, and [item:1002] is too.",
-         "kurta under ₹2,000"),
+        (
+            "These are within your budget of ₹2000: [item:1002] and [item:1003].",
+            "show me something under ₹2000",
+        ),
+        ("[item:1003] is under ₹2,000 as you asked, and [item:1002] is too.", "kurta under ₹2,000"),
         ("[item:1005] is available in S and M.", ""),
         ("[item:1005] is in stock.", ""),
         ("[item:1004] is currently out of stock.", ""),
@@ -156,6 +228,12 @@ def clean() -> list[dict[str, Any]]:
     ]
     out: list[dict[str, Any]] = []
     for k, (reply, user) in enumerate(replies, 1):
-        out.append({"id": f"clean{k:03d}", "reply": reply, "user_text": user,
-                    "expected": expected_render(reply)})
+        out.append(
+            {
+                "id": f"clean{k:03d}",
+                "reply": reply,
+                "user_text": user,
+                "expected": expected_render(reply),
+            }
+        )
     return out
