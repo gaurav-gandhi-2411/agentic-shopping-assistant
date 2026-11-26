@@ -6,8 +6,13 @@ Etiquette (architect decision; the numbers live in ``src/config/store_registry.p
 * User-Agent ``StyleMaitriRefresh/1.0 (+https://github.com/gaurav-gandhi-2411/agentic-shopping-assistant)``;
 * robots.txt is fetched first and honoured (``Disallow`` and ``Crawl-delay``); an unreachable
   robots.txt (network error or 5xx) stops the store, a 404 means "no rules";
-* HTTP 429 honours ``Retry-After`` (one wait-and-retry, only when it is short), else the store stops;
-* a challenge / bot-management page (Cloudflare marker, 403, 503) stops the store at once. Unlike
+* HTTP 429 honours ``Retry-After`` ONCE per store, only when it is present and <= 60 s (sleep, then
+  retry the same request through the limiter); a second 429, a longer or missing header stops the
+  store for the run (``rate_limited``, with the item count fetched so far);
+* 5xx: at most 2 retries with exponential backoff, then the store stops; no retry on other 4xx;
+* pagination runs until an empty / short page, or a page that adds no new product id, with a hard
+  safety cap of ``MAX_ITEMS`` products that marks the store ``capped`` (never silent);
+* a challenge / bot-management page (Cloudflare marker, 403, persistent 503) stops the store. Unlike
   ``scripts/download_shopify.py`` there is NO curl TLS-fingerprint fallback here: evading a block is
   not polite. A stopped store is reported, never retried, and the orchestrator carries its rows over
   from the previous build;
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -42,9 +48,16 @@ USER_AGENT = (
     "StyleMaitriRefresh/1.0 (+https://github.com/gaurav-gandhi-2411/agentic-shopping-assistant)"
 )
 ROBOTS_TOKEN = "StyleMaitriRefresh"  # product token matched against robots.txt groups
-MAX_PAGES = 60  # same ceiling as scripts/download_shopify.py (15,000 products)
+# Hard safety cap per store. The largest complete feed seen (voylla, 2026-11 rehearsal) has 12,172
+# items; the three feeds the old 15,000 cap truncated are re-measured in
+# reports/fetch/fetch_pass_2026-11-26.md. 100,000 is ~8x the largest complete feed, so a real
+# store never reaches it while a runaway pager stays bounded (400 requests, ~7 min at 1 req/s).
+MAX_ITEMS = 100_000
+MAX_PAGES = MAX_ITEMS // FEED_PAGE_SIZE
 REQUEST_TIMEOUT_S = 20.0
-MAX_RETRY_AFTER_S = 120.0  # a longer ask than this stops the store instead of stalling the job
+MAX_RETRY_AFTER_S = 60.0  # a longer ask than this stops the store instead of stalling the job
+MAX_5XX_RETRIES = 2
+BACKOFF_BASE_S = 2.0  # 5xx retry waits: 2 s, then 4 s
 MAX_CRAWL_DELAY_S = 30.0  # a larger robots Crawl-delay than this is treated as "do not crawl"
 MAX_BODY_CHARS = 50_000_000  # a hostile or broken feed cannot exhaust runner memory
 
@@ -65,6 +78,7 @@ ROBOTS_UNREACHABLE = "robots_unreachable"
 CHALLENGE = "challenge"
 RATE_LIMITED = "rate_limited"
 HTTP_ERROR = "http_error"
+CAPPED = "capped"
 NOT_SHOPIFY = "not_shopify"
 EMPTY = "empty"
 NETWORK_ERROR = "network_error"
@@ -118,6 +132,7 @@ class DomainThrottle:
         self._sleep = sleep
         self._last: dict[str, float] = {}
         self._interval: dict[str, float] = {}
+        self._lock = threading.Lock()  # one limiter may serve several threads
 
     def set_min_interval(self, domain: str, seconds: float) -> None:
         """Raise (never lower) the interval for ``domain`` (robots Crawl-delay)."""
@@ -125,13 +140,19 @@ class DomainThrottle:
 
     def wait(self, domain: str) -> None:
         """Block until the next request to ``domain`` is allowed, then record it."""
-        interval = max(self.min_interval, self._interval.get(domain, 0.0))
-        last = self._last.get(domain)
-        if last is not None:
-            remaining = interval - (self._clock() - last)
-            if remaining > 0:
-                self._sleep(remaining)
-        self._last[domain] = self._clock()
+        with self._lock:
+            interval = max(self.min_interval, self._interval.get(domain, 0.0))
+            last = self._last.get(domain)
+            if last is not None:
+                remaining = interval - (self._clock() - last)
+                if remaining > 0:
+                    self._sleep(remaining)
+            self._last[domain] = self._clock()
+
+
+# Process-wide limiter: every StoreFetcher built without an explicit throttle shares it, so two
+# fetchers in one process can never exceed FEED_MAX_REQUESTS_PER_SECOND against the same domain.
+GLOBAL_THROTTLE = DomainThrottle()
 
 
 def parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
@@ -150,12 +171,15 @@ def parse_retry_after(value: str | None, *, now: datetime | None = None) -> floa
     return max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
 
 
-def looks_like_challenge(resp: HttpResponse) -> bool:
-    """A bot-management page: 403/503, or any 200/other body carrying a challenge marker."""
-    if resp.status in (403, 503):
-        return True
+def has_challenge_marker(resp: HttpResponse) -> bool:
+    """True when the body head carries a bot-management marker."""
     head = resp.body[:2000].lower()
     return any(m in head for m in CHALLENGE_MARKERS)
+
+
+def looks_like_challenge(resp: HttpResponse) -> bool:
+    """A bot-management page: 403/503, or any 200/other body carrying a challenge marker."""
+    return resp.status in (403, 503) or has_challenge_marker(resp)
 
 
 @dataclass
@@ -168,6 +192,8 @@ class FetchResult:
     requests: int = 0
     detail: str = ""
     fetched_at: str = ""
+    items_fetched: int = 0  # distinct products fetched so far; kept when ``products`` is dropped
+    rate_limit_retries: int = 0  # 429 waits already spent on this store (policy: at most 1)
     products: list[dict] = field(default_factory=list)
 
     def summary(self) -> dict[str, object]:
@@ -178,6 +204,7 @@ class FetchResult:
             "pages": self.pages,
             "requests": self.requests,
             "products": len(self.products),
+            "items_fetched": self.items_fetched,
             "detail": self.detail,
             "fetched_at": self.fetched_at,
         }
@@ -195,7 +222,7 @@ class StoreFetcher:
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self._get = http_get
-        self._throttle = throttle or DomainThrottle()
+        self._throttle = throttle or GLOBAL_THROTTLE
         self._sleep = sleep
         self._now = now
         self._headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -246,13 +273,13 @@ class StoreFetcher:
         if not self._check_robots(record, result):
             return result
 
-        seen_first_ids: set[object] = set()
+        seen_ids: set[object] = set()
         for page in range(1, MAX_PAGES + 1):
             url = record.feed_url(page)
             assert url is not None
             resp = self._page(url, result)
             if resp is None:
-                return result  # result already holds the stop reason
+                break  # result already holds the stop reason
             if resp.status == 404:
                 result.status, result.detail = NOT_SHOPIFY, f"HTTP 404 on page {page}"
                 break
@@ -271,14 +298,29 @@ class StoreFetcher:
                 break
             if not batch:
                 break
-            first = batch[0].get("id") if isinstance(batch[0], dict) else None
-            if first in seen_first_ids:  # store ignores ?page=N: pagination exhausted
+            fresh = []
+            for p in batch:
+                if not isinstance(p, dict):
+                    continue
+                pid = p.get("id")
+                if pid is not None:
+                    if pid in seen_ids:
+                        continue
+                    seen_ids.add(pid)
+                fresh.append(p)
+            if not fresh:  # page repeats known ids (store ignores ?page=N): exhausted
                 break
-            seen_first_ids.add(first)
-            result.products.extend(p for p in batch if isinstance(p, dict))
+            result.products.extend(fresh)
+            result.items_fetched = len(result.products)
             result.pages = page
             if len(batch) < FEED_PAGE_SIZE:
                 break
+        else:  # MAX_PAGES full, all-new pages and still not exhausted: never silent
+            result.status = CAPPED
+            result.detail = (
+                f"safety cap hit: {MAX_PAGES} pages / {result.items_fetched} items "
+                f"(MAX_ITEMS={MAX_ITEMS}); feed not exhausted"
+            )
         if result.status == OK and not result.products:
             result.status, result.detail = EMPTY, "feed returned no products"
         if result.status != OK:
@@ -286,22 +328,35 @@ class StoreFetcher:
         return result
 
     def _page(self, url: str, result: FetchResult) -> HttpResponse | None:
-        """One page with the 429 policy; None (and ``result`` set) when the store must stop."""
-        for attempt in (1, 2):
+        """One page with the 429 / 5xx policy; None (and ``result`` set) when the store must stop."""
+        server_retries = 0
+        while True:
             result.requests += 1
             try:
                 resp = self._fetch(url)
             except NetworkError as exc:
                 result.status, result.detail = NETWORK_ERROR, str(exc)
-                result.products = []
                 return None
-            if resp.status != 429:
-                return resp
-            wait = parse_retry_after(resp.headers.get("retry-after"), now=self._now())
-            if attempt == 2 or wait is None or wait > MAX_RETRY_AFTER_S:
-                result.status = RATE_LIMITED
-                result.detail = f"HTTP 429, Retry-After={resp.headers.get('retry-after')!r}"
-                result.products = []
-                return None
-            self._sleep(wait)
-        return None  # pragma: no cover - loop always returns
+            if resp.status == 429:
+                header = resp.headers.get("retry-after")
+                wait = parse_retry_after(header, now=self._now())
+                if result.rate_limit_retries >= 1 or wait is None or wait > MAX_RETRY_AFTER_S:
+                    result.status = RATE_LIMITED
+                    result.detail = (
+                        f"HTTP 429, Retry-After={header!r}, after {result.rate_limit_retries} "
+                        f"retry; {result.items_fetched} items fetched before stopping"
+                    )
+                    return None
+                result.rate_limit_retries += 1
+                self._sleep(wait)  # the retry still goes through the per-domain limiter
+                continue
+            if resp.status >= 500 and not has_challenge_marker(resp):
+                if server_retries < MAX_5XX_RETRIES:
+                    self._sleep(BACKOFF_BASE_S * 2**server_retries)
+                    server_retries += 1
+                    continue
+                if resp.status != 503:  # a persistent 503 stays "challenge" in the caller
+                    result.status = HTTP_ERROR
+                    result.detail = f"HTTP {resp.status} after {MAX_5XX_RETRIES} retries"
+                    return None
+            return resp
