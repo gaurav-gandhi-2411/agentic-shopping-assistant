@@ -63,6 +63,7 @@ def test_grounded_price_formats_pass(text: str) -> None:
     "The Riviera Sundress is $30.",
     "The Riviera Sundress is 4 thousand rupees.",
     "The Riviera Sundress is about 3.5k.",
+    "The Riviera Sundress is INR3500.",        # no space after the currency code
 ])
 def test_ungrounded_price_flagged(text: str) -> None:
     got = check(text, [A])

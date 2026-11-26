@@ -76,7 +76,7 @@ def _num(c: _Claim) -> float:
 _NUM = r"\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _MULT = r"(?:\s?(?:k\b|thousand\b|lakhs?\b|lacs?\b|crores?\b|cr\b|hundred\b))?"
 _RUPAYE = r"rupa(?:ye|iye|iya|y)"  # Hinglish spellings: rupaye / rupaiye / rupaiya / rupay
-_CUR = rf"(?:₹|\bRs\.?|\bINR\b|\bUSD\b|\bRupees?\b|\b{_RUPAYE}\b|[$€£])"
+_CUR = rf"(?:₹|\bRs\.?|\bINR(?![A-Za-z])|\bUSD\b|\bRupees?\b|\b{_RUPAYE}\b|[$€£])"
 _CUR_SUFFIX = rf"(?:\s*/-|\s*{_RUPAYE}\b|\s*rupees?\b|\s*rs\b\.?|\s*inr\b|\s*bucks\b)"
 _MULT_VAL = {
     "k": 1e3, "thousand": 1e3, "hundred": 1e2, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5,
