@@ -142,3 +142,21 @@ between the model's token stream and the WS token frames:
   name matcher). Diagnostic, no pass/fail threshold registered; reported with n and per path.
 - Side-by-side dump: 20 replies, same prompts, switch ON versus OFF, arms randomised per reply with
   a seeded shuffle (seed 42) and a separate key file, for blind judging.
+
+## AMENDMENT 2 (2026-11-26, same day; registered before the code it describes)
+
+First measurement of amendment 1's design on the corpora (7-character chunks): 0 survivors and 0
+clean replies changed, but 69 of 73 adversarial replies leave a claim-free lead-in fragment on
+screen (guarantee G2). The corpus is adversarial by construction (most put the claim mid-sentence),
+so this overstates the live rate, which is unmeasured. Because a fragment such as "Gloss Wrap
+Skirt is only" is visible damage, a second mode is added as an option, not a replacement:
+
+- `GROUNDED_STREAM_MODE=sentence` (env, read per turn; default `token`, the amendment 1 behaviour)
+  makes `StreamGrounder(hold_sentences=True)` emit a sentence only after it has been judged.
+  G2 does not exist in that mode (0 fragments); the cost is sentence-sized frames (first text after
+  the first sentence ends instead of after the first word).
+- Acceptance (j): in sentence mode, for every adversarial and clean case at every split position,
+  the output equals the batch `ground_reply` output (compared on whitespace-split words) and the
+  fragment count is 0. A WS test shows token mode leaves the lead-in and sentence mode does not.
+- Which mode ships as default is NOT decided here: the orchestrator should decide from the live
+  blind dump (fragments visible in token mode versus latency in sentence mode).
