@@ -33,9 +33,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterator
 
+from evals.grounding import compliance
 from evals.grounding.mock_llm import SEED, MockLLM
 from src.agents.claim_checker import check
+from src.agents.grounded_render import grounded_rendering_enabled
 
+RESPOND_MARKER = "fashion shopping assistant"  # appears only in the respond prompt (graph.py)
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "evals" / "fixtures"
 MINIMAL_CONFIG = {
@@ -225,6 +228,12 @@ class CountingLLM:
         object.__setattr__(self, "n_calls", 0)
         object.__setattr__(self, "_min_interval_s", min_interval_s)  # shared-key pacing
         object.__setattr__(self, "_last_call", 0.0)
+        # RAW respond-prompt outputs (before rendering), for the ID-format compliance metric
+        object.__setattr__(self, "raw_log", [])
+
+    def _record_raw(self, prompt: Any, text: Any) -> None:
+        if isinstance(prompt, str) and RESPOND_MARKER in prompt and isinstance(text, str):
+            self.raw_log.append(text)
 
     def _tick(self) -> None:
         if self.n_calls >= self._cap:
@@ -237,7 +246,9 @@ class CountingLLM:
 
     def generate(self, *a: Any, **k: Any) -> Any:
         self._tick()
-        return self._inner.generate(*a, **k)
+        out = self._inner.generate(*a, **k)
+        self._record_raw(a[0] if a else k.get("prompt"), out)
+        return out
 
     def chat(self, *a: Any, **k: Any) -> Any:
         self._tick()
@@ -245,7 +256,19 @@ class CountingLLM:
 
     def generate_stream(self, *a: Any, **k: Any) -> Any:
         self._tick()
-        return self._inner.generate_stream(*a, **k)
+        inner = self._inner.generate_stream(*a, **k)
+        prompt = a[0] if a else k.get("prompt")
+
+        def tee() -> Iterator[Any]:
+            buf: list[str] = []
+            try:
+                for tok in inner:
+                    buf.append(tok if isinstance(tok, str) else "")
+                    yield tok
+            finally:
+                self._record_raw(prompt, "".join(buf))
+
+        return tee()
 
     def chat_stream(self, *a: Any, **k: Any) -> Any:
         self._tick()
@@ -357,9 +380,21 @@ def run_case(client: Any, case: dict[str, Any], path: str, llm: Any) -> dict[str
     if isinstance(llm, MockLLM):
         llm.events.clear()
     runner = run_rest if path == "rest" else run_ws
+    n_raw_before = len(llm.raw_log) if isinstance(llm, CountingLLM) else 0
     text, items, amounts, status = runner(client, case["prompt"])
     violations = check(text, items, user_text=case["prompt"], extra_amounts=amounts)
+    if isinstance(llm, MockLLM):
+        raws = [e.raw_text for e in llm.events]
+    elif isinstance(llm, CountingLLM):
+        raws = list(llm.raw_log[n_raw_before:])
+    else:
+        raws = []
+    id_tokens = plain_mentions = 0
+    for raw in raws:
+        t, p = compliance.count_mentions(raw, items)
+        id_tokens, plain_mentions = id_tokens + t, plain_mentions + p
     rec: dict[str, Any] = {
+        "raw": raws, "id_tokens": id_tokens, "plain_mentions": plain_mentions,
         "id": case["id"], "set": case["set"], "category": case["category"], "path": path,
         "prompt": case["prompt"], "http_ok": status == 200, "n_items": len(items),
         "text": text,
@@ -394,7 +429,7 @@ def summarise(results: list[dict[str, Any]]) -> dict[str, Any]:
             d["violations"] += n
         by_kind.update(v["kind"] for v in r["violations"])
     return {"per_category": dict(sorted(per_cat.items())), "by_kind": dict(by_kind),
-            "by_path": dict(by_path)}
+            "by_path": dict(by_path), "id_format_compliance": compliance.summarise(results)}
 
 
 def mock_gate(results: list[dict[str, Any]], mode: str) -> dict[str, Any]:
@@ -515,6 +550,8 @@ def main(argv: list[str] | None = None) -> int:
         "utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "llm": args.llm, "model": model, "agent": args.agent, "paths": paths,
         "status": status, "seed": SEED,
+        # arm label for the blind dump (scripts/grounding_blind_dump.py)
+        "grounded_rendering": "on" if grounded_rendering_enabled() else "off",
         "n_prompts": len(cases), "n_runs": len(results),
         "prompt_set_hash": prompt_set_hash(cases),
         "llm_calls": getattr(llm, "n_calls", None),
@@ -528,7 +565,8 @@ def main(argv: list[str] | None = None) -> int:
         # a run that failed or produced no text would otherwise read as "0 violations"
         "http_failures": [f"{r['id']}/{r['path']}" for r in results if not r["http_ok"]],
         "empty_text_runs": [f"{r['id']}/{r['path']}" for r in results if not r["text"].strip()],
-        "runs": [{k: r[k] for k in ("id", "path", "category", "http_ok", "n_items", "shown", "text")}
+        "runs": [{k: r[k] for k in ("id", "path", "category", "prompt", "http_ok", "n_items",
+                                    "shown", "text", "raw", "id_tokens", "plain_mentions")}
                  for r in results],
         "violations": [
             {"id": r["id"], "path": r["path"], "category": r["category"], "prompt": r["prompt"],
@@ -546,7 +584,8 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({k: report[k] for k in (
         "commit", "model", "agent", "paths", "status", "n_prompts", "n_runs", "llm_calls",
         "total_violations", "runs_with_violation", "n_runs_with_text", "measurement_valid",
-        "by_kind", "by_path", "http_failures", "empty_text_runs")}, indent=2))
+        "by_kind", "by_path", "id_format_compliance", "http_failures",
+        "empty_text_runs")}, indent=2))
     if "mock_gate" in report:
         print("mock_gate", json.dumps(report["mock_gate"]))
     print("report", out)
