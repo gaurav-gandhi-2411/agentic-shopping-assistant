@@ -80,6 +80,11 @@ class JointSolution:
     nodes: int
 
 
+def _paise(rupees: float) -> int:
+    """Price in integer paise: float sums of fractional prices (0.1 + 0.2) are never compared."""
+    return round(rupees * 100)
+
+
 def _rank(required_filled: int, cards: int, value: float) -> tuple[int, int, float]:
     return (required_filled, cards, round(value, _VALUE_DECIMALS))
 
@@ -97,9 +102,10 @@ def select_joint(
     best: JointSolution | None = None
     best_ids: tuple[str, ...] = ()
     nodes = 0
+    budget_p = _paise(budget)
 
     for plan_index, plan in enumerate(plans):
-        if plan.anchor.price > budget:
+        if _paise(plan.anchor.price) > budget_p:
             continue
         slots = [
             SlotChoices(
@@ -107,7 +113,11 @@ def select_joint(
                 s.required,
                 tuple(
                     sorted(
-                        (o for o in s.options if o.price + plan.anchor.price <= budget),
+                        (
+                            o
+                            for o in s.options
+                            if _paise(o.price) + _paise(plan.anchor.price) <= budget_p
+                        ),
                         key=lambda o: (-o.value, o.article_id),
                     )
                 ),
@@ -130,7 +140,7 @@ def select_joint(
 
         def walk(
             i: int,
-            spent: float,
+            spent: int,  # integer paise
             used_ids: frozenset[str],
             used_keys: frozenset[tuple[str, str]],
             req: int,
@@ -170,20 +180,20 @@ def select_joint(
                         required_filled=req,
                         cards=cards,
                         value=value,
-                        total_price=spent,
+                        total_price=spent / 100,
                         nodes=0,
                     )
                 return
             slot = _slots[i]
             for opt in slot.options:
-                if spent + opt.price > budget:
+                if spent + _paise(opt.price) > budget_p:
                     continue
                 if opt.article_id in used_ids or opt.key in used_keys:
                     continue
                 _picks[i] = opt
                 walk(
                     i + 1,
-                    spent + opt.price,
+                    spent + _paise(opt.price),
                     used_ids | {opt.article_id},
                     used_keys | {opt.key},
                     req + (1 if slot.required else 0),
@@ -195,7 +205,7 @@ def select_joint(
 
         walk(
             0,
-            a_opt.price,
+            _paise(a_opt.price),
             frozenset({a_opt.article_id}),
             frozenset({a_opt.key}),
             0,

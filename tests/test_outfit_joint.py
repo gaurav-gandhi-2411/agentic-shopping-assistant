@@ -117,6 +117,26 @@ def test_required_slots_beat_a_more_valuable_optional_item() -> None:
     assert sol.required_filled == 1
 
 
+def test_fractional_prices_summing_exactly_to_the_budget_are_accepted() -> None:
+    # 0.1 + 0.2 == 0.30000000000000004 in binary floats: must still fit a budget of exactly 0.3
+    plan = AnchorPlan(_opt("a", 1.0, 0.1), (SlotChoices("s", True, (_opt("x", 1.0, 0.2),)),))
+    sol = select_joint([plan], 0.3)
+    assert sol is not None and sol.cards == 2
+    big = AnchorPlan(
+        _opt("a", 1.0, 1000.10), (SlotChoices("s", True, (_opt("x", 1.0, 1499.90),)),)
+    )
+    sol = select_joint([big], 2500.0)
+    assert sol is not None and sol.cards == 2 and sol.total_price == 2500.0
+
+
+def test_one_paisa_over_the_budget_is_rejected() -> None:
+    plan = AnchorPlan(_opt("a", 1.0, 0.1), (SlotChoices("s", True, (_opt("x", 1.0, 0.21),)),))
+    sol = select_joint([plan], 0.3)
+    assert sol is not None and sol.cards == 1  # the 0.21 item would total 0.31
+    over = AnchorPlan(_opt("a", 1.0, 2500.01), ())
+    assert select_joint([over], 2500.0) is None
+
+
 def test_one_required_slot_beats_more_optional_cards() -> None:
     """Two cheap optional items would make more cards, but the required slot comes first."""
     plan = AnchorPlan(
