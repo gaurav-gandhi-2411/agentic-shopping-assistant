@@ -1,67 +1,62 @@
-# Plain-search quality PR: gate rule (pre-registered 2026-11-25, before any result was computed)
+# Plain-search quality PR: gate rule v2 (pre-registered 2026-11-26, before any cap-3 run)
 
-Stacked on PR #136 (production reranker = stage-2 variant C). This file is committed before the
-post-processing code runs on any eval pool or any live chip. Numbers that exist when it is
-written: only catalogue-structure counts used to choose the de-duplication key (see the PR body).
+This file REPLACES the 2026-11-25 rule committed with the first draft (PR #139). Honest history:
+the first rule (per-store cap 2, bar = lower bound of the paired 95% interval of
+mean(new - unprocessed reranker top-5) >= -0.03) was run and NOT met (lower bound -0.112, see the
+history of PR #139). The architect then decided the shipping rule below. This file is committed
+before the guard is run with `MAX_PER_STORE = 3` on anything. Numbers that exist when it is
+written: the cap-2 results above, and catalogue-structure counts used to choose the de-duplication
+key. Nothing has been computed with cap 3.
 
-## What is being gated
+## Architect decision (2026-11-26)
 
-`search_node` post-processing applied to the reranker's ranked list (model picks first, then the
-rest of the candidate pool in retrieval order):
+(a) de-duplicate by store + product key ALWAYS; (b) per-store cap 3 (`MAX_PER_STORE = 3`);
+(c) gender interleave when the query fixes no gender, plus the approved Women / Men refine control
+('Women' / 'Men'); (d) the ship rule below.
 
-1. de-duplicate (same store + same product; key defined in `src/agents/search_postprocess.py`),
-2. at most 2 cards per store,
-3. budget guard (`price <= X` for an "under X" query; items with no price are not shown),
-4. gender-unspecified queries only: women/men interleave, each gender in its own ranked order.
+## The ship rule (a point-estimate rule)
 
-Selection is greedy in ranked order and backfills from deeper candidates, so a result that has no
-duplicate, no third card from a store, no over-budget item and a gendered query is returned
-unchanged (no-op regression, unit-tested).
+SHIP if and only if
 
-## (i) Offline eval guard
+    mean over queries of ( nDCG@5[no-cap arm] - nDCG@5[cap-3 arm] )  <=  0.03
 
-- Pools: the 53 stage-2 query pools (`evals/retrieval/candidates_master/q*.json` on
-  feat/v4-retrieval-eval), consensus labels = the gate's `load_consensus` (strict majority of
-  gpt-oss-120b / qwen3.8-27b / claude, else median), `scripts/rerank_gate.py` metric definitions.
-- Reranker replies: the stage-2 eval's variant C rep-1 cache replayed through the production
-  `rerank()` (`ReplayEvalCache`; byte-identical prompts), so the run is deterministic and makes
-  zero live calls.
-- Current arm: the production `rerank()` top-5, unprocessed. New arm: the post-processed top-5
-  from the same reply. The new arm uses only the pool and the query text (parse_intent for the
-  budget, the production gender-extraction for "gender specified?").
-- Metric: nDCG@5 against the ideal ordering of all labelled candidates of the query. A shown item
-  without a consensus label scores 0 in BOTH arms (conservative; the gate's convention of dropping
-  it would flatter shorter lists); the count of unlabelled shown items per arm is reported.
-- Queries: every one of the 53 with a defined nDCG@5 (ideal DCG > 0) for both arms. n and the
-  excluded query ids are reported (expected about 49).
-- Statistic: paired bootstrap over queries, 10,000 resamples, seed 42, percentile 95% CI of
-  mean(new - current).
-- PASS if the lower bound of (new - current) >= -0.03. Otherwise the guard FAILS and is reported
-  as failed: the PR does not weaken the threshold, the metric or the pools after the fact.
-- Interleave note: interleave changes the result only for gender-unspecified queries, so the
-  overall mean dilutes it. A secondary line reports (new - current) on the gender-unspecified
-  subset alone (n reported, same bootstrap); it is informational, the gate is the overall line.
-- Also reported (not gated): duplicate rate (share of queries with >= 1 duplicate pair, and
-  duplicate pairs per query) in the unprocessed vs processed top-5 on the 53 pools and on the 8
-  chip pools (`evals/fixtures/rerank_chip_pools`); max cards per store; price violations on every
-  query with a parsed budget; mean shown count (post-processing may show fewer than 5).
+as a POINT ESTIMATE (nDCG@5 drop of the cap-3 arm vs the no-cap arm, not larger than 0.03).
+This supersedes the earlier "lower bound of the CI >= -0.03" bar, which is withdrawn. The paired
+bootstrap 95% interval of the same difference is REPORTED (not gated). If the rule is not met it is
+reported as not met: the rule, labels, pools, arms and seed are not changed afterwards.
 
-## (ii) Live gate (local backend, real index, live LLM within the shared-key caps)
+## The exact comparison
 
-Run after the day's WS canary, gpt-oss-20b only (no 120b/qwen path), at most 60 live chat calls
-for the task, prod logs checked for fallback/429 before and during.
+- no-cap arm: `search_postprocess.select_results` with de-duplication ON, gender interleave ON for
+  gender-unspecified queries (`mix_window = ASK_N`, the production setting), per-store cap OFF
+  (`max_per_store = 99`), no budget guard.
+- cap-3 arm: the same call with `max_per_store = 3` (the shipped constant). Nothing else differs.
+- Both arms start from the same production `rerank_ranked()` output (model picks, then the rest of
+  the pool in retrieval order) and select the top 5.
+- Budget guard is a hard filter, not a ranking choice; it is outside this comparison. Its effect is
+  reported separately (informational ablation, not gated).
+- Informational lines (not gated): each arm vs the unprocessed reranker top-5; the gender-unspecified
+  subset alone; duplicate / store-cap / over-budget counts; mean shown count; ablation arms.
 
-The 5 landing chips (`OCCASION_CHIPS`), each run twice (10 turns), every card printed
-(title, store, price, gender). Per turn:
+## Labels, pools, statistic
 
-- zero duplicate products (same-store pairs under the module's key);
-- at most 2 cards per store;
-- both genders present on the gender-neutral chips (a chip whose text and session carry no
-  gender: 'Haldi kurta set', 'Office wear under ₹1,500', 'Sangeet outfit under ₹3,000' if it
-  reaches plain search; a chip that routes to the outfit composer is reported as such, not
-  counted);
-- price <= budget for the budget chip(s) that reach plain search.
+- Pools: the stage-2 query pools (`evals/retrieval/candidates_master/q*.json` of the stage-2 retrieval
+  eval); 8 chip pools (`evals/fixtures/rerank_chip_pools`) are reported structurally only.
+- Labels: stage-2 consensus labels (`scripts/rerank_gate.py` `load_consensus`: strict majority of
+  gpt-oss-120b / qwen3.8-27b / claude, else median), RELEVANCE ONLY. No label is revised.
+- Reranker replies: the stage-2 variant C rep-1 cache replayed through the production `rerank()`
+  (`ReplayEvalCache`). Deterministic, zero network, zero LLM calls.
+- Metric: nDCG@5 against the ideal ordering of all labelled candidates of the query; an unlabelled
+  shown item scores 0 in both arms (its count is reported per arm).
+- Queries: every query with a defined nDCG@5 (ideal DCG > 0) in both arms. n and the excluded
+  query ids are reported.
+- Interval: paired bootstrap over queries, 10,000 resamples, seed 42, percentile 95% CI of
+  mean(cap-3 - no-cap). The point estimate is the gate.
 
-The criteria are reported per turn, pass/fail, and any miss is reported as a miss (no rerun
-until green). A shown count below 5 is expected where the pool is narrow (documented edge) and
-is not a criterion miss by itself; it is reported with the logged reason.
+## Live 5-chip check (informational, not part of the ship rule)
+
+The five landing-chip queries through the real graph, gpt-oss-20b only (`allow_fallback=False`, no
+120b / qwen), at most 10 LLM calls and 15K tokens in total, run after the UTC day's canary and with
+no fallback / 429 in the prod logs of the previous 15 minutes. Per chip: query, top-5 titles, store,
+gender, price, and counts of de-duplication drops, per-store-cap drops and refill. Reported as
+observed; a miss is a miss.
