@@ -140,6 +140,55 @@ _FABRIC = (
 )
 
 
+# ---- number words (amendment 3): "two thousand nine hundred" read like "2900" ----
+_NW_UNITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_NW_BIGS = {
+    "hundred": 100, "thousand": 10**3, "lakh": 10**5, "lakhs": 10**5, "lac": 10**5,
+    "lacs": 10**5, "crore": 10**7, "crores": 10**7,
+}
+_NW_ALT = "|".join(sorted([*_NW_UNITS, *_NW_BIGS], key=len, reverse=True))
+_RE_NUMWORDS = re.compile(
+    r"\b(?:an?\s+(?=(?:hundred|thousand|lakhs?|lacs?|crores?)\b))?"
+    rf"(?:{_NW_ALT})(?:[\s\-]+(?:and[\s\-]+)?(?:{_NW_ALT}))*\b",
+    re.I,
+)
+
+
+def _words_value(run: str) -> int:
+    """Value of a number-word run ("two hundred and five" -> 205)."""
+    total = cur = 0
+    for tok in re.split(r"[\s\-]+", run.lower()):
+        if tok in _NW_UNITS:
+            cur += _NW_UNITS[tok]
+        elif tok == "hundred":
+            cur = (cur or 1) * 100
+        elif tok in _NW_BIGS:
+            total += (cur or 1) * _NW_BIGS[tok]
+            cur = 0
+    return total + cur
+
+
+def _normalize_number_words(text: str) -> str:
+    """Same-length copy of `text` with number-word runs replaced by their digits (space padded).
+
+    Same length, so every span found in the copy points at the same characters of the original;
+    the existing price / percent / count / buy-X-get-Y patterns then apply to word numbers too.
+    A run whose digits would be longer than the run is left alone.
+    """
+
+    def sub(m: re.Match[str]) -> str:
+        digits = str(_words_value(m.group(0)))
+        return digits.ljust(len(m.group(0))) if len(digits) <= len(m.group(0)) else m.group(0)
+
+    return _RE_NUMWORDS.sub(sub, text)
+
+
 def _to_float(num: str, mult: str | None) -> float:
     v = float(num.replace(",", ""))
     m = (mult or "").strip().lower()
@@ -265,10 +314,12 @@ _RE_DISCOUNT = re.compile(
     r"\b(?:discount(?:s|ed)?|on\s+sale|sale\s+price|sale|clearance|markdowns?|coupons?|"
     r"promo(?:\s+code)?|cash\s*back|bogo|buy\s+one\s+get\s+one|price\s+(?:drop|cut)|"
     r"reduced\s+price|deals?|bargains?|offers?\s+(?:on|of)|savings?|save\s+(?:up|big|money)|"
-    r"half[\s\-]+(?:price|off)|flat\s+\d+|special\s+offer|limited[\s\-]time\s+offer|\d+\s*%?\s*off|"
+    r"(?:half|third|quarter)[\s\-]+(?:the\s+)?(?:price|cost|off)|\b2\s+for\s+1|"
+    r"flat\s+\d+|special\s+offer|limited[\s\-]time\s+offer|\d+\s*%?\s*off|"
     r"buy\s+\d+\s+get\s+\d+(?:\s+free)?|b\dg\d)\b"
     r"|(?:save|saves|saving)\s+(?:up\s+to\s+)?(?:rs\.?|₹)\s*\d[\d,]*"
-    r"|(?:rs\.?|₹)\s*\d[\d,]*\s*off\b",
+    r"|(?:rs\.?|₹)\s*\d[\d,]*\s*off\b"
+    r"|[½¼¾⅓⅔⅛]\s*(?:the\s+)?(?:price|cost|off)\b",
     re.I,
 )
 _RE_DELIVERY = re.compile(
@@ -345,6 +396,7 @@ def _sentences(text: str) -> list[tuple[int, int]]:
 
 def _extract_claims(text: str) -> list[_Claim]:
     """Every price / percent / size / stock / discount / delivery claim in `text`."""
+    text = _normalize_number_words(text)  # amendment 3: word numbers read like digits
     claims: list[_Claim] = _money_claims(text)
     price_spans = [(c.start, c.end) for c in claims]
 
@@ -553,7 +605,11 @@ def check(
     if not claims:
         return []
 
-    user_amounts = [c.value for c in _money_claims(user_text or "") if isinstance(c.value, float)]
+    user_amounts = [
+        c.value
+        for c in _money_claims(_normalize_number_words(user_text or ""))
+        if isinstance(c.value, float)
+    ]
     user_norm = " " + _norm(user_text) + " "
     user_pcts = {c.value for c in _extract_claims(user_text or "") if c.kind == "percent"}
     extras = [float(a) for a in extra_amounts]

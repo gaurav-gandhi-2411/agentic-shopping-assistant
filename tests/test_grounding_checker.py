@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from evals.grounding.measure_checker import HOLDOUT, LABELS, measure
-from src.agents.claim_checker import check
+from src.agents.claim_checker import _normalize_number_words, check
 
 A = {"article_id": "a1", "display_name": "Riviera Sundress", "prod_name": "Riviera Sundress",
      "price_inr": 2999.0, "detail_desc": "Blue sundress. 100% cotton."}
@@ -520,3 +520,115 @@ def test_pickup_is_a_delivery_like_claim(text: str) -> None:
 
 def test_pick_up_as_a_plain_verb_is_not_a_delivery_claim() -> None:
     assert "delivery" not in kinds("Pick up a belt to finish the Riviera Sundress look.", [A])
+
+
+# ----------------------------------------------------------------- word numbers (amendment 3)
+
+
+@pytest.mark.parametrize(
+    ("text", "digits"),
+    [
+        ("two thousand nine hundred ninety nine", "2999"),
+        ("a thousand", "1000"),
+        ("fifty", "50"),
+        ("one hundred and five", "105"),
+        ("twenty-five", "25"),
+        ("two lakh", "200000"),
+        ("a lakh", "100000"),
+    ],
+)
+def test_number_words_normalise_to_digits_without_changing_length(text: str, digits: str) -> None:
+    out = _normalize_number_words(f"x {text} y")
+    assert len(out) == len(f"x {text} y") and out[2:].startswith(digits)
+
+
+def test_number_words_that_would_grow_are_left_alone() -> None:
+    assert _normalize_number_words("a crore") == "a crore"  # 8 digits do not fit in 7 characters
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The Riviera Sundress is a thousand bucks.",
+        "The Riviera Sundress is priced at two thousand four hundred ninety nine.",
+        "The Riviera Sundress costs four thousand rupees.",
+        "The Riviera Sundress is a lakh rupees.",
+        "The Riviera Sundress is Rs two thousand five hundred.",
+    ],
+)
+def test_wrong_word_number_price_is_flagged(text: str) -> None:
+    assert {"price", "price_wrong_item"} & set(kinds(text, [A]))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The Riviera Sundress is priced at two thousand nine hundred ninety nine.",
+        "The Riviera Sundress is Rs two thousand nine hundred and ninety nine.",
+    ],
+)
+def test_grounded_word_number_price_passes(text: str) -> None:
+    assert check(text, [A]) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Fifty percent off on the Riviera Sundress.",
+        "Twenty five per cent discount on the Riviera Sundress.",
+    ],
+)
+def test_word_number_percent_discount_is_flagged(text: str) -> None:
+    assert "percent" in kinds(text, [A])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Only two left of the Riviera Sundress.",
+        "Just one left of the Riviera Sundress.",
+        "Hurry, last two pieces of the Riviera Sundress.",
+    ],
+)
+def test_word_number_stock_count_is_flagged(text: str) -> None:
+    assert "stock" in kinds(text, [A])
+
+
+def test_word_number_stock_count_is_backed_by_the_stock_count_field() -> None:
+    assert check("Only two left of the Slim Chinos.", [FUTURE]) == []
+    assert "stock" in kinds("Only three left of the Slim Chinos.", [FUTURE])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Buy two get one on the Riviera Sundress.",
+        "Buy one get one free on the Riviera Sundress.",
+        "Two for one on the Riviera Sundress.",
+        "The Riviera Sundress is half the cost today.",
+        "The Riviera Sundress is a quarter price.",
+        "The Riviera Sundress is ½ price right now.",
+        "The Riviera Sundress is a third off.",
+    ],
+)
+def test_buy_x_get_y_and_fraction_prices_are_discount_claims(text: str) -> None:
+    assert "discount" in kinds(text, [A])
+
+
+def test_word_number_budget_echo_from_the_user_is_not_a_price_claim() -> None:
+    reply = "The Gloss Wrap Skirt is under ₹2,000 as you asked."
+    assert check(reply, [B], user_text="show me skirts under two thousand rupees") == []
+    assert "price" in kinds(reply, [B], user_text="show me skirts under three thousand rupees")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Pick one and I can put together a complete look around it.",
+        "The Riviera Sundress comes with two pockets and one belt.",
+        "A two-piece set that works for one occasion or three.",
+        "Everyone will notice the Riviera Sundress.",
+    ],
+)
+def test_ordinary_number_words_are_not_claims(text: str) -> None:
+    assert check(text, [A]) == []
