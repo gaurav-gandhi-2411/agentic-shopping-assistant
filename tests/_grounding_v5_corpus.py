@@ -92,8 +92,8 @@ def adversarial() -> list[dict[str, Any]]:
         add("id_not_shown", f"Try [item:1001] at [price:{bad_id}] for a bargain.", [bad_id])
     add("id_not_shown", "A nice option is [size:1001] for you.", ["[size"])
     add("id_not_shown", "A nice option is [item:1001 for you.", ["[item"])
-    for amt in (1700, 2150, 899):  # numeric hallucination inside prose
-        add("numeric_in_prose", f"The Gloss Wrap Skirt is yours for {amt} only.", [str(amt)])
+    for bare in (1700, 2150, 899):  # numeric hallucination inside prose
+        add("numeric_in_prose", f"The Gloss Wrap Skirt is yours for {bare} only.", [str(bare)])
     add("numeric_in_prose", "Reviewers call it a steal at 1750 for what you get.", ["1750"])
     add("price_wrong_item", "[item:1001] at [price:1002] is great value.", ["is great value"])
     add("price_wrong_item", "The Riviera Cotton Sundress is priced at ₹1,299.", ["priced at"])
