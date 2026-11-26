@@ -1,4 +1,5 @@
 import logging
+import threading
 from pathlib import Path
 
 import faiss
@@ -20,7 +21,8 @@ from src.utils.timing_log import first_call  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-_QUERY_VEC_CACHE_MAX = 256  # ~1.5 kB per 384-d float32 vector: <0.5 MB at the cap
+_QUERY_VEC_LOCK = threading.Lock()
+_QUERY_VEC_CACHE_MAX = 256 # ~1.5 kB per 384-d float32 vector: <0.5 MB at the cap
 
 
 class DenseRetriever:
@@ -104,16 +106,20 @@ class DenseRetriever:
         # anchors). The vector is a pure function of the text (CPU, fixed model) and is never
         # mutated downstream, so the memo cannot change a result. Created lazily because
         # ``load`` builds the instance via ``cls.__new__`` (no __init__); FIFO-bounded.
+        # Thread-safe: sync FastAPI endpoints run in a threadpool, so lookup, insert and FIFO
+        # eviction happen under _QUERY_VEC_LOCK (the slow encode runs outside it).
         cache: dict[str, np.ndarray] = self.__dict__.setdefault("_query_vec_cache", {})
-        query_vec = cache.get(query)
+        with _QUERY_VEC_LOCK:
+            query_vec = cache.get(query)
         if query_vec is None:
             with first_call("dense_encode"):
                 query_vec = self.model.encode(
                     [query], normalize_embeddings=True, show_progress_bar=False
                 ).astype(np.float32)
-            if len(cache) >= _QUERY_VEC_CACHE_MAX:
-                cache.pop(next(iter(cache)))
-            cache[query] = query_vec
+            with _QUERY_VEC_LOCK:
+                if query not in cache and len(cache) >= _QUERY_VEC_CACHE_MAX:
+                    cache.pop(next(iter(cache)))
+                cache[query] = query_vec
         with first_call("faiss_search_masked" if params is not None else "faiss_search"):
             scores, indices = self.index.search(query_vec, top_k, params=params)
         results = []
