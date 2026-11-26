@@ -38,7 +38,7 @@ from typing import Any
 
 from src.retrieval.hybrid_search import normalize_prod_name
 
-MAX_PER_STORE = 2
+MAX_PER_STORE = 3  # architect decision 2026-11-26 (first draft: 2); kill switch = set to 99
 MAX_GATE_PASSES = 4  # select -> result gates -> refill rounds in search_node before settling
 MIN_SUBSET_WORDS = 3  # shorter title must carry >= 3 words before containment counts as a copy
 GENDERS = ("women", "men")

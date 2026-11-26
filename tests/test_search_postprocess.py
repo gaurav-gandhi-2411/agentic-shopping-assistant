@@ -94,25 +94,34 @@ class TestDedupSelection:
 
 
 class TestStoreCap:
-    def test_at_most_two_per_store_with_backfill(self) -> None:
+    def test_cap_constant_is_three(self) -> None:
+        assert pp.MAX_PER_STORE == 3
+
+    def test_at_most_three_per_store_with_backfill(self) -> None:
         ranked = [_it(str(i), "libas", f"Saree {i}") for i in range(1, 7)] + [
             _it("7", "x", "Other seven"), _it("8", "y", "Other eight"), _it("9", "z", "Other nine")]
         out, rep = pp.select_results(ranked, 5)
-        assert _ids(out) == ["1", "2", "7", "8", "9"]
-        assert rep["removed"] == {"store_cap": 4}
+        assert _ids(out) == ["1", "2", "3", "7", "8"]
+        assert rep["removed"] == {"store_cap": 3}
+
+    def test_cap_off_is_dedupe_only(self) -> None:
+        ranked = [_it(str(i), "libas", f"Saree {i}") for i in range(1, 7)]
+        out, rep = pp.select_results(ranked, 5, max_per_store=99)
+        assert _ids(out) == ["1", "2", "3", "4", "5"]
+        assert rep["removed"] == {}
 
     def test_reranker_order_kept_otherwise(self) -> None:
-        ranked = [_it("1", "a"), _it("2", "b"), _it("3", "a"), _it("4", "a"), _it("5", "b"),
+        ranked = [_it("1", "a"), _it("2", "b"), _it("3", "a"), _it("4", "a"), _it("5", "a"),
                   _it("6", "b"), _it("7", "c")]
         out, _ = pp.select_results(ranked, 5)
-        assert _ids(out) == ["1", "2", "3", "5", "7"]
+        assert _ids(out) == ["1", "2", "3", "4", "6"]
 
     def test_fewer_than_top_k_when_pool_is_narrow_with_logged_reason(self) -> None:
         ranked = [_it(str(i), "jadeblue" if i < 5 else "mls", f"Sherwani {i}") for i in range(1, 9)]
-        out, rep = pp.select_results(ranked, 5)
-        assert len(out) == 4  # 2 + 2, never relaxed silently
-        assert rep["n_shown"] == 4
-        assert rep["short_reason"] and "store_cap=4" in rep["short_reason"]
+        out, rep = pp.select_results(ranked, 7)
+        assert len(out) == 6  # 3 + 3, never relaxed silently
+        assert rep["n_shown"] == 6
+        assert rep["short_reason"] and "store_cap=2" in rep["short_reason"]
 
 
 # --- budget guard -----------------------------------------------------------------------
@@ -167,7 +176,7 @@ class TestInterleave:
         pool = [_it("m1", "a", gender="men"), _it("w1", "a", gender="women"),
                 _it("m2", "a", gender="men"), _it("w2", "b", gender="women"),
                 _it("m3", "c", gender="men"), _it("w3", "d", gender="women")]
-        out, _ = pp.select_results(pool, 5, interleave_genders=True)
+        out, _ = pp.select_results(pool, 5, interleave_genders=True, max_per_store=2)
         assert max(sum(1 for i in out if i["store"] == s) for s in "abcd") <= 2
         assert _ids(out) == ["m1", "w1", "m3", "w2", "w3"]
 

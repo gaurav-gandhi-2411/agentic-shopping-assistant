@@ -3130,7 +3130,7 @@ def build_graph(
 
         # Plain-search post-processing (src/agents/search_postprocess.py) on the reranker's ranked
         # list, with backfill from deeper candidates: de-duplication (same store + same product;
-        # also the legacy name+colour key H&M needed), at most 2 cards per store, the budget cap,
+        # also the legacy name+colour key H&M needed), at most MAX_PER_STORE (3) cards per store, the budget cap,
         # and — only when the query fixed no gender — a women/men mix drawn from the reranker's
         # own picks. A list with none of those problems comes back unchanged. The result gates
         # run on each selection; cards they drop are excluded and the slots refilled (a gate that

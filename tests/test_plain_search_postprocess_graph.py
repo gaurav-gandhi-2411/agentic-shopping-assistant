@@ -1,4 +1,4 @@
-"""search_node end to end: de-dup, <= 2 cards per store, budget, gender mix and the refine hint.
+"""search_node end to end: de-dup, <= 3 cards per store, budget, gender mix and the refine hint.
 
 Hermetic: synthetic catalogue, mocked dense/sparse retrieval (retrieval order = catalogue order),
 a scripted LLM whose reranker reply is not a number list (so the retrieval-order fallback is what
@@ -12,6 +12,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.agents import search_postprocess as pp
 from src.agents.graph import build_graph
 from src.memory.conversation import ConversationMemory
 from src.retrieval.hybrid_search import HybridRetriever
@@ -102,7 +103,7 @@ def test_gender_neutral_query_dedupes_caps_stores_mixes_genders_and_offers_refin
     titles = [i["display_name"] for i in items]
     assert len(items) == 5, titles
     stores = [i["store"] for i in items]
-    assert max(stores.count(s) for s in set(stores)) <= 2, stores
+    assert max(stores.count(s) for s in set(stores)) <= pp.MAX_PER_STORE, stores
     assert len({t.lower() for t in titles}) == len(titles)  # no exact-title repeat
     assert not (
         "Chaitanya Haldi Kurta Set" in titles
@@ -141,7 +142,8 @@ def test_narrow_pool_shows_fewer_instead_of_relaxing_the_store_cap() -> None:
     rows = [_row(i, "libas", "women", f"Kurta design {i}", 1000.0 + i) for i in range(10)]
     res = _run(rows, "women's kurta")
     stores = [i["store"] for i in _shown(res)]
-    assert len(stores) == 2  # cap 2, nothing else to backfill from: shown short, never relaxed
+    # one store, nothing else to backfill from: shown short at the cap, never relaxed
+    assert len(stores) == pp.MAX_PER_STORE == 3
 
 
 def test_cards_dropped_by_a_result_gate_are_refilled_from_deeper_candidates() -> None:

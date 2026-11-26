@@ -4,7 +4,7 @@ Runs the real graph in-process (real index, real GroqClient on gpt-oss-20b ONLY)
 chips, each in a fresh session, `--runs` times, and prints every shown card (title, store, price,
 gender) with the per-turn criteria:
 
-  zero duplicate products, <= 2 per store, both genders on the gender-neutral chips,
+  zero duplicate products, <= MAX_PER_STORE (3) per store, both genders on the gender-neutral chips,
   price <= budget on a budget chip that reaches plain search.
 
 Shared Groq key rules (CLAUDE.md "SHARED GROQ KEY"): the production fallback tier is switched off
