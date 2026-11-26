@@ -369,6 +369,6 @@ def index_arrays(state: IndexState) -> tuple[pd.DataFrame, np.ndarray, list[str]
     text = (
         np.stack([r.text_vec for r in state.rows]) if state.rows else np.zeros((0, 0), np.float32)
     )
-    with_img = [r for r in state.rows if r.image_vec is not None]
-    img = np.stack([r.image_vec for r in with_img]) if with_img else np.zeros((0, 0), np.float32)
-    return cat, text, [r.article_id for r in with_img], img
+    with_img = [(r.article_id, r.image_vec) for r in state.rows if r.image_vec is not None]
+    img = np.stack([v for _, v in with_img]) if with_img else np.zeros((0, 0), np.float32)
+    return cat, text, [a for a, _ in with_img], img
