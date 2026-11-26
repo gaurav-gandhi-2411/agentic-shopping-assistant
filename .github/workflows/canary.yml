@@ -3,11 +3,18 @@ name: Canary
 # W9 part A: end-to-end synthetic check of the public chat path (see scripts/ops/canary.py
 # for the full assertion definitions, price invariant and budget maths).
 #
-# 3 fixed queries ONCE A DAY through /demo/session -> /auth/ws-ticket -> WS /chat/stream,
-# exactly as the browser demo does. Hard cap: 12 chat queries/day (UTC) = 4 runs, enforced by the
-# script via the workflow-runs API; a capped run is a SKIP, never a failure.
-# The continuous 5-minute check is the public GET /canary/status polled by an external monitor
-# (api/routes/canary.py, docs/ops/canary-budget.md); this workflow is the daily WS-path proof.
+# 3 fixed queries + 8 card-count checks (scripts/ops/canary_card_checks.json: 5 landing chips and
+# 3 more, every one asserting >= 4 cards) = 11 queries ONCE A DAY through
+# /demo/session -> /auth/ws-ticket -> WS /chat/stream, exactly as the browser demo does, spaced
+# 65 s apart (Groq 8,000 tokens/min limit). Warm turns must finish < 8 s; the cold start is
+# timed separately (cold_start_ms, fails only above 120 s). After the run ONLY failed queries
+# are retried, once each, at most MAX_RETRIES_PER_RUN per run. Hard cap: ONE run per UTC day
+# (11 + MAX_RETRIES_PER_RUN = 13 chat queries), counted from the workflow-runs API by the script,
+# which the token budget assumes. A manual dispatch or re-run on a day that already has a run is
+# SKIPPED (exit 0, status skip), never a failure; only force_fail may exceed the cap, by one run.
+# Budget maths: docs/ops/canary-budget.md.
+# The public GET /canary/status (api/routes/canary.py) is NOT polled by anything today and is
+# capped at 3 runs/day, so it is not a continuous monitor; this workflow is the daily WS-path proof.
 #
 # CAVEAT: GitHub's scheduled cron is best-effort (the old */15 uptime cron's median gap was
 # 246 min), so the daily run may fire late. 21:23 UTC (02:53 IST) is an off-peak, off-:00 slot.
@@ -17,7 +24,7 @@ name: Canary
 #
 # Forced-failure proof (after merge, run by GG):
 #   gh workflow run canary.yml -f force_fail=true
-# This asserts an impossible latency budget on the normal 3 queries (no extra LLM calls),
+# This asserts an impossible latency budget on the normal 11 queries (no retries, no extra LLM calls),
 # so it opens/updates the prod-alert issue; the next normal run closes it again.
 #
 # TODO(owner: GG, W9 part B, separate PR): Cloud Run ERROR-log count for the last 30 min
@@ -47,7 +54,11 @@ permissions:
 jobs:
   canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Computed worst case, seconds: cap lookup 3 x 60 + 2 x 5 = 190, /demo/session timeout 130, no
+    # query started after RUN_TIME_BUDGET_S = 1080, last query 75 (ticket) + 30 (WS connect) + 30
+    # (WS read) = 135 -> 1,535 s = 25.6 min. Pacing alone is 10-12 sleeps x 65 s = 11-13 min; turn
+    # time is NOT MEASURED here. 30 min leaves margin; tests/test_canary.py pins the inequality.
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       FORCE_FAIL: ${{ inputs.force_fail }}
@@ -75,7 +86,7 @@ jobs:
           restore-keys: |
             canary-lookupfail-
 
-      - name: Run canary (3 queries)
+      - name: Run canary (3 core queries + 8 card-count checks)
         run: |
           EXTRA=""
           if [ "${FORCE_FAIL}" = "true" ]; then EXTRA="--force-fail"; fi

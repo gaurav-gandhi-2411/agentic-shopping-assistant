@@ -269,8 +269,8 @@ Tests that need pre-built FAISS/BM25 indices skip automatically when those files
 **Health probes:**
 
 ```bash
-# Liveness probe
-curl https://{your-service-url}/healthz
+# Liveness probe (/healthz is intercepted with a 404 by Cloud Run's front end; use /ping)
+curl https://{your-service-url}/ping
 
 # Readiness probe (confirms indices are loaded)
 curl https://{your-service-url}/readyz
