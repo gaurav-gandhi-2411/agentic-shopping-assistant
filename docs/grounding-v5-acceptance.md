@@ -160,3 +160,44 @@ Skirt is only" is visible damage, a second mode is added as an option, not a rep
   fragment count is 0. A WS test shows token mode leaves the lead-in and sentence mode does not.
 - Which mode ships as default is NOT decided here: the orchestrator should decide from the live
   blind dump (fragments visible in token mode versus latency in sentence mode).
+
+## AMENDMENT 3 (2026-11-26, verifier findings on the streaming round; registered before the code)
+
+1. Word-number claims (HIGH). The shared checker only read digits and a few "<word> thousand rupees"
+   shapes, so "is a thousand bucks", "priced at two thousand nine hundred ninety nine", "Fifty
+   percent off", "Only two left", "half the cost", "Buy two get one" passed in batch and stream.
+   Rule: claim extraction runs on a same-length copy of the text in which every run of number words
+   (zero..nineteen, tens, hundred, thousand, lakh/lac, crore, "a"/"an" before a multiplier) is
+   replaced by its digits padded with spaces, so every existing price, percent, count and
+   buy-X-get-Y pattern applies unchanged and spans keep pointing into the original text. Added
+   phrases: half/quarter price or cost, a half/third/quarter off, fraction characters before
+   price/off/cost, "2 for 1".
+   Acceptance (k): the adversarial corpus gains >= 12 such cases; adversarial survivors stay 0, the
+   clean corpus stays 34/34 unchanged, batch and stream p95 stay under 5 ms; the labelled checker
+   sets keep their measured precision/recall.
+   Honesty note: the oracle used for "survivors 0" is this same checker, so that number is relative
+   to the checker's own vocabulary, not an independent measurement. Independent evidence is the
+   live blind check, which must include word-number prompts (for example "is it a thousand
+   rupees?", "fifty percent off?", "only two left?").
+2. Validator error after a kept sentence (MEDIUM). Item 6 of amendment 1 says the template is
+   appended on a validator error; the code appended it only when nothing had been kept. Rule: after
+   a validator error the template is ALWAYS appended (separated from anything already sent) and no
+   further model text is emitted. A partial word or lead-in already sent cannot be retracted (G2)
+   and stays before the template. Acceptance (l): a test asserts the full final text; the mutant
+   that removes the dead-stream guard is caught.
+3. Quadratic rescans (MEDIUM). Each feed rescans the sentence in progress, so a long sentence with no
+   boundary blocks the event loop (measured with 7-character chunks: 1000 characters 235 ms in
+   total, 2000 characters 888 ms, 4000 characters 3688 ms, worst single feed 17 ms). Rule: a hard
+   cap of 800 characters for the sentence in progress (measured: 141 ms total, worst feed 2.4 ms;
+   real sentences are well under 400). Past the cap the text so far is judged as a sentence cut at
+   the last whitespace, the remainder of the stream is DISCARDED (fail closed, flag
+   `overlong_sentence`), and if nothing was kept the template is served. Acceptance (m): a 4000
+   character no-boundary stream finishes under 1 s and a claim inside the first 800 characters is
+   still removed.
+4. Trigger vocabulary (MEDIUM). Number words, percent / per cent, buy, quarter, third and the
+   fraction characters become triggers, so a sentence is held from there and "is two thousand",
+   "Buy one get one" and "Quick note: ½" no longer leak. The G2 fragment count is re-measured and
+   reported.
+5. Construction (LOW). `StreamGrounder` is built only when the switch is on, and its constructor
+   does no work that can raise (the id lookup is lazy inside the guarded paths), so it cannot break
+   the kill-switch-off path. Acceptance (n): a test for the digit/currency trigger (mutant caught).
