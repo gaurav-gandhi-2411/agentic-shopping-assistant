@@ -53,9 +53,10 @@ class CallBudgetExceeded(RuntimeError):
 class CountingLLM:
     """Wraps the real client: counts calls/tokens, enforces the model and the call cap."""
 
-    def __init__(self, inner: Any, max_calls: int) -> None:
+    def __init__(self, inner: Any, max_calls: int, max_tokens: int | None = None) -> None:
         self._inner = inner
         self.max_calls = max_calls
+        self.max_tokens = max_tokens
         self.calls = 0
         self.tokens = 0
         self.models: set[str] = set()
@@ -68,6 +69,8 @@ class CountingLLM:
         def wrapped(*a: Any, **kw: Any) -> Any:
             if self.calls >= self.max_calls:
                 raise CallBudgetExceeded(f"{self.max_calls} live calls reached")
+            if self.max_tokens is not None and self.tokens >= self.max_tokens:
+                raise CallBudgetExceeded(f"{self.tokens} tokens used, cap {self.max_tokens}")
             self.calls += 1
             res = attr(*a, **kw)
             model = getattr(res, "model", None)
@@ -123,6 +126,7 @@ def main() -> int:
     ap.add_argument("--env-file", default=str(DEFAULT_INDEX.parents[2] / ".env"))
     ap.add_argument("--runs", type=int, default=2)
     ap.add_argument("--max-calls", type=int, default=60)
+    ap.add_argument("--max-tokens", type=int, default=None, help="stop before a call once reached")
     ap.add_argument("--out", required=True)
     ap.add_argument("--gap-s", type=float, default=8.0, help="pause between turns (shared key)")
     args = ap.parse_args()
@@ -154,7 +158,18 @@ def main() -> int:
     from src.llm.client import GroqClient
     from src.retrieval.snapshot import load_index_parts
 
-    llm = CountingLLM(GroqClient(config), args.max_calls)
+    llm = CountingLLM(GroqClient(config), args.max_calls, args.max_tokens)
+    pp_events: list[dict[str, Any]] = []
+
+    class _PPHandler(logging.Handler):
+        """Collect the graph's plain_search_postprocess lines (drop / cap / refill counts)."""
+
+        def emit(self, record: logging.LogRecord) -> None:
+            msg = record.getMessage()
+            if '"plain_search_postprocess"' in msg:
+                pp_events.append(json.loads(msg))
+
+    logging.getLogger("src.agents.graph").addHandler(_PPHandler())
     retriever, df = load_index_parts(Path(args.index_dir), config)
     agent = build_graph(retriever, df, llm, config, streaming_mode=False)
 
@@ -162,7 +177,13 @@ def main() -> int:
     for run in range(1, args.runs + 1):
         for chip in CHIPS:
             t0 = time.monotonic()
-            res = agent.invoke(initial_state(chip, llm, config))
+            pp_events.clear()
+            try:
+                res = agent.invoke(initial_state(chip, llm, config))
+            except CallBudgetExceeded as exc:
+                print(f"\n== run {run} | {chip} | STOPPED by the call/token cap: {exc}")
+                turns.append({"run": run, "chip": chip, "stopped_by_cap": str(exc)})
+                break
             items = res.get("retrieved_items") or []
             tc = res.get("tool_calls") or []
             plain = any("search" in c for c in tc)
@@ -173,6 +194,8 @@ def main() -> int:
                 "run": run, "chip": chip, "route": [next(iter(c)) for c in tc],
                 "price_max": f, "gender_neutral": neutral, "criteria": crit,
                 "gender_refine": res.get("gender_refine"),
+                # no event logged = nothing dropped / refilled / capped on any pass
+                "postprocess": pp_events[-1] if pp_events else {},
                 "latency_s": round(time.monotonic() - t0, 1),
                 "cards": [{"title": i.get("display_name"), "store": i.get("store"),
                            "price": i.get("price_inr"), "gender": i.get("gender")} for i in items],
@@ -182,6 +205,8 @@ def main() -> int:
             for c in turns[-1]["cards"]:
                 print(f"   {c['store']:<14} {str(c['gender']):<8} {c['price']!s:>9}  {c['title']}")
             print("   criteria:", json.dumps(crit))
+            print("   postprocess (removed on the last pass, gate_dropped = refilled):",
+                  json.dumps(turns[-1]["postprocess"]))
             time.sleep(args.gap_s)
     out = {"model": GATE_MODEL, "live_calls": llm.calls, "tokens": llm.tokens,
            "models_seen": sorted(llm.models), "turns": turns}
