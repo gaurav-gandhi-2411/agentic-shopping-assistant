@@ -2970,10 +2970,21 @@ def build_graph(
                     if type_counts.get(pt, 0) < 2:
                         diverse.append(item)
                         type_counts[pt] = type_counts.get(pt, 0) + 1
-                # Fill remaining slots from the wider candidates pool if reranker gave few types
+                # Fill remaining slots from the rest of the ranked list if the reranker gave few
+                # types. The refill pool goes through the same post-processing as the selection
+                # (dedupe, store cap, budget) and skips cards a gate already dropped; it used to
+                # be the raw `candidates` pool, which bypassed all of those (4 cards from one store).
                 if len(diverse) < top_k:
                     seen_diverse = {it["article_id"] for it in diverse}
-                    for item in candidates:
+                    _refill = [
+                        it for it in _ranked
+                        if it["article_id"] not in seen_diverse
+                        and it["article_id"] not in _pp_excluded
+                    ]
+                    _refill_pool, _ = _pp.select_results(
+                        diverse + _refill, len(diverse) + len(_refill), price_max=_pp_cap
+                    )
+                    for item in _refill_pool:
                         if len(diverse) >= top_k:
                             break
                         if item["article_id"] in seen_diverse:
@@ -3142,7 +3153,12 @@ def build_graph(
         _pp_excluded: set[str] = set()
         _pp_gate_dropped = 0
         _pp_report: dict = {}
-        for _pp_pass in range(_pp.MAX_GATE_PASSES):
+        # Loop until a pass drops nothing, the list is full, or it empties. The bound is a pure
+        # safety net: every continuing pass adds >= 1 id to _pp_excluded (a pass with no drops
+        # breaks), and each pass selects only from ids not yet excluded, so at most len(_ranked)
+        # passes can continue and pass len(_ranked)+1 sees an empty pool. A fixed small cap
+        # (was 4) stopped short when gates dropped ~1 card per pass with admissible cards deeper.
+        for _pp_pass in range(len(_ranked) + 1):
             _pp_selected, _pp_report = _pp.select_results(
                 [it for it in _ranked if it["article_id"] not in _pp_excluded],
                 top_k,
