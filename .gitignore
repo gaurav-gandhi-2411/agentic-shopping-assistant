@@ -39,6 +39,7 @@ data/hm/
 
 # Model checkpoints
 models/
+onnx_models/
 
 # Eval reports
 reports/

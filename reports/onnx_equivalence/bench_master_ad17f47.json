@@ -1,0 +1,101 @@
+{
+  "image": "asa-onnx-bench:master-ad17f47",
+  "label": "master",
+  "image_size_mb": 1123.4,
+  "limits": "--cpus 1 --memory 4g",
+  "runs": [
+    {
+      "ready_s": 32.68,
+      "docker_stats_mem_mb": 2877.4,
+      "sum_vmrss_mb": 2682.9,
+      "warmup_log": "startup warm-up finished ok=True timed_out=False elapsed_ms=9300 steps={'search_plain': 866, 'search_women': 369, 'search_men': 293, 'outfit_turn': 5574, 'clip': 2198}\"}"
+    },
+    {
+      "ready_s": 27.87,
+      "docker_stats_mem_mb": 2506.8,
+      "sum_vmrss_mb": 2708.9,
+      "warmup_log": "startup warm-up finished ok=True timed_out=False elapsed_ms=8582 steps={'search_plain': 551, 'search_women': 370, 'search_men': 293, 'outfit_turn': 5112, 'clip': 2255}\"}"
+    },
+    {
+      "ready_s": 28.14,
+      "docker_stats_mem_mb": 2432.0,
+      "sum_vmrss_mb": 2629.7,
+      "warmup_log": "startup warm-up finished ok=True timed_out=False elapsed_ms=8456 steps={'search_plain': 403, 'search_women': 461, 'search_men': 498, 'outfit_turn': 4828, 'clip': 2266}\"}"
+    },
+    {
+      "ready_s": 27.6,
+      "docker_stats_mem_mb": 2481.2,
+      "sum_vmrss_mb": 2685.6,
+      "warmup_log": "startup warm-up finished ok=True timed_out=False elapsed_ms=8741 steps={'search_plain': 434, 'search_women': 379, 'search_men': 299, 'outfit_turn': 5411, 'clip': 2218}\"}"
+    },
+    {
+      "ready_s": 27.89,
+      "docker_stats_mem_mb": 2453.5,
+      "sum_vmrss_mb": 2660.3,
+      "warmup_log": "startup warm-up finished ok=True timed_out=False elapsed_ms=8817 steps={'search_plain': 430, 'search_women': 312, 'search_men': 294, 'outfit_turn': 5512, 'clip': 2268}\"}"
+    }
+  ],
+  "cold_start_to_readyz_200_s": {
+    "n": 5,
+    "median": 27.89,
+    "min": 27.6,
+    "max": 32.68,
+    "all": [
+      32.68,
+      27.87,
+      28.14,
+      27.6,
+      27.89
+    ]
+  },
+  "steady_mem_docker_stats_mb": {
+    "n": 5,
+    "median": 2481.2,
+    "min": 2432.0,
+    "max": 2877.4,
+    "all": [
+      2877.4,
+      2506.8,
+      2432.0,
+      2481.2,
+      2453.5
+    ]
+  },
+  "steady_sum_vmrss_mb": {
+    "n": 5,
+    "median": 2682.9,
+    "min": 2629.7,
+    "max": 2708.9,
+    "all": [
+      2682.9,
+      2708.9,
+      2629.7,
+      2685.6,
+      2660.3
+    ]
+  },
+  "encode_latency": {
+    "n_queries": 60,
+    "backend": "SentenceTransformer",
+    "dense_load_s": 6.06,
+    "dense_encode": {
+      "n": 60,
+      "p50_ms": 102.79,
+      "p95_ms": 392.91,
+      "mean_ms": 173.34
+    },
+    "clip_load_s": 0.75,
+    "clip_text_encode": {
+      "n": 60,
+      "p50_ms": 403.77,
+      "p95_ms": 599.0,
+      "mean_ms": 441.56
+    },
+    "clip_image_encode_640x480": {
+      "n": 30,
+      "p50_ms": 1001.93,
+      "p95_ms": 1152.75,
+      "mean_ms": 1006.56
+    }
+  }
+}

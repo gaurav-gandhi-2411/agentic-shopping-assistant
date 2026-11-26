@@ -1,6 +1,7 @@
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 import faiss
 import numpy as np
@@ -15,8 +16,7 @@ import tqdm
 # usage picks up the disabled monitor.
 tqdm.tqdm.monitor_interval = 0
 
-from sentence_transformers import SentenceTransformer  # noqa: E402
-
+from src.retrieval.onnx_encoders import OnnxTextEncoder, encoder_backend  # noqa: E402
 from src.utils.timing_log import first_call  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -25,11 +25,22 @@ _QUERY_VEC_LOCK = threading.Lock()
 _QUERY_VEC_CACHE_MAX = 256 # ~1.5 kB per 384-d float32 vector: <0.5 MB at the cap
 
 
+def load_text_encoder(model_name: str) -> Any:
+    """Query/document encoder: ONNX Runtime by default (no torch in the production image);
+    ``ENCODER_BACKEND=torch`` loads sentence-transformers for local dev (needs
+    requirements-export.txt). Both expose ``encode(texts, ..., normalize_embeddings=True)``."""
+    if encoder_backend() == "torch":
+        from sentence_transformers import SentenceTransformer  # lazy: absent from the runtime image
+
+        return SentenceTransformer(model_name, device="cpu")
+    return OnnxTextEncoder(model_name)
+
+
 class DenseRetriever:
     def __init__(self, config: dict):
         self.config = config
         model_name = config["retrieval"]["dense_model"]
-        self.model = SentenceTransformer(model_name, device="cpu")
+        self.model = load_text_encoder(model_name)
         self.index: faiss.IndexFlatIP | None = None
         self.article_ids: np.ndarray | None = None
 
@@ -66,9 +77,7 @@ class DenseRetriever:
         instance = cls.__new__(cls)
         instance.config = config
         model_name = config["retrieval"]["dense_model"]
-        instance.model = (
-            model if model is not None else SentenceTransformer(model_name, device="cpu")
-        )
+        instance.model = model if model is not None else load_text_encoder(model_name)
         instance.index = faiss.read_index(str(save_dir / "dense.faiss"))
         instance.article_ids = np.load(str(save_dir / "dense_article_ids.npy"), allow_pickle=True)
         return instance

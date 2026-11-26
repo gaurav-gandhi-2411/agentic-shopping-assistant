@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import tqdm
@@ -36,7 +36,7 @@ import tqdm
 # usage picks up the disabled monitor.
 tqdm.tqdm.monitor_interval = 0
 
-from sentence_transformers import SentenceTransformer  # noqa: E402
+from src.retrieval.onnx_encoders import OnnxCLIPEncoder, encoder_backend  # noqa: E402
 
 if TYPE_CHECKING:
     from PIL.Image import Image as PILImage
@@ -48,15 +48,24 @@ logger = logging.getLogger(__name__)
 # Protected by a threading.Lock so concurrent requests don't double-load.
 # ---------------------------------------------------------------------------
 
-_encoders: dict[str, "CLIPEncoder"] = {}
+_encoders: dict[str, "CLIPEncoder | OnnxCLIPEncoder"] = {}
 _encoder_lock = threading.Lock()
 
 # Dimension of clip-ViT-B-32 shared text/image space.
 CLIP_DIM: int = 512
 
 
+def _load_sentence_transformer(model_id: str) -> Any:
+    """Torch backend loader (local dev, ``ENCODER_BACKEND=torch``). The import is lazy because
+    sentence-transformers/torch are not in the production image (requirements-export.txt)."""
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model_id, device="cpu")
+
+
 class CLIPEncoder:
-    """Thin wrapper around a sentence-transformers CLIP model.
+    """Thin wrapper around a sentence-transformers CLIP model (torch backend; the default
+    production backend is ``OnnxCLIPEncoder``, same public interface, see ``get_clip_encoder``).
 
     Both ``encode_image`` and ``encode_texts`` return L2-normalised float32
     vectors in the shared 512-d CLIP space, ready for IndexFlatIP (cosine)
@@ -72,7 +81,7 @@ class CLIPEncoder:
     def __init__(self, model_id: str) -> None:
         self._model_id = model_id
         try:
-            self._model = SentenceTransformer(model_id, device="cpu")
+            self._model = _load_sentence_transformer(model_id)
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to load CLIP model '{model_id}': {exc}. "
@@ -185,7 +194,7 @@ class CLIPEncoder:
         return np.array(vecs, dtype=np.float32)
 
 
-def get_clip_encoder(model_id: str = "clip-ViT-B-32") -> CLIPEncoder:
+def get_clip_encoder(model_id: str = "clip-ViT-B-32") -> "CLIPEncoder | OnnxCLIPEncoder":
     """Return the cached ``CLIPEncoder`` for *model_id*, loading it on first call.
 
     Thread-safe: uses a module-level lock so concurrent startup requests
@@ -205,5 +214,9 @@ def get_clip_encoder(model_id: str = "clip-ViT-B-32") -> CLIPEncoder:
     with _encoder_lock:
         # Double-checked locking
         if model_id not in _encoders:
-            _encoders[model_id] = CLIPEncoder(model_id)
+            _encoders[model_id] = (
+                CLIPEncoder(model_id)
+                if encoder_backend() == "torch"
+                else OnnxCLIPEncoder(model_id)
+            )
     return _encoders[model_id]

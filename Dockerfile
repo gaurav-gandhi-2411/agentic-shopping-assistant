@@ -17,24 +17,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install torch and requirements.txt in ONE pip invocation so pip's resolver sees both
-# together and dedupes torch against the CPU-only index -- confirmed broken as two separate
-# `pip install --prefix=/install` invocations (Item 110, first build attempt): each RUN is a
-# separate pip process, and pip's "already satisfied" check only looks at the *running
-# interpreter's own* site-packages, not an arbitrary --prefix populated by a prior, separate
-# invocation. sentence-transformers pins torch as an unpinned transitive dependency, so the
-# second invocation had no visibility into the first's CPU-only torch, saw torch as unmet, and
-# pulled a full CUDA build (torch+nvidia-*+triton, ~4.7GB of dead weight on Cloud Run's CPU-only
-# runtime) from PyPI -- inflated the image to 11.9GB instead of shrinking it. --index-url as the
-# PRIMARY index (not --extra-index-url) makes pip prefer the CPU wheel for torch even though it's
-# resolved transitively, while --extra-index-url PyPI still resolves everything else.
+# Runtime requirements only. There is NO torch / transformers / sentence-transformers here: the
+# text and CLIP encoders run on onnxruntime (src/retrieval/onnx_encoders.py), so the old
+# CPU-torch-index workaround (which existed to stop sentence-transformers' transitive torch from
+# resolving to a ~4.7GB CUDA build) is gone. torch lives only in the `export` stage below.
 # --prefix=/install isolates everything pip installs so the final stage can COPY --from just that
 # directory instead of the whole builder filesystem.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install \
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---------------------------------------------------------------------------
+# Export stage: the ONLY stage with torch. Exports the MiniLM and CLIP encoders to fp32 ONNX +
+# tokenizer.json at pinned Hugging Face revisions (scripts/export_onnx.py; the script self-checks
+# each export against torch and fails the build if cosine < 0.99999). Only /export is copied
+# onward; nothing from this stage's site-packages reaches the runtime image. --index-url is the
+# CPU wheel index (primary) so torch never resolves to a CUDA build; PyPI stays as extra index.
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS export
+
+WORKDIR /app
+ENV HF_HOME=/tmp/hf \
+    TQDM_DISABLE=1
+COPY requirements-export.txt .
+RUN pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
         --extra-index-url https://pypi.org/simple \
-        -r requirements.txt
+        -r requirements-export.txt
+COPY src/retrieval/onnx_encoders.py ./src/retrieval/onnx_encoders.py
+COPY scripts/export_onnx.py ./scripts/export_onnx.py
+RUN touch src/__init__.py src/retrieval/__init__.py \
+    && python scripts/export_onnx.py --out-dir /export \
+    && chmod -R a+rX /export
 
 # ---------------------------------------------------------------------------
 # Final stage: runtime only. build-essential is never installed here at all,
@@ -67,11 +80,9 @@ COPY --from=builder /install /usr/local
 #   /app/data/processed/unified/       runtime  index_store.ensure_index_dir    app (GCS index download)
 #   /app/data/processed/clip/<brand>/  runtime  download_supplementary_assets   app (CLIP index)
 #   /app/data/processed/shopify_variants/ runtime  download_supplementary_assets app (variant maps)
-#   /app/.cache/huggingface/           build    SentenceTransformer bake RUN    app (baked as app, so no
-#                                                                               chown layer duplicating ~450MB;
-#                                                                               runtime is offline, read-only use)
 #   /tmp (HOME, MPLCONFIGDIR, XDG_*)   runtime  library caches (matplotlib via   any (always writable)
 #                                               colour-science, numba, etc.)
+#   /app/onnx_models: root-owned, read-only to the app (exported at build time, see below).
 #   /app/src, api, alembic, brands, config.yaml, alembic.ini: root-owned and read-only to
 #   the app (only .pyc writes fail, silently). No log files, no sqlite, no tempfile use in
 #   api/ or src/; scripts/ is not in the image (.dockerignore).
@@ -89,43 +100,19 @@ ENV HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
     NUMBA_CACHE_DIR=/tmp/numba
 
-# Everything from here runs as the app user: the model bake below creates its files owned by
-# app directly, which avoids a recursive chown that would duplicate the weights in a layer.
+# Everything from here runs as the app user.
 USER app
 
-# Baked model cache location, under /app so it survives layer caching and is owned by the
-# non-root user (the bake RUN below executes as that user).
-# Both HF_HOME and SENTENCE_TRANSFORMERS_HOME point here so every path
-# sentence-transformers and HuggingFace Hub resolves at runtime hits the
-# pre-baked directory without any network calls.
-ENV HF_HOME=/app/.cache/huggingface
-ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/sentence_transformers
+# The dense (MiniLM) and CLIP (text + vision towers) encoders as fp32 ONNX plus tokenizer.json,
+# exported in the `export` stage at pinned HF revisions (recorded in each manifest.json). The
+# weights are in the image, so cold-start never downloads anything (the 495s cold-start incident,
+# unauthenticated HF revision-check stalls, cannot recur: there is no HF client in this image at
+# all). ONNX_MODEL_DIR is read by src/retrieval/onnx_encoders.py.
+COPY --from=export /export /app/onnx_models
+ENV ONNX_MODEL_DIR=/app/onnx_models
 
-# Bake the CLIP model weights (~350 MB) AND the dense retrieval model
-# (~90 MB, sentence-transformers/all-MiniLM-L6-v2 — must match
-# config.yaml retrieval.dense_model) into the image at build time so
-# cold-start never triggers a runtime download. Unchanged from before (Item
-# 110/108): still baked, still offline-forced below -- that decision stands,
-# it fixed a real prior 495s cold-start incident and this refactor doesn't
-# touch it.
-RUN python -c "from sentence_transformers import SentenceTransformer; \
-    SentenceTransformer('clip-ViT-B-32'); \
-    SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
-
-# Force every runtime model load to hit the baked cache above — never the
-# network.  Must be set AFTER the bake RUN so the bake step itself can still
-# reach HuggingFace Hub to download weights the first time.  Without this,
-# the 495s cold-start incident (unauthenticated HF revision-check stalls)
-# can recur even with weights already on disk.
-ENV HF_HUB_OFFLINE=1
-ENV TRANSFORMERS_OFFLINE=1
-
-# Disables tqdm's TMonitor background thread globally.  Without this, every
-# SentenceTransformer.encode() call bootstraps/tears down a monitor thread
-# whose lock waits dominated latency on constrained (1 vCPU) Cloud Run
-# instances — see src/retrieval/dense_search.py and clip_encoder.py for the
-# code-level fix (tqdm.tqdm.monitor_interval = 0) that also covers non-Docker
-# runtimes; this env var is belt-and-suspenders for the container.
+# Disables tqdm's TMonitor background thread globally (belt-and-suspenders for
+# src/retrieval/dense_search.py and clip_encoder.py, which also set monitor_interval = 0).
 ENV TQDM_DISABLE=1
 
 # Application source and config
@@ -137,6 +124,12 @@ COPY brands/ ./brands/
 # with this image's head (api/routes/health.py check "schema"). Nothing runs them at startup.
 COPY alembic.ini .
 COPY alembic/ ./alembic/
+
+# Build-time smoke as the runtime user: both encoders must load from /app/onnx_models, including
+# the CLIP text-tower session that is lazy at runtime (constructed here, in this throwaway process
+# only, so its memory cost never reaches the service). A file the app user cannot read (the
+# external-data files came out 0600 once) fails the BUILD here, not the first request after a deploy.
+RUN python -c 'from src.retrieval.onnx_encoders import OnnxCLIPEncoder, OnnxTextEncoder; OnnxTextEncoder("all-MiniLM-L6-v2"); OnnxCLIPEncoder("clip-ViT-B-32")._text_session()'
 
 # Indices are loaded from GCS at startup via INDEX_STORE_URI.
 # data/processed is created and chowned to the app user earlier (writable download target).

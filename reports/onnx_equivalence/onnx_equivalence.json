@@ -1,0 +1,176 @@
+{
+  "rule": "evals/onnx_equivalence_rule.md",
+  "seed": 42,
+  "torch_available": true,
+  "note": "linux container from repo Dockerfile, image asa-onnx-bench:onnx-6dc78c9 (d45888d3d5af); torch/ST 5.7.0 installed ephemerally via pip --target for the torch reference only; Docker Desktop 29.6.1 (WSL2), --cpus 4",
+  "C1_minilm_vs_stored": {
+    "n_sample": 2000,
+    "n_reproduced_by_torch": 2000,
+    "n_excluded": 0,
+    "valid": true,
+    "control_torch_vs_stored_all": {
+      "n": 2000,
+      "min": 0.9999998807907104,
+      "p1": 0.9999999403953552,
+      "median": 1.0,
+      "max": 1.000000238418579
+    },
+    "onnx_vs_stored_all_items": {
+      "n": 2000,
+      "min": 0.9999998807907104,
+      "p1": 0.9999999403953552,
+      "median": 1.0,
+      "max": 1.000000238418579
+    },
+    "onnx_vs_torch_all_items": {
+      "n": 2000,
+      "min": 0.9999998807907104,
+      "p1": 0.9999999403953552,
+      "median": 1.0,
+      "max": 1.000000238418579
+    },
+    "n": 2000,
+    "min": 0.9999998807907104,
+    "p1": 0.9999999403953552,
+    "median": 1.0,
+    "max": 1.000000238418579,
+    "pass": true
+  },
+  "clip_sample_missing_from_clip_index": 0,
+  "C2_clip_text_vs_stored": {
+    "n_sample": 2000,
+    "n_reproduced_by_torch": 1761,
+    "n_excluded": 239,
+    "valid": true,
+    "control_torch_vs_stored_all": {
+      "n": 2000,
+      "min": 0.9272062182426453,
+      "p1": 0.9895080327987671,
+      "median": 1.0,
+      "max": 1.000000238418579
+    },
+    "onnx_vs_stored_all_items": {
+      "n": 2000,
+      "min": 0.9272060990333557,
+      "p1": 0.9895079731941223,
+      "median": 1.0,
+      "max": 1.000000238418579
+    },
+    "onnx_vs_torch_all_items": {
+      "n": 2000,
+      "min": 0.9999998807907104,
+      "p1": 0.9999999403953552,
+      "median": 1.0,
+      "max": 1.000000238418579
+    },
+    "n": 1761,
+    "min": 0.9999998807907104,
+    "p1": 0.9999999403953552,
+    "median": 1.0,
+    "max": 1.000000238418579,
+    "pass": true,
+    "text_source": "per-brand catalogues (CLIP builder input)"
+  },
+  "n_queries": 60,
+  "C4_dense_query_vectors_cosine": {
+    "n": 60,
+    "min": 0.9999998807907104,
+    "p1": 0.9999999403953552,
+    "median": 1.0,
+    "max": 1.0000001192092896
+  },
+  "C4_dense_top10_overlap": {
+    "n": 60,
+    "mean": 1.0,
+    "min": 1.0,
+    "n_below_1": 0,
+    "histogram": {
+      "1.0": 60
+    },
+    "pass": true
+  },
+  "C4_clip_text_top10_overlap": {
+    "n": 60,
+    "mean": 1.0,
+    "min": 1.0,
+    "n_below_1": 0,
+    "histogram": {
+      "1.0": 60
+    },
+    "pass": true
+  },
+  "C3_clip_image_vs_torch": {
+    "n": 200,
+    "min": 0.9999998807907104,
+    "p1": 0.9999999403953552,
+    "median": 1.0,
+    "max": 1.000000238418579,
+    "pass": true,
+    "source": "H&M product images (primary checkout, read only)",
+    "reference": "torch SentenceTransformer, NOT a stored vector"
+  },
+  "C4_clip_image_top10_overlap": {
+    "n": 200,
+    "mean": 1.0,
+    "min": 1.0,
+    "n_below_1": 0,
+    "histogram": {
+      "1.0": 200
+    },
+    "pass": true
+  },
+  "environment": {
+    "platform": "Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "python": "3.11.18",
+    "cpu_count": 16,
+    "onnxruntime": "1.32.0",
+    "tokenizers": "0.22.2",
+    "faiss": "1.15.1",
+    "torch": "2.15.0+cpu",
+    "transformers": "5.10.4",
+    "models": {
+      "all-MiniLM-L6-v2": {
+        "export_versions": {
+          "onnx": "1.23.2",
+          "onnxruntime": "1.32.0",
+          "opset": 17,
+          "tokenizers": "0.22.2",
+          "torch": "2.15.0+cpu",
+          "transformers": "5.10.4"
+        },
+        "files": {
+          "model.onnx": "3daa0d7afabb354c88ddeb99e9097def5faf87e4eec135138c3d74c60989a049",
+          "model.onnx.data": "f088b7984e821e25d4ce5b42190cb1825f08dc455c91f2ea7ebfb565b04223fc",
+          "tokenizer.json": "851ca67100d372ca3ae031a6abd168f53489eebfd7d89523f35c5c9b4d372c3c"
+        },
+        "max_seq_length": 256,
+        "pooling": "mean",
+        "repo": "sentence-transformers/all-MiniLM-L6-v2",
+        "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+      },
+      "clip-ViT-B-32": {
+        "export_versions": {
+          "onnx": "1.23.2",
+          "onnxruntime": "1.32.0",
+          "opset": 17,
+          "tokenizers": "0.22.2",
+          "torch": "2.15.0+cpu",
+          "transformers": "5.10.4"
+        },
+        "files": {
+          "text.onnx": "f76894e822cd13e9cce5cb1441f6fb052398cda46f8a249e71d1ac865bf79b79",
+          "text.onnx.data": "e6c180f1ef47ea1e4c311b9f775d890ba4c46b8e28e2c4cc30577d227f9fda8a",
+          "tokenizer.json": "d656a0f8bc9d30a93ea9f2858ebf4f076b1ff914b8e79290ed9687721e7ac74a",
+          "vision.onnx": "67ce3d320db996e5eedc613cac35f82fc92c9c27cb0103ddb1a0d15ccb2d3c08",
+          "vision.onnx.data": "4e5a6a036de433823b2e81a24fabba8fead32998686e82955691e6aa32aa99cb"
+        },
+        "image_size": 224,
+        "max_tokens": 77,
+        "repo": "sentence-transformers/clip-ViT-B-32",
+        "revision": "327ab6726d33c0e22f920c83f2ff9e4bd38ca37f"
+      }
+    }
+  },
+  "not_run": [],
+  "verdict": "PASS"
+}

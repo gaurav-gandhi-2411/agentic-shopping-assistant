@@ -169,7 +169,7 @@ eliminating 6-iteration loops without relying on prompt instructions.
 | Layer | Choice |
 |---|---|
 | Agent framework | LangGraph StateGraph |
-| Dense retrieval | FAISS `IndexFlatIP` + `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
+| Dense retrieval | FAISS `IndexFlatIP` + `sentence-transformers/all-MiniLM-L6-v2` (384-dim), served as fp32 ONNX on onnxruntime CPU (no torch at runtime) |
 | Sparse retrieval | `rank_bm25` (BM25Okapi) |
 | Fusion | Reciprocal Rank Fusion (k=60) |
 | LLM | Groq `llama-3.1-8b-instant` (swap via `config.yaml`; Ollama supported for local dev) |

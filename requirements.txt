@@ -1,5 +1,5 @@
-sentence-transformers==5.7.0
-transformers==5.10.4
+onnxruntime==1.32.0
+tokenizers==0.22.2
 colour-science==0.4.7
 rank-bm25==0.2.2
 faiss-cpu==1.15.1

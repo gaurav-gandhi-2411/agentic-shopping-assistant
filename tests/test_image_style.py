@@ -582,7 +582,7 @@ def test_clip_encoder_encode_texts_shape() -> None:
 def test_clip_encoder_load_failure_raises_runtime_error() -> None:
     """If the model cannot be loaded, CLIPEncoder must raise RuntimeError."""
     with patch(
-        "src.retrieval.clip_encoder.SentenceTransformer", side_effect=OSError("model not found")
+        "src.retrieval.clip_encoder._load_sentence_transformer", side_effect=OSError("model not found")
     ):
         from src.retrieval.clip_encoder import CLIPEncoder
 
