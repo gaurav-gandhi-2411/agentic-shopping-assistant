@@ -1,8 +1,9 @@
 """Incremental index builder core: fetched feeds + previous state -> new state + report.
 
 Pure orchestration. The two expensive or I/O parts are injected: ``prepare`` (feed products -> clean
-catalogue rows; the real one replays the repo's build filters) and an ``Embedder`` (text and image
-vectors). Tests use fakes; nothing here touches the network. Rules, in order of application:
+catalogue rows; the real one replays the repo's build filters) and an ``Embedder`` (MiniLM and CLIP
+text vectors of ``search_text``). Tests use fakes; nothing here touches the network. Rules, in order
+of application:
 docs/ops/incremental-build-rules.md (committed before this code).
 """
 
@@ -28,17 +29,20 @@ from src.refresh.gender_hygiene import (
 from src.refresh.state import IndexState, StateRow
 
 OK = "ok"
-IMAGE_EMBED_CAP_PER_RUN = 2000  # CLIP on a CPU runner; the cold start is spread over runs
 SHRINK_GUARD_RATIO = 0.5  # an "ok" store below this share of its previous rows is carried over
 SHRINK_GUARD_MIN_PREVIOUS = 20  # ... but only when it had at least this many rows
 
 
 class Embedder(Protocol):
-    """Text and image embedding. ``embed_images`` returns None for an image it could not embed."""
+    """Text embedding of ``search_text`` into the two spaces prod uses (rows x dim, float32)."""
 
-    def embed_text(self, texts: list[str]) -> np.ndarray: ...
+    def embed_text(self, texts: list[str]) -> np.ndarray:
+        """MiniLM sentence vectors (the dense index), L2-normalised."""
+        ...
 
-    def embed_images(self, urls: list[str]) -> list[np.ndarray | None]: ...
+    def embed_clip_text(self, texts: list[str]) -> np.ndarray:
+        """CLIP text vectors (the clip.faiss index, same path as build_clip_index.py)."""
+        ...
 
 
 # prepare(slug, shopify_products) -> clean catalogue rows (article_id, prod_name, gender,
@@ -80,7 +84,10 @@ def _tags(p: dict) -> list[str]:
 
 
 def item_view(p: dict) -> dict[str, Any]:
-    """The hashed fields of a Shopify product, plus whether it is purchasable (in stock, priced)."""
+    """The hashed fields of a Shopify product, plus whether it is purchasable (in stock, priced).
+
+    ``tags`` is carried for gender hygiene and ``image_url`` for reference; neither is hashed.
+    """
     variants = p.get("variants") or []
     images = p.get("images") or []
     price = _price(p)
@@ -92,12 +99,19 @@ def item_view(p: dict) -> dict[str, Any]:
         "image_url": (images[0].get("src") if images else None),
         "tags": _tags(p),
         "product_type": str(p.get("product_type", "")).strip(),
+        "description": str(p.get("body_html") or "").strip(),
     }
 
 
 def content_hash(item: dict[str, Any]) -> str:
-    """sha256 of [title, price, available, image_url, sorted tags] (rules doc section 1)."""
-    payload = [item["title"], item["price"], item["available"], item["image_url"], item["tags"]]
+    """sha256 of [title, product_type, description, price, available] (rules doc section 1)."""
+    payload = [
+        item["title"],
+        item["product_type"],
+        item["description"],
+        item["price"],
+        item["available"],
+    ]
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -132,10 +146,8 @@ def _empty_store_report(slug: str, status: str) -> dict[str, Any]:
         "gender_corrected": 0,
         "gender_ambiguous": 0,
         "gender_ambiguous_hyphenated": 0,
-        "texts_embedded": 0,
-        "images_embedded": 0,
-        "images_deferred": 0,
-        "images_failed": 0,
+        "texts_embedded": 0,  # rows given fresh MiniLM + CLIP text vectors
+        "vectors_reused": 0,  # changed rows whose search_text is identical: vectors reused
     }
 
 
@@ -145,13 +157,12 @@ def build_incremental(
     prepare: Prepare,
     embedder: Embedder,
     *,
-    image_cap: int = IMAGE_EMBED_CAP_PER_RUN,
     clock: Callable[[], float] = time.monotonic,
 ) -> BuildResult:
     """Produce the new index state from ``feeds`` and the previous state ``prev``.
 
-    Stores are processed in slug order, the image cap is global and the image work list is ordered
-    by (slug, article id), so the same inputs always embed the same items.
+    Stores are processed in slug order and rows embedded in article-id order, so the same inputs
+    always embed the same items.
     """
     t0 = clock()
     feed_by_slug = {f.slug: f for f in feeds}
@@ -161,8 +172,6 @@ def build_incremental(
     status: dict[str, str] = {}
     stores: list[dict[str, Any]] = []
     corrections: list[dict[str, Any]] = []
-    cap_left = image_cap
-    cap_hit = False
 
     for slug in slugs:
         feed = feed_by_slug.get(slug)
@@ -239,55 +248,44 @@ def build_incremental(
             dropped=len(set(prev_rows) - kept_ids),
         )
 
-        # Text vectors for new/changed rows (uncapped, local model).
-        ids_to_embed = sorted(prepared)
-        text_vecs: dict[str, np.ndarray] = {}
-        if ids_to_embed:
-            mat = embedder.embed_text(
-                [str(prepared[a].get("search_text") or "") for a in ids_to_embed]
-            )
-            text_vecs = dict(zip(ids_to_embed, mat, strict=True))
-            rep["texts_embedded"] = len(ids_to_embed)
+        # New rows, and changed rows whose search_text differs from the stored one, get fresh
+        # MiniLM + CLIP text vectors; a changed row with identical search_text reuses both.
+        def _text(aid: str) -> str:
+            return str(prepared[aid].get("search_text") or "")
 
-        # Assemble rows; decide which still need an image vector.
+        def _same_text(aid: str) -> bool:
+            old = prev_rows.get(aid)
+            return old is not None and str(old.row.get("search_text") or "") == _text(aid)
+
+        ids_to_embed = sorted(a for a in prepared if not _same_text(a))
+        text_vecs: dict[str, np.ndarray] = {}
+        clip_vecs: dict[str, np.ndarray] = {}
+        if ids_to_embed:
+            texts = [_text(a) for a in ids_to_embed]
+            text_vecs = dict(zip(ids_to_embed, embedder.embed_text(texts), strict=True))
+            clip_vecs = dict(zip(ids_to_embed, embedder.embed_clip_text(texts), strict=True))
+        rep["texts_embedded"] = len(ids_to_embed)
+        rep["vectors_reused"] = len(prepared) - len(ids_to_embed)
+
         store_rows: dict[str, StateRow] = {}
         for aid in kept_ids:
             if aid in unchanged:
                 store_rows[aid] = prev_rows[aid]
                 continue
-            row, old = prepared[aid], prev_rows.get(aid)
-            same_image = old is not None and old.row.get("image_url") == row.get("image_url")
+            old = prev_rows.get(aid)
+            if aid in text_vecs:
+                tv, cv = text_vecs[aid], clip_vecs[aid]
+            else:  # search_text unchanged: ``old`` exists by construction of _same_text
+                assert old is not None  # noqa: S101 - narrows Optional for mypy
+                tv, cv = old.text_vec, old.clip_vec
             store_rows[aid] = StateRow(
                 store=slug,
                 article_id=aid,
                 content_hash=hashes[aid],
-                row=row,
-                text_vec=np.asarray(text_vecs[aid], dtype=np.float32),
-                image_vec=old.image_vec if same_image and old is not None else None,
-                image_pending=bool(old.image_pending) if same_image and old is not None else True,
+                row=prepared[aid],
+                text_vec=np.asarray(tv, dtype=np.float32),
+                clip_vec=np.asarray(cv, dtype=np.float32),
             )
-        work = sorted(
-            a
-            for a, r in store_rows.items()
-            if r.image_pending and r.image_vec is None and r.row.get("image_url")
-        )
-        for a, r in store_rows.items():  # no image URL -> nothing to embed, never pending
-            if not r.row.get("image_url"):
-                r.image_pending = False
-        take, deferred = work[:cap_left], work[cap_left:]
-        if deferred:
-            cap_hit = True
-        if take:
-            vecs = embedder.embed_images([str(store_rows[a].row["image_url"]) for a in take])
-            cap_left -= len(take)
-            for a, v in zip(take, vecs, strict=True):
-                r = store_rows[a]
-                if v is None:
-                    rep["images_failed"] += 1
-                else:
-                    r.image_vec, r.image_pending = np.asarray(v, dtype=np.float32), False
-                    rep["images_embedded"] += 1
-        rep["images_deferred"] = len(deferred)
         out_rows.extend(store_rows[k] for k in sorted(store_rows))
 
     keys = (
@@ -302,14 +300,10 @@ def build_incremental(
         "gender_ambiguous",
         "gender_ambiguous_hyphenated",
         "texts_embedded",
-        "images_embedded",
-        "images_deferred",
-        "images_failed",
+        "vectors_reused",
     )
     report: dict[str, Any] = {
         "runtime_s": round(clock() - t0, 3),
-        "image_cap": image_cap,
-        "cap_hit": cap_hit,
         "totals": {k: sum(s[k] for s in stores) for k in keys},
         "carried_over_stores": {s["slug"]: s["carry_reason"] for s in stores if s["carry_reason"]},
         "stores": stores,
@@ -331,14 +325,13 @@ def to_markdown(report: dict[str, Any]) -> str:
         "gender_corrected",
         "gender_ambiguous",
         "gender_ambiguous_hyphenated",
-        "images_embedded",
-        "images_deferred",
+        "texts_embedded",
+        "vectors_reused",
     )
     lines = [
         "# Incremental build report",
         "",
         f"- runtime_s: {report['runtime_s']}",
-        f"- image cap: {report['image_cap']} (cap hit: {report['cap_hit']})",
         "- totals: " + ", ".join(f"{k}={v}" for k, v in report["totals"].items()),
         "",
         "| store | status | " + " | ".join(cols) + " |",
@@ -360,15 +353,13 @@ def to_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def index_arrays(state: IndexState) -> tuple[pd.DataFrame, np.ndarray, list[str], np.ndarray]:
-    """State -> (catalogue frame, text matrix, ids with an image vector, image matrix).
-
-    Row order matches the text matrix; the image matrix is aligned with the returned id list.
-    """
+def index_arrays(state: IndexState) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
+    """State -> (catalogue frame, MiniLM text matrix, CLIP text matrix), rows aligned."""
     cat = pd.DataFrame([r.row for r in state.rows])
-    text = (
-        np.stack([r.text_vec for r in state.rows]) if state.rows else np.zeros((0, 0), np.float32)
+    if not state.rows:
+        return cat, np.zeros((0, 0), np.float32), np.zeros((0, 0), np.float32)
+    return (
+        cat,
+        np.stack([r.text_vec for r in state.rows]),
+        np.stack([r.clip_vec for r in state.rows]),
     )
-    with_img = [(r.article_id, r.image_vec) for r in state.rows if r.image_vec is not None]
-    img = np.stack([v for _, v in with_img]) if with_img else np.zeros((0, 0), np.float32)
-    return cat, text, [a for a, _ in with_img], img

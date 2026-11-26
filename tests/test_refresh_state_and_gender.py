@@ -9,7 +9,7 @@ from src.refresh import gender_hygiene as gh
 from src.refresh import state as st
 
 
-def _row(aid: str, store: str = "s1", image: bool = True, pending: bool = False) -> st.StateRow:
+def _row(aid: str, store: str = "s1") -> st.StateRow:
     rng = np.random.default_rng(42)
     return st.StateRow(
         store=store,
@@ -17,14 +17,13 @@ def _row(aid: str, store: str = "s1", image: bool = True, pending: bool = False)
         content_hash="h" + aid,
         row={"article_id": aid, "n": 1.5},
         text_vec=rng.random(st.TEXT_DIM, dtype=np.float32),
-        image_vec=rng.random(st.IMAGE_DIM, dtype=np.float32) if image else None,
-        image_pending=pending,
+        clip_vec=rng.random(st.CLIP_DIM, dtype=np.float32),
     )
 
 
 def test_state_round_trip(tmp_path):
     s = st.IndexState(
-        rows=[_row("1"), _row("2", image=False, pending=True)],
+        rows=[_row("1"), _row("2")],
         store_status={"s1": "ok", "s2": "rate_limited"},
         built_at="2026-11-26T00:00:00Z",
     )
@@ -33,8 +32,9 @@ def test_state_round_trip(tmp_path):
     back = st.read_state(p)
     assert [r.article_id for r in back.rows] == ["1", "2"]
     assert back.rows[0].row == {"article_id": "1", "n": 1.5}
-    assert np.array_equal(back.rows[0].image_vec, s.rows[0].image_vec)
-    assert back.rows[1].image_vec is None and back.rows[1].image_pending
+    assert np.array_equal(back.rows[0].text_vec, s.rows[0].text_vec)
+    assert np.array_equal(back.rows[0].clip_vec, s.rows[0].clip_vec)
+    assert back.rows[0].clip_vec.dtype == np.float32
     assert back.store_status == s.store_status and back.built_at == s.built_at
 
 
@@ -68,6 +68,21 @@ def test_unknown_schema_version_refused(tmp_path):
         header = json.loads(str(z["header"]))
     header["schema_version"] = 99
     _rewrite(p, header=np.array(json.dumps(header)))
+    with pytest.raises(st.StateError, match="schema_version"):
+        st.read_state(p)
+
+
+def test_schema_v1_state_with_image_vectors_is_refused(tmp_path):
+    """A v1 file (image vectors, no clip_vec) must be a hard refusal, never read as empty."""
+    import json
+
+    p = tmp_path / "s.npz"
+    st.write_state(st.IndexState(rows=[_row("1")]), p)
+    with np.load(p, allow_pickle=False) as z:
+        header = json.loads(str(z["header"]))
+    header["schema_version"] = 1
+    _rewrite(p, header=np.array(json.dumps(header)))
+    assert st.SCHEMA_VERSION == 2
     with pytest.raises(st.StateError, match="schema_version"):
         st.read_state(p)
 

@@ -18,11 +18,8 @@ on:
       stores:
         description: "Comma-separated store slugs to fetch (keep it small; 1 request/s per domain)"
         required: true
-      image_cap:
-        description: "Max new image embeddings this run"
-        default: "200"
       embedder:
-        description: "fake = hash vectors, no models; real = MiniLM + CLIP (downloads images)"
+        description: "fake = hash vectors, no models; real = MiniLM + CLIP text (no images)"
         default: "fake"
         type: choice
         options: [fake, real]
@@ -47,7 +44,6 @@ jobs:
     timeout-minutes: 60
     env:
       STORES: ${{ inputs.stores }}
-      IMAGE_CAP: ${{ inputs.image_cap }}
       EMBEDDER: ${{ inputs.embedder }}
       PREV_TAG: ${{ inputs.prev_state_tag }}
       GH_TOKEN: ${{ github.token }}
@@ -79,7 +75,7 @@ jobs:
           if [ -f prev/index-state.npz ]; then PREV_ARG="--state-in prev/index-state.npz"; fi
           python scripts/ops/incremental_build.py --fetch-summary fetch.json --raw-dir raw \
             $PREV_ARG --state-out out/index-state.npz --report-json out/report.json \
-            --report-md out/report.md --image-cap "$IMAGE_CAP" --embedder "$EMBEDDER"
+            --report-md out/report.md --embedder "$EMBEDDER"
           cat out/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload state and report (artifacts only)

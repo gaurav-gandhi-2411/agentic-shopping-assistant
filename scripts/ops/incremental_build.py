@@ -12,7 +12,8 @@ Dry-run command (6e, run by the orchestrator via the incremental-build-dry-run w
     # with the previous state: add --state-in prev/index-state.npz
 
 ``--embedder fake`` (default) uses deterministic hash vectors and no model or network, for plumbing
-checks. ``--embedder real`` loads MiniLM (text) and CLIP (images, downloaded from the store CDN).
+checks. ``--embedder real`` loads MiniLM and the CLIP text encoder (the same encoder call as
+scripts/build_clip_index.py, ``CLIPEncoder.encode_texts``); no image is downloaded or embedded.
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ import io
 import json
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -39,8 +39,7 @@ from feed_delta_funnel import load_pages  # noqa: E402
 from src.refresh import incremental as inc  # noqa: E402
 from src.refresh import state as st  # noqa: E402
 
-MAX_IMAGE_BYTES = 10_000_000  # a hostile or broken CDN response cannot exhaust runner memory
-IMAGE_TIMEOUT_S = 15.0
+CLIP_BATCH_SIZE = 64  # build_clip_index.py's default --batch-size
 
 
 class FakeEmbedder:
@@ -55,12 +54,12 @@ class FakeEmbedder:
     def embed_text(self, texts: list[str]) -> np.ndarray:
         return np.stack([self._vec("t" + t, st.TEXT_DIM) for t in texts])
 
-    def embed_images(self, urls: list[str]) -> list[np.ndarray | None]:
-        return [self._vec("i" + u, st.IMAGE_DIM) for u in urls]
+    def embed_clip_text(self, texts: list[str]) -> np.ndarray:
+        return np.stack([self._vec("c" + t, st.CLIP_DIM) for t in texts])
 
 
 class RealEmbedder:
-    """MiniLM text + CLIP image embedding, loaded lazily. Images are fetched over HTTPS."""
+    """MiniLM and CLIP text embedding of ``search_text``, loaded lazily. Local models only."""
 
     def __init__(self) -> None:
         import yaml  # noqa: PLC0415 - heavy deps only when this embedder is chosen
@@ -78,25 +77,13 @@ class RealEmbedder:
             dtype=np.float32,
         )
 
-    def embed_images(self, urls: list[str]) -> list[np.ndarray | None]:
-        from PIL import Image  # noqa: PLC0415
-
-        out: list[np.ndarray | None] = []
-        for url in urls:
-            try:
-                if not url.startswith("https://"):
-                    raise ValueError("non-https image url")
-                req = urllib.request.Request(
-                    url, headers={"User-Agent": "StyleMaitriFeedFetcher/1.0"}
-                )
-                with urllib.request.urlopen(req, timeout=IMAGE_TIMEOUT_S) as resp:  # noqa: S310
-                    data = resp.read(MAX_IMAGE_BYTES + 1)
-                if len(data) > MAX_IMAGE_BYTES:
-                    raise ValueError("image too large")
-                out.append(self._clip.encode_image(Image.open(io.BytesIO(data))))
-            except Exception:  # noqa: BLE001 - any failure leaves the row pending, retried next run
-                out.append(None)
-        return out
+    def embed_clip_text(self, texts: list[str]) -> np.ndarray:
+        """Same call as build_clip_index.py: ``encode_texts`` per batch of 64, then vstack."""
+        parts = [
+            self._clip.encode_texts(texts[i : i + CLIP_BATCH_SIZE])
+            for i in range(0, len(texts), CLIP_BATCH_SIZE)
+        ]
+        return np.vstack(parts).astype(np.float32)
 
 
 def make_prepare(brands: dict[str, object]):  # noqa: ANN201
@@ -175,7 +162,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--state-out", required=True, type=Path)
     ap.add_argument("--report-json", required=True, type=Path)
     ap.add_argument("--report-md", required=True, type=Path)
-    ap.add_argument("--image-cap", type=int, default=inc.IMAGE_EMBED_CAP_PER_RUN)
     ap.add_argument("--embedder", choices=("fake", "real"), default="fake")
     args = ap.parse_args(argv)
 
@@ -188,9 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     feeds = load_feeds(summary, args.raw_dir)
     brands = load_brands([f.slug for f in feeds if f.status == inc.OK])
     embedder = RealEmbedder() if args.embedder == "real" else FakeEmbedder()
-    res = inc.build_incremental(
-        feeds, prev, make_prepare(brands), embedder, image_cap=args.image_cap
-    )
+    res = inc.build_incremental(feeds, prev, make_prepare(brands), embedder)
     st.write_state(res.state, args.state_out)
     args.report_json.write_text(json.dumps(res.report, indent=1), encoding="utf-8")
     args.report_md.write_text(inc.to_markdown(res.report), encoding="utf-8")

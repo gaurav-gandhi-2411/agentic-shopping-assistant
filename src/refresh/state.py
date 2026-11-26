@@ -1,9 +1,9 @@
 """Index state file: what the incremental builder carries from one run to the next.
 
 One ``.npz`` file (for a GitHub Release asset on an ``index-state-*`` pre-release tag). Holds, per
-kept row: store, article id, content hash, the catalogue row as JSON, the text vector, the image
-vector (zeros plus ``has_image=False`` when absent) and ``image_pending``. A JSON header carries the
-schema version, build time, vector dims, per-store status and a sha256 checksum over the payload.
+kept row: store, article id, content hash, the catalogue row as JSON, the MiniLM text vector and the
+CLIP text vector (both of ``search_text``). A JSON header carries the schema version, build time,
+vector dims, per-store status and a sha256 checksum over the payload.
 
 Reading refuses an unknown schema version, wrong dims or a checksum mismatch (``StateError``);
 callers must treat that as a hard failure, never as an empty state. See
@@ -19,9 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v1 carried image vectors; v2 carries CLIP text vectors instead
 TEXT_DIM = 384  # MiniLM, same as src/retrieval/build_manifest.DENSE_DIM
-IMAGE_DIM = 512  # CLIP ViT-B/32, same as build_manifest.CLIP_DIM
+CLIP_DIM = 512  # CLIP ViT-B/32 text space, same as build_manifest.CLIP_DIM
 
 _ARRAYS = (
     "store",
@@ -29,9 +29,7 @@ _ARRAYS = (
     "content_hash",
     "row_json",
     "text_vec",
-    "image_vec",
-    "has_image",
-    "image_pending",
+    "clip_vec",
 )
 
 
@@ -41,15 +39,14 @@ class StateError(Exception):
 
 @dataclass
 class StateRow:
-    """One kept index row with its vectors. ``image_vec`` is None when it is absent or pending."""
+    """One kept index row with its MiniLM (``text_vec``) and CLIP text (``clip_vec``) vectors."""
 
     store: str
     article_id: str
     content_hash: str
     row: dict
     text_vec: np.ndarray
-    image_vec: np.ndarray | None = None
-    image_pending: bool = False
+    clip_vec: np.ndarray
 
 
 @dataclass
@@ -81,13 +78,10 @@ def _checksum(arrays: dict[str, np.ndarray]) -> str:
 def _to_arrays(state: IndexState) -> dict[str, np.ndarray]:
     n = len(state.rows)
     text = np.zeros((n, TEXT_DIM), dtype=np.float32)
-    image = np.zeros((n, IMAGE_DIM), dtype=np.float32)
-    has_image = np.zeros(n, dtype=bool)
+    clip = np.zeros((n, CLIP_DIM), dtype=np.float32)
     for i, r in enumerate(state.rows):
         text[i] = r.text_vec
-        if r.image_vec is not None:
-            image[i] = r.image_vec
-            has_image[i] = True
+        clip[i] = r.clip_vec
     return {
         "store": np.array([r.store for r in state.rows], dtype=np.str_),
         "article_id": np.array([r.article_id for r in state.rows], dtype=np.str_),
@@ -97,9 +91,7 @@ def _to_arrays(state: IndexState) -> dict[str, np.ndarray]:
             dtype=np.str_,
         ),
         "text_vec": text,
-        "image_vec": image,
-        "has_image": has_image,
-        "image_pending": np.array([r.image_pending for r in state.rows], dtype=bool),
+        "clip_vec": clip,
     }
 
 
@@ -111,7 +103,7 @@ def write_state(state: IndexState, path: Path) -> str:
         "schema_version": SCHEMA_VERSION,
         "built_at": state.built_at,
         "rows": len(state.rows),
-        "dims": {"text": TEXT_DIM, "image": IMAGE_DIM},
+        "dims": {"text": TEXT_DIM, "clip": CLIP_DIM},
         "store_status": state.store_status,
         "checksum": checksum,
     }
@@ -138,8 +130,8 @@ def read_state(path: Path) -> IndexState:
             f"this reader handles {SCHEMA_VERSION}"
         )
     dims = header.get("dims") or {}
-    if dims.get("text") != TEXT_DIM or dims.get("image") != IMAGE_DIM:
-        raise StateError(f"state dims {dims} do not match {TEXT_DIM}/{IMAGE_DIM}")
+    if dims.get("text") != TEXT_DIM or dims.get("clip") != CLIP_DIM:
+        raise StateError(f"state dims {dims} do not match {TEXT_DIM}/{CLIP_DIM}")
     if _checksum(arrays) != header.get("checksum"):
         raise StateError("state checksum mismatch: file is corrupt or was modified")
     rows = [
@@ -149,8 +141,7 @@ def read_state(path: Path) -> IndexState:
             content_hash=str(arrays["content_hash"][i]),
             row=json.loads(str(arrays["row_json"][i])),
             text_vec=arrays["text_vec"][i].copy(),
-            image_vec=arrays["image_vec"][i].copy() if arrays["has_image"][i] else None,
-            image_pending=bool(arrays["image_pending"][i]),
+            clip_vec=arrays["clip_vec"][i].copy(),
         )
         for i in range(len(arrays["article_id"]))
     ]

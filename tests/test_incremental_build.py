@@ -16,20 +16,19 @@ def _vec(key: str, dim: int) -> np.ndarray:
 
 
 class FakeEmbedder:
-    """Deterministic vectors; records every call; ``fail`` urls come back as None."""
+    """Deterministic vectors; records every call (MiniLM text and CLIP text)."""
 
-    def __init__(self, fail: frozenset[str] = frozenset()) -> None:
+    def __init__(self) -> None:
         self.text_calls: list[list[str]] = []
-        self.image_calls: list[list[str]] = []
-        self.fail = fail
+        self.clip_calls: list[list[str]] = []
 
     def embed_text(self, texts: list[str]) -> np.ndarray:
         self.text_calls.append(list(texts))
         return np.stack([_vec("t" + t, st.TEXT_DIM) for t in texts])
 
-    def embed_images(self, urls: list[str]) -> list[np.ndarray | None]:
-        self.image_calls.append(list(urls))
-        return [None if u in self.fail else _vec("i" + u, st.IMAGE_DIM) for u in urls]
+    def embed_clip_text(self, texts: list[str]) -> np.ndarray:
+        self.clip_calls.append(list(texts))
+        return np.stack([_vec("c" + t, st.CLIP_DIM) for t in texts])
 
 
 def prod(
@@ -40,12 +39,14 @@ def prod(
     img: str | None = "auto",
     tags: tuple[str, ...] = (),
     ptype: str = "Kurta",
+    desc: str = "",
 ) -> dict:
     image = f"https://img/{pid}.jpg" if img == "auto" else img
     return {
         "id": pid,
         "title": title,
         "product_type": ptype,
+        "body_html": desc,
         "tags": list(tags),
         "variants": [{"price": price, "available": avail}],
         "images": [{"src": image}] if image else [],
@@ -60,7 +61,7 @@ def prepare(slug: str, products: list[dict]) -> list[dict]:
             "article_id": str(p["id"]),
             "prod_name": p["title"],
             "gender": p["_label"],
-            "search_text": p["title"],
+            "search_text": p["title"] + ". " + p["product_type"] + ". " + p["body_html"],
             "image_url": (p["images"][0]["src"] if p["images"] else None),
             "store": slug,
         }
@@ -86,9 +87,10 @@ def test_cold_start_embeds_everything():
     res, emb = run([feed("a", [prod(1), prod(2)])])
     r = store_rep(res, "a")
     assert (r["fetched"], r["kept"], r["new"], r["changed"], r["dropped"]) == (2, 2, 2, 0, 0)
-    assert (r["texts_embedded"], r["images_embedded"], r["images_deferred"]) == (2, 2, 0)
-    assert len(emb.image_calls[0]) == 2
-    assert all(x.image_vec is not None and not x.image_pending for x in res.state.rows)
+    assert (r["texts_embedded"], r["vectors_reused"]) == (2, 0)
+    assert len(emb.text_calls[0]) == 2 and emb.clip_calls == emb.text_calls
+    assert all(x.clip_vec.shape == (st.CLIP_DIM,) for x in res.state.rows)
+    assert all(x.clip_vec.dtype == np.float32 for x in res.state.rows)
 
 
 def test_unchanged_items_reuse_vectors_without_embedding():
@@ -96,9 +98,9 @@ def test_unchanged_items_reuse_vectors_without_embedding():
     res2, emb2 = run([feed("a", [prod(1), prod(2)])], prev=res1.state)
     r = store_rep(res2, "a")
     assert (r["unchanged"], r["new"], r["changed"]) == (2, 0, 0)
-    assert emb2.text_calls == [] and emb2.image_calls == []
+    assert emb2.text_calls == [] and emb2.clip_calls == []
     for a, b in zip(res1.state.rows, res2.state.rows, strict=True):
-        assert np.array_equal(a.text_vec, b.text_vec) and np.array_equal(a.image_vec, b.image_vec)
+        assert np.array_equal(a.text_vec, b.text_vec) and np.array_equal(a.clip_vec, b.clip_vec)
 
 
 def test_each_hashed_field_triggers_change():
@@ -107,30 +109,42 @@ def test_each_hashed_field_triggers_change():
     variants = {
         "title": prod(1, title="Red Kurta", tags=("x",)),
         "price": prod(1, price="1200", tags=("x",)),
-        "image": prod(1, img="https://img/other.jpg", tags=("x",)),
-        "tags": prod(1, tags=("x", "y")),
+        "product_type": prod(1, ptype="Tunic", tags=("x",)),
+        "description": prod(1, desc="new words", tags=("x",)),
     }
     for name, p in variants.items():
         res2, _ = run([feed("a", [p])], prev=res1.state)
         assert store_rep(res2, "a")["changed"] == 1, name
-    # description / vendor are not hashed (documented limitation)
-    p = dict(base, body_html="new words", vendor="V2")
-    res3, _ = run([feed("a", [p])], prev=res1.state)
-    assert store_rep(res3, "a")["unchanged"] == 1
+    # image url, tags and vendor do not feed search_text and are not hashed (documented)
+    for name, p in {
+        "image": prod(1, img="https://img/other.jpg", tags=("x",)),
+        "tags": prod(1, tags=("x", "y")),
+        "vendor": dict(base, vendor="V2"),
+    }.items():
+        res3, _ = run([feed("a", [p])], prev=res1.state)
+        assert store_rep(res3, "a")["unchanged"] == 1, name
 
 
-def test_changed_price_reembeds_text_but_reuses_image_vector():
+def test_price_only_change_reuses_both_vectors():
     res1, _ = run([feed("a", [prod(1)])])
     res2, emb2 = run([feed("a", [prod(1, price="1500")])], prev=res1.state)
-    assert len(emb2.text_calls) == 1 and emb2.image_calls == []
-    assert np.array_equal(res2.state.rows[0].image_vec, res1.state.rows[0].image_vec)
+    r = store_rep(res2, "a")
+    assert (r["changed"], r["texts_embedded"], r["vectors_reused"]) == (1, 0, 1)
+    assert emb2.text_calls == [] and emb2.clip_calls == []
+    assert np.array_equal(res2.state.rows[0].text_vec, res1.state.rows[0].text_vec)
+    assert np.array_equal(res2.state.rows[0].clip_vec, res1.state.rows[0].clip_vec)
+    assert res2.state.rows[0].content_hash != res1.state.rows[0].content_hash
 
 
-def test_changed_image_url_reembeds_image():
-    res1, _ = run([feed("a", [prod(1)])])
-    res2, emb2 = run([feed("a", [prod(1, img="https://img/new.jpg")])], prev=res1.state)
-    assert emb2.image_calls == [["https://img/new.jpg"]]
-    assert not np.array_equal(res2.state.rows[0].image_vec, res1.state.rows[0].image_vec)
+def test_changed_search_text_reembeds_both_models():
+    res1, _ = run([feed("a", [prod(1), prod(2)])])
+    res2, emb2 = run([feed("a", [prod(1, title="Red Kurta"), prod(2, price="1")])], prev=res1.state)
+    r = store_rep(res2, "a")
+    assert (r["changed"], r["texts_embedded"], r["vectors_reused"]) == (2, 1, 1)
+    assert emb2.text_calls == [["Red Kurta. Kurta. "]] and emb2.clip_calls == emb2.text_calls
+    new, old = res2.state.rows[0], res1.state.rows[0]
+    assert not np.array_equal(new.text_vec, old.text_vec)
+    assert not np.array_equal(new.clip_vec, old.clip_vec)
 
 
 def test_missing_and_sold_out_items_are_dropped():
@@ -141,50 +155,22 @@ def test_missing_and_sold_out_items_are_dropped():
     assert (r["fetched"], r["kept"], r["dropped"], r["new"]) == (3, 1, 2, 0)
 
 
-def test_image_cap_defers_in_order_and_next_run_finishes():
-    feeds = [feed("a", [prod(i) for i in (1, 2, 3)]), feed("b", [prod(4), prod(5)])]
-    res1, emb1 = run(feeds, image_cap=2)
-    assert res1.report["cap_hit"] is True
-    assert emb1.image_calls == [["https://img/1.jpg", "https://img/2.jpg"]]  # (slug, id) order
-    assert (store_rep(res1, "a")["images_embedded"], store_rep(res1, "a")["images_deferred"]) == (
-        2,
-        1,
-    )
-    assert store_rep(res1, "b")["images_deferred"] == 2
-    assert res1.report["totals"]["kept"] == 5  # deferred rows are kept, never dropped
-    pending = [r.article_id for r in res1.state.rows if r.image_pending]
-    assert pending == ["3", "4", "5"] and all(
-        r.image_vec is None for r in res1.state.rows if r.image_pending
-    )
-    # next run: hashes unchanged, pending rows still get their image vectors
-    res2, emb2 = run(feeds, prev=res1.state, image_cap=2)
-    assert sum(len(c) for c in emb2.image_calls) == 2 and emb2.text_calls == []
-    assert res2.report["cap_hit"] is True
-    res3, _ = run(feeds, prev=res2.state, image_cap=2)
-    assert res3.report["cap_hit"] is False
-    assert all(r.image_vec is not None and not r.image_pending for r in res3.state.rows)
+def test_embedding_is_by_sorted_article_id_with_one_call_per_model_per_store():
+    feeds = [feed("b", [prod(5), prod(4)]), feed("a", [prod(3), prod(1), prod(2)])]
+    _, emb = run(feeds)
+    assert [len(c) for c in emb.text_calls] == [3, 2]  # store a then b, one call each
+    assert emb.text_calls[0] == [
+        "Blue Kurta. Kurta. ",
+        "Blue Kurta. Kurta. ",
+        "Blue Kurta. Kurta. ",
+    ]
+    assert emb.clip_calls == emb.text_calls
 
 
-def test_cap_exactly_met_is_not_a_hit():
-    res, _ = run([feed("a", [prod(1), prod(2)])], image_cap=2)
-    assert res.report["cap_hit"] is False
-
-
-def test_image_failure_stays_pending_and_is_retried():
-    res1, _ = run(
-        [feed("a", [prod(1), prod(2)])], emb=FakeEmbedder(fail=frozenset({"https://img/2.jpg"}))
-    )
-    r = store_rep(res1, "a")
-    assert (r["images_embedded"], r["images_failed"], r["kept"]) == (1, 1, 2)
-    res2, emb2 = run([feed("a", [prod(1), prod(2)])], prev=res1.state)
-    assert emb2.image_calls == [["https://img/2.jpg"]]
-    assert all(x.image_vec is not None for x in res2.state.rows)
-
-
-def test_item_without_image_is_kept_not_pending():
+def test_item_without_image_is_kept_and_embedded_from_text():
     res, emb = run([feed("a", [prod(1, img=None)])])
     row = res.state.rows[0]
-    assert row.image_vec is None and not row.image_pending and emb.image_calls == []
+    assert row.clip_vec.shape == (st.CLIP_DIM,) and len(emb.clip_calls) == 1
 
 
 def test_non_ok_store_is_carried_over_untouched_and_reported():
@@ -302,7 +288,6 @@ def test_report_markdown_and_index_arrays():
     )
     md = inc.to_markdown(res.report)
     assert "| a | ok |" in md and "| b | rate_limited |" in md and "Men Shirt" in md
-    cat, text, img_ids, img = inc.index_arrays(res.state)
-    assert len(cat) == 2 and text.shape == (2, st.TEXT_DIM)
-    assert img_ids == ["1"] and img.shape == (1, st.IMAGE_DIM)
+    cat, text, clip = inc.index_arrays(res.state)
+    assert len(cat) == 2 and text.shape == (2, st.TEXT_DIM) and clip.shape == (2, st.CLIP_DIM)
     assert inc.index_arrays(st.IndexState())[0].empty

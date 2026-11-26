@@ -81,18 +81,24 @@ def test_cold_run_then_incremental_run_then_carry_over(tmp_path):
     raw, summary = _setup(tmp_path, FEED)
     r1 = _run(tmp_path, raw, summary, "run1", None)
     s1 = next(s for s in r1["stores"] if s["slug"] == SLUG)
-    assert (s1["fetched"], s1["kept"], s1["new"], s1["images_embedded"]) == (3, 2, 2, 2)
+    assert (s1["fetched"], s1["kept"], s1["new"], s1["texts_embedded"]) == (3, 2, 2, 2)
 
     # same feed again from the saved state: nothing to embed
     r2 = _run(tmp_path, raw, summary, "run2", tmp_path / "run1" / "s.npz")
     s2 = next(s for s in r2["stores"] if s["slug"] == SLUG)
-    assert (s2["unchanged"], s2["new"], s2["texts_embedded"], s2["images_embedded"]) == (2, 0, 0, 0)
+    assert (s2["unchanged"], s2["new"], s2["texts_embedded"]) == (2, 0, 0)
 
     # one product repriced, one removed
     raw, summary = _setup(tmp_path, [_p(1, "Gold Tone Necklace", price="999.00")])
     r3 = _run(tmp_path, raw, summary, "run3", tmp_path / "run2" / "s.npz")
     s3 = next(s for s in r3["stores"] if s["slug"] == SLUG)
-    assert (s3["changed"], s3["dropped"], s3["images_embedded"]) == (1, 1, 0)
+    # price-only change: search_text identical, so both stored vectors are reused
+    assert (s3["changed"], s3["dropped"], s3["texts_embedded"], s3["vectors_reused"]) == (
+        1,
+        1,
+        0,
+        1,
+    )
 
     # store rate limited: previous rows untouched and reported
     raw, summary = _setup(tmp_path, [], status="rate_limited")
