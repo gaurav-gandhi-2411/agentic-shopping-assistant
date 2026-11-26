@@ -107,6 +107,33 @@ def test_cold_run_then_incremental_run_then_carry_over(tmp_path):
     assert len(st.read_state(tmp_path / "run4" / "s.npz").rows) == 1
 
 
+def test_real_embedder_clip_path_matches_build_clip_index_batching():
+    """RealEmbedder.embed_clip_text calls encode_texts on batches of 64 and vstacks, like
+    scripts/build_clip_index.py (model-free: a deterministic fake stands in for the encoder)."""
+    import numpy as np
+
+    class FakeClip:
+        def __init__(self) -> None:
+            self.batches: list[int] = []
+
+        def encode_texts(self, texts: list[str]) -> np.ndarray:
+            self.batches.append(len(texts))
+            out = np.zeros((len(texts), st.CLIP_DIM), dtype=np.float64)  # build casts to float32
+            for i, t in enumerate(texts):
+                out[i, len(t) % st.CLIP_DIM] = 1.0
+            return out
+
+    emb = ib.RealEmbedder.__new__(ib.RealEmbedder)  # skip __init__: no model loading
+    emb._clip = FakeClip()
+    texts = ["x" * (i % 7 + 1) for i in range(150)]
+    got = emb.embed_clip_text(texts)
+    assert emb._clip.batches == [64, 64, 22]
+    assert got.dtype == np.float32 and got.shape == (150, st.CLIP_DIM)
+    expected = np.vstack([emb._clip.encode_texts(texts[i : i + 64]) for i in range(0, 150, 64)])
+    assert np.array_equal(got, expected.astype(np.float32))
+    assert [int(r.argmax()) for r in got[:3]] == [1, 2, 3]  # row order preserved
+
+
 def test_unreadable_previous_state_is_a_hard_refusal(tmp_path, capsys):
     raw, summary = _setup(tmp_path, FEED)
     bad = tmp_path / "bad.npz"
