@@ -196,6 +196,52 @@ def _fake_choice(stub: _Stub, *, required: int, cards: int) -> _JointChoice:
     )
 
 
+@pytest.mark.parametrize(
+    ("pt", "name"),
+    [
+        ("dupatta", "Festive Mirror Embroidered A-Line Pleated with Pant & Scalloped Dupatta - Green"),
+        ("dupatta", "Solid Gota Patti Embroidered Straight Fit Kurta Salwar and Dupatta - Red"),
+        ("outerwear", "Men Black Mirror Work Nehru Jacket with Kurta, Pyjama & Mirror Dupatta Set"),
+        ("coord", "Libas Art Teal Embroidered Silk Blend 3 Piece Co-Ord Sets With Dupatta"),
+        ("kurta", "Men Cotton Kurta & Pyjama Set"),
+    ],
+)
+def test_real_sets_with_an_accessory_part_are_garments(pt: str, name: str) -> None:
+    assert composer._is_outfit_garment(pt, name)
+
+
+@pytest.mark.parametrize(
+    ("pt", "name"),
+    [
+        ("dupatta", "Red Banarasi Dupatta"),  # a standalone dupatta is not a set
+        ("Rakhi", "Pink Lehenga Rakhi"),
+        ("Rakhi", "Designer Rakhi Set With Kurta Pyjama"),  # set + garment words, still a rakhi
+        ("belt", "Leather Belt And Kurta Set"),
+        ("Belt", "Olive Green & Beige Striped Men's Belt"),
+        ("necklace", "Patiala Choker Necklace Set"),
+        ("bangles", "Silk Thread Bangles Set With Kurta"),
+        ("nightwear", "Pink Cotton Night Suit Set"),
+        ("shorts", "Black Floral Print Night Suit Set"),
+        ("footwear", "Men Jutti And Kurta Set"),
+    ],
+)
+def test_set_exemption_never_lets_a_non_garment_through(pt: str, name: str) -> None:
+    assert not composer._is_outfit_garment(pt, name)
+
+
+def test_a_set_typed_dupatta_can_be_the_seed() -> None:
+    stub = _anchor_stub(
+        [
+            _item("set", "Pink Embroidered Kurta Salwar and Dupatta Set", "dupatta", 500),
+            _item("rakhi", "Pink Lehenga Rakhi", "Rakhi", 300),
+        ]
+    )
+    look = compose_outfit(
+        pd.DataFrame(), stub, occasion_slug="sangeet", gender="women", budget_inr=800
+    )
+    assert look["seed_item"]["article_id"] == "set"
+
+
 def test_an_incomplete_joint_look_only_replaces_greedy_when_strictly_better(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

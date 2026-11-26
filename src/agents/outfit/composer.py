@@ -1013,8 +1013,7 @@ _NON_ANCHOR_NAME_RE = re.compile(
 )
 
 
-@functools.lru_cache(maxsize=8192)  # pure on two strings; ~2 ms per cold call, hot in every turn
-def _is_outfit_garment(product_type: str, prod_name: str) -> bool:
+def _is_garment_by_class(product_type: str, prod_name: str) -> bool:
     """True when the item can anchor a look: a garment by its STRUCTURED product_type first.
 
     Order matters (a men's "Sherwani Jutti", product_type footwear, classifies as men_formalwear
@@ -1039,6 +1038,52 @@ def _is_outfit_garment(product_type: str, prod_name: str) -> bool:
         return False
     item_class = classify_item(product_type, prod_name)
     return item_class not in NON_OUTFIT_ITEM_CLASSES and item_class != "unknown"
+
+
+# A set typed or worded as an accessory ("... Kurta Salwar and Dupatta" typed dupatta, or a
+# "Nehru Jacket with Kurta ... Dupatta Set" whose name carries the accessory word "dupatta") is
+# classified accessory by the class check above, yet it is a whole outfit. Measured on the public
+# index (scripts/outfit_set_gate_audit.py): 3,652 of 21,502 set rows were rejected, 3,422 of them
+# typed "dupatta". The exemption needs ALL of: is_multi_piece_set, a garment-role word in the
+# name, a facet that is not a jewellery/footwear/accessory type (dupatta itself is allowed) and
+# not a sleep/swim/inner type, and no jewellery/non-anchor word in the name, so standalone
+# rakhi/belt/jewellery rows and "Patiala Choker Necklace Set" stay rejected.
+_SET_GARMENT_ROLE_RE = re.compile(
+    r"\b(kurta|kurti|kameez|salwar|churidar|palazzo|sharara|gharara|pants?|trousers?|lehenga|"
+    r"saree|sari|choli|anarkali|sherwani|jacket|blazer|skirt|pyjama|pajama|patiala|dhoti|"
+    r"shirt|tunic|gown|dress|co-?ords?|suits?)\b",
+    re.I,
+)
+_SET_JEWELLERY_NAME_RE = re.compile(
+    r"\b(necklace|earrings?|jhumka\w*|bangles?|bracelets?|choker|pendant|maang\s?tikka|tikka|"
+    r"hathphool|anklets?|rakhi|belts?|clutch|handbag|potli|watch|cufflinks?|brooch|nosepin|"
+    r"nose\s?pin|ring|hamper)\b",
+    re.I,
+)
+
+
+def _is_garment_set(product_type: str, prod_name: str) -> bool:
+    """True for a real multi-piece SET that the class check rejects only because a part of it
+    (the dupatta) reads as an accessory. See ``_SET_GARMENT_ROLE_RE`` for the full rule."""
+    pt = product_type.strip().lower()
+    if not is_multi_piece_set(product_type, prod_name):
+        return False
+    if pt in _NON_ANCHOR_TYPES:
+        return False
+    if pt != "dupatta" and classify_item(product_type, "") in NON_OUTFIT_ITEM_CLASSES:
+        return False
+    if _NON_ANCHOR_NAME_RE.search(prod_name) or _SET_JEWELLERY_NAME_RE.search(prod_name):
+        return False
+    return _SET_GARMENT_ROLE_RE.search(prod_name) is not None
+
+
+@functools.lru_cache(maxsize=8192)  # pure on two strings; ~2 ms per cold call, hot in every turn
+def _is_outfit_garment(product_type: str, prod_name: str) -> bool:
+    """True when the item can anchor a look: a garment (``_is_garment_by_class``) or a real
+    multi-piece set that merely contains an accessory-classed part (``_is_garment_set``)."""
+    return _is_garment_by_class(product_type, prod_name) or _is_garment_set(
+        product_type, prod_name
+    )
 
 
 _BOTTOM_PREFILTER_KEYWORDS: tuple[str, ...] = tuple(
