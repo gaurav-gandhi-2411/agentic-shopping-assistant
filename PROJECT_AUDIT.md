@@ -33,7 +33,7 @@
 │    WS   /chat/stream     — streaming: tokens via asyncio.Queue bridge       │
 │    CRUD /conversations   — list / get / create / delete / patch             │
 │    GET  /catalogue/{id}/similar  — "More like this" (dense-only search)    │
-│    GET  /healthz   — liveness (always 200)                                  │
+│    GET  /ping      — liveness / keep-warm (always 200)                      │
 │    GET  /readyz    — readiness (checks retriever, catalogue, llm)           │
 │                                                                             │
 │  Session store: PostgresSessionStore (Supabase) | InMemorySessionStore      │

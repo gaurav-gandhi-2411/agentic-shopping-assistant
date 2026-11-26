@@ -4,7 +4,7 @@ FastAPI backend for the Agentic Shopping Assistant.  Exposes three route groups:
 
 | Prefix | Description |
 |---|---|
-| `GET /healthz` | Liveness probe (always 200) |
+| `GET /ping` | Liveness / keep-warm (always 200, no dependencies, no auth, not access-logged) |
 | `GET /readyz` | Readiness probe — 503 until retriever + LLM are loaded |
 | `POST /chat` | Non-streaming chat (full agent round-trip) |
 | `WS /chat/stream` | Streaming chat over WebSocket |

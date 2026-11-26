@@ -1,5 +1,7 @@
 # Deployment Guide — Cloud Run + Vercel
 
+Launch checklist (owner / status / evidence per gate): [`docs/launch-gates.md`](docs/launch-gates.md).
+
 ## Architecture
 
 Three Cloud Run services (one per brand: `asa-snitch`, `asa-myntra`, `asa-flipkart`) run in
@@ -983,10 +985,10 @@ gcloud's documented behaviour, not observed in this session.
 retry of a failing GET at `deploy_smoke.py:90-100` adds none); `POST /demo/session` 0; `POST /chat`
 2 measured calls (`deploy_smoke.py:14-20`). That is 3 calls. Main-URL smoke (`--no-chat`):
 `/readyz` 1 probe. **Per rollout: 4 calls = 4 x 1,343 = 5,372 tokens** (1,343 = measured p50
-1,219 in + 124 out per call, `docs/ops/canary-budget.md:23`; the `/readyz` probe uses
+1,219 in + 124 out per call, `docs/ops/canary-budget.md` section "Inputs", row "Earlier measurement"; the `/readyz` probe uses
 `max_tokens=1`, so this overstates it). **At 1 rollout/day: 4 requests/day = 0.40 % of the 1,000
 RPD and 5,372 tokens/day = 2.69 % of the 200,000 TPD** (TPD is UNVERIFIED per
-`canary-budget.md:12`). The tag-URL part alone is 3 calls, 4,029 tokens (2.01 % TPD). Ordinary
+`canary-budget.md` section "Limits compared against"). The tag-URL part alone is 3 calls, 4,029 tokens (2.01 % TPD). Ordinary
 code deploys run the same smoke and share this cost; the calls are on top of the canary stack in
 `canary-budget.md`.
 
@@ -1379,18 +1381,23 @@ gcloud run services update-traffic asa-stylist-api --to-revisions <PREVIOUS_REVI
 
 The GitHub `keep-warm.yml` workflow was removed: GitHub does not honour sub-hourly crons reliably
 (the 15-minute Uptime Alert actually ran with a median gap of 246 min), so it could not guarantee a
-warm instance. An external 5-minute pinger replaces it, pointed at the public
-`GET /canary/status` (200 `{"status":"pass"}` / 503; keyword `"status":"pass"`). One fresh run is
-one rotating query, reused 60 min after a pass and 5 min after a fail, at most 60 runs/day per
+warm instance. The design was an external 5-minute pinger on the public
+`GET /canary/status` (200 `{"status":"pass"}` / 503; keyword `"status":"pass"`); **as of 2026-11-25
+nothing calls it** (UptimeRobot was declined; no workflow, script or deploy smoke hits it; keep-warm
+is the Cloud Scheduler job `asa-keepwarm-healthz`, see `docs/ops/api-docs-switch.md`). One fresh run is
+one rotating query, reused 90 min after a pass and 5 min after a fail, at most 3 runs/day per
 instance. Staleness: when the cached result is older than its TTL a refresh is tried first (under
 the cap, single-flight). If none can run, the last known result is served with
 `X-Canary-Stale: true` and `X-Canary-Age-Seconds` only while it is at most 2 x its TTL old (a
 last-known fail stays 503); older than that, or on a fresh instance with no result and no run
 possible, the body is `503 {"status":"stale"}` (this replaced the earlier `{"status":"unknown"}`).
 A pass older than 2 x TTL is never served as a pass, and a fresh instance runs the check instead of
-answering (`api/routes/canary.py`). The monitor must not hit `/readyz` (one real LLM call per hit).
+answering (`api/routes/canary.py`). Once the 3 daily runs are spent, the last result is served as is
+for one TTL, flagged stale up to 2 x TTL, then `503 {"status":"stale"}` until UTC midnight, so in
+this configuration it is **not a continuous monitor**. The monitor must not hit `/readyz` (one real LLM call per hit).
 LLM budget against the Groq limits: `docs/ops/canary-budget.md`. The WS-path
-`.github/workflows/canary.yml` now runs once a day. Background numbers:
+`.github/workflows/canary.yml` now runs once a day (3 core queries + 8 card-count checks, paced
+30 s apart; floors in `scripts/ops/canary_card_checks.json`). Background numbers:
 `reports/w8-inventory-2026-11-03.md` (historical; it describes the removed keep-warm workflow).
 
 ### Switch Cloud Run to the dedicated runtime service account

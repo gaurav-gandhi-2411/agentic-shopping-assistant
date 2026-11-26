@@ -1,0 +1,13 @@
+{
+  "_comment": "Daily end-to-end card-count checks (read by scripts/ops/canary.py). Each entry: query, min_cards (>= 1). EVERY chip must show >= 4 cards, no per-chip exceptions: the Sangeet chip's earlier floor of 2 (a known gap, 2/2 live runs on 2026-11-16) is removed now that outfit turns carry a more-options row (#135); card count is defined in the canary.py module docstring (outfit turn = first look + more_options, search turn = items frame). The 5 landing chips must stay byte-equal to frontend/lib/copy.ts (tests/test_canary.py pins this).",
+  "checks": [
+    {"query": "Sangeet outfit under ₹3,000", "min_cards": 4},
+    {"query": "Haldi kurta set", "min_cards": 4},
+    {"query": "Wedding guest saree", "min_cards": 4},
+    {"query": "Office wear under ₹1,500", "min_cards": 4},
+    {"query": "Men's kurta for a wedding", "min_cards": 4},
+    {"query": "sherwani for groom", "min_cards": 4},
+    {"query": "lehenga for sangeet", "min_cards": 4},
+    {"query": "men's blazer for the office", "min_cards": 4}
+  ]
+}

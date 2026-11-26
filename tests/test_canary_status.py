@@ -49,6 +49,13 @@ def test_rotation_same_slot_same_query_and_covers_all_queries() -> None:
     assert seen[: len(canary.QUERIES)] == seen[len(canary.QUERIES) :]  # period == len(QUERIES)
 
 
+def test_runs_one_pass_ttl_apart_still_cover_all_queries() -> None:
+    """Steady state is one run per pass TTL; that stride must not alias onto one query."""
+    base = 5_000_000 * canary.ROTATION_SLOT_S
+    ids = {canary._query_for(base + i * canary.CACHE_TTL_S)[0] for i in range(len(canary.QUERIES))}
+    assert ids == {qid for qid, _ in canary.QUERIES}
+
+
 def test_rotation_survives_cold_start_and_runs_one_query(
     client: TestClient,
     b: _Behaviour,
@@ -140,15 +147,15 @@ def test_daily_counter_decrements_budget_per_real_run_only(
 # ----------------------------------------------------------------------------- TTLs
 
 
-def test_pass_ttl_is_60_minutes(
+def test_pass_ttl_is_90_minutes(
     client: TestClient,
     b: _Behaviour,
     monkeypatch: pytest.MonkeyPatch,  # noqa: F811
 ) -> None:
-    assert canary.CACHE_TTL_S == 3600
+    assert canary.CACHE_TTL_S == 5400
     now = _clock(monkeypatch)
     assert _status(client).status_code == 200
-    now[0] += 3600 - 1
+    now[0] += 5400 - 1
     _status(client)
     assert b.invocations == 1  # still inside the window
     now[0] += 2
@@ -174,6 +181,26 @@ def test_fail_ttl_is_5_minutes_then_recovery_shows(
 
 
 # ----------------------------------------------------------------------------- stale / unknown
+
+
+def test_shipped_cap_is_3_runs_and_then_it_is_not_a_continuous_monitor(
+    client: TestClient,
+    b: _Behaviour,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    """Public, unauthenticated endpoint: 3 x 2,150 tokens/day is the budgeted worst case."""
+    assert canary.MAX_RUNS_PER_DAY == 3
+    now = _clock(monkeypatch)
+    for _ in range(3):  # a hammering caller that always waits out the pass TTL
+        assert _status(client).text == PASS_BODY
+        now[0] += canary.CACHE_TTL_S + 1
+    assert b.invocations == 3
+    r = _status(client)  # 4th run refused: last result, flagged stale
+    assert r.status_code == 200 and r.headers["x-canary-stale"] == "true"
+    assert b.invocations == 3
+    now[0] += canary.CACHE_TTL_S  # now older than 2 x TTL: no pass is served any more
+    assert _status(client).json() == {"status": "stale"}
+    assert b.invocations == 3
 
 
 def test_stale_with_cap_exhausted_returns_last_known_pass_with_headers(
@@ -372,7 +399,7 @@ def test_pass_between_1x_and_2x_ttl_with_refresh_raising_serves_stale_pass(
 
 
 def test_ttl_constants_are_exact() -> None:
-    assert canary.CACHE_TTL_S == 3600 and canary.FAIL_CACHE_TTL_S == 300
+    assert canary.CACHE_TTL_S == 5400 and canary.FAIL_CACHE_TTL_S == 300
     assert canary.STALE_WINDOW_FACTOR == 2
 
 

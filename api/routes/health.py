@@ -95,6 +95,16 @@ def liveness() -> dict:
     return {"status": "ok"}
 
 
+@router.get("/ping")
+def ping() -> dict:
+    """Keep-warm / liveness ping: no dependencies, no auth, GET only.
+
+    The path must not end in "z": Cloud Run's front end intercepts /healthz with its own 404.
+    api.main's access log skips this path so a 4-minute keep-warm job does not flood the logs.
+    """
+    return {"status": "ok"}
+
+
 @router.get("/readyz")
 def readiness(response: Response) -> dict:
     """Readiness probe — verifies that heavy resources are loaded."""
