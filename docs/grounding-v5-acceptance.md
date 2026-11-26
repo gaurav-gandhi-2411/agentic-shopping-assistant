@@ -74,3 +74,71 @@ python -m evals.grounding.run --llm groq --agent real --scratch <empty scratch d
 Repeat with `--offset 50` and `--offset 100` on the next two UTC days. For the baseline arm run the
 same three slices with `GROUNDED_RENDERING=0`. The harness writes `reports/grounding_eval_*.json`
 with commit SHA, prompt-set hash and counts.
+
+## AMENDMENT 1 (2026-11-26, architect decision): keep streaming with the switch on
+
+Registered BEFORE the streaming code change. The text above is unchanged and stays in force except
+where this amendment says otherwise.
+
+Why: design item 4 buffered the whole WS reply until the model finished, then emitted it. That is a
+user-visible regression (no typing effect; first text only after the full generation). The architect
+asked to keep streaming with `GROUNDED_RENDERING` on.
+
+### Streaming design (replaces "buffered, then emitted" for the WS `pending_respond` stream)
+
+A deterministic incremental validator (`StreamGrounder`, `src/agents/grounded_stream.py`) sits
+between the model's token stream and the WS token frames:
+
+1. Tokens pass through as they arrive, but only up to the last whitespace (the word in progress is
+   never emitted), so a keyword or tag split across chunks is never half-emitted.
+2. A closed `[item:ID]` span with a known id is replaced by the record's display name and streaming
+   continues. An open `[` is held until its `]` arrives.
+3. The rest of a sentence is HELD from its first claim-like trigger until the sentence ends, then
+   judged with exactly the batch rules (render, `check()`, unattributed-claim rule) and emitted in
+   full or not at all. Triggers: any `[` that is not a rendered item span (a `[price:ID]`, an
+   unknown id, an unsupported or malformed tag), any digit or currency symbol, the claim-word
+   vocabulary (stock, size, sale, discount, price, delivery, pickup, half, free, ...), and any hit
+   of `claim_checker._extract_claims` on the sentence so far.
+4. A sentence ends where `claim_checker._sentences` ends it (it needs the next sentence's first
+   capital, or a newline, or the end of the stream).
+5. An unclosed span at the end of the stream is dropped with its sentence and logged as a
+   structured event `grounded_unclosed_span` with a `count` field and no reply text.
+6. If nothing survives, or the validator raises, the template sentence is appended (fail closed);
+   after a validator error no further model text is emitted.
+7. Frame types and fields are unchanged. Kill switch off: raw live tokens exactly as before.
+8. The empty-stream retry path keeps using the batch `ground_reply` on the retry text.
+
+### Exact guarantee (what can reach the user before validation)
+
+- G1 (claims): no price, size, stock, discount or delivery claim, no raw `[price:..]`, unknown id,
+  unsupported or malformed tag, and no text after the first trigger of a sentence reaches the
+  user before that sentence has been validated. A sentence that fails validation contributes
+  nothing from its first trigger onward.
+- G2 (lead-in, NOT eliminated): the claim-free text of a sentence BEFORE its first trigger may be
+  emitted before the sentence is validated. If the sentence then fails, the user keeps that
+  lead-in fragment (for example "It is") and the rest is dropped. A multi-word claim can also leak
+  its leading cue word(s) when the cue is not a trigger (for example "only" before "2 left"). The
+  fragment states no checked claim; it is a cosmetic residual, counted by the corpus report.
+- G3: what was emitted equals what is persisted as the assistant message.
+- Not guaranteed: chunk-invariance of the output for failing sentences (where the lead-in ends can
+  depend on chunk boundaries); trailing whitespace after a dropped sentence.
+
+### Amended acceptance rules (added; (a)-(e) above stay)
+
+(f) Streaming safety: over every single split position, and char-by-char, of every adversarial
+    case, the concatenated stream output has 0 bad spans and `check()` returns no violation on it;
+    every clean case streams to exactly its expected output at every split position; tags split at
+    every position render identically.
+(g) First frame before the end: with a fake stream that withholds its second half until the client
+    has received a token frame, a clean reply delivers its first token frame before the stream ends.
+(h) Validator-call latency stays under 5 ms p95 per call (batch call as before; the report adds the
+    per-sentence judge call). Corpus report: adversarial survivors 0, clean changed 0.
+(i) Each of the tests above is mutation-checked (mutant caught and restored).
+
+### Amended live-eval metrics (not run in this task)
+
+- ID-format compliance rate, from RAW model output (before rendering): item mentions written as
+  `[item:ID]` divided by all item mentions (tokens plus plain-name mentions found by the checker's
+  name matcher). Diagnostic, no pass/fail threshold registered; reported with n and per path.
+- Side-by-side dump: 20 replies, same prompts, switch ON versus OFF, arms randomised per reply with
+  a seeded shuffle (seed 42) and a separate key file, for blind judging.
