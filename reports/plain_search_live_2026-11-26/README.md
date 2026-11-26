@@ -62,7 +62,12 @@ Sangeet outfit under 3,000 (routes to the outfit composer, reported as such)
   the selection reported interleaved=true and the later result gates dropped 6 cards. Not diagnosed
   further (cause unverified: a women's item may have been gate-dropped). A miss on that criterion.
   The Women / Men refine control is offered on that turn (refine=yes).
-- Shown < 5 on Office wear (4) after the gates dropped 6 cards: pool narrow for the budget.
+- Shown < 5 on Office wear (4) after the gates dropped 6 cards. Earlier text here said "pool narrow for the
+  budget"; that was wrong. The budget guard compares the float `price_inr <= price_max` and the pool was not
+  exhausted: the result-gate refill loop was capped at 4 passes and stopped while admissible deeper cards
+  remained (verifier finding A, reproduced offline in `tests/test_plain_search_postprocess_graph.py`). Fixed in
+  e0c9f15 and verified OFFLINE only; this live check was NOT re-run, so the live Office wear count after the fix
+  is unmeasured.
 - Wedding guest saree: two 41,900 INR "Dityaa" sarees in the top 5 are catalogue prices, not touched by
   this change; flagged for the owner, not a post-processing effect.
 - One run per chip (n=1 per chip): this is an existence check of the behaviour, not a statistic.
