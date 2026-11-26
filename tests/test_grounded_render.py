@@ -341,6 +341,24 @@ def test_ws_unknown_id_everywhere_serves_the_grounded_template() -> None:
     assert "".join(frames) == final
 
 
+class _EmptyStreamRetryLLM(_LLM):
+    """Streams nothing; the non-streaming retry (llm.generate) returns the raw text."""
+
+    def generate(self, prompt: str, system: str | None = None, **kw: Any) -> str:
+        return self.reply
+
+    def generate_stream(self, prompt: str, system: str | None = None, **kw: Any) -> Iterator[str]:
+        return iter(())
+
+
+@pytest.mark.usefixtures("_ws")
+def test_ws_empty_stream_retry_text_is_rendered_and_stripped() -> None:
+    llm = _EmptyStreamRetryLLM("Love [item:1] at [price:1]. It is 40% off.")
+    frames, final = _ws_turn(llm)
+    assert final == "Love Test Jacket (Blue) at ₹1,999."
+    assert "".join(frames) == final
+
+
 class _RationaleLLM:
     def __init__(self, text: str) -> None:
         self.text = text
