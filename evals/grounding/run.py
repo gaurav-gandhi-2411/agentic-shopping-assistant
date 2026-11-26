@@ -28,12 +28,13 @@ import os
 import random
 import subprocess
 import sys
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterator
 
-from src.agents.claim_checker import check
 from evals.grounding.mock_llm import SEED, MockLLM
+from src.agents.claim_checker import check
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "evals" / "fixtures"
@@ -123,6 +124,11 @@ class StubAgent:
     def invoke(self, state: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         """Mirror of respond_node's streaming / non-streaming branches (graph.py ~3965-4000)."""
         from src.agents.graph import RESPOND_PROMPT, _format_items_for_response
+        from src.agents.grounded_render import (
+            add_id_rules,
+            ground_reply,
+            grounded_rendering_enabled,
+        )
         from src.agents.grounding import validate_response
 
         q = state["user_query"]
@@ -131,6 +137,8 @@ class StubAgent:
             user_query=q, items=_format_items_for_response(items),
             conversation="(no prior conversation)",
         )
+        if grounded_rendering_enabled():
+            prompt = add_id_rules(prompt)
         base: dict[str, Any] = {
             "retrieved_items": items, "filters": {}, "iteration": 1, "out_of_catalogue": False,
             "new_items_this_turn": bool(items), "excluded_colours": None,
@@ -141,6 +149,8 @@ class StubAgent:
             return {**base, "final_answer": None, "messages": state["messages"],
                     "current_plan": json.dumps({"action": "pending_respond", "prompt": prompt})}
         answer = self.llm.generate(prompt)
+        if grounded_rendering_enabled():
+            answer = ground_reply(answer, items[:5], user_text=q).text
         answer, _flags = validate_response(answer, items, allow_price_mentions=True)
         return {**base, "final_answer": answer, "current_plan": None,
                 "messages": state["messages"] + [{"role": "assistant", "content": answer}]}
@@ -209,14 +219,20 @@ def redirect_roots(scratch: Path, hf_home: Path) -> None:
 class CountingLLM:
     """Proxy that counts every logical LLM call and refuses to exceed a hard cap."""
 
-    def __init__(self, inner: Any, cap: int) -> None:
+    def __init__(self, inner: Any, cap: int, min_interval_s: float = 0.0) -> None:
         object.__setattr__(self, "_inner", inner)
         object.__setattr__(self, "_cap", cap)
         object.__setattr__(self, "n_calls", 0)
+        object.__setattr__(self, "_min_interval_s", min_interval_s)  # shared-key pacing
+        object.__setattr__(self, "_last_call", 0.0)
 
     def _tick(self) -> None:
         if self.n_calls >= self._cap:
             raise RuntimeError(f"LLM call cap {self._cap} reached; refusing further calls")
+        wait = self._last_call + self._min_interval_s - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        object.__setattr__(self, "_last_call", time.monotonic())
         object.__setattr__(self, "n_calls", self.n_calls + 1)
 
     def generate(self, *a: Any, **k: Any) -> Any:
@@ -440,6 +456,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sample", default=None, help="stratified sample 'R,A', e.g. 10,10")
     ap.add_argument("--ids", default=None, help="comma-separated case ids (debugging)")
     ap.add_argument("--max-llm-calls", type=int, default=60)
+    ap.add_argument("--offset", type=int, default=0, help="skip the first N selected prompts")
+    ap.add_argument("--limit", type=int, default=0, help="run at most N prompts (0 = all)")
+    ap.add_argument("--min-interval-s", type=float, default=0.0,
+                    help="minimum seconds between LLM calls (shared Groq key pacing)")
+    ap.add_argument("--pin-primary", action="store_true",
+                    help="drop groq_fallback_models: the primary model only, no 120b/qwen fallback")
     ap.add_argument("--scratch", type=Path, default=None, help="required for --agent real")
     ap.add_argument("--hf-home", type=Path,
                     default=Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface"))
@@ -459,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(str(REPO / "config.yaml"))
     paths = ["rest", "ws"] if args.path == "both" else [args.path]
     cases = select(load_cases(), args.smoke, args.sample, args.ids)
+    cases = cases[args.offset:args.offset + args.limit if args.limit else None]
 
     if args.llm == "mock":
         llm: Any = MockLLM(mode=args.mock_mode)
@@ -469,7 +492,9 @@ def main(argv: list[str] | None = None) -> int:
         from src.llm.client import GroqClient
 
         cfg["llm"]["provider"] = "groq"
-        llm = CountingLLM(GroqClient(cfg), args.max_llm_calls)
+        if args.pin_primary:
+            cfg["llm"]["groq_fallback_models"] = []
+        llm = CountingLLM(GroqClient(cfg), args.max_llm_calls, args.min_interval_s)
         model = f"groq/{cfg['llm'].get('groq_model')}"
 
     results: list[dict[str, Any]] = []
