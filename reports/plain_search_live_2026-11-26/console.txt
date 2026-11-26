@@ -1,0 +1,61 @@
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 5216.86it/s]
+INFO:src.agents.graph:[router/occasion-outfit] occasion=sangeet gender=women budget=3000 | query='Sangeet outfit under \u20b93,000'
+INFO:src.agents.graph:[router/intent] product \u2192 search | garment=kurta gender=None colour=None anchor=None pivot=False | query='Haldi kurta set'
+INFO:src.agents.reranker:{"event": "rerank", "outcome": "ok", "no_exact_match": false, "finish_reason": "stop", "prompt_tokens": 688, "completion_tokens": 138, "reasoning_tokens": 114, "latency_ms": 616, "n_candidates": 20, "n_selected": 8, "n_unknown": 0, "n_duplicate": 0, "error_kind": null, "path": "primary", "rules_removed": 1, "rules_skipped": false, "diversity_swap": false, "model": "openai/gpt-oss-20b", "max_tokens": 700, "temperature": 0, "reasoning_effort": "low"}
+INFO:src.agents.graph:{"event": "plain_search_postprocess", "n_ranked": 19, "n_shown": 5, "removed": {}, "interleaved": true, "short_reason": null, "gate_dropped": 0, "n_shown_final": 5}
+INFO:src.agents.graph:[router] fast-path: search (items=5) \u2192 respond (LLM skipped)
+INFO:src.agents.graph:[router/intent] product \u2192 search | garment=saree gender=women colour=None anchor=None pivot=False | query='Wedding guest saree'
+INFO:src.agents.reranker:{"event": "rerank", "outcome": "ok", "no_exact_match": false, "finish_reason": "stop", "prompt_tokens": 530, "completion_tokens": 142, "reasoning_tokens": 118, "latency_ms": 588, "n_candidates": 14, "n_selected": 8, "n_unknown": 0, "n_duplicate": 0, "error_kind": null, "path": "primary", "rules_removed": 0, "rules_skipped": false, "diversity_swap": false, "model": "openai/gpt-oss-20b", "max_tokens": 700, "temperature": 0, "reasoning_effort": "low"}
+INFO:src.agents.graph:{"event": "plain_search_postprocess", "n_ranked": 14, "n_shown": 5, "removed": {"store_cap": 7}, "interleaved": false, "short_reason": null, "gate_dropped": 0, "n_shown_final": 5}
+INFO:src.agents.graph:[router] fast-path: search (items=5) \u2192 respond (LLM skipped)
+INFO:src.agents.graph:[router/intent] product \u2192 search | garment=None gender=None colour=None anchor=None pivot=False | query='Office wear under \u20b91,500'
+INFO:src.agents.reranker:{"event": "rerank", "outcome": "ok", "no_exact_match": false, "finish_reason": "stop", "prompt_tokens": 672, "completion_tokens": 103, "reasoning_tokens": 79, "latency_ms": 517, "n_candidates": 20, "n_selected": 8, "n_unknown": 0, "n_duplicate": 0, "error_kind": null, "path": "primary", "rules_removed": 0, "rules_skipped": false, "diversity_swap": false, "model": "openai/gpt-oss-20b", "max_tokens": 700, "temperature": 0, "reasoning_effort": "low"}
+INFO:src.agents.graph:{"event": "plain_search_postprocess", "n_ranked": 15, "n_shown": 5, "removed": {}, "interleaved": true, "short_reason": null, "gate_dropped": 6, "n_shown_final": 4}
+INFO:src.agents.graph:[router] fast-path: search (items=4) \u2192 respond (LLM skipped)
+INFO:src.agents.graph:[router/intent] product \u2192 search | garment=kurta gender=men colour=None anchor=None pivot=False | query="Men's kurta for a wedding"
+INFO:src.agents.reranker:{"event": "rerank", "outcome": "ok", "no_exact_match": false, "finish_reason": "stop", "prompt_tokens": 636, "completion_tokens": 149, "reasoning_tokens": 125, "latency_ms": 626, "n_candidates": 18, "n_selected": 8, "n_unknown": 0, "n_duplicate": 0, "error_kind": null, "path": "primary", "rules_removed": 0, "rules_skipped": false, "diversity_swap": false, "model": "openai/gpt-oss-20b", "max_tokens": 700, "temperature": 0, "reasoning_effort": "low"}
+INFO:src.agents.graph:[router] fast-path: search (items=5) \u2192 respond (LLM skipped)
+
+== run 1 | Sangeet outfit under ₹3,000 | route=['router_decision', 'outfit'] | cap=None | neutral=False | refine=no
+   tjori          women       1069.0  Set of 2: Snow White Cotton Anarkali Kurti with Flared Pants (White kurti)
+   vastramay      women        489.0  Women's Red Handcrafted Potli Clutch (Red bag)
+   vhaan          women        950.0  Ruby Ladies Kolhapuri Chappal Embroidered With Authentic Handicraft (Red footwear)
+   criteria: {"plain_search": false, "n_cards": 3, "duplicates": 0, "pass_no_duplicates": true, "max_per_store": 1, "pass_store_cap": true, "both_genders": false, "pass_both_genders": true, "over_budget": 0, "pass_budget": true}
+   postprocess (removed on the last pass, gate_dropped = refilled): {}
+
+== run 1 | Haldi kurta set | route=['router_decision', 'search'] | cap=None | neutral=True | refine=yes
+   kisah          men         3299.0  Yellow Geometric Printed Kurta Set (Yellow kurta)
+   globalrepublic women       2299.0  Mustard Knit Regular Fit Kurta Set (Yellow kurta)
+   kisah          men         3299.0  Yellow Printed Front Open Kurta Set (Yellow kurta)
+   kisah          men         2499.0  White Cotton Kurta Set with Mustard Ikat-Inspired Prints and Cream Trousers – Festive & Wedding Ensemble (Yellow kurta)
+   jadeblue       men         3667.0  Yellow Self Design Regular Fit Kurta Set | Azania (Yellow kurta)
+   criteria: {"plain_search": true, "n_cards": 5, "duplicates": 0, "pass_no_duplicates": true, "max_per_store": 3, "pass_store_cap": true, "both_genders": true, "pass_both_genders": true, "over_budget": 0, "pass_budget": true}
+   postprocess (removed on the last pass, gate_dropped = refilled): {"event": "plain_search_postprocess", "n_ranked": 19, "n_shown": 5, "removed": {}, "interleaved": true, "short_reason": null, "gate_dropped": 0, "n_shown_final": 5}
+
+== run 1 | Wedding guest saree | route=['router_decision', 'search'] | cap=None | neutral=False | refine=no
+   libas          women       5399.0  Pink Embellished Satin Saree (Pink saree)
+   5-elements     women      41900.0  Dityaa Gold (Saree) (Red saree)
+   libas          women       6299.0  Burgundy Silk Blend Saree (Dark Red saree)
+   libas          women       2279.0  Navy Georgette Saree With Floral Embellished Pallu (Dark Blue saree)
+   5-elements     women      41900.0  Dityaa Silver (Saree) (Grey saree)
+   criteria: {"plain_search": true, "n_cards": 5, "duplicates": 0, "pass_no_duplicates": true, "max_per_store": 3, "pass_store_cap": true, "both_genders": false, "pass_both_genders": true, "over_budget": 0, "pass_budget": true}
+   postprocess (removed on the last pass, gate_dropped = refilled): {"event": "plain_search_postprocess", "n_ranked": 14, "n_shown": 5, "removed": {"store_cap": 7}, "interleaved": false, "short_reason": null, "gate_dropped": 0, "n_shown_final": 5}
+
+== run 1 | Office wear under ₹1,500 | route=['router_decision', 'search'] | cap=1500.0 | neutral=True | refine=yes
+   jadeblue       men         1078.0  Light Blue Checked Slim Fit Formal Shirt | Metal (Light Blue shirt)
+   jadeblue       men         1078.0  Peacock Blue Solid Slim Fit Formal Shirt | Metal (Blue shirt)
+   jadeblue       men          890.0  White Solid Slim Fit Formal Shirt | Metal (White shirt)
+   powerlook      men          999.0  Green Button Down Checks Shirt (Green shirt)
+   criteria: {"plain_search": true, "n_cards": 4, "duplicates": 0, "pass_no_duplicates": true, "max_per_store": 3, "pass_store_cap": true, "both_genders": false, "pass_both_genders": false, "over_budget": 0, "pass_budget": true}
+   postprocess (removed on the last pass, gate_dropped = refilled): {"event": "plain_search_postprocess", "n_ranked": 15, "n_shown": 5, "removed": {}, "interleaved": true, "short_reason": null, "gate_dropped": 6, "n_shown_final": 4}
+
+== run 1 | Men's kurta for a wedding | route=['router_decision', 'search'] | cap=None | neutral=False | refine=no
+   vastramay      men         2199.0  Men Black Silk Embroidered Kurta (Black kurta)
+   jadeblue       men         1312.0  Maroon with Circular Bandhani Print Cotton Blend Men's Kurta (Dark Red kurta)
+   globalrepublic men         1259.0  Mens Black Round Nack Solid Kurta (Black kurta)
+   vastramay      men         1339.0  Plus Men's Black Cotton Linen Kurta (Black kurta)
+   globalrepublic men         1469.0  Mens Off White Round Nack Printed Kurta (Off White kurta)
+   criteria: {"plain_search": true, "n_cards": 5, "duplicates": 0, "pass_no_duplicates": true, "max_per_store": 2, "pass_store_cap": true, "both_genders": false, "pass_both_genders": true, "over_budget": 0, "pass_budget": true}
+   postprocess (removed on the last pass, gate_dropped = refilled): {}
+
+live calls=9 tokens=3058 models=['openai/gpt-oss-20b']

@@ -7,6 +7,7 @@ import statistics
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
+from src.agents import search_postprocess as _pp
 from src.agents.grounding import grounded_fallback_reply, validate_response
 from src.agents.intent_parser import _OCCASION_MAP as _INTENT_OCCASION_MAP
 from src.agents.outfit.body_type import (
@@ -38,7 +39,7 @@ from src.agents.outfit.slots import (
     is_athletic_footwear_item,
     resolve_look_gender,
 )
-from src.agents.reranker import rerank
+from src.agents.reranker import ASK_N, rerank_ranked
 from src.agents.state import AgentState
 from src.agents.tools import (
     apply_filter,
@@ -57,7 +58,7 @@ from src.catalogue.cleaning import (
 from src.config.brand import BrandConfig, get_brand_config
 from src.llm.client import LLMClient
 from src.memory.conversation import ConversationMemory
-from src.retrieval.hybrid_search import _RELEVANCE_FLOOR, HybridRetriever, normalize_prod_name
+from src.retrieval.hybrid_search import _RELEVANCE_FLOOR, HybridRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -2609,6 +2610,10 @@ def build_graph(
         prior_items = state.get("retrieved_items", [])
         prior_ids = {it["article_id"] for it in prior_items}
         refinement = _is_refinement_search(query, prior_items, merged)
+        # The Women / Men refine control re-runs the previous query with a gender added: a fresh
+        # search of the same request, so what the shopper already saw must stay eligible.
+        if refinement and _pp.is_gender_refine_rerun(raw_query, state.get("messages", [])):
+            refinement = False
 
         # For refinement turns (e.g. "in blue"): augment the raw query with the
         # dominant product type from prior results so embeddings score "in blue dress"
@@ -2921,54 +2926,8 @@ def build_graph(
         ):
             candidates = _prefer_single_garment_pool(candidates, top_k)
 
-        items_out = rerank(query, candidates, llm, top_k=top_k)
-
-        # Dedup by (prod_name, colour): H&M lists same product in many colours;
-        # backfill from the wider candidates pool if dedup drops below top_k.
-        seen_prod: set[tuple[str, str]] = set()
-        deduped: list[dict] = []
-        for item in items_out:
-            key = (normalize_prod_name(item.get("prod_name", item["display_name"])), (item.get("colour") or "").lower())
-            if key not in seen_prod:
-                seen_prod.add(key)
-                deduped.append(item)
-        if len(deduped) < top_k:
-            seen_ids_dedup = {it["article_id"] for it in deduped}
-            for item in candidates:
-                if len(deduped) >= top_k:
-                    break
-                key = (normalize_prod_name(item.get("prod_name", item["display_name"])), (item.get("colour") or "").lower())
-                if item["article_id"] not in seen_ids_dedup and key not in seen_prod:
-                    seen_prod.add(key)
-                    deduped.append(item)
-        items_out = deduped
-
-        # Beach/summer queries: cap at 2 items per product_type to ensure variety
-        # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
-        if _BEACH_SUMMER_RE.search(query):
-            diverse: list[dict] = []
-            type_counts: dict[str, int] = {}
-            seen_diverse = {it["article_id"] for it in diverse}
-            for item in items_out:
-                pt = item.get("product_type", "").lower()
-                if type_counts.get(pt, 0) < 2:
-                    diverse.append(item)
-                    type_counts[pt] = type_counts.get(pt, 0) + 1
-            # Fill remaining slots from the wider candidates pool if reranker gave few types
-            if len(diverse) < top_k:
-                seen_diverse = {it["article_id"] for it in diverse}
-                for item in candidates:
-                    if len(diverse) >= top_k:
-                        break
-                    if item["article_id"] in seen_diverse:
-                        continue
-                    pt = item.get("product_type", "").lower()
-                    if type_counts.get(pt, 0) < 2:
-                        diverse.append(item)
-                        type_counts[pt] = type_counts.get(pt, 0) + 1
-                        seen_diverse.add(item["article_id"])
-            items_out = diverse[:top_k]
-
+        _shown_k, _rest = rerank_ranked(query, candidates, llm, top_k=top_k)
+        _ranked = _shown_k + _rest
         # Occasion register gate + rerank (relevance quality pass, 2026-07-11):
         # occasion previously entered plain search ONLY as raw keyword text
         # appended to the query when no garment type was present
@@ -2995,147 +2954,235 @@ def build_graph(
             state.get("messages", [])
         )
 
-        # (Single-garment set exclusion used to run here, on the 5 post-rerank items; it now
-        # runs on the wide pool before rerank(), see the "Single-garment set exclusion" block.)
+        def _result_gates(items_out: list[dict]) -> list[dict]:
+            """The post-rerank result gates (beach per-type cap, attribute/theme/accessory/
+            loungewear strips, occasion register + merchandise/athletic/haldi gates), unchanged,
+            as one function so the selection below can re-run it after backfilling cards a gate
+            dropped (a shown list used to shrink below top_k with nothing refilling it)."""
+            # Beach/summer queries: cap at 2 items per product_type to ensure variety
+            # (e.g. prevent 4 bikinis when swimwear dominates retrieval).
+            if _BEACH_SUMMER_RE.search(query):
+                diverse: list[dict] = []
+                type_counts: dict[str, int] = {}
+                seen_diverse = {it["article_id"] for it in diverse}
+                for item in items_out:
+                    pt = item.get("product_type", "").lower()
+                    if type_counts.get(pt, 0) < 2:
+                        diverse.append(item)
+                        type_counts[pt] = type_counts.get(pt, 0) + 1
+                # Fill remaining slots from the rest of the ranked list if the reranker gave few
+                # types. The refill pool goes through the same post-processing as the selection
+                # (dedupe, store cap, budget) and skips cards a gate already dropped; it used to
+                # be the raw `candidates` pool, which bypassed all of those (4 cards from one store).
+                if len(diverse) < top_k:
+                    seen_diverse = {it["article_id"] for it in diverse}
+                    _refill = [
+                        it for it in _ranked
+                        if it["article_id"] not in seen_diverse
+                        and it["article_id"] not in _pp_excluded
+                    ]
+                    _refill_pool, _ = _pp.select_results(
+                        diverse + _refill, len(diverse) + len(_refill), price_max=_pp_cap
+                    )
+                    for item in _refill_pool:
+                        if len(diverse) >= top_k:
+                            break
+                        if item["article_id"] in seen_diverse:
+                            continue
+                        pt = item.get("product_type", "").lower()
+                        if type_counts.get(pt, 0) < 2:
+                            diverse.append(item)
+                            type_counts[pt] = type_counts.get(pt, 0) + 1
+                            seen_diverse.add(item["article_id"])
+                items_out = diverse[:top_k]
 
-        # Attribute-contradiction gate (2026-07-25, "attribute-contradiction"
-        # strict-eval miss bucket): plain search relies entirely on embedding
-        # similarity, which frequently ranks a "Slim Fit" item highly for a
-        # "straight fit" query since the two phrases sit close in embedding
-        # space despite being product-listing OPPOSITES in this catalogue's
-        # own vocabulary. Strips candidates whose own name/desc explicitly
-        # states a fit/rise/breasted/silhouette/neckline word that opposes a
-        # word the query itself explicitly stated. Pool-underflow protected.
-        if items_out:
-            _attr_filtered = [
-                it for it in items_out
-                if not _occ_is_attr_contradiction(
-                    raw_query,
-                    it.get("prod_name") or it.get("display_name") or "",
-                    it.get("detail_desc") or "",
+            # (Single-garment set exclusion used to run here, on the 5 post-rerank items; it now
+            # runs on the wide pool before rerank(), see the "Single-garment set exclusion" block.)
+
+            # Attribute-contradiction gate (2026-07-25, "attribute-contradiction"
+            # strict-eval miss bucket): plain search relies entirely on embedding
+            # similarity, which frequently ranks a "Slim Fit" item highly for a
+            # "straight fit" query since the two phrases sit close in embedding
+            # space despite being product-listing OPPOSITES in this catalogue's
+            # own vocabulary. Strips candidates whose own name/desc explicitly
+            # states a fit/rise/breasted/silhouette/neckline word that opposes a
+            # word the query itself explicitly stated. Pool-underflow protected.
+            if items_out:
+                _attr_filtered = [
+                    it for it in items_out
+                    if not _occ_is_attr_contradiction(
+                        raw_query,
+                        it.get("prod_name") or it.get("display_name") or "",
+                        it.get("detail_desc") or "",
+                    )
+                ]
+                if _attr_filtered:
+                    items_out = _attr_filtered
+
+            # Theme-contradiction gate (2026-08-10, occasion-register wave Cluster
+            # B): a Hamper/Gift Hamper candidate whose own name states a DIFFERENT
+            # named festival/occasion theme than the query's stated theme (e.g.
+            # "bridal hamper" -> a Valentine-themed hamper). No-op for every other
+            # product type. Pool-underflow protected, same discipline as every
+            # other gate here.
+            if items_out:
+                _theme_filtered = [
+                    it for it in items_out
+                    if not _occ_is_theme_contradiction(
+                        raw_query,
+                        it.get("prod_name") or it.get("display_name") or "",
+                        it.get("product_type") or "",
+                    )
+                ]
+                if _theme_filtered:
+                    items_out = _theme_filtered
+
+            # Accessory-exclusion gate ("type-confusion" strict-eval miss bucket):
+            # a generic "outfit/look/wear" ask names no specific garment at all
+            # (garment_type is None) — live-proven misses: "Women Gotta Flower
+            # Purse" (bag) and "Men's Yellow - Dupatta" ranking into the top-5 for
+            # "haldi outfit for women"/"bright haldi look for women" instead of
+            # actual apparel. See _GENERIC_WEAR_ASK_RE above for why this is
+            # narrower than "garment_type is None" alone. Pool-underflow
+            # protected, same discipline as every other gate here. 2026-07-30:
+            # also excludes standalone footwear (a lone shoe is no more "an
+            # outfit" than a lone bag) via NON_OUTFIT_ITEM_CLASSES.
+            if (
+                not _occ_intent.garment_type
+                and _GENERIC_WEAR_ASK_RE.search(raw_query)
+                and items_out
+            ):
+                _acc_filtered = [
+                    it for it in items_out
+                    if _occ_classify_item(
+                        it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
+                    ) not in _occ_non_outfit_classes
+                ]
+                if _acc_filtered:
+                    items_out = _acc_filtered
+
+            # Loungewear strip for the NO-EXISTING-PROTECTION case only
+            # (2026-07-25 fix, "occasion-register" strict-eval miss bucket): a
+            # query with NO occasion at all ("black dress for my wife") had zero
+            # sleepwear protection and could surface a literal "Black Printed
+            # Cotton Night Dress" (kaftan sleepwear). Deliberately does NOT run
+            # when _occ_slug is in _LOUNGEWEAR_GATE_OCCASIONS — that case is
+            # already correctly handled by _apply_loungewear_gate further below,
+            # and running an EARLIER, pool-underflow-PROTECTED strip first would
+            # break it: is_coherent_candidate's ethnic_heavy gate sometimes lets
+            # a literal night dress through as the ONLY "coherent" survivor
+            # (because "kaftan" is itself an ETHNIC_TOP_KEYWORDS word), and
+            # _apply_loungewear_gate deliberately empties the pool in that exact
+            # case to trigger an honest zero-results message rather than
+            # substituting a Western-casual dress the ethnic_heavy gate would
+            # otherwise have correctly rejected (regression caught by
+            # tests/test_batch2_trust_fixes.py::test_minimalist_wedding_guest_
+            # dress_gets_honest_canned_message during this fix's own
+            # verification pass). Exempts queries that themselves explicitly ask
+            # for a night dress/nightgown, same as _apply_loungewear_gate.
+            if (
+                _occ_slug not in _LOUNGEWEAR_GATE_OCCASIONS
+                and items_out
+                and not is_loungewear_text(raw_query)
+            ):
+                _lounge_filtered = [
+                    it for it in items_out
+                    if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
+                ]
+                if _lounge_filtered:
+                    items_out = _lounge_filtered
+
+            if _occ_slug and _occ_slug != "casual" and items_out:
+                _occ_gender = (
+                    merged.get("gender")
+                    or ("men" if merged.get("index_group_name") == "menswear"
+                        else "women" if merged.get("index_group_name") == "ladieswear"
+                        else "unisex")
                 )
-            ]
-            if _attr_filtered:
-                items_out = _attr_filtered
+                # Kids-item filtering used to be duplicated here (a "Campana GIRLS ..."
+                # kids item live-proven 2026-07-11 slipping past is_coherent_candidate,
+                # which covers ethnic/western register only). Removed 2026-07-12: kids
+                # items are now stripped UNCONDITIONALLY right after the _is_material
+                # filter above, before this occasion-gated block ever runs, so
+                # re-checking here was dead code covering zero additional cases on the
+                # primary path — see src.catalogue.cleaning.is_kids_item.
+                _occ_gated = [
+                    it for it in items_out
+                    if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
+                ]
+                if _occ_gated:
+                    items_out = _occ_gated
 
-        # Theme-contradiction gate (2026-08-10, occasion-register wave Cluster
-        # B): a Hamper/Gift Hamper candidate whose own name states a DIFFERENT
-        # named festival/occasion theme than the query's stated theme (e.g.
-        # "bridal hamper" -> a Valentine-themed hamper). No-op for every other
-        # product type. Pool-underflow protected, same discipline as every
-        # other gate here.
-        if items_out:
-            _theme_filtered = [
-                it for it in items_out
-                if not _occ_is_theme_contradiction(
-                    raw_query,
-                    it.get("prod_name") or it.get("display_name") or "",
-                    it.get("product_type") or "",
+                # Part E: see _apply_loungewear_gate docstring — fixes "minimalist
+                # wedding guest dress" surfacing a literal nightgown.
+                items_out = _apply_loungewear_gate(items_out, _occ_slug)
+
+                # 2026-07-23 fix: see _apply_occasion_merchandise_gate docstring —
+                # fixes "what should I wear for raksha bandhan" surfacing Rakhi
+                # thread products instead of apparel.
+                items_out = _apply_occasion_merchandise_gate(
+                    items_out, _occ_slug, _occ_intent.garment_type, raw_query
                 )
-            ]
-            if _theme_filtered:
-                items_out = _theme_filtered
 
-        # Accessory-exclusion gate ("type-confusion" strict-eval miss bucket):
-        # a generic "outfit/look/wear" ask names no specific garment at all
-        # (garment_type is None) — live-proven misses: "Women Gotta Flower
-        # Purse" (bag) and "Men's Yellow - Dupatta" ranking into the top-5 for
-        # "haldi outfit for women"/"bright haldi look for women" instead of
-        # actual apparel. See _GENERIC_WEAR_ASK_RE above for why this is
-        # narrower than "garment_type is None" alone. Pool-underflow
-        # protected, same discipline as every other gate here. 2026-07-30:
-        # also excludes standalone footwear (a lone shoe is no more "an
-        # outfit" than a lone bag) via NON_OUTFIT_ITEM_CLASSES.
+                # 2026-07-24 fix: see _apply_athletic_footwear_gate docstring —
+                # fixes "gym shoes for women under 1500" surfacing formal heels.
+                # The _occ_gated coherence check just above always calls
+                # is_coherent_candidate with slot_name="top", so gate 5's
+                # footwear-specific rule never fires on this path — this gate is
+                # the fix, not a duplicate of that check.
+                items_out = _apply_athletic_footwear_gate(
+                    items_out, _occ_slug, _occ_intent.garment_type
+                )
+
+                # Compose-wave Cluster E (2026-08-07): see _apply_haldi_colour_gate
+                # docstring — fixes black items surfacing for haldi queries.
+                items_out = _apply_haldi_colour_gate(items_out, _occ_slug)
+            return items_out
+
+        # Plain-search post-processing (src/agents/search_postprocess.py) on the reranker's ranked
+        # list, with backfill from deeper candidates: de-duplication (same store + same product;
+        # also the legacy name+colour key H&M needed), at most MAX_PER_STORE (3) cards per store, the budget cap,
+        # and — only when the query fixed no gender — a women/men mix drawn from the reranker's
+        # own picks. A list with none of those problems comes back unchanged. The result gates
+        # run on each selection; cards they drop are excluded and the slots refilled (a gate that
+        # empties the list stays empty: that is the honest zero-results signal, not a refill
+        # case). Fewer than top_k cards are shown only when the ranked list cannot supply more;
+        # the reason is logged.
+        _pp_gender = _pp.query_gender(merged)
+        _pp_cap = _pp.budget_cap(merged, _qualifier_intent.budget_max_inr)
+        _pp_excluded: set[str] = set()
+        _pp_gate_dropped = 0
+        _pp_report: dict = {}
+        # Loop until a pass drops nothing, the list is full, or it empties. The bound is a pure
+        # safety net: every continuing pass adds >= 1 id to _pp_excluded (a pass with no drops
+        # breaks), and each pass selects only from ids not yet excluded, so at most len(_ranked)
+        # passes can continue and pass len(_ranked)+1 sees an empty pool. A fixed small cap
+        # (was 4) stopped short when gates dropped ~1 card per pass with admissible cards deeper.
+        for _pp_pass in range(len(_ranked) + 1):
+            _pp_selected, _pp_report = _pp.select_results(
+                [it for it in _ranked if it["article_id"] not in _pp_excluded],
+                top_k,
+                price_max=_pp_cap,
+                interleave_genders=_pp_gender is None,
+                mix_window=ASK_N,
+            )
+            items_out = _result_gates(_pp_selected)
+            _pp_dropped = {it["article_id"] for it in _pp_selected} - {
+                it["article_id"] for it in items_out
+            }
+            _pp_gate_dropped += len(_pp_dropped)
+            if not items_out or len(items_out) >= top_k or not _pp_dropped:
+                break
+            _pp_excluded |= _pp_dropped
+        _pp_report["gate_dropped"] = _pp_gate_dropped
+        _pp_report["n_shown_final"] = len(items_out)
         if (
-            not _occ_intent.garment_type
-            and _GENERIC_WEAR_ASK_RE.search(raw_query)
-            and items_out
+            _pp_report["removed"]
+            or _pp_report["interleaved"]
+            or _pp_gate_dropped
+            or len(items_out) < top_k
         ):
-            _acc_filtered = [
-                it for it in items_out
-                if _occ_classify_item(
-                    it.get("product_type") or "", it.get("prod_name") or it.get("display_name") or ""
-                ) not in _occ_non_outfit_classes
-            ]
-            if _acc_filtered:
-                items_out = _acc_filtered
-
-        # Loungewear strip for the NO-EXISTING-PROTECTION case only
-        # (2026-07-25 fix, "occasion-register" strict-eval miss bucket): a
-        # query with NO occasion at all ("black dress for my wife") had zero
-        # sleepwear protection and could surface a literal "Black Printed
-        # Cotton Night Dress" (kaftan sleepwear). Deliberately does NOT run
-        # when _occ_slug is in _LOUNGEWEAR_GATE_OCCASIONS — that case is
-        # already correctly handled by _apply_loungewear_gate further below,
-        # and running an EARLIER, pool-underflow-PROTECTED strip first would
-        # break it: is_coherent_candidate's ethnic_heavy gate sometimes lets
-        # a literal night dress through as the ONLY "coherent" survivor
-        # (because "kaftan" is itself an ETHNIC_TOP_KEYWORDS word), and
-        # _apply_loungewear_gate deliberately empties the pool in that exact
-        # case to trigger an honest zero-results message rather than
-        # substituting a Western-casual dress the ethnic_heavy gate would
-        # otherwise have correctly rejected (regression caught by
-        # tests/test_batch2_trust_fixes.py::test_minimalist_wedding_guest_
-        # dress_gets_honest_canned_message during this fix's own
-        # verification pass). Exempts queries that themselves explicitly ask
-        # for a night dress/nightgown, same as _apply_loungewear_gate.
-        if (
-            _occ_slug not in _LOUNGEWEAR_GATE_OCCASIONS
-            and items_out
-            and not is_loungewear_text(raw_query)
-        ):
-            _lounge_filtered = [
-                it for it in items_out
-                if not is_loungewear_text(it.get("prod_name") or it.get("display_name") or "")
-            ]
-            if _lounge_filtered:
-                items_out = _lounge_filtered
-
-        if _occ_slug and _occ_slug != "casual" and items_out:
-            _occ_gender = (
-                merged.get("gender")
-                or ("men" if merged.get("index_group_name") == "menswear"
-                    else "women" if merged.get("index_group_name") == "ladieswear"
-                    else "unisex")
-            )
-            # Kids-item filtering used to be duplicated here (a "Campana GIRLS ..."
-            # kids item live-proven 2026-07-11 slipping past is_coherent_candidate,
-            # which covers ethnic/western register only). Removed 2026-07-12: kids
-            # items are now stripped UNCONDITIONALLY right after the _is_material
-            # filter above, before this occasion-gated block ever runs, so
-            # re-checking here was dead code covering zero additional cases on the
-            # primary path — see src.catalogue.cleaning.is_kids_item.
-            _occ_gated = [
-                it for it in items_out
-                if _occ_is_coherent(it, _occ_slug, _occ_gender, "top")
-            ]
-            if _occ_gated:
-                items_out = _occ_gated
-
-            # Part E: see _apply_loungewear_gate docstring — fixes "minimalist
-            # wedding guest dress" surfacing a literal nightgown.
-            items_out = _apply_loungewear_gate(items_out, _occ_slug)
-
-            # 2026-07-23 fix: see _apply_occasion_merchandise_gate docstring —
-            # fixes "what should I wear for raksha bandhan" surfacing Rakhi
-            # thread products instead of apparel.
-            items_out = _apply_occasion_merchandise_gate(
-                items_out, _occ_slug, _occ_intent.garment_type, raw_query
-            )
-
-            # 2026-07-24 fix: see _apply_athletic_footwear_gate docstring —
-            # fixes "gym shoes for women under 1500" surfacing formal heels.
-            # The _occ_gated coherence check just above always calls
-            # is_coherent_candidate with slot_name="top", so gate 5's
-            # footwear-specific rule never fires on this path — this gate is
-            # the fix, not a duplicate of that check.
-            items_out = _apply_athletic_footwear_gate(
-                items_out, _occ_slug, _occ_intent.garment_type
-            )
-
-            # Compose-wave Cluster E (2026-08-07): see _apply_haldi_colour_gate
-            # docstring — fixes black items surfacing for haldi queries.
-            items_out = _apply_haldi_colour_gate(items_out, _occ_slug)
+            logger.info(json.dumps({"event": "plain_search_postprocess", **_pp_report}))
 
         # Part C (formality_softener ranking wiring, 2026-07-13; occasion gate
         # removed 2026-07-19): previously nested inside "if _occ_slug and
@@ -3183,6 +3230,17 @@ def build_graph(
         # untouched when the user actually said plus-size/curvy.
         items_out = demote_size_mismatched_items(items_out, raw_query)
 
+        # Final budget guard on exactly what is about to be shown (the selection above applied
+        # the cap too; this catches anything a later gate or sort could have let through).
+        _pp_guarded = _pp.enforce_budget(items_out, _pp_cap)
+        if len(_pp_guarded) != len(items_out):
+            logger.warning(json.dumps({
+                "event": "plain_search_budget_guard_removed",
+                "n_removed": len(items_out) - len(_pp_guarded),
+                "price_max": _pp_cap,
+            }))
+            items_out = _pp_guarded
+
         search_meta: dict = {"query": query, "filters": merged}
         if few_gender_results:
             search_meta["few_gender_results"] = True
@@ -3205,6 +3263,10 @@ def build_graph(
         }
         update["filters"] = effective_filters
         update["suggestion_chips"] = _chip_colours
+        # One-tap Women / Men refine: only when the query fixed no gender and the candidates
+        # hold both (additive response field; never on refinement turns such as "in blue").
+        if items_out and not refinement and _pp.gender_refine_options(merged, _ranked):
+            update["gender_refine"] = _pp.refine_queries(raw_query)
         if excluded_colours:
             update["excluded_colours"] = excluded_colours
         return update

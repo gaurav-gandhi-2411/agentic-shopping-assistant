@@ -198,6 +198,13 @@ export interface ConversationDetail extends ConversationSummary {
   retrieved_items: ItemSummary[]
 }
 
+/** One option of the Women / Men refine control: the same request constrained to a gender. */
+export interface GenderRefineOption {
+  gender: "women" | "men"
+  /** Sent as the next user message when the option is tapped. */
+  query: string
+}
+
 // In-progress or completed message in the chat UI.
 export interface ChatMessage {
   id: string       // Stable React key (always present — DB UUID or crypto.randomUUID())
@@ -232,6 +239,8 @@ export interface ChatMessage {
   anchorImageUrl?: string | null
   /** Backend-suggested follow-up prompts; render as clickable pills for the latest assistant message. */
   suggestionChips?: string[] | null
+  /** One-tap Women / Men refine for a plain search whose query named no gender; null/absent = not offered. */
+  genderRefine?: GenderRefineOption[] | null
   /** Slots (of the active variant) suppressed for lack of a valid candidate. */
   suppressedSlots?: SuppressedSlot[] | null
   /** "partner" for a partner-anchored board; absent/"primary" for the user's own look. */
@@ -297,6 +306,8 @@ export type WsFrame =
         item_links?: ItemLink[] | null
         /** Backend-suggested follow-up prompts (e.g. contextual refinements). */
         suggestion_chips?: string[] | null
+        /** Women / Men refine options (plain search, no gender in the query); null/absent = not offered. */
+        gender_refine?: GenderRefineOption[] | null
         /** Slots (of the active variant) suppressed for lack of a valid candidate. */
         suppressed_slots?: SuppressedSlot[] | null
         /** "partner" for a partner-anchored board; absent/"primary" for the user's own look. */

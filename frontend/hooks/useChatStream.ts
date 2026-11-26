@@ -233,6 +233,7 @@ export function useChatStream({
               const cartUrl = frame.final_state.cart_url ?? null
               const itemLinks = frame.final_state.item_links ?? null
               const suggestionChips = frame.final_state.suggestion_chips ?? null
+              const genderRefine = frame.final_state.gender_refine ?? null
               const suppressedSlots = frame.final_state.suppressed_slots ?? null
               const lookRole = frame.final_state.look_role ?? null
               const lookTitle = frame.final_state.look_title ?? null
@@ -265,6 +266,7 @@ export function useChatStream({
                         cartUrl,
                         itemLinks,
                         suggestionChips,
+                        genderRefine,
                         suppressedSlots,
                         lookRole,
                         lookTitle,

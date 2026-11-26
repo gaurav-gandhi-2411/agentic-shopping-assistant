@@ -10,6 +10,7 @@ import { api } from "@/lib/api/client"
 import { ItemCard } from "./ItemCard"
 import { OutfitBoard } from "./OutfitBoard"
 import { MoreOptionsRow } from "./MoreOptionsRow"
+import { GenderRefine } from "./GenderRefine"
 
 interface Props {
   message: ChatMessage
@@ -226,6 +227,18 @@ export function MessageBubble({ message, onSend, brand, isLatestAssistant, signI
           </div>
         )
       })()}
+
+      {/* One-tap Women / Men refine — plain search with no gender in the query; latest
+          assistant message only, for the same stale-turn reason as the chips below. */}
+      {!isUser &&
+        isLatestAssistant &&
+        !message.isStreaming &&
+        onSend &&
+        message.items.length > 0 &&
+        message.genderRefine != null &&
+        message.genderRefine.length > 0 && (
+          <GenderRefine options={message.genderRefine} onSelect={onSend} />
+        )}
 
       {/* Backend-suggested follow-up chips — latest assistant message only, so a
           click always applies to the current (not a stale) look/turn. */}

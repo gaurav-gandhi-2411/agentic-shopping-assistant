@@ -57,6 +57,11 @@ class AgentState(TypedDict):
     # with distinct colours from the current result set for front-end chip rendering.
     suggestion_chips: list[str] | None
 
+    # One-tap Women / Men refine (plain search, gender-unspecified queries only): [{gender,
+    # query}] where `query` re-runs the same request constrained to that gender. Set by
+    # search_node; absent on every other turn. Additive in the API response.
+    gender_refine: list[dict[str, str]] | None
+
     # Anchor item for buy-similar searches — stored after image upload by image_style.py.
     # The anchor is the CLIP-nearest catalogue item to the uploaded image.
     # search_node uses this for dense similarity retrieval when "similar/like this" is detected.
