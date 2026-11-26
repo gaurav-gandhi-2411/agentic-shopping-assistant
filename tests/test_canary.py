@@ -1012,6 +1012,70 @@ def test_first_query_gets_the_cold_budget_retry_gets_the_warm_one(monkeypatch) -
     assert calls == [("a", 120000.0), ("b", 8000), ("c", 8000), ("a", 8000)]
 
 
+class _FakeClock:
+    """Deterministic clock: sleep() and the fake queries advance it, nothing else does."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def now(self) -> float:
+        return self.t
+
+    def sleep(self, s: float) -> None:
+        self.t += s
+
+    def advance(self, s: float) -> None:
+        self.t += s
+
+
+def _timed_run_query(monkeypatch: Any, clock: _FakeClock, latencies: list[float]) -> None:
+    """run_query stub: the n-th call takes latencies[n] (cycled) on the fake clock."""
+    calls = iter(range(10_000))
+
+    def fake(base: str, token: str, query: str, budget: float, min_cards: Any = None) -> Any:
+        ms = latencies[next(calls) % len(latencies)]
+        clock.advance(ms / 1000)
+        return canary.QueryResult(query=query, latency_ms=ms)
+
+    monkeypatch.setattr(canary, "run_query", fake)
+
+
+LATENCIES = [1234.5, 2345.5, 3456.5]
+
+
+def test_run_suite_latency_excludes_the_pacing_sleep(monkeypatch) -> None:
+    clock = _FakeClock()
+    _timed_run_query(monkeypatch, clock, LATENCIES)
+    out = canary.run_suite("u", "t", 8000, SPECS3, 65.0, sleep=clock.sleep, clock=clock.now)
+    assert [r.latency_ms for r in out] == LATENCIES  # exact: no pace_s added
+    assert clock.t == pytest.approx(2 * 65 + sum(LATENCIES) / 1000)  # sleeps did happen
+
+
+@pytest.mark.parametrize("pace_s", [0.0, 65.0])
+def test_cold_start_ms_is_session_plus_first_turn_independent_of_pace(
+    tmp_path: Path, monkeypatch, pace_s: float
+) -> None:
+    clock = _FakeClock()
+    _timed_run_query(monkeypatch, clock, LATENCIES)
+    monkeypatch.setattr(canary, "_now_s", clock.now)
+
+    def session(url: str, headers: Any = None, timeout: float = 75.0) -> Any:
+        clock.advance(7.0)  # cold: >= COLD_DETECT_MS
+        return {"session_token": "tok"}
+
+    monkeypatch.setattr(canary, "http_post_json", session)
+    real = canary.run_suite
+    monkeypatch.setattr(
+        canary, "run_suite",
+        lambda *a, **k: real(*a, sleep=clock.sleep, clock=clock.now, **k))
+    rc = canary.run_canary(_args(tmp_path, repo="", pace_s=pace_s))
+    out = json.loads((tmp_path / "r.json").read_text())
+    assert rc == 0 and out["cold"] is True
+    assert out["cold_start_ms"] == 7000.0 + LATENCIES[0]  # exact, pace_s never enters
+    assert [q["latency_ms"] for q in out["queries"]] == LATENCIES
+    assert clock.t >= 7.0 + 2 * pace_s  # the pacing sleeps really ran on the fake clock
+
+
 def test_forced_run_does_not_retry(tmp_path: Path) -> None:
     with _Server({"frames": good_frames()}) as srv:
         canary.run_canary(_args(tmp_path, base_url=srv.url, repo="", force_fail=True, suite="all"))
