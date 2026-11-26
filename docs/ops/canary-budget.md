@@ -87,7 +87,7 @@ charges each run `11 + 2` queries (`RUN_QUERY_BUDGET`), and `DAILY_QUERY_CAP` eq
 - Demo per-IP limit (35/hour, VERIFIED in `api/demo/guards.py`, one count per WS connection): at most
   13 per run (11 + 2 retries) and one run a day, so it cannot be reached by the canary alone.
 - Time: pacing alone is 12 x 65 s = 780 s = 13 min for 13 queries (11 + 2 retries), plus turn time
-  (warm turns < 8 s, a cold first turn up to 120 s): 780 + 12 x 8 + 120 = 996 s worst nominal, under
+  (warm turns < 8 s, a cold first turn up to 120 s): 780 + 13 x 8 + 120 = 1,004 s worst nominal, under
   the 1,080 s point where the script stops starting queries (fail closed) and the 30 min job
   timeout. The sleep is outside every latency and `cold_start_ms` measurement. Spacing is defence
   in depth: the canary-day fallbacks measured since 2026-11-21 come from the old 150-token reranker

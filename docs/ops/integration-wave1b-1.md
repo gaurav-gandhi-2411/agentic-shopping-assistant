@@ -43,4 +43,4 @@ made #143's copy of those files an identical ancestor, so git took them without 
 #138 merge the canary runs 11 turns (3 core + 8 card checks, plus up to 2 retries), not 3. The
 arithmetic in `docs/ops/canary-budget.md` states both (about 2,680 tokens/query measured on the 3
 core queries; 8,000 TPM from the 2026-11-13 header measurement). Nominal worst run time is
-12 x 65 s + 12 x 8 s + 120 s = 996 s, below `RUN_TIME_BUDGET_S` 1,080 s and the 30 min job timeout.
+12 gaps x 65 s + 13 turns x 8 s + 120 s = 1,004 s, below `RUN_TIME_BUDGET_S` 1,080 s and the 30 min job timeout.
