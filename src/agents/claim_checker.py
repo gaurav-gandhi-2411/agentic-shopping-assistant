@@ -108,7 +108,7 @@ _UNIT_AFTER = re.compile(
     re.I,
 )
 
-_RE_PRE = re.compile(rf"(?P<cur>{_CUR})\s*(?P<num>{_NUM})(?P<mult>{_MULT})", re.I)
+_RE_PRE = re.compile(rf"(?P<cur>{_CUR})[\s:\-–]*(?P<num>{_NUM})(?P<mult>{_MULT})", re.I)
 _RE_SUF = re.compile(rf"(?<![\w.,])(?P<num>{_NUM})(?P<mult>{_MULT})(?P<suf>{_CUR_SUFFIX})", re.I)
 _RE_BARE = re.compile(
     rf"(?<![\w₹$€£])(?P<cue>{_PRICE_CUES})\s*(?:of\s+|is\s+|:\s*)?(?P<num>{_NUM})(?P<mult>{_MULT})"
@@ -236,6 +236,14 @@ _RE_SIZE_IN = re.compile(
 )
 _RE_SIZE_MULTI = re.compile(r"(?<![\w-])(?P<s>XXXL|XXL|XL|XXS|XS|[2-5]XL)(?![\w-])", re.I)
 _RE_SIZE_FREE = re.compile(r"\b(?:free|one|universal)[\s\-]?size\b", re.I)
+_SIZE_WORDS = {"small": "S", "medium": "M", "large": "L"}
+# Word-form sizes only after an explicit size cue ("size medium", "comes in medium"), so
+# "a small pouch" or "large prints" are not read as sizes.
+_RE_SIZE_WORD = re.compile(
+    r"\b(?:sizes?\s+(?:of\s+|is\s+)?|(?:available|comes?)\s+in\s+(?:a\s+)?(?:size\s+)?)"
+    r"(?P<x>extra[\s\-]?|x{1,2}[\s\-]?)?(?P<w>small|medium|large)\b",
+    re.I,
+)
 _RE_FIT = re.compile(
     r"\b(?:runs?\s+(?:small|large|big|tight|true)|true\s+to\s+size|fits?\s+true|size\s+(?:up|down)|"
     r"order\s+a\s+size|tts)\b",
@@ -257,7 +265,7 @@ _RE_DISCOUNT = re.compile(
     r"\b(?:discount(?:s|ed)?|on\s+sale|sale\s+price|sale|clearance|markdowns?|coupons?|"
     r"promo(?:\s+code)?|cash\s*back|bogo|buy\s+one\s+get\s+one|price\s+(?:drop|cut)|"
     r"reduced\s+price|deals?|bargains?|offers?\s+(?:on|of)|savings?|save\s+(?:up|big|money)|"
-    r"flat\s+\d+|special\s+offer|limited[\s\-]time\s+offer|\d+\s*%?\s*off|"
+    r"half[\s\-]+(?:price|off)|flat\s+\d+|special\s+offer|limited[\s\-]time\s+offer|\d+\s*%?\s*off|"
     r"buy\s+\d+\s+get\s+\d+(?:\s+free)?|b\dg\d)\b"
     r"|(?:save|saves|saving)\s+(?:up\s+to\s+)?(?:rs\.?|₹)\s*\d[\d,]*"
     r"|(?:rs\.?|₹)\s*\d[\d,]*\s*off\b",
@@ -267,7 +275,9 @@ _RE_DELIVERY = re.compile(
     r"\b(?:free\s+(?:shipping|delivery|returns?|exchange|cod)|complimentary\s+(?:shipping|delivery)|"
     r"cash\s+on\s+delivery|cod\b|deliver(?:y|s|ed|ing)?|ship(?:s|ped|ping|ment)?|dispatch(?:ed|es)?|"
     r"arriv(?:e|es|ing|al)|express|next[\s\-]day|same[\s\-]day|return\s+policy|"
-    r"\d+[\s\-]days?\s+returns?|easy\s+returns?|pan[\s\-]india)\b",
+    r"\d+[\s\-]days?\s+returns?|easy\s+returns?|pan[\s\-]india|"
+    r"pick[\s\-]?up\s+(?:today|tomorrow|in[\s\-]store|available)|available\s+for\s+pick[\s\-]?up|"
+    r"(?:in[\s\-]store|store|curbside)\s+pick[\s\-]?up|click\s*(?:and|&)\s*collect)\b",
     re.I,
 )
 _RE_DAYS = re.compile(
@@ -371,6 +381,10 @@ def _extract_claims(text: str) -> list[_Claim]:
             )
     for m in _RE_SIZE_MULTI.finditer(text):
         claims.append(_Claim("size", m.start("s"), m.end("s"), m.group("s").upper()))
+    for m in _RE_SIZE_WORD.finditer(text):
+        prefix = (m.group("x") or "").strip(" -").lower()  # "extra" / "x" / "xx"
+        letter = ("X" if prefix == "extra" else prefix.upper()) + _SIZE_WORDS[m.group("w").lower()]
+        claims.append(_Claim("size", m.start("x") if m.group("x") else m.start("w"), m.end("w"), letter))
     for m in _RE_SIZE_FREE.finditer(text):
         claims.append(_Claim("size", m.start(), m.end(), "FREE", flavour="free"))
     for m in _RE_FIT.finditer(text):

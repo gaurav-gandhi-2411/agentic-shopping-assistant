@@ -66,7 +66,8 @@ def adversarial() -> list[dict[str, Any]]:
     for sym, amt in (("$", "25"), ("€", "30"), ("£", "20"), ("USD ", "40")):  # wrong currency
         add("wrong_currency", f"[item:1002] is only {sym}{amt} right now.", [f"{sym}{amt}"])
     for form in ("₹1,400", "Rs. 1400", "INR 1400", "1.4k", "Rs 1,400/-", "1400 rupees",
-                 "Rs.1450", "INR1450", "rs 1450", "1.45k", "₹1450 only", "one thousand four hundred rupees"):
+                 "Rs.1450", "INR1450", "rs 1450", "1.45k", "₹1450 only", "one thousand four hundred rupees",
+                 "INR:1100", "Rupees-1100"):
         add("price_format_variant", f"The Gloss Wrap Skirt is available for {form}.", [form])
     for sizes in ("S, M and L", "XS, S, M", "XL"):  # invented size
         add("invented_size", f"[item:1002] comes in sizes {sizes} so you can pick yours.",
@@ -75,6 +76,7 @@ def adversarial() -> list[dict[str, Any]]:
     add("invented_size", "[item:1005] is available in XL as well.", ["XL"])
     add("invented_size", "Grab [item:1001] in UK 8 for a perfect fit.", ["UK 8"])
     add("invented_size", "[item:1006] is true to size for most shoppers.", ["true to size"])
+    add("invented_size", "[item:1003] comes in size medium for most people.", ["size medium"])
     add("stock", "[item:1004] is in stock and ready to ship.", ["in stock"])
     add("stock", "[item:1001] is in stock right now.", ["in stock"])
     add("stock", "Hurry, only 2 left of [item:1003].", ["only 2 left"])
@@ -87,6 +89,7 @@ def adversarial() -> list[dict[str, Any]]:
     add("discount", "Flat 40% off on [item:1002].", ["40% off"])
     add("discount", "Save ₹500 on [item:1005] with this offer.", ["Save ₹500"])
     add("discount", "[item:1004] has a special offer running.", ["special offer"])
+    add("discount", "[item:1002] is half price this week.", ["half price"])
     for k, bad_id in enumerate(("9999", "4242", "abc123")):  # id not shown
         add("id_not_shown", f"I recommend [item:{bad_id}] for the occasion.", [bad_id])
         add("id_not_shown", f"Try [item:1001] at [price:{bad_id}] for a bargain.", [bad_id])
@@ -100,6 +103,7 @@ def adversarial() -> list[dict[str, Any]]:
     add("price_wrong_item", "[item:1004] at [price:1006] is a great pick.", ["is a great pick"])
     add("delivery", "[item:1002] comes with free shipping across India.", ["free shipping"])
     add("delivery", "[item:1003] delivers in 3 days.", ["3 days"])
+    add("delivery", "[item:1001] is available for pickup today.", ["pickup"])
     for first, second, bad in (  # a good sentence next to a bad one: the good one must survive
         ("[item:1001] at [price:1001] is a lovely pick.", "It is also 25% off.", "25% off"),
         ("[item:1002] pairs well with a plain top.", "It is in stock in size M.", "in stock"),

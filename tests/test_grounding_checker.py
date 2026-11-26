@@ -456,3 +456,67 @@ def test_hinglish_and_trailing_cue_grounded_prices_pass(text: str) -> None:
 ])
 def test_count_and_non_price_only_phrases_are_not_prices(text: str) -> None:
     assert "price" not in kinds(text, [A])
+
+
+# ----------------------------------------------------------------- V5 verifier leaks
+
+
+@pytest.mark.parametrize("text", [
+    "The Riviera Sundress is INR:1100.",          # separator between code and number
+    "The Riviera Sundress is Rupees-1100.",
+    "The Riviera Sundress is Rs: 1100.",
+])
+def test_price_with_separator_after_the_currency_is_checked(text: str) -> None:
+    assert kinds(text, [A]) == ["price"]
+
+
+@pytest.mark.parametrize("text", [
+    "The Riviera Sundress is INR:2999.",
+    "The Riviera Sundress is Rupees-2999.",
+])
+def test_grounded_price_with_separator_passes(text: str) -> None:
+    assert check(text, [A]) == []
+
+
+@pytest.mark.parametrize("text", [
+    "The Riviera Sundress comes in size medium.",
+    "The Riviera Sundress is available in extra large.",
+    "The Riviera Sundress has sizes small and large.",
+])
+def test_word_form_size_is_a_size_claim(text: str) -> None:
+    assert "size" in kinds(text, [A])
+
+
+def test_word_form_size_is_backed_by_the_sizes_field() -> None:
+    backed = dict(A, sizes=["M"])
+    assert check("The Riviera Sundress comes in size medium.", [backed]) == []
+    assert "size" in kinds("The Riviera Sundress comes in size large.", [backed])
+
+
+@pytest.mark.parametrize("text", [
+    "The Riviera Sundress has a small pouch and large prints.",
+    "I can show you a medium budget option.",
+])
+def test_size_words_without_a_size_cue_are_not_sizes(text: str) -> None:
+    assert "size" not in kinds(text, [A])
+
+
+@pytest.mark.parametrize("text", [
+    "The Riviera Sundress is half price today.",
+    "The Riviera Sundress is half off.",
+])
+def test_half_price_is_a_discount_claim(text: str) -> None:
+    assert "discount" in kinds(text, [A])
+
+
+@pytest.mark.parametrize("text", [
+    "The Riviera Sundress is available for pickup today.",
+    "The Riviera Sundress has in-store pickup.",
+    "Try click and collect for the Riviera Sundress.",
+])
+def test_pickup_is_a_delivery_like_claim(text: str) -> None:
+    assert "delivery" in kinds(text, [A])
+
+
+def test_pick_up_as_a_plain_verb_is_not_a_delivery_claim() -> None:
+    assert "delivery" not in kinds("Pick up a belt to finish the Riviera Sundress look.", [A])
