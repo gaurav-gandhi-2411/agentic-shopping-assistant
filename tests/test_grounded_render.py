@@ -380,6 +380,17 @@ def test_ws_kill_switch_off_streams_raw_tokens(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.usefixtures("_ws")
+def test_ws_sentence_mode_never_leaves_a_lead_in_fragment(monkeypatch: pytest.MonkeyPatch) -> None:
+    chunks = ["Love [item:1] ", "at [price:1]. ", "It is in stock."]
+    _, token_mode = _ws_turn(_LLM("", chunks=chunks))
+    assert token_mode.startswith("Love Test Jacket (Blue) at ₹1,999. It is")  # lead-in residual
+    monkeypatch.setenv("GROUNDED_STREAM_MODE", "sentence")
+    frames, final = _ws_turn(_LLM("", chunks=chunks))
+    assert final == "Love Test Jacket (Blue) at ₹1,999."
+    assert "".join(frames) == final
+
+
+@pytest.mark.usefixtures("_ws")
 def test_ws_unknown_id_everywhere_serves_the_grounded_template() -> None:
     frames, final = _ws_turn(_LLM("", chunks=["Try [item:424242] today."]))
     assert GROUNDED_FALLBACK_PREFIX in final and "Test Jacket (Blue) (₹1,999)" in final

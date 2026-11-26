@@ -246,3 +246,32 @@ def test_price_span_holds_the_rest_of_the_sentence_until_it_ends() -> None:
     assert "".join(g.feed("Next")) == " ₹2,999 for brunch."
     assert "".join(g.finish()) == " Next"
     assert g.text == "Love the Riviera Cotton Sundress at ₹2,999 for brunch. Next"
+
+
+# ------------------------------------------------------------------ hold_sentences mode (no fragments)
+
+
+def run_held(chunks: list[str], user: str = "") -> tuple[str, StreamGrounder]:
+    g = StreamGrounder(ITEMS, user_text=user, hold_sentences=True)
+    for c in chunks:
+        g.feed(c)
+    g.finish()
+    return g.text, g
+
+
+@pytest.mark.parametrize("case", corpus.adversarial() + corpus.clean(), ids=lambda c: c["id"])
+def test_hold_mode_equals_the_batch_validator_and_never_leaves_a_fragment(
+    case: dict[str, Any],
+) -> None:
+    batch = ground_reply(case["reply"], ITEMS, user_text=case["user_text"]).text
+    for chunks in splits(case["reply"]):
+        out, g = run_held(chunks, case["user_text"])
+        assert out.split() == batch.split(), chunks[:2]
+        assert g.fragments == 0
+
+
+def test_hold_mode_emits_whole_sentences_only() -> None:
+    g = StreamGrounder(ITEMS, hold_sentences=True)
+    assert g.feed("Lovely breezy sundress for the be") == []
+    assert g.feed("ach. Next one comes") == ["Lovely breezy sundress for the beach."]
+    assert g.finish() == [" Next one comes"]

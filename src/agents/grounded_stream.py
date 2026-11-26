@@ -67,7 +67,11 @@ class StreamGrounder:
         user_text: str = "",
         extra_amounts: Iterable[float] = (),
         fallback: str | None = None,
+        hold_sentences: bool = False,
     ) -> None:
+        # hold_sentences=True emits each sentence only once it has been judged: no lead-in
+        # fragments (guarantee G2 disappears) at the cost of sentence-sized frames.
+        self._hold_sentences = hold_sentences
         self._items = list(shown_items)
         self._by_id = {
             str(it.get("article_id")): it for it in self._items if it.get("article_id") is not None
@@ -177,6 +181,8 @@ class StreamGrounder:
         return _TOKEN_RE.sub(sub, raw)
 
     def _emit_partial(self) -> list[str]:
+        if self._hold_sentences:
+            return []
         view = self._view(self._raw)
         done = len(self._emitted_view)
         if view[:done] != self._emitted_view:

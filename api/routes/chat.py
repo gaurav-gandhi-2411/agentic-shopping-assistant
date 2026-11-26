@@ -685,7 +685,13 @@ async def run_chat_turn(
         # With the switch off, tokens are forwarded live exactly as before.
         _ground = grounded_rendering_enabled()
         _ground_items = list(result.get("retrieved_items", []))[:5]
-        _grounder = StreamGrounder(_ground_items, user_text=message)
+        # GROUNDED_STREAM_MODE=sentence: emit whole judged sentences only (no lead-in fragments).
+        _grounder = StreamGrounder(
+            _ground_items,
+            user_text=message,
+            hold_sentences=os.environ.get("GROUNDED_STREAM_MODE", "token").strip().lower()
+            == "sentence",
+        )
         chunks: list[str] = []
         async for tok in _iter_tokens(llm, plan["prompt"]):
             if tok == STREAM_ERROR_SENTINEL:
