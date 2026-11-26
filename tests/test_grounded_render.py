@@ -8,6 +8,7 @@ retriever that must never be called).
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -358,17 +359,17 @@ def _ws_turn(llm: _LLM) -> tuple[list[str], str]:
 
 
 @pytest.mark.usefixtures("_ws")
-def test_ws_stream_is_buffered_rendered_and_stripped() -> None:
-    llm = _LLM("", chunks=["Love [item:1] ", "at [price:1]. ", "It is 40% off."])
+def test_ws_stream_is_rendered_and_a_trigger_first_sentence_is_dropped() -> None:
+    llm = _LLM("", chunks=["Love [item:1] ", "at [price:1]. ", "Half price today."])
     frames, final = _ws_turn(llm)
-    assert final == "Love Test Jacket (Blue) at ₹1,999."
-    assert "".join(frames) == final and len(frames) == 1
+    assert final.strip() == "Love Test Jacket (Blue) at ₹1,999."
+    assert "".join(frames) == final and "Half price" not in final and len(frames) > 1
 
 
 @pytest.mark.usefixtures("_ws")
-def test_ws_clean_stream_replays_the_original_frames() -> None:
+def test_ws_clean_stream_keeps_streaming_frame_by_frame() -> None:
     frames, final = _ws_turn(_LLM("", chunks=["Lovely ", "jacket."]))
-    assert frames == ["Lovely ", "jacket."] and final == "Lovely jacket."
+    assert frames == ["Lovely", " jacket."] and final == "Lovely jacket."
 
 
 @pytest.mark.usefixtures("_ws")
@@ -381,7 +382,52 @@ def test_ws_kill_switch_off_streams_raw_tokens(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.usefixtures("_ws")
 def test_ws_unknown_id_everywhere_serves_the_grounded_template() -> None:
     frames, final = _ws_turn(_LLM("", chunks=["Try [item:424242] today."]))
-    assert final.startswith(GROUNDED_FALLBACK_PREFIX) and "Test Jacket (Blue) (₹1,999)" in final
+    assert GROUNDED_FALLBACK_PREFIX in final and "Test Jacket (Blue) (₹1,999)" in final
+    assert "424242" not in final and "".join(frames) == final
+
+
+class _GatedLLM(_LLM):
+    """Streams one sentence, then withholds the rest until the client has seen a token frame."""
+
+    def __init__(self) -> None:
+        super().__init__("", None)
+        self.gate = threading.Event()
+        self.timed_out = False
+
+    def generate_stream(self, prompt: str, system: str | None = None, **kw: Any) -> Iterator[str]:
+        yield "Lovely jacket for brunch. "
+        if not self.gate.wait(timeout=5):  # a buffering implementation never opens the gate
+            self.timed_out = True
+        yield "Pair it with jeans."
+
+
+@pytest.mark.usefixtures("_ws")
+def test_ws_first_token_frame_arrives_before_the_stream_ends() -> None:
+    llm = _GatedLLM()
+    deps._llm = llm
+    client = TestClient(app, raise_server_exceptions=True)
+    frames: list[str] = []
+    with client.websocket_connect("/chat/stream") as ws:
+        ws.send_json({"type": "user_message", "message": "show me jackets"})
+        while True:
+            msg = ws.receive_json()
+            if msg["type"] == "token":
+                frames.append(msg["text"])
+                llm.gate.set()  # the client has its first frame: let the model continue
+            elif msg["type"] == "done":
+                final = msg["final_state"]["response"]
+                break
+    assert not llm.timed_out, "first token frame only arrived after the stream ended"
+    assert frames[0].startswith("Lovely") and "".join(frames) == final
+    assert final == "Lovely jacket for brunch. Pair it with jeans."
+
+
+@pytest.mark.usefixtures("_ws")
+def test_ws_unclosed_span_at_stream_end_is_dropped(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("WARNING")
+    frames, final = _ws_turn(_LLM("", chunks=["Nice jacket. ", "Love [item:1 and more"]))
+    assert "[item" not in final and "more" not in final and final.startswith("Nice jacket.")
+    assert any('"grounded_unclosed_span"' in r.getMessage() for r in caplog.records)
     assert "".join(frames) == final
 
 

@@ -46,6 +46,7 @@ from api.schemas import (
 )
 from api.session import SessionStore
 from src.agents.grounded_render import ground_reply, grounded_rendering_enabled
+from src.agents.grounded_stream import StreamGrounder
 from src.agents.grounding import grounded_fallback_reply
 from src.agents.outfit.cart_links import build_cart_action
 from src.llm.client import STREAM_ERROR_SENTINEL
@@ -677,12 +678,14 @@ async def run_chat_turn(
     _accumulated_messages: list[dict] = result.get("messages", session["messages"])
 
     if plan.get("action") == "pending_respond":
-        # V5 grounding by construction: raw model tokens must not reach the user before the
-        # reply has been rendered and validated, so with the kill switch on the stream is
-        # buffered and emitted afterwards (frame types unchanged; token frames just arrive
-        # together). With it off, tokens are forwarded live exactly as before.
+        # V5 grounding by construction (amendment 1): with the kill switch on, tokens stream
+        # through StreamGrounder, which renders [item:ID] spans and holds a sentence from its
+        # first claim-like trigger until it can be validated (see grounded_stream.py and
+        # docs/grounding-v5-acceptance.md for the exact guarantee). Frame types are unchanged.
+        # With the switch off, tokens are forwarded live exactly as before.
         _ground = grounded_rendering_enabled()
         _ground_items = list(result.get("retrieved_items", []))[:5]
+        _grounder = StreamGrounder(_ground_items, user_text=message)
         chunks: list[str] = []
         async for tok in _iter_tokens(llm, plan["prompt"]):
             if tok == STREAM_ERROR_SENTINEL:
@@ -691,20 +694,20 @@ async def run_chat_turn(
             if cancel_event.is_set():
                 await send(WSCancelledMessage())
                 return TurnOutcome("cancelled")
-            if not _ground:
-                await send(WSTokenMessage(text=tok))
             chunks.append(tok)
-        full_response = "".join(chunks)
-        if _ground and full_response.strip():
-            _grounded = ground_reply(full_response, _ground_items, user_text=message)
-            if _grounded.flags:
-                logger.warning("[grounding] ws render flags=%s", _grounded.flags)
-            if _grounded.text == full_response:
-                for _tok in chunks:  # unchanged reply: replay the original frames
-                    await send(WSTokenMessage(text=_tok))
+            if _ground:
+                for _piece in _grounder.feed(tok):
+                    await send(WSTokenMessage(text=_piece))
             else:
-                full_response = _grounded.text
-                await send(WSTokenMessage(text=full_response))
+                await send(WSTokenMessage(text=tok))
+        if _ground:
+            for _piece in _grounder.finish():
+                await send(WSTokenMessage(text=_piece))
+            if _grounder.flags:
+                logger.warning("[grounding] ws stream flags=%s", _grounder.flags)
+            full_response = _grounder.text  # what the user saw is what gets persisted
+        else:
+            full_response = "".join(chunks)
         if not full_response.strip():
             # Empty stream with no error sentinel: a reasoning model spent its
             # token budget on hidden reasoning (finish_reason=length) or the
