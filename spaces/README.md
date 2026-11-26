@@ -22,7 +22,7 @@ only handles rendering and WebSocket communication.
 - *"compare the first two you showed me"*
 - *"anything in blue instead?"*
 
-Built with LangGraph · FAISS + BM25 hybrid retrieval · Groq (Llama 3.1 8B)
+Built with LangGraph · FAISS + BM25 hybrid retrieval · Groq (model set in the API's `config.yaml`)
 
 ---
 

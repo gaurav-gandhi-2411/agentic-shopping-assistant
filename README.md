@@ -16,8 +16,8 @@ own product pages.
 
 Hybrid retrieval (FAISS dense + BM25 sparse, fused via Reciprocal Rank Fusion) backs a LangGraph
 agent loop with six tools: **search**, **compare**, **filter**, **outfit-bundle**, **clarify**, and
-**respond**. Every response is grounded — the agent cannot hallucinate a price, size, or fabric
-that is not in the retrieved item data. Each product card carries a **Buy** CTA that opens the
+**respond**. Responses are checked against the retrieved item data — a validator strips sentences
+that reference a price, size, or fabric not present in it (a guard, not a guarantee). Each product card carries a **Buy** CTA that opens the
 real PDP on the brand's own site.
 
 - **INR pricing** — all prices in ₹; `price_min` / `price_max` filtering supported
@@ -25,7 +25,7 @@ real PDP on the brand's own site.
 - **Brand-isolated** — one `BRAND=` env var selects the config; all brands share a single Docker
   image and each gets its own Cloud Run service
 - **Streaming** — FastAPI WebSocket backend streams tokens to a Next.js 15 frontend
-- **Grounded** — `validate_response()` strips any sentence that references a price, size, or
+- **Grounding guard** — `validate_response()` strips any sentence that references a price, size, or
   material not present in the retrieved items
 
 ---
@@ -35,22 +35,25 @@ real PDP on the brand's own site.
 | Brand | `BRAND=` | Source | Items | Price range | Demo query |
 |---|---|---|---|---|---|
 | **H&M** | `hm` | Kaggle dataset | ~20 K | SEK | `Black slim fit jeans` |
-| **Sample IN** | `sample_in` | Bundled sample | 500 | ₹499–₹4,999 | `Casual kurtas for office` |
+| **Sample IN** | `sample_in` | Bundled sample | 200 | ₹499–₹4,999 | `Casual kurtas for office` |
 | **Myntra** | `myntra` | Kaggle dataset | 14 K | ₹169–₹47,999 | `Black kurtas under ₹1500` |
 | **Flipkart** | `flipkart` | Kaggle dataset | 15 K | ₹99–₹7,799 | `Winter jackets for men` |
-| **Snitch** | `snitch` | Live Shopify | 15 K | ₹219–₹5,699 | `Oversized streetwear shirts` |
-| **Powerlook** | `powerlook` | Live Shopify | 927 | ₹399–₹2,599 | `Formal shirts for office` |
-| **Fashor** | `fashor` | Live Shopify | 3.6 K | ₹499–₹7,799 | `Ethnic kurta sets for wedding` |
-| **Virgio** | `virgio` | Live Shopify | 1.8 K | ₹359–₹6,298 | `Sustainable linen dresses` |
+| **Snitch** | `snitch` | Live Shopify | 7,040 | ₹219–₹5,699 | `Oversized streetwear shirts` |
+| **Powerlook** | `powerlook` | Live Shopify | 963 | ₹399–₹2,599 | `Formal shirts for office` |
+| **Fashor** | `fashor` | Live Shopify | 2,343 | ₹499–₹7,799 | `Ethnic kurta sets for wedding` |
+| **Virgio** | `virgio` | Live Shopify | 1,615 | ₹359–₹6,298 | `Sustainable linen dresses` |
+
+Shopify-store item counts are the in-stock items kept after the 2026-07-12 re-sync
+(`reports/soldout_filter_fix_2026-07-12.txt`). Other rows are unaudited build-time figures.
 
 See **[BRANDS.md](BRANDS.md)** for the full reference sheet including Buy-CTA URL verification and
 instructions for adding any new Shopify brand.
 
 ---
 
-## Quick Start (under 10 minutes)
+## Quick Start
 
-Runs the **Snitch** demo — no external credentials needed except a free Groq API key.
+Runs the **Snitch** demo — no external credentials needed except a Groq API key (free tier).
 
 ### 1. Clone and install
 
@@ -69,15 +72,15 @@ cp .env.example .env
 Open `.env` and make two changes:
 
 ```
-GROQ_API_KEY=gsk_...       # your key from console.groq.com (free, no credit card)
+GROQ_API_KEY=gsk_...       # your key from console.groq.com (free tier)
 LLM_PROVIDER=groq          # uncomment this line to use Groq instead of Ollama
 ```
 
 ### 3. Download the Snitch catalogue and build the retrieval index
 
 ```bash
-python scripts/download_shopify.py --domain snitch.co.in   # ~30 s, live public API
-python scripts/01_build_retrieval.py --brand snitch --sample 0  # ~4 min on CPU
+python scripts/download_shopify.py --domain snitch.co.in   # live public API
+python scripts/01_build_retrieval.py --brand snitch --sample 0
 ```
 
 ### 4. Start the backend
@@ -127,7 +130,7 @@ theme colours, tagline, currency, sizing system, PDP URL template, and suggestio
 Docker image ships all brand configs; only the `BRAND=` environment variable and `INDEX_STORE_URI`
 differ between Cloud Run deployments.
 
-**Adding a Shopify brand takes under 10 minutes:**
+**Adding a Shopify brand is config-driven (a YAML file plus the two scripts below):**
 
 ```bash
 python scripts/download_shopify.py --domain yourbrand.com
@@ -155,7 +158,7 @@ LangGraph StateGraph
        │                                        │
        ▼                                        ▼
 HybridRetriever                            Groq LLM
-(FAISS IndexFlatIP + BM25Okapi / RRF)  (llama-3.1-8b-instant)
+(FAISS IndexFlatIP + BM25Okapi / RRF)  (gpt-oss-20b + fallbacks)
        │
 ConversationMemory (6-turn rolling window, Postgres-backed)
 ```
@@ -172,7 +175,7 @@ eliminating 6-iteration loops without relying on prompt instructions.
 | Dense retrieval | FAISS `IndexFlatIP` + `sentence-transformers/all-MiniLM-L6-v2` (384-dim) |
 | Sparse retrieval | `rank_bm25` (BM25Okapi) |
 | Fusion | Reciprocal Rank Fusion (k=60) |
-| LLM | Groq `llama-3.1-8b-instant` (swap via `config.yaml`; Ollama supported for local dev) |
+| LLM | Groq `openai/gpt-oss-20b` with fallback models (see `config.yaml`; Ollama supported for local dev) |
 | API | FastAPI + uvicorn, streaming WebSocket |
 | Frontend | Next.js 15, TanStack Query, Tailwind CSS |
 | Auth | Supabase RS256 JWT (bypassable in dev via `JWT_VERIFICATION_DISABLED=true`) |
@@ -187,14 +190,16 @@ eliminating 6-iteration loops without relying on prompt instructions.
 
 ```bash
 pytest -m "not requires_ollama"
-# → 106 passed, ~50 skipped, 0 errors
 ```
 
 Tests that need pre-built index files skip automatically on a fresh checkout. Run
 `python scripts/01_build_retrieval.py --brand snitch --sample 0` first to un-skip them.
+Last recorded full-suite run against the rebuilt index (2026-07-12): 1,325 passed, 0 failed,
+31 skipped (`reports/soldout_filter_fix_2026-07-12.txt`); counts drift as tests are added.
 
-**Eval suite (57 queries):** colour, occasion, season, style, negation, tool behaviour, 20 golden-path
-queries, and 5 multi-product queries. Run with:
+**Reference eval harness:** the committed baseline is 32 queries, 31/32 pass (April 2026, Groq;
+`reports/eval_baseline_groq.md`). Later quality gates live in `scripts/eval_gate.py` (see
+`reports/final_scorecard_2026-07-12.txt`). Run the harness with:
 
 ```bash
 python -m eval.run --provider groq
