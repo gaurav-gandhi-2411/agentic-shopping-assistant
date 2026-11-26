@@ -1,0 +1,1025 @@
+{
+ "note": "Hand-written special-case pools, violators first in retrieval order; see scripts/rerank_rules_report.py",
+ "cases": [
+  {
+   "id": "s01",
+   "text": "beach vacation dress under 2000",
+   "items": [
+    {
+     "article_id": "s01-01",
+     "display_name": "Black Bodycon Midi Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 1499.0,
+     "detail_desc": "A bodycon silhouette with a midi hem"
+    },
+    {
+     "article_id": "s01-02",
+     "display_name": "Formal Tailored Blazer Dress",
+     "colour": "Grey",
+     "product_type": "dress",
+     "price_inr": 1899.0,
+     "detail_desc": "Structured and tailored for the office"
+    },
+    {
+     "article_id": "s01-03",
+     "display_name": "Beige Structured Shift Dress",
+     "colour": "Beige",
+     "product_type": "dress",
+     "price_inr": 1299.0,
+     "detail_desc": "A structured shift cut"
+    },
+    {
+     "article_id": "s01-04",
+     "display_name": "Cotton Chinos Trousers",
+     "colour": "Khaki",
+     "product_type": "trousers",
+     "price_inr": 999.0,
+     "detail_desc": "Cotton Chinos Trousers."
+    },
+    {
+     "article_id": "s01-05",
+     "display_name": "Wool Blend Cardigan Sweater",
+     "colour": "Brown",
+     "product_type": "sweater",
+     "price_inr": 1499.0,
+     "detail_desc": "Wool Blend Cardigan Sweater."
+    },
+    {
+     "article_id": "s01-06",
+     "display_name": "White Linen Sundress",
+     "colour": "White",
+     "product_type": "dress",
+     "price_inr": 1199.0,
+     "detail_desc": "White Linen Sundress."
+    },
+    {
+     "article_id": "s01-07",
+     "display_name": "Striped Bikini Set",
+     "colour": "Blue",
+     "product_type": "swimwear",
+     "price_inr": 899.0,
+     "detail_desc": "Striped Bikini Set."
+    },
+    {
+     "article_id": "s01-08",
+     "display_name": "Floral Beach Cover-up",
+     "colour": "Yellow",
+     "product_type": "cover-up",
+     "price_inr": 799.0,
+     "detail_desc": "Floral Beach Cover-up."
+    },
+    {
+     "article_id": "s01-09",
+     "display_name": "Printed Tank Top",
+     "colour": "Coral",
+     "product_type": "top",
+     "price_inr": 499.0,
+     "detail_desc": "Printed Tank Top."
+    },
+    {
+     "article_id": "s01-10",
+     "display_name": "Cotton Board Shorts",
+     "colour": "Navy",
+     "product_type": "shorts",
+     "price_inr": 699.0,
+     "detail_desc": "Cotton Board Shorts."
+    },
+    {
+     "article_id": "s01-11",
+     "display_name": "Boho Maxi Beach Dress",
+     "colour": "Teal",
+     "product_type": "dress",
+     "price_inr": 1599.0,
+     "detail_desc": "Boho Maxi Beach Dress."
+    },
+    {
+     "article_id": "s01-12",
+     "display_name": "Denim Jacket",
+     "colour": "Blue",
+     "product_type": "jacket",
+     "price_inr": 1799.0,
+     "detail_desc": "Denim Jacket."
+    }
+   ]
+  },
+  {
+   "id": "s02",
+   "text": "pool party outfit for women",
+   "items": [
+    {
+     "article_id": "s02-01",
+     "display_name": "Beige Sand Knit Top",
+     "colour": "Beige",
+     "product_type": "top",
+     "price_inr": 899.0,
+     "detail_desc": "Beige Sand Knit Top."
+    },
+    {
+     "article_id": "s02-02",
+     "display_name": "Heavy Wool Sweater",
+     "colour": "Grey",
+     "product_type": "sweater",
+     "price_inr": 1599.0,
+     "detail_desc": "Heavy Wool Sweater."
+    },
+    {
+     "article_id": "s02-03",
+     "display_name": "Slim Fit Jeans",
+     "colour": "Blue",
+     "product_type": "jeans",
+     "price_inr": 1299.0,
+     "detail_desc": "Slim Fit Jeans."
+    },
+    {
+     "article_id": "s02-04",
+     "display_name": "Red Bikini Top",
+     "colour": "Red",
+     "product_type": "swimwear",
+     "price_inr": 599.0,
+     "detail_desc": "Red Bikini Top."
+    },
+    {
+     "article_id": "s02-05",
+     "display_name": "Sarong Wrap Skirt",
+     "colour": "Green",
+     "product_type": "skirt",
+     "price_inr": 699.0,
+     "detail_desc": "Sarong Wrap Skirt."
+    },
+    {
+     "article_id": "s02-06",
+     "display_name": "White Cotton Sundress",
+     "colour": "White",
+     "product_type": "dress",
+     "price_inr": 999.0,
+     "detail_desc": "White Cotton Sundress."
+    },
+    {
+     "article_id": "s02-07",
+     "display_name": "Printed Swimsuit",
+     "colour": "Pink",
+     "product_type": "swimsuit",
+     "price_inr": 1099.0,
+     "detail_desc": "Printed Swimsuit."
+    },
+    {
+     "article_id": "s02-08",
+     "display_name": "Formal Silk Blouse",
+     "colour": "White",
+     "product_type": "blouse",
+     "price_inr": 1399.0,
+     "detail_desc": "Formal Silk Blouse."
+    },
+    {
+     "article_id": "s02-09",
+     "display_name": "Casual Tank Top",
+     "colour": "Yellow",
+     "product_type": "top",
+     "price_inr": 399.0,
+     "detail_desc": "Casual Tank Top."
+    },
+    {
+     "article_id": "s02-10",
+     "display_name": "Flip-Flops",
+     "colour": "Black",
+     "product_type": "footwear",
+     "price_inr": 299.0,
+     "detail_desc": "Flip-Flops."
+    },
+    {
+     "article_id": "s02-11",
+     "display_name": "Wool Overcoat",
+     "colour": "Camel",
+     "product_type": "coat",
+     "price_inr": 2999.0,
+     "detail_desc": "Wool Overcoat."
+    },
+    {
+     "article_id": "s02-12",
+     "display_name": "Light Linen Shirt",
+     "colour": "Blue",
+     "product_type": "shirt",
+     "price_inr": 899.0,
+     "detail_desc": "Light Linen Shirt."
+    }
+   ]
+  },
+  {
+   "id": "s03",
+   "text": "date night dress",
+   "items": [
+    {
+     "article_id": "s03-01",
+     "display_name": "Cotton Pyjama Set",
+     "colour": "Black",
+     "product_type": "sleepwear",
+     "price_inr": 799.0,
+     "detail_desc": "Cotton Pyjama Set."
+    },
+    {
+     "article_id": "s03-02",
+     "display_name": "Beige Ribbed Midi Dress",
+     "colour": "Beige",
+     "product_type": "dress",
+     "price_inr": 1399.0,
+     "detail_desc": "Beige Ribbed Midi Dress."
+    },
+    {
+     "article_id": "s03-03",
+     "display_name": "Brown Knit Sweater Dress",
+     "colour": "Brown",
+     "product_type": "dress",
+     "price_inr": 1699.0,
+     "detail_desc": "Brown Knit Sweater Dress."
+    },
+    {
+     "article_id": "s03-04",
+     "display_name": "Pastel Pink Skater Dress",
+     "colour": "Pastel Pink",
+     "product_type": "dress",
+     "price_inr": 1299.0,
+     "detail_desc": "Pastel Pink Skater Dress."
+    },
+    {
+     "article_id": "s03-05",
+     "display_name": "Black Satin Slip Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 1999.0,
+     "detail_desc": "Black Satin Slip Dress."
+    },
+    {
+     "article_id": "s03-06",
+     "display_name": "Black Bodycon Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 1799.0,
+     "detail_desc": "Black Bodycon Dress."
+    },
+    {
+     "article_id": "s03-07",
+     "display_name": "Black Velvet Wrap Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2199.0,
+     "detail_desc": "Black Velvet Wrap Dress."
+    },
+    {
+     "article_id": "s03-08",
+     "display_name": "Black Lace Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2499.0,
+     "detail_desc": "Black Lace Dress."
+    },
+    {
+     "article_id": "s03-09",
+     "display_name": "Black Off-Shoulder Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 1899.0,
+     "detail_desc": "Black Off-Shoulder Dress."
+    },
+    {
+     "article_id": "s03-10",
+     "display_name": "Wine Red Satin Dress",
+     "colour": "Wine",
+     "product_type": "dress",
+     "price_inr": 2299.0,
+     "detail_desc": "Wine Red Satin Dress."
+    },
+    {
+     "article_id": "s03-11",
+     "display_name": "Emerald Green Dress",
+     "colour": "Emerald Green",
+     "product_type": "dress",
+     "price_inr": 2399.0,
+     "detail_desc": "Emerald Green Dress."
+    },
+    {
+     "article_id": "s03-12",
+     "display_name": "Casual Graphic T-Shirt",
+     "colour": "White",
+     "product_type": "t-shirt",
+     "price_inr": 499.0,
+     "detail_desc": "Casual Graphic T-Shirt."
+    }
+   ]
+  },
+  {
+   "id": "s04",
+   "text": "evening out outfit women",
+   "items": [
+    {
+     "article_id": "s04-01",
+     "display_name": "Camel Hooded Sweatshirt",
+     "colour": "Camel",
+     "product_type": "sweatshirt",
+     "price_inr": 1299.0,
+     "detail_desc": "Camel Hooded Sweatshirt."
+    },
+    {
+     "article_id": "s04-02",
+     "display_name": "Light Brown Cotton Hoodie",
+     "colour": "Light Brown",
+     "product_type": "hoodie",
+     "price_inr": 1199.0,
+     "detail_desc": "Light Brown Cotton Hoodie."
+    },
+    {
+     "article_id": "s04-03",
+     "display_name": "Plain White T-Shirt",
+     "colour": "White",
+     "product_type": "t-shirt",
+     "price_inr": 399.0,
+     "detail_desc": "Plain White T-Shirt."
+    },
+    {
+     "article_id": "s04-04",
+     "display_name": "Silk Pyjama Night Suit",
+     "colour": "Red",
+     "product_type": "sleepwear",
+     "price_inr": 1599.0,
+     "detail_desc": "Silk Pyjama Night Suit."
+    },
+    {
+     "article_id": "s04-05",
+     "display_name": "Black Sequin Top",
+     "colour": "Black",
+     "product_type": "top",
+     "price_inr": 1499.0,
+     "detail_desc": "Black Sequin Top."
+    },
+    {
+     "article_id": "s04-06",
+     "display_name": "Burgundy Satin Dress",
+     "colour": "Burgundy",
+     "product_type": "dress",
+     "price_inr": 2199.0,
+     "detail_desc": "Burgundy Satin Dress."
+    },
+    {
+     "article_id": "s04-07",
+     "display_name": "Black Co-ord Set",
+     "colour": "Black",
+     "product_type": "co-ord",
+     "price_inr": 2499.0,
+     "detail_desc": "Black Co-ord Set."
+    },
+    {
+     "article_id": "s04-08",
+     "display_name": "Navy Blue Jumpsuit",
+     "colour": "Navy Blue",
+     "product_type": "jumpsuit",
+     "price_inr": 2299.0,
+     "detail_desc": "Navy Blue Jumpsuit."
+    },
+    {
+     "article_id": "s04-09",
+     "display_name": "Black Palazzo Pants",
+     "colour": "Black",
+     "product_type": "pants",
+     "price_inr": 1299.0,
+     "detail_desc": "Black Palazzo Pants."
+    },
+    {
+     "article_id": "s04-10",
+     "display_name": "Emerald Wrap Dress",
+     "colour": "Emerald Green",
+     "product_type": "dress",
+     "price_inr": 2399.0,
+     "detail_desc": "Emerald Wrap Dress."
+    },
+    {
+     "article_id": "s04-11",
+     "display_name": "Black Blazer",
+     "colour": "Black",
+     "product_type": "blazer",
+     "price_inr": 2999.0,
+     "detail_desc": "Black Blazer."
+    },
+    {
+     "article_id": "s04-12",
+     "display_name": "Gold Sandals",
+     "colour": "Gold",
+     "product_type": "footwear",
+     "price_inr": 1499.0,
+     "detail_desc": "Gold Sandals."
+    }
+   ]
+  },
+  {
+   "id": "s05",
+   "text": "winter wedding guest outfit",
+   "items": [
+    {
+     "article_id": "s05-01",
+     "display_name": "Cotton Shorts Set",
+     "colour": "Blue",
+     "product_type": "shorts",
+     "price_inr": 899.0,
+     "detail_desc": "Cotton Shorts Set."
+    },
+    {
+     "article_id": "s05-02",
+     "display_name": "Beach Bikini",
+     "colour": "Pink",
+     "product_type": "swimwear",
+     "price_inr": 799.0,
+     "detail_desc": "Beach Bikini."
+    },
+    {
+     "article_id": "s05-03",
+     "display_name": "Open Toe Sandals",
+     "colour": "Beige",
+     "product_type": "sandals",
+     "price_inr": 999.0,
+     "detail_desc": "Open Toe Sandals."
+    },
+    {
+     "article_id": "s05-04",
+     "display_name": "Beige Linen Dress",
+     "colour": "Beige",
+     "product_type": "dress",
+     "price_inr": 1699.0,
+     "detail_desc": "Beige Linen Dress."
+    },
+    {
+     "article_id": "s05-05",
+     "display_name": "Brown Casual Hoodie",
+     "colour": "Brown",
+     "product_type": "hoodie",
+     "price_inr": 1499.0,
+     "detail_desc": "Brown Casual Hoodie."
+    },
+    {
+     "article_id": "s05-06",
+     "display_name": "Velvet Anarkali Suit",
+     "colour": "Maroon",
+     "product_type": "suit",
+     "price_inr": 3499.0,
+     "detail_desc": "Velvet Anarkali Suit."
+    },
+    {
+     "article_id": "s05-07",
+     "display_name": "Wool Blend Coat Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 3999.0,
+     "detail_desc": "Wool Blend Coat Dress."
+    },
+    {
+     "article_id": "s05-08",
+     "display_name": "Embroidered Shawl Saree",
+     "colour": "Green",
+     "product_type": "saree",
+     "price_inr": 3299.0,
+     "detail_desc": "Embroidered Shawl Saree."
+    },
+    {
+     "article_id": "s05-09",
+     "display_name": "Silk Lehenga Choli",
+     "colour": "Red",
+     "product_type": "lehenga",
+     "price_inr": 4499.0,
+     "detail_desc": "Silk Lehenga Choli."
+    },
+    {
+     "article_id": "s05-10",
+     "display_name": "Full Sleeve Velvet Gown",
+     "colour": "Wine",
+     "product_type": "gown",
+     "price_inr": 3799.0,
+     "detail_desc": "Full Sleeve Velvet Gown."
+    },
+    {
+     "article_id": "s05-11",
+     "display_name": "Pastel Peach Kurta Set",
+     "colour": "Peach",
+     "product_type": "kurta set",
+     "price_inr": 2599.0,
+     "detail_desc": "Pastel Peach Kurta Set."
+    },
+    {
+     "article_id": "s05-12",
+     "display_name": "Navy Bandhgala Jacket",
+     "colour": "Navy Blue",
+     "product_type": "jacket",
+     "price_inr": 3199.0,
+     "detail_desc": "Navy Bandhgala Jacket."
+    }
+   ]
+  },
+  {
+   "id": "s06",
+   "text": "summer party dress",
+   "items": [
+    {
+     "article_id": "s06-01",
+     "display_name": "Heavy Wool Overcoat",
+     "colour": "Black",
+     "product_type": "coat",
+     "price_inr": 3999.0,
+     "detail_desc": "Heavy Wool Overcoat."
+    },
+    {
+     "article_id": "s06-02",
+     "display_name": "Chunky Knit Sweater",
+     "colour": "Grey",
+     "product_type": "sweater",
+     "price_inr": 1799.0,
+     "detail_desc": "Chunky Knit Sweater."
+    },
+    {
+     "article_id": "s06-03",
+     "display_name": "Quilted Puffer Jacket",
+     "colour": "Black",
+     "product_type": "jacket",
+     "price_inr": 2999.0,
+     "detail_desc": "Quilted Puffer Jacket."
+    },
+    {
+     "article_id": "s06-04",
+     "display_name": "Cotton Sundress",
+     "colour": "Yellow",
+     "product_type": "dress",
+     "price_inr": 1299.0,
+     "detail_desc": "Cotton Sundress."
+    },
+    {
+     "article_id": "s06-05",
+     "display_name": "Linen Wrap Dress",
+     "colour": "White",
+     "product_type": "dress",
+     "price_inr": 1699.0,
+     "detail_desc": "Linen Wrap Dress."
+    },
+    {
+     "article_id": "s06-06",
+     "display_name": "Chiffon Maxi Dress",
+     "colour": "Coral",
+     "product_type": "dress",
+     "price_inr": 1999.0,
+     "detail_desc": "Chiffon Maxi Dress."
+    },
+    {
+     "article_id": "s06-07",
+     "display_name": "Floral Skater Dress",
+     "colour": "Pink",
+     "product_type": "dress",
+     "price_inr": 1499.0,
+     "detail_desc": "Floral Skater Dress."
+    },
+    {
+     "article_id": "s06-08",
+     "display_name": "Printed Midi Dress",
+     "colour": "Blue",
+     "product_type": "dress",
+     "price_inr": 1599.0,
+     "detail_desc": "Printed Midi Dress."
+    },
+    {
+     "article_id": "s06-09",
+     "display_name": "Satin Slip Dress",
+     "colour": "Green",
+     "product_type": "dress",
+     "price_inr": 1899.0,
+     "detail_desc": "Satin Slip Dress."
+    },
+    {
+     "article_id": "s06-10",
+     "display_name": "Halter Neck Dress",
+     "colour": "Red",
+     "product_type": "dress",
+     "price_inr": 1799.0,
+     "detail_desc": "Halter Neck Dress."
+    },
+    {
+     "article_id": "s06-11",
+     "display_name": "Parka With Fur Hood",
+     "colour": "Olive",
+     "product_type": "jacket",
+     "price_inr": 3499.0,
+     "detail_desc": "Parka With Fur Hood."
+    },
+    {
+     "article_id": "s06-12",
+     "display_name": "Tiered Cotton Dress",
+     "colour": "Orange",
+     "product_type": "dress",
+     "price_inr": 1399.0,
+     "detail_desc": "Tiered Cotton Dress."
+    }
+   ]
+  },
+  {
+   "id": "s07",
+   "text": "monsoon kurta for women",
+   "items": [
+    {
+     "article_id": "s07-01",
+     "display_name": "Cotton Printed Kurta",
+     "colour": "Blue",
+     "product_type": "kurta",
+     "price_inr": 799.0,
+     "detail_desc": "Cotton Printed Kurta."
+    },
+    {
+     "article_id": "s07-02",
+     "display_name": "Rayon Straight Kurta",
+     "colour": "Green",
+     "product_type": "kurta",
+     "price_inr": 899.0,
+     "detail_desc": "Rayon Straight Kurta."
+    },
+    {
+     "article_id": "s07-03",
+     "display_name": "Quick Dry Kurta Set",
+     "colour": "Teal",
+     "product_type": "kurta set",
+     "price_inr": 1299.0,
+     "detail_desc": "Quick Dry Kurta Set."
+    },
+    {
+     "article_id": "s07-04",
+     "display_name": "Chikankari Kurta",
+     "colour": "White",
+     "product_type": "kurta",
+     "price_inr": 1499.0,
+     "detail_desc": "Chikankari Kurta."
+    },
+    {
+     "article_id": "s07-05",
+     "display_name": "Anarkali Kurta",
+     "colour": "Maroon",
+     "product_type": "kurta",
+     "price_inr": 1699.0,
+     "detail_desc": "Anarkali Kurta."
+    },
+    {
+     "article_id": "s07-06",
+     "display_name": "Block Print Kurta",
+     "colour": "Yellow",
+     "product_type": "kurta",
+     "price_inr": 999.0,
+     "detail_desc": "Block Print Kurta."
+    },
+    {
+     "article_id": "s07-07",
+     "display_name": "Linen A-Line Kurta",
+     "colour": "Beige",
+     "product_type": "kurta",
+     "price_inr": 1199.0,
+     "detail_desc": "Linen A-Line Kurta."
+    },
+    {
+     "article_id": "s07-08",
+     "display_name": "Embroidered Kurta",
+     "colour": "Pink",
+     "product_type": "kurta",
+     "price_inr": 1399.0,
+     "detail_desc": "Embroidered Kurta."
+    },
+    {
+     "article_id": "s07-09",
+     "display_name": "Short Kurti",
+     "colour": "Red",
+     "product_type": "kurta",
+     "price_inr": 699.0,
+     "detail_desc": "Short Kurti."
+    },
+    {
+     "article_id": "s07-10",
+     "display_name": "Kurta With Palazzo",
+     "colour": "Navy Blue",
+     "product_type": "kurta set",
+     "price_inr": 1599.0,
+     "detail_desc": "Kurta With Palazzo."
+    },
+    {
+     "article_id": "s07-11",
+     "display_name": "Georgette Kurta",
+     "colour": "Purple",
+     "product_type": "kurta",
+     "price_inr": 1299.0,
+     "detail_desc": "Georgette Kurta."
+    },
+    {
+     "article_id": "s07-12",
+     "display_name": "Cotton Kurta Pant Set",
+     "colour": "Grey",
+     "product_type": "kurta set",
+     "price_inr": 1499.0,
+     "detail_desc": "Cotton Kurta Pant Set."
+    }
+   ]
+  },
+  {
+   "id": "s08",
+   "text": "office wear for women under 3000",
+   "items": [
+    {
+     "article_id": "s08-01",
+     "display_name": "Cotton Night Suit",
+     "colour": "Pink",
+     "product_type": "sleepwear",
+     "price_inr": 899.0,
+     "detail_desc": "Cotton Night Suit."
+    },
+    {
+     "article_id": "s08-02",
+     "display_name": "Silk Pyjama Set",
+     "colour": "Blue",
+     "product_type": "sleepwear",
+     "price_inr": 1299.0,
+     "detail_desc": "Silk Pyjama Set."
+    },
+    {
+     "article_id": "s08-03",
+     "display_name": "Lace Lingerie Set",
+     "colour": "Black",
+     "product_type": "lingerie",
+     "price_inr": 999.0,
+     "detail_desc": "Lace Lingerie Set."
+    },
+    {
+     "article_id": "s08-04",
+     "display_name": "Floral Bikini",
+     "colour": "Red",
+     "product_type": "swimwear",
+     "price_inr": 799.0,
+     "detail_desc": "Floral Bikini."
+    },
+    {
+     "article_id": "s08-05",
+     "display_name": "Tailored Blazer",
+     "colour": "Navy Blue",
+     "product_type": "blazer",
+     "price_inr": 2499.0,
+     "detail_desc": "Tailored Blazer."
+    },
+    {
+     "article_id": "s08-06",
+     "display_name": "Formal Trousers",
+     "colour": "Black",
+     "product_type": "trousers",
+     "price_inr": 1499.0,
+     "detail_desc": "Formal Trousers."
+    },
+    {
+     "article_id": "s08-07",
+     "display_name": "Crepe Shirt",
+     "colour": "White",
+     "product_type": "shirt",
+     "price_inr": 1199.0,
+     "detail_desc": "Crepe Shirt."
+    },
+    {
+     "article_id": "s08-08",
+     "display_name": "Pencil Skirt",
+     "colour": "Grey",
+     "product_type": "skirt",
+     "price_inr": 1299.0,
+     "detail_desc": "Pencil Skirt."
+    },
+    {
+     "article_id": "s08-09",
+     "display_name": "Smart Casual Kurta",
+     "colour": "Blue",
+     "product_type": "kurta",
+     "price_inr": 1199.0,
+     "detail_desc": "Smart Casual Kurta."
+    },
+    {
+     "article_id": "s08-10",
+     "display_name": "Straight Fit Pants",
+     "colour": "Beige",
+     "product_type": "pants",
+     "price_inr": 1399.0,
+     "detail_desc": "Straight Fit Pants."
+    },
+    {
+     "article_id": "s08-11",
+     "display_name": "Button Down Shirt Dress",
+     "colour": "Blue",
+     "product_type": "dress",
+     "price_inr": 1799.0,
+     "detail_desc": "Button Down Shirt Dress."
+    },
+    {
+     "article_id": "s08-12",
+     "display_name": "Wrap Top",
+     "colour": "Maroon",
+     "product_type": "top",
+     "price_inr": 999.0,
+     "detail_desc": "Wrap Top."
+    }
+   ]
+  },
+  {
+   "id": "s09",
+   "text": "haldi outfit for men",
+   "items": [
+    {
+     "article_id": "s09-01",
+     "display_name": "Cotton Pyjama Night Suit",
+     "colour": "Yellow",
+     "product_type": "sleepwear",
+     "price_inr": 899.0,
+     "detail_desc": "Cotton Pyjama Night Suit."
+    },
+    {
+     "article_id": "s09-02",
+     "display_name": "Boxer Briefs Pack",
+     "colour": "Blue",
+     "product_type": "underwear",
+     "price_inr": 499.0,
+     "detail_desc": "Boxer Briefs Pack."
+    },
+    {
+     "article_id": "s09-03",
+     "display_name": "Swim Shorts",
+     "colour": "Yellow",
+     "product_type": "swimwear",
+     "price_inr": 699.0,
+     "detail_desc": "Swim Shorts."
+    },
+    {
+     "article_id": "s09-04",
+     "display_name": "Yellow Kurta Pyjama Set",
+     "colour": "Yellow",
+     "product_type": "kurta set",
+     "price_inr": 1999.0,
+     "detail_desc": "Yellow Kurta Pyjama Set."
+    },
+    {
+     "article_id": "s09-05",
+     "display_name": "White Cotton Kurta Pajama",
+     "colour": "White",
+     "product_type": "kurta set",
+     "price_inr": 1799.0,
+     "detail_desc": "White Cotton Kurta Pajama."
+    },
+    {
+     "article_id": "s09-06",
+     "display_name": "Printed Haldi Kurta",
+     "colour": "Yellow",
+     "product_type": "kurta",
+     "price_inr": 1499.0,
+     "detail_desc": "Printed Haldi Kurta."
+    },
+    {
+     "article_id": "s09-07",
+     "display_name": "Linen Kurta Churidar",
+     "colour": "Cream",
+     "product_type": "kurta set",
+     "price_inr": 2199.0,
+     "detail_desc": "Linen Kurta Churidar."
+    },
+    {
+     "article_id": "s09-08",
+     "display_name": "Floral Nehru Jacket",
+     "colour": "Yellow",
+     "product_type": "jacket",
+     "price_inr": 1799.0,
+     "detail_desc": "Floral Nehru Jacket."
+    },
+    {
+     "article_id": "s09-09",
+     "display_name": "Silk Short Kurta",
+     "colour": "Orange",
+     "product_type": "kurta",
+     "price_inr": 1999.0,
+     "detail_desc": "Silk Short Kurta."
+    },
+    {
+     "article_id": "s09-10",
+     "display_name": "Mirror Work Kurta",
+     "colour": "Green",
+     "product_type": "kurta",
+     "price_inr": 2299.0,
+     "detail_desc": "Mirror Work Kurta."
+    },
+    {
+     "article_id": "s09-11",
+     "display_name": "Pastel Yellow Kurta Set",
+     "colour": "Yellow",
+     "product_type": "kurta set",
+     "price_inr": 2499.0,
+     "detail_desc": "Pastel Yellow Kurta Set."
+    },
+    {
+     "article_id": "s09-12",
+     "display_name": "Dhoti Kurta Set",
+     "colour": "Cream",
+     "product_type": "kurta set",
+     "price_inr": 2599.0,
+     "detail_desc": "Dhoti Kurta Set."
+    }
+   ]
+  },
+  {
+   "id": "s10",
+   "text": "cocktail party dress",
+   "items": [
+    {
+     "article_id": "s10-01",
+     "display_name": "Camel Sweater Dress",
+     "colour": "Camel",
+     "product_type": "dress",
+     "price_inr": 1699.0,
+     "detail_desc": "Camel Sweater Dress."
+    },
+    {
+     "article_id": "s10-02",
+     "display_name": "Beige Shirt Dress",
+     "colour": "Beige",
+     "product_type": "dress",
+     "price_inr": 1399.0,
+     "detail_desc": "Beige Shirt Dress."
+    },
+    {
+     "article_id": "s10-03",
+     "display_name": "Black Graphic Tee Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 899.0,
+     "detail_desc": "Black Graphic Tee Dress."
+    },
+    {
+     "article_id": "s10-04",
+     "display_name": "Black Sequin Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2999.0,
+     "detail_desc": "Black Sequin Dress."
+    },
+    {
+     "article_id": "s10-05",
+     "display_name": "Black Satin Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2499.0,
+     "detail_desc": "Black Satin Dress."
+    },
+    {
+     "article_id": "s10-06",
+     "display_name": "Black Velvet Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2799.0,
+     "detail_desc": "Black Velvet Dress."
+    },
+    {
+     "article_id": "s10-07",
+     "display_name": "Black Bodycon Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 1999.0,
+     "detail_desc": "Black Bodycon Dress."
+    },
+    {
+     "article_id": "s10-08",
+     "display_name": "Black Lace Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2399.0,
+     "detail_desc": "Black Lace Dress."
+    },
+    {
+     "article_id": "s10-09",
+     "display_name": "Black Wrap Dress",
+     "colour": "Black",
+     "product_type": "dress",
+     "price_inr": 2199.0,
+     "detail_desc": "Black Wrap Dress."
+    },
+    {
+     "article_id": "s10-10",
+     "display_name": "Red Satin Dress",
+     "colour": "Red",
+     "product_type": "dress",
+     "price_inr": 2599.0,
+     "detail_desc": "Red Satin Dress."
+    },
+    {
+     "article_id": "s10-11",
+     "display_name": "Emerald Green Dress",
+     "colour": "Emerald Green",
+     "product_type": "dress",
+     "price_inr": 2699.0,
+     "detail_desc": "Emerald Green Dress."
+    },
+    {
+     "article_id": "s10-12",
+     "display_name": "Gold Sequin Dress",
+     "colour": "Gold",
+     "product_type": "dress",
+     "price_inr": 3199.0,
+     "detail_desc": "Gold Sequin Dress."
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,1889 @@
+{
+ "summary": {
+  "n_llm_queries": 53,
+  "n_ndcg": 49,
+  "excluded": {
+   "pool_le_top_k_or_empty": 7,
+   "ndcg_undefined_all_zero_pool": [
+    "q09",
+    "q22",
+    "q29",
+    "q35"
+   ]
+  },
+  "ndcg5_production": 0.8900213561965676,
+  "ndcg5_eval_c": 0.8644033380665298,
+  "diff_prod_minus_c": {
+   "mean": 0.025618018130037713,
+   "ci_lo": -0.0072682610364654295,
+   "ci_hi": 0.07586887994165128,
+   "margin": -0.03,
+   "n_boot": 10000,
+   "seed": 42
+  },
+  "outcomes": {
+   "ok": 41,
+   "partial": 10,
+   "empty_selection": 2
+  },
+  "length_hits": 0,
+  "failure_rate": 0.0,
+  "paths": {
+   "primary": 53
+  },
+  "rule_violations_top5": {
+   "production": {
+    "violations": 0,
+    "queries_with_violation": 0
+   },
+   "eval_c_no_rules": {
+    "violations": 1,
+    "queries_with_violation": 1
+   },
+   "eval_a_old_master": {
+    "violations": 1,
+    "queries_with_violation": 1
+   }
+  },
+  "tokens_per_turn_mean": 745.4716981132076,
+  "latency_ms_p50": 700.0,
+  "latency_ms_p95": 900.8,
+  "pass_ndcg": true,
+  "pass_failure_bar": true,
+  "mode": "live"
+ },
+ "rows": [
+  {
+   "query_id": "q01",
+   "text": "grey indo-westen anarkali gown sangeet women <3000",
+   "final_ids": [
+    "6883946594461",
+    "9496805277993",
+    "7553271365854",
+    "6883946659997",
+    "10118350537001"
+   ],
+   "shown_titles": [
+    "Women Floral Print Maxi-Fit Casual Dress (Grey dress)",
+    "Leisha|Viscose Stretch Bodycon Mini Dress (Grey dress)",
+    "Women Grey leopard Printed Tunic Dress (Grey dress)",
+    "Grey Floral Maxi-Fit Flared Dress (Grey dress)",
+    "Greyla|Cotton Broad Waist Yoke Mini Dress (Grey dress)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 378,
+   "completion_tokens": 80,
+   "reasoning_tokens": 56,
+   "latency_ms": 887,
+   "n_candidates": 8,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q02",
+   "text": "kuta haldi men",
+   "final_ids": [
+    "9724039528754",
+    "9724053258546",
+    "8978960056578",
+    "9114926612738",
+    "8976982049026"
+   ],
+   "shown_titles": [
+    "Haldi Yellow Printed Cotton Silk Blend Kurta | The Kurta Company (Yellow kurta)",
+    "Haldi Yellow Printed Silk Blend Kurta | The Kurta Company (Yellow kurta)",
+    "Men's Yellow Lehariya Cotton Kurta (Yellow kurta)",
+    "Men's Mustard Cotton Linen Long Kurta (Yellow kurta)",
+    "Men's Mustard Bandhni Rayon Kurta (Yellow kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 698,
+   "completion_tokens": 78,
+   "reasoning_tokens": 54,
+   "latency_ms": 683,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q03",
+   "text": "Can you suggest pink palazzo kurta set for a woman to wear to mehendi? I want it to look elegant but stay comfortable.",
+   "final_ids": [
+    "7612312289366",
+    "7918703673430",
+    "7910954041430",
+    "7947573723222",
+    "8545324236950"
+   ],
+   "shown_titles": [
+    "Solid A-Line Flared Kurta with Floral Printed Palazzo - Pink (Pink kurta)",
+    "Pink Floral Printed Straight Kurta with Palazzo (Pink kurta)",
+    "Abstract Printed Straight Kurta with Palazzo- Pink (Pink kurta)",
+    "Floral Jacquard Woven Straight Kurta with Palazzo - Pink (Pink kurta)",
+    "Pink Printed Crepe A-Line Kurta Set (Pink kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 711,
+   "completion_tokens": 206,
+   "reasoning_tokens": 182,
+   "latency_ms": 828,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q04",
+   "text": "Need men's kurta set for shaadi yaar, budget 5000 max",
+   "final_ids": [
+    "7675979169944",
+    "7666297176216",
+    "7842188001432",
+    "8979444990210",
+    "7675979497624"
+   ],
+   "shown_titles": [
+    "Men's Off White Kurta Churidar Set (Off White kurta)",
+    "Men's Navy Blue Kurta Churidar Set (Dark Blue kurta)",
+    "Men Green Kurta Dhoti Set (Green kurta)",
+    "Plus Men's Black Cotton Linen Kurta Pyjama Set (Black kurta)",
+    "Black Cotton Printed Kurta Patiyala Set (Black kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 645,
+   "completion_tokens": 164,
+   "reasoning_tokens": 140,
+   "latency_ms": 564,
+   "n_candidates": 18,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q05",
+   "text": "Need navy outfit for reception party yaar, budget 3000 max",
+   "final_ids": [
+    "7891315458270",
+    "8828902146200",
+    "9635298640178",
+    "8776747384994",
+    "9335685841202"
+   ],
+   "shown_titles": [
+    "Navy Shimmery Sheath Party Dress (Dark Blue dress)",
+    "Navy Blue Silk Blend Printed Nehru Jacket (Dark Blue outerwear)",
+    "Navy Blue Solid Slim Fit Party Wear Shirt | JB Studio (Dark Blue shirt)",
+    "Navy Box Fit Shirt (Dark Blue shirt)",
+    "Navy Blue Printed Slim Fit Party Wear Shirt | Greenfibre (Dark Blue shirt)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 702,
+   "completion_tokens": 196,
+   "reasoning_tokens": 172,
+   "latency_ms": 727,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q06",
+   "text": "women's shirt for office under \u20b91000",
+   "final_ids": [
+    "9964610289961",
+    "8630212427926",
+    "8630212329622",
+    "9964609995049",
+    "7417532907606"
+   ],
+   "shown_titles": [
+    "Jaida|100% Cotton Slim Fit Shirt (White shirt)",
+    "Off White Abstract Printed Cotton Shirt (Off White shirt)",
+    "Off White Floral Printed Cotton Shirt (Off White shirt)",
+    "Jaina| 100% Cotton Striped Regular Fit Shirt (White shirt)",
+    "Abstract Floral Printed Straight Fit Shirt - White (White shirt)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 561,
+   "completion_tokens": 140,
+   "reasoning_tokens": 116,
+   "latency_ms": 502,
+   "n_candidates": 16,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q07",
+   "text": "men's white kurta for diwali under \u20b93000",
+   "final_ids": [
+    "9492013580546",
+    "9724032287026",
+    "7675974287512",
+    "9257303769312",
+    "9724039168306"
+   ],
+   "shown_titles": [
+    "Men Silk Solid Kurta (White kurta)",
+    "White Kurta | The Kurta Company (White kurta)",
+    "Men White Woven Design Kurta (White kurta)",
+    "Luxury Festive Ethnic Kurta for Men (White kurta)",
+    "White Solid Cotton Blend Kurta | The Kurta Company (White kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 441,
+   "completion_tokens": 84,
+   "reasoning_tokens": 60,
+   "latency_ms": 743,
+   "n_candidates": 10,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q08",
+   "text": "coton kurta casual daily women <3000",
+   "final_ids": [
+    "8404036616414",
+    "8529646289046",
+    "9058836381954",
+    "8201213018334",
+    "8404036288734"
+   ],
+   "shown_titles": [
+    "Women Black V-Neck Cotton Kurta (Black kurta)",
+    "Plus Size Purple Printed Cotton Straight Kurta (Purple kurta)",
+    "Women's Rust Printed Cambric Cotton Straight Kurta (Rust kurta)",
+    "Rust Embroidered Woolen Kurta (Red kurta)",
+    "Women Brown Cotton Kurta (Brown kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 393,
+   "completion_tokens": 90,
+   "reasoning_tokens": 66,
+   "latency_ms": 827,
+   "n_candidates": 8,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q09",
+   "text": "red hodie college men <5000",
+   "final_ids": [
+    "7659219189982",
+    "8542301061282",
+    "7605162279064",
+    "8290844639384",
+    "9488846782722"
+   ],
+   "shown_titles": [
+    "Men Red Alpha Printed Illusion T-Shirt (Red top)",
+    "Red Abstract Slim Fit Shirt (Red shirt)",
+    "Men Red Ethnic Motifs Kurta (Red kurta)",
+    "Men Red Solid Dyed Kurta (Red kurta)",
+    "Men's Red Georgette Geometry Thigh Length Kurta (Red kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 676,
+   "completion_tokens": 72,
+   "reasoning_tokens": 48,
+   "latency_ms": 692,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q10",
+   "text": "Can you suggest outfit for someone to wear to date night? I want it to look elegant but stay comfortable.",
+   "final_ids": [
+    "8965691867358",
+    "8717992689920",
+    "8843208261882",
+    "7096799002667",
+    "4363946623019"
+   ],
+   "shown_titles": [
+    "Black Fit & Flare Textured Midi Dress (Black dress)",
+    "Do-It-All Dress ( dress)",
+    "Navy Abstract Print Shirt 100% Cotton (Navy Blue shirt)",
+    "Lock Hoop Earrings (Black Earrings)",
+    "Heart Heart Earrings (Black Earrings)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 647,
+   "completion_tokens": 138,
+   "reasoning_tokens": 114,
+   "latency_ms": 646,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 2,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q12",
+   "text": "Need men's kolhapuri sandals for shaadi yaar, budget 1000 max",
+   "final_ids": [
+    "9214341742823",
+    "9214341677287",
+    "9214341710055",
+    "9214341251303",
+    "9368246386944"
+   ],
+   "shown_titles": [
+    "3K-908A Green Men's Sandals (Green footwear)",
+    "3K-908A Blue Men's Sandals (Blue footwear)",
+    "3K-908A Brown Men's Sandals (Brown footwear)",
+    "2GC-18A Black Men's Sandals (Black footwear)",
+    "Tan Leather Men's Classic Jodhpuri Mojaris (Brown footwear)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 693,
+   "completion_tokens": 117,
+   "reasoning_tokens": 99,
+   "latency_ms": 1793,
+   "n_candidates": 20,
+   "n_selected": 5,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q14",
+   "text": "men's kurta pyjama set for a haldi ceremony under \u20b93000",
+   "final_ids": [
+    "8979443351810",
+    "9724038676786",
+    "9724038644018",
+    "8373757968551",
+    "8821792932007"
+   ],
+   "shown_titles": [
+    "Plus Men's Cream Cotton Blend Kurta And Pyjama Set (Off White kurta)",
+    "Light Yellow Solid Cotton Blend Kurta | The Kurta Company (Yellow kurta)",
+    "Sunflower Yellow Self Textured Cotton Blend Kurta | The Kurta Company (Yellow kurta)",
+    "MLS CHIKANKARI KURTA PAJAMA ( kurta)",
+    "MLS PLAIN KURTA PAJAMA 2PCS ( kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 722,
+   "completion_tokens": 176,
+   "reasoning_tokens": 152,
+   "latency_ms": 820,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q15",
+   "text": "yellow outfit for mehendi under \u20b91000",
+   "final_ids": [
+    "8396579668190",
+    "8446825005278",
+    "8595167084694",
+    "8595167150230",
+    "8428295913694"
+   ],
+   "shown_titles": [
+    "Yellow Cotton Kurti (Yellow kurti)",
+    "Yellow Cotton Kurta (Yellow kurta)",
+    "Plus Size Mustard Printed Muslin Straight Short Kurti (Yellow kurti)",
+    "Plus Size Yellow Printed Cotton A-Line Short Kurti (Yellow kurti)",
+    "Yellow Floral Printed Cotton Kurta (Yellow kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 671,
+   "completion_tokens": 309,
+   "reasoning_tokens": 289,
+   "latency_ms": 920,
+   "n_candidates": 20,
+   "n_selected": 6,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q17",
+   "text": "red suit cocktail men <3000",
+   "final_ids": [
+    "8395098980658",
+    "6692149919939",
+    "9498324435202",
+    "7482627653794",
+    "8135096467694"
+   ],
+   "shown_titles": [
+    "Red Bandhgala Jacket | JB Studio (Red outerwear)",
+    "Men's Red Jute Cotton Zipper Nehru Jacket (Red outerwear)",
+    "Vastramay Men Red Rayon Sequin Embellished V-Neck Thigh Length Kurta (Red kurta)",
+    "Fetish Red Men Shoes (Red footwear)",
+    "THE POLLOCK TUXEDO JACKET (Red outerwear)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 707,
+   "completion_tokens": 152,
+   "reasoning_tokens": 138,
+   "latency_ms": 703,
+   "n_candidates": 20,
+   "n_selected": 3,
+   "path": "primary",
+   "rules_removed": 4,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q18",
+   "text": "Need women's trousers for office wear yaar, kuch accha dikhao",
+   "final_ids": [
+    "7999307120862",
+    "7999307088094",
+    "8029158605022",
+    "9228161351902",
+    "8029158473950"
+   ],
+   "shown_titles": [
+    "Women Off White Solid Trouser (Off White trousers)",
+    "Women Grey Solid Trouser (Grey trousers)",
+    "Women Black Solid Straight Fit Trouser (Black trousers)",
+    "Women's Black Gathered Hem Pants (Black trousers)",
+    "Women Black Mid Rise Solid Trouser (Black trousers)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 622,
+   "completion_tokens": 99,
+   "reasoning_tokens": 75,
+   "latency_ms": 698,
+   "n_candidates": 19,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q19",
+   "text": "men's navy kurta pyjama set for diwali under \u20b91000",
+   "final_ids": [
+    "9133397999840",
+    "8110158545120",
+    "8777419522272",
+    "8979445121282",
+    "8891599159448"
+   ],
+   "shown_titles": [
+    "Festive Cotton Blend Printed Kurta Pyjama Set (Navy Blue kurta)",
+    "Men's Cotton Floral printed kurta Pyjama (Navy Blue kurta)",
+    "Solid Cotton Kurta Set for Men (Navy Blue kurta)",
+    "Plus Men's Navy Blue Silk Blend Kurta (Dark Blue kurta)",
+    "Navy Palm Print Kurta (Navy Blue kurta)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 644,
+   "completion_tokens": 162,
+   "reasoning_tokens": 148,
+   "latency_ms": 823,
+   "n_candidates": 17,
+   "n_selected": 3,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q20",
+   "text": "Can you suggest co-ord set for someone to wear to daily wear? I want it to look elegant but stay comfortable. Please keep it under \u20b91500.",
+   "final_ids": [
+    "8577368227990",
+    "8569462653078",
+    "7629681950806",
+    "8629258551446",
+    "9247544901854"
+   ],
+   "shown_titles": [
+    "Off White Printed Cotton Blend Co-Ord Set (Off White coord)",
+    "Senorita Green Printed Silk Blend Co-Ord Set (Green coord)",
+    "Abstract Printed A-Line Flared Co-ord Set - Multi ( coord)",
+    "Blue Abstract Printed Cotton Co-Ord Set (Blue coord)",
+    "Mocha Mist Tunic & Shorts Co-ord Set (White coord)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 701,
+   "completion_tokens": 81,
+   "reasoning_tokens": 57,
+   "latency_ms": 467,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q21",
+   "text": "Can you suggest blue jeans for a woman to wear to college? I want it to look elegant but stay comfortable. Please keep it under \u20b91000.",
+   "final_ids": [
+    "4755387121800",
+    "9607173898537",
+    "4755383386248",
+    "9549655540009",
+    "4755382894728"
+   ],
+   "shown_titles": [
+    "Blue Slim Fit Cotton Blend Jeans (Blue jeans)",
+    "Jayden|100% Cotton Blue Straight Flared Denim (Blue jeans)",
+    "Regular Fit Folded Ankle-length Blue Jeans (Blue jeans)",
+    "Rio|100% Cotton High Waist Darkblue Ankle Jean (Blue jeans)",
+    "Blue Regular Fit Folded Ankle-length Jeans (Blue jeans)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 363,
+   "completion_tokens": 40,
+   "reasoning_tokens": 20,
+   "latency_ms": 462,
+   "n_candidates": 6,
+   "n_selected": 6,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q22",
+   "text": "men's blazer for date night under \u20b91500",
+   "final_ids": [
+    "8843208261882",
+    "10076177989938",
+    "9121572782338",
+    "9325337837826",
+    "10055493976370"
+   ],
+   "shown_titles": [
+    "Navy Abstract Print Shirt 100% Cotton (Navy Blue shirt)",
+    "Black Printed Blazer | JBXJB (Black blazer)",
+    "Men's Wine Bafta Embossed Blazer (Dark Red blazer)",
+    "Men's Black Solid Imported Suiting Blazer (Black blazer)",
+    "Navy Blue Checked Regular Fit Blazer | JB X JB (Dark Blue blazer)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 657,
+   "completion_tokens": 110,
+   "reasoning_tokens": 100,
+   "latency_ms": 755,
+   "n_candidates": 19,
+   "n_selected": 1,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q24",
+   "text": "shaadi ke liye loafers chahiye ladkon ke liye, 1500 se kam mein",
+   "final_ids": [
+    "7798280913118",
+    "7798340255966",
+    "9178451575006",
+    "9178451640542",
+    "9178451771614"
+   ],
+   "shown_titles": [
+    "Irish White Pure Hemp Loafers (White Loafers)",
+    "Irish White and Black Pure Hemp Loafers (Black Loafers)",
+    "Handcrafted Tan Woven/Braided Leather Backless Loafers for Men (Brown Loafers)",
+    "Estino Raffia Weave Loafers (White Loafers)",
+    "Beige Tan Pure Leather Loafers- For Men (Beige Loafers)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 368,
+   "completion_tokens": 39,
+   "reasoning_tokens": 19,
+   "latency_ms": 673,
+   "n_candidates": 6,
+   "n_selected": 6,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q25",
+   "text": "Need navy indo-western ethnic outfit for sangeet night yaar, budget 5000 max",
+   "final_ids": [
+    "7798068150494",
+    "7784675442774",
+    "8501105262742",
+    "7784619343958",
+    "9448229437664"
+   ],
+   "shown_titles": [
+    "Harshita Indigo Jaal Print Bandhgala Front Gathered Kurta Dress ( dress)",
+    "Ethnic Printed Embroidered A-Line Kurta with Pant & Dupatta - Navy Blue (Dark Blue kurta)",
+    "Kanak Navy Blue Embroidered Velvet Straight Suit Set With Dupatta (Dark Blue dupatta)",
+    "Ethnic Kalamkari Printed Sequin Embellished Straight Kurta with Palazzo & Dupatta - Navy Blue (Dark Blue kurta)",
+    "Elvish Yadav in Embroidered Navy Blue Silk Blend Kurta Salwar and Dupatta Set for Men (Dark Blue dupatta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 775,
+   "completion_tokens": 123,
+   "reasoning_tokens": 105,
+   "latency_ms": 622,
+   "n_candidates": 20,
+   "n_selected": 5,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q26",
+   "text": "Can you suggest orange kurta set for a woman to wear to a haldi ceremony? I want it to look elegant but stay comfortable. Please keep it under \u20b95000.",
+   "final_ids": [
+    "8290834841752",
+    "9116479029506",
+    "8654914224278",
+    "7920281256022",
+    "8649893478550"
+   ],
+   "shown_titles": [
+    "Orange Kurta Churidar with Printed Dupatta (Orange kurta)",
+    "Women's Orange Muslin Bandhani Kurta Set with Straight Pants & Dupatta (Orange kurta)",
+    "Multi Floral Printed Organza Straight Kurta (Orange kurta)",
+    "Rust Orange Floral Buta Printed Straight Kurta Set with Straight Pant (Orange kurta)",
+    "Orange Printed Crepe A-Line Kurta Set (Orange kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 588,
+   "completion_tokens": 99,
+   "reasoning_tokens": 75,
+   "latency_ms": 382,
+   "n_candidates": 15,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q27",
+   "text": "men's yellow kurta for mehendi",
+   "final_ids": [
+    "8828660744344",
+    "9724034646322",
+    "9115749449986",
+    "9724034416946",
+    "9724034711858"
+   ],
+   "shown_titles": [
+    "White & Yellow Ombre Printed Kurta (Yellow kurta)",
+    "Festive Yellow Printed Kurta | The Kurta Company (Yellow kurta)",
+    "Men's Yellow Viscose Kurta (Yellow kurta)",
+    "Majestic Yellow Solid Kurta | The Kurta Company (Yellow kurta)",
+    "Spirited Dark Yellow Solid Kurta | The Kurta Company (Yellow kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 440,
+   "completion_tokens": 126,
+   "reasoning_tokens": 102,
+   "latency_ms": 756,
+   "n_candidates": 10,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q28",
+   "text": "Can you suggest saree for a woman to wear to a wedding? I want it to look elegant but stay comfortable. Please keep it under \u20b93000.",
+   "final_ids": [
+    "8630864675038",
+    "8661208236182",
+    "8661207842966",
+    "8664473272470",
+    "8661207646358"
+   ],
+   "shown_titles": [
+    "Red Digital Print Modal Silk Saree (Red saree)",
+    "Cream Floral Printed Silk Blend Saree (Off White saree)",
+    "Lavender Solid Chiffon Saree (Purple saree)",
+    "Purple Striped Textured Chiffon Saree (Purple saree)",
+    "Mauve Floral Printed Cotton Blend Saree (Cream saree)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 430,
+   "completion_tokens": 145,
+   "reasoning_tokens": 121,
+   "latency_ms": 742,
+   "n_candidates": 9,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q29",
+   "text": "men's grey blazer for a reception under \u20b91500",
+   "final_ids": [
+    "10034682986802",
+    "9325337837826",
+    "10076178088242",
+    "10076176843058",
+    "7699681050882"
+   ],
+   "shown_titles": [
+    "Dark Grey Solid Regular Fit Blazer | JadeBlue (Dark Grey blazer)",
+    "Men's Black Solid Imported Suiting Blazer (Black blazer)",
+    "Light Grey Solid Regular Fit Blazer | Wyre (Light Grey blazer)",
+    "Light Grey Checked Regular Fit Blazer | Wyre (Light Grey blazer)",
+    "Men's Black And Red Woven Blazer (Black blazer)"
+   ],
+   "outcome": "empty_selection",
+   "finish_reason": "stop",
+   "prompt_tokens": 629,
+   "completion_tokens": 49,
+   "reasoning_tokens": 40,
+   "latency_ms": 468,
+   "n_candidates": 19,
+   "n_selected": 0,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q30",
+   "text": "office ke liye blazer chahiye, 5000 se kam mein",
+   "final_ids": [
+    "9473534918953",
+    "9300198850818",
+    "9300199014658",
+    "8137854025950",
+    "9844624556329"
+   ],
+   "shown_titles": [
+    "Hernes Blazer|100% Cotton Polka Crop Blazer With Front Pocket (Black blazer)",
+    "Men's's Green Velvet Digital Print Blazer (Green blazer)",
+    "Men's's Black Solid Lachka Imported Suiting Blazer (Black blazer)",
+    "Women's Solid Collared Neck Black Blazer (Black blazer)",
+    "Kenna|100% Cotton Double Breasted Denim Blazer ( blazer)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 601,
+   "completion_tokens": 104,
+   "reasoning_tokens": 80,
+   "latency_ms": 697,
+   "n_candidates": 17,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q31",
+   "text": "pink krta set diwali festive women <1000",
+   "final_ids": [
+    "8107872616670",
+    "9116477456642",
+    "8458972528790",
+    "9116478439682",
+    "7468631654486"
+   ],
+   "shown_titles": [
+    "Women Hot Pink Round Neck Printed Kurta Set (Pink kurta)",
+    "Women's Pink Chanderi Anarkali Kurta Set (Pink kurta)",
+    "Pink Printed Muslin Anarkali Suit Set With Dupatta (Pink anarkali)",
+    "Women's Pink Rayon Mirror Work Kurta Set with Palazzo (Pink kurta)",
+    "Floral Zari & Cutdana Hand Embroidered Anarkali Kurta with Palazzo & Dupatta - Pink (Pink kurta)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 743,
+   "completion_tokens": 103,
+   "reasoning_tokens": 93,
+   "latency_ms": 722,
+   "n_candidates": 20,
+   "n_selected": 1,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q32",
+   "text": "blue fuson t-shirt casual daily men <1000",
+   "final_ids": [
+    "8380071084254",
+    "8380070920414",
+    "8843074896122",
+    "8380071510238",
+    "9609018540338"
+   ],
+   "shown_titles": [
+    "Blue Cotton Regular Fit T-Shirt (Blue top)",
+    "Blue Cotton Regular Fit T-Shirt For Men (Blue top)",
+    "Royal Blue Regular Fit Half Sleeves T-Shirt (Blue top)",
+    "Red & Blue Stripe Cotton Blend T-Shirt (Blue top)",
+    "Blue Solid Regular Fit Polo T-Shirt | JadeBlue (Blue top)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 653,
+   "completion_tokens": 130,
+   "reasoning_tokens": 106,
+   "latency_ms": 752,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q33",
+   "text": "Can you suggest white kurti for a woman to wear to college? I want it to look elegant but stay comfortable. Please keep it under \u20b93000.",
+   "final_ids": [
+    "8630211772566",
+    "8646582370454",
+    "7416248139862",
+    "8581685805206",
+    "8609937457302"
+   ],
+   "shown_titles": [
+    "White Self Design Cotton Straight Short Kurti (White kurti)",
+    "White Floral Schiffli Design Cotton Blend Straight Short Kurti (White kurti)",
+    "Abstract Floral Printed Straight Fit Kurti - White (White kurti)",
+    "White Floral Printed Cotton Straight Short Kurti (White kurti)",
+    "White Printed Cotton Blend A-Line Short Kurti (White kurti)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 519,
+   "completion_tokens": 105,
+   "reasoning_tokens": 81,
+   "latency_ms": 637,
+   "n_candidates": 13,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q34",
+   "text": "Need men's shirt for date night yaar, kuch accha dikhao",
+   "final_ids": [
+    "7624165523678",
+    "8843106091258",
+    "8931015098618",
+    "8204942639326",
+    "8843208261882"
+   ],
+   "shown_titles": [
+    "Men White Semi- Formal Shirt (White shirt)",
+    "Blue Ombre Shirt 100% Cotton (Blue shirt)",
+    "Green Structured Check Shirt 100% Cotton (Green shirt)",
+    "Wine Solid Cotton Blend Shirt (Dark Red shirt)",
+    "Navy Abstract Print Shirt 100% Cotton (Navy Blue shirt)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 645,
+   "completion_tokens": 151,
+   "reasoning_tokens": 127,
+   "latency_ms": 938,
+   "n_candidates": 19,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q35",
+   "text": "blue jaket party <1000",
+   "final_ids": [
+    "9883309244722",
+    "9800744501554",
+    "8565635973282",
+    "8665667305778",
+    "9137661903076"
+   ],
+   "shown_titles": [
+    "Blue Printed Slim Fit Party Wear Shirt | JadeBlue Super Luxe (Blue shirt)",
+    "Blue Suit | JadeBlue (Blue Fashion)",
+    "Party Animal Blue Graphic Print Oversized T-Shirt (Blue top)",
+    "Blue Printed Slim Fit Party Wear Shirt | JB Studio (Blue shirt)",
+    "Ditsy (Blue Women's Jutti)"
+   ],
+   "outcome": "empty_selection",
+   "finish_reason": "stop",
+   "prompt_tokens": 665,
+   "completion_tokens": 48,
+   "reasoning_tokens": 39,
+   "latency_ms": 610,
+   "n_candidates": 20,
+   "n_selected": 0,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q36",
+   "text": "shaadi ke liye jhumka earrings chahiye ladkiyon ke liye, 3000 se kam mein",
+   "final_ids": [
+    "7399128596646",
+    "7229390716971",
+    "7465738207398",
+    "8597130412228",
+    "7217631526955"
+   ],
+   "shown_titles": [
+    "Aham Brahmasmi Shanti Jhumka Earrings ( Earrings)",
+    "Jhill Mill Jhumka Earrings (Green Earrings)",
+    "Bagh E Fiza Spring Layered Jhumka Earrings (Red Earrings)",
+    "Lakshmi Dual Temple Jhumka | Gold-Plated Ruby Temple Earrings ( earrings)",
+    "Jhill Mill Jhumka Earrings ( Earrings)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 710,
+   "completion_tokens": 87,
+   "reasoning_tokens": 63,
+   "latency_ms": 746,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q37",
+   "text": "men's green kurta set for sangeet under \u20b91500",
+   "final_ids": [
+    "7675979661464",
+    "8523975098520",
+    "8976981950722",
+    "8989395714200",
+    "7842188624024"
+   ],
+   "shown_titles": [
+    "Mint Green Silk Blend Kurta Churidar Set (Green kurta)",
+    "Men Green Solid Kurta Churidar Set (Green kurta)",
+    "Men's Green Bandhni Rayon Kurta (Green kurta)",
+    "Green Cotton Blend Solid Kurta Churidar Set (Green kurta)",
+    "Men Green Abstract Kurta (Green kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 613,
+   "completion_tokens": 100,
+   "reasoning_tokens": 76,
+   "latency_ms": 700,
+   "n_candidates": 17,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q38",
+   "text": "haldi ke liye yellow kurta set chahiye ladkiyon ke liye, 1500 se kam mein",
+   "final_ids": [
+    "7797757837534",
+    "8616939880598",
+    "9058837201154",
+    "8446825005278",
+    "8891597586584"
+   ],
+   "shown_titles": [
+    "Set of 2:The Vibrant Yellow Kota Kurta Matched with Yellow Kota Pant (Yellow kurta)",
+    "Mustard Tribal Printed Cotton Blend Straight Kurta Set (Yellow kurta)",
+    "Women's Yellow Bandhani Print Cambric Kurta (Yellow kurta)",
+    "Yellow Cotton Kurta (Yellow kurta)",
+    "Yellow Printed Front Open Kurta Set (Yellow kurta)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 712,
+   "completion_tokens": 196,
+   "reasoning_tokens": 180,
+   "latency_ms": 623,
+   "n_candidates": 20,
+   "n_selected": 4,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q39",
+   "text": "mehendi ke liye pink nehru jacket set chahiye ladkon ke liye",
+   "final_ids": [
+    "7707965063335",
+    "8609082441906",
+    "7707958149287",
+    "8636918923442",
+    "8699399110834"
+   ],
+   "shown_titles": [
+    "MLS PINK KURTA JACKET SET (Pink outerwear)",
+    "PHOOLPANKH PINK KURTA JACKET SET (Pink outerwear)",
+    "MLS ONION PINK KURTA JACKET SET (Pink outerwear)",
+    "keshav sadhna in Abeer Pink Kurta Jacket Set (Pink outerwear)",
+    "SHABNOOR STONE WORK PINK KURTA JACKET SET (Pink outerwear)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 709,
+   "completion_tokens": 184,
+   "reasoning_tokens": 160,
+   "latency_ms": 820,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q40",
+   "text": "outit wedding guest <5000",
+   "final_ids": [
+    "9116477325570",
+    "8623736225942",
+    "8695605362916",
+    "8308471300391",
+    "8962420211934"
+   ],
+   "shown_titles": [
+    "Women's Mustard Chanderi Anarkali Kurta Set (Yellow kurta)",
+    "Off White Woven Design Silk Blend Anarkali Suit Set With Dupatta (Off White anarkali)",
+    "KINARI ( Women's Kolhapuri)",
+    "Blue Sky - Kolhapuri Wedding Chappal for women (Blue Women Kolhapuri)",
+    "Pink Brocade Block Heel (Pink footwear)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 696,
+   "completion_tokens": 256,
+   "reasoning_tokens": 236,
+   "latency_ms": 888,
+   "n_candidates": 20,
+   "n_selected": 6,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q41",
+   "text": "grey sare cocktail women <5000",
+   "final_ids": [
+    "8663533224086",
+    "8663534862486",
+    "8663534829718",
+    "8025635619044",
+    "8629273592036"
+   ],
+   "shown_titles": [
+    "Grey Floral Printed Cotton Saree (Grey saree)",
+    "Grey Printed Cotton Saree (Grey saree)",
+    "Grey Paisley Printed Cotton Saree (Grey saree)",
+    "Chandni (Grey Women's Jutti)",
+    "Mehreen (Grey Women's Jutti)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 624,
+   "completion_tokens": 122,
+   "reasoning_tokens": 108,
+   "latency_ms": 638,
+   "n_candidates": 19,
+   "n_selected": 3,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q42",
+   "text": "Need men's trousers for office wear yaar, budget 1500 max",
+   "final_ids": [
+    "10092846154034",
+    "10055494795570",
+    "10114837479730",
+    "8156070477986",
+    "8852952154274"
+   ],
+   "shown_titles": [
+    "Brown Solid Regular Fit Formal Trouser | JadeBlue (Brown trousers)",
+    "Grey Solid Super Slim Fit Formal Trouser | Greenfibre (Green trousers)",
+    "Camel Beige Solid Super Slim Fit Casual Trouser | Greenfibre (Beige trousers)",
+    "Stygian Navy Linen Pant (Dark Blue trousers)",
+    "Plus Size Stretch Trousers (Dark Blue trousers)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 556,
+   "completion_tokens": 83,
+   "reasoning_tokens": 67,
+   "latency_ms": 749,
+   "n_candidates": 15,
+   "n_selected": 4,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q43",
+   "text": "diwali ke liye blue anarkali chahiye ladkiyon ke liye, 5000 se kam mein",
+   "final_ids": [
+    "8428236964062",
+    "7798358016222",
+    "8616942305430",
+    "9116479127810",
+    "8616941125782"
+   ],
+   "shown_titles": [
+    "Indigo Printed Blue Cotton Anarkali (Blue anarkali)",
+    "Blue Plain Cotton Tasseled Anarkali (Blue anarkali)",
+    "Blue Floral Printed Cotton Blend Anarkali Suit Set With Dupatta (Blue anarkali)",
+    "Women's Blue Chinon Sequin Anarkali Set with Palazzo (Blue anarkali)",
+    "Blue Chevron Printed Cotton Blend Anarkali Suit Set With Dupatta (Blue anarkali)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 550,
+   "completion_tokens": 78,
+   "reasoning_tokens": 54,
+   "latency_ms": 718,
+   "n_candidates": 12,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q44",
+   "text": "roz pehenne ke liye pink indo-western casual shirt chahiye ladkon ke liye, 1000 se kam mein",
+   "final_ids": [
+    "8423018725538",
+    "8675674652834",
+    "8768340885666",
+    "9828544774441",
+    "8616943485078"
+   ],
+   "shown_titles": [
+    "Arti Pink Geometric Shirt (Pink shirt)",
+    "Box Fit Abstract Pink Shirt (Pink shirt)",
+    "Regular Fit Mandarin Shirt (Pink shirt)",
+    "Manjari|100% Viscose Full Sleeve Shirt (Pink shirt)",
+    "Bandhani Pink Cotton Blend Signature Shirt (Pink shirt)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 661,
+   "completion_tokens": 85,
+   "reasoning_tokens": 61,
+   "latency_ms": 607,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q45",
+   "text": "college ke liye grey sneakers chahiye, 1500 se kam mein",
+   "final_ids": [
+    "9115707113703",
+    "7696325378279",
+    "8934623477991",
+    "4646169903150",
+    "7920290922724"
+   ],
+   "shown_titles": [
+    "ALLEY Grey Men's Sneakers (Grey footwear)",
+    "BLISS Grey Women's Sneakers (Grey footwear)",
+    "KNICK Grey Men's Sneakers (Grey footwear)",
+    "Grey Ladies Kolhapuri Chappal (Grey footwear)",
+    "Nawab (Grey footwear)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 621,
+   "completion_tokens": 225,
+   "reasoning_tokens": 211,
+   "latency_ms": 719,
+   "n_candidates": 20,
+   "n_selected": 3,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q47",
+   "text": "men's maroon jacket for a party under \u20b93000",
+   "final_ids": [
+    "7638399910040",
+    "8877620429024",
+    "4521825402977",
+    "7675973009560",
+    "7596444811416"
+   ],
+   "shown_titles": [
+    "Men Maroon Textured Nehru Jacket (Dark Red outerwear)",
+    "Embossed Nehru Jacket for Men (Maroon outerwear)",
+    "VASTRAMAY Men's Maroon Velvet Ethnic Jacket (Dark Red outerwear)",
+    "Men Maroon Printed Nehru Jacket (Dark Red outerwear)",
+    "Men Maroon Nehru Jacket (Dark Red outerwear)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 578,
+   "completion_tokens": 125,
+   "reasoning_tokens": 101,
+   "latency_ms": 438,
+   "n_candidates": 14,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q48",
+   "text": "Can you suggest juttis for a woman to wear to a wedding? I want it to look elegant but stay comfortable. Please keep it under \u20b95000.",
+   "final_ids": [
+    "8666137231574",
+    "7935838748823",
+    "7885217857750",
+    "9124290396374",
+    "8792823496918"
+   ],
+   "shown_titles": [
+    "Gold Blush Jutti ( footwear)",
+    "Elara (Grey footwear)",
+    "Magenta Bride Jutti (Pink footwear)",
+    "Antique Flower Jutti ( footwear)",
+    "Antique Gold Curve Jutti ( footwear)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 411,
+   "completion_tokens": 139,
+   "reasoning_tokens": 115,
+   "latency_ms": 700,
+   "n_candidates": 10,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": true
+  },
+  {
+   "query_id": "q49",
+   "text": "Need men's red kurta set for sangeet night yaar, budget 1500 max",
+   "final_ids": [
+    "9102039286018",
+    "8493044170904",
+    "9011482493080",
+    "8772577558752",
+    "8824454316256"
+   ],
+   "shown_titles": [
+    "Men's Red Bandhni Kurta Pyjama Set (Red kurta)",
+    "Men Red Solid Kurta Churidar Set (Red kurta)",
+    "Red Multicolor Cotton Blend Printed Kurta Pyjama Set (Red kurta)",
+    "Embroidered Staight Kurta Set For Men (Red kurta)",
+    "Embroidered Straight Kurta Set For Men (Red kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 709,
+   "completion_tokens": 93,
+   "reasoning_tokens": 69,
+   "latency_ms": 718,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q50",
+   "text": "white otfit haldi <1500",
+   "final_ids": [
+    "8633420644502",
+    "8625953702038",
+    "7798322856158",
+    "9724032287026",
+    "8876520636640"
+   ],
+   "shown_titles": [
+    "Plus Size Multi -Colored Floral Printed Cotton Straight Kurta (White kurta)",
+    "White Floral Printed Cotton Blend Straight Short Kurti (White kurti)",
+    "Set of 2: Snow White Cotton Anarkali Kurti with Flared Pants (White kurti)",
+    "White Kurta | The Kurta Company (White kurta)",
+    "Embroidered Silk Blend Kurta with White Salwar (White kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 698,
+   "completion_tokens": 150,
+   "reasoning_tokens": 126,
+   "latency_ms": 403,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 2,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q51",
+   "text": "Need women's pink fusion palazzo kurta set for mehendi function yaar, budget 5000 max",
+   "final_ids": [
+    "7810269708374",
+    "9116478439682",
+    "8522334961814",
+    "8394800201878",
+    "7896965808214"
+   ],
+   "shown_titles": [
+    "Ethnic Printed Sequin Embellished Straight Kurta with Palazzo & Dupatta - Rani Pink (Pink kurta)",
+    "Women's Pink Rayon Mirror Work Kurta Set with Palazzo (Pink kurta)",
+    "Pink Bandhani Printed A-Line Kurta Set (Pink kurta)",
+    "Pink Embellished Silk Blend Straight Kurta With Palazzos & Dupatta (Pink kurta)",
+    "Mughal Print Embroidered A-Line Kurta with Palazzo - Pink (Pink kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 726,
+   "completion_tokens": 143,
+   "reasoning_tokens": 119,
+   "latency_ms": 563,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q52",
+   "text": "Need men's kurta set for shaadi yaar, kuch accha dikhao",
+   "final_ids": [
+    "7675979169944",
+    "7675978842264",
+    "7842188001432",
+    "7675979497624",
+    "8979444957442"
+   ],
+   "shown_titles": [
+    "Men's Off White Kurta Churidar Set (Off White kurta)",
+    "Men's Dark Cream Kurta Churidar Set (Off White kurta)",
+    "Men Green Kurta Dhoti Set (Green kurta)",
+    "Black Cotton Printed Kurta Patiyala Set (Black kurta)",
+    "Plus Men's Black Cotton Linen Kurta (Black kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 683,
+   "completion_tokens": 187,
+   "reasoning_tokens": 163,
+   "latency_ms": 711,
+   "n_candidates": 19,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q53",
+   "text": "wite gown cocktail women <1500",
+   "final_ids": [
+    "8404035829982",
+    "7999307841758",
+    "8369865261278",
+    "6855997128790",
+    "9993617408297"
+   ],
+   "shown_titles": [
+    "Women White Cotton V-Neck Regular Fit Dresses (White dress)",
+    "Women Teal Round Neck Sleeveless Dress (Turquoise dress)",
+    "Multicolor Regular Fit Dress For Women ( dress)",
+    "Floral, Abstract & Bohemian Printed A-line Midi Dress - Yellow & Multi (Yellow dress)",
+    "Vinis|Viscose Asymmetric One Shoulder Gown ( dress)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 537,
+   "completion_tokens": 110,
+   "reasoning_tokens": 100,
+   "latency_ms": 810,
+   "n_candidates": 14,
+   "n_selected": 1,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q54",
+   "text": "Can you suggest formal shirt for a man to wear to office? I want it to look elegant but stay comfortable. Please keep it under \u20b91000.",
+   "final_ids": [
+    "9108653277490",
+    "9108653637938",
+    "8399205597490",
+    "10040023089458",
+    "8983664132402"
+   ],
+   "shown_titles": [
+    "White Solid Slim Fit Formal Shirt | Metal (White shirt)",
+    "Off White Checked Slim Fit Formal Shirt | Greenfibre (Off White shirt)",
+    "Cream Solid Regular Fit Formal Shirt | JadeBlue (Off White shirt)",
+    "Sky Blue & White Solid Slim Fit Formal Shirt | Greenfibre (Light Blue shirt)",
+    "Navy Blue Solid Slim Fit Formal Shirt | Metal (Dark Blue shirt)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 701,
+   "completion_tokens": 173,
+   "reasoning_tokens": 149,
+   "latency_ms": 444,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q55",
+   "text": "white ethnic wear for diwali under \u20b93000",
+   "final_ids": [
+    "8989393354904",
+    "8921520177304",
+    "7798322856158",
+    "9351590707458",
+    "7549426827350"
+   ],
+   "shown_titles": [
+    "White Silk Blend Jacquard Pathani Kurta Patiyala Set (White kurta)",
+    "White Silk Blend Multi-Color Printed Kurta Set (White kurta)",
+    "Set of 2: Snow White Cotton Anarkali Kurti with Flared Pants (White kurti)",
+    "Men's White Thread Embroidered Cotton Long Kurta (White kurta)",
+    "Ethnic Printed & Kantha Embroidered Straight Fit Kurta - White (White kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 676,
+   "completion_tokens": 189,
+   "reasoning_tokens": 165,
+   "latency_ms": 606,
+   "n_candidates": 19,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q57",
+   "text": "college ke liye pink hoodie chahiye ladkon ke liye, 1000 se kam mein",
+   "final_ids": [
+    "9604534829353",
+    "9558003024169",
+    "9812441006377",
+    "5833356345501",
+    "8225723056350"
+   ],
+   "shown_titles": [
+    "Ayla Hoodie|Cotton Cropped Boxy Pink Hoodie (Pink knitwear)",
+    "Saskia|100% Cotton Front Button Closure Cardigan (Pink knitwear)",
+    "Roma|Cotton V-Neck Button Down Knit Cardigan (Pink knitwear)",
+    "Pink Solid Hooded Sweatshirt (Pink knitwear)",
+    "Pink Acrylic Hooded Sweatshirt (Pink knitwear)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 495,
+   "completion_tokens": 246,
+   "reasoning_tokens": 232,
+   "latency_ms": 460,
+   "n_candidates": 12,
+   "n_selected": 3,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q58",
+   "text": "Need women's dress for date night yaar, budget 5000 max",
+   "final_ids": [
+    "9962973430057",
+    "9962972905769",
+    "9962972414249",
+    "8717992689920",
+    "7014281052246"
+   ],
+   "shown_titles": [
+    "Joelle|Viscose Draped Bodice Midi Dress ( dress)",
+    "Janiah|Viscose One Shoulder A Line Dress ( dress)",
+    "Jania|Viscose One Shoulder A Line Dress ( dress)",
+    "Do-It-All Dress ( dress)",
+    "Abstract & Floral Printed Zari & Sequins Embellished Pleated Maxi Dress - Yellow (Yellow dress)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 632,
+   "completion_tokens": 95,
+   "reasoning_tokens": 71,
+   "latency_ms": 457,
+   "n_candidates": 19,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "q60",
+   "text": "necklace set for a wedding under \u20b93000",
+   "final_ids": [
+    "7727828369604",
+    "7727729868996",
+    "8598553002180",
+    "8014780727492",
+    "9025966145758"
+   ],
+   "shown_titles": [
+    "Classic Charm Temple Necklace Set V-874 ( necklace)",
+    "Mandira Grace Necklace Set V-879 ( necklace)",
+    "Lakshmi Gundla Kemp Temple Jewellery Short Necklace Set T-75 (Green necklace)",
+    "Antique Necklace Set K-1390N (Green necklace)",
+    "Butta Antique Jadau Necklace set ( price for Each ) ( necklace)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 656,
+   "completion_tokens": 86,
+   "reasoning_tokens": 62,
+   "latency_ms": 561,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 2,
+   "diversity_swap": false,
+   "cached": false
+  }
+ ],
+ "chips": [
+  {
+   "query_id": "chip01",
+   "text": "Sangeet outfit under \u20b93,000",
+   "final_ids": [
+    "7784628912214",
+    "8611823812786",
+    "8976984506626",
+    "8921517457560",
+    "8619603460263"
+   ],
+   "shown_titles": [
+    "Lehariya Printed Sequin Embellished Straight Kurta with Palazzo & Dupatta - Blue (Blue kurta)",
+    "PAISELY IVORY SHERWANI SET (Off White sherwani)",
+    "Men's Black Rayon Sherwani Kurta Pyjama And Dupata Set (Black kurta)",
+    "Cream Silk Blend Kurta Sherwani Set with Jacquard Indo-Western Jacket and Trousers \u2013 Festive & Wedding Ensemble (Off White sherwani)",
+    "MLS KURTA JAWAHAR SET 3 PCS ( kurta)"
+   ],
+   "outcome": "partial",
+   "finish_reason": "stop",
+   "prompt_tokens": 722,
+   "completion_tokens": 56,
+   "reasoning_tokens": 46,
+   "latency_ms": 422,
+   "n_candidates": 20,
+   "n_selected": 1,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip02",
+   "text": "Haldi kurta set",
+   "final_ids": [
+    "8891597521048",
+    "8891597586584",
+    "8921518243992",
+    "8398065008946",
+    "9724053258546"
+   ],
+   "shown_titles": [
+    "Yellow Geometric Printed Kurta Set (Yellow kurta)",
+    "Yellow Printed Front Open Kurta Set (Yellow kurta)",
+    "White Cotton Kurta Set with Mustard Ikat-Inspired Prints and Cream Trousers \u2013 Festive & Wedding Ensemble (Yellow kurta)",
+    "Yellow Self Design Regular Fit Kurta Set | Azania (Yellow kurta)",
+    "Haldi Yellow Printed Silk Blend Kurta | The Kurta Company (Yellow kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 688,
+   "completion_tokens": 138,
+   "reasoning_tokens": 114,
+   "latency_ms": 298,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 1,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip03",
+   "text": "Wedding guest saree",
+   "final_ids": [
+    "8664475992214",
+    "8551110639778",
+    "8664473403542",
+    "8664476942486",
+    "8661207842966"
+   ],
+   "shown_titles": [
+    "Pink Embellished Satin Saree (Pink saree)",
+    "Dityaa Gold (Saree) (Red saree)",
+    "Burgundy Silk Blend Saree (Dark Red saree)",
+    "Navy Georgette Saree With Floral Embellished Pallu (Dark Blue saree)",
+    "Lavender Solid Chiffon Saree (Purple saree)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 530,
+   "completion_tokens": 142,
+   "reasoning_tokens": 118,
+   "latency_ms": 439,
+   "n_candidates": 14,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip04",
+   "text": "Office wear under \u20b91,500",
+   "final_ids": [
+    "9108654162226",
+    "9108652982578",
+    "9108653277490",
+    "8931015327994",
+    "9039277555962"
+   ],
+   "shown_titles": [
+    "Light Blue Checked Slim Fit Formal Shirt | Metal (Light Blue shirt)",
+    "Peacock Blue Solid Slim Fit Formal Shirt | Metal (Blue shirt)",
+    "White Solid Slim Fit Formal Shirt | Metal (White shirt)",
+    "Mid Grey Washed Denim Shirt (Grey shirt)",
+    "Grey Sky Zipper Neck T-Shirt (Grey top)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 672,
+   "completion_tokens": 103,
+   "reasoning_tokens": 79,
+   "latency_ms": 267,
+   "n_candidates": 20,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip05",
+   "text": "Men's kurta for a wedding",
+   "final_ids": [
+    "9262941176066",
+    "9724036972850",
+    "8063136891102",
+    "8979444957442",
+    "8063137087710"
+   ],
+   "shown_titles": [
+    "Men Black Silk Embroidered Kurta (Black kurta)",
+    "Maroon with Circular Bandhani Print Cotton Blend Men's Kurta (Dark Red kurta)",
+    "Mens Black Round Nack Solid Kurta (Black kurta)",
+    "Plus Men's Black Cotton Linen Kurta (Black kurta)",
+    "Mens Off White Round Nack Printed Kurta (Off White kurta)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 636,
+   "completion_tokens": 149,
+   "reasoning_tokens": 125,
+   "latency_ms": 679,
+   "n_candidates": 18,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip06",
+   "text": "sherwani for groom",
+   "final_ids": [
+    "8395155636530",
+    "8395065065778",
+    "8395028660530",
+    "8453684199730",
+    "8400375808167"
+   ],
+   "shown_titles": [
+    "Cream Embroidered Regular Fit Sherwani | TULA (Off White sherwani)",
+    "Off-White Sherwani | Azania (Off White sherwani)",
+    "White Sherwani | TULA (White sherwani)",
+    "Mint Green Sherwani | TULA (Green sherwani)",
+    "MLS SHERWANI 4PCS ( sherwani)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 384,
+   "completion_tokens": 158,
+   "reasoning_tokens": 134,
+   "latency_ms": 613,
+   "n_candidates": 8,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip07",
+   "text": "lehenga for sangeet",
+   "final_ids": [
+    "7798096429278",
+    "8060893659298",
+    "8603406401758",
+    "8060790079650",
+    "8056452808866"
+   ],
+   "shown_titles": [
+    "Set of 3 - Berry Blue Floral Handblock Cotton Lehenga Set (Blue lehenga)",
+    "Aadrika Lehenga (Mustard lehenga)",
+    "Set of 3 Ajrakh Printed Red Lehenga Set (Red lehenga)",
+    "Aparna Blue (Lehenga) (Blue lehenga)",
+    "Aparna Yellow (Lehenga) (Yellow lehenga)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 434,
+   "completion_tokens": 149,
+   "reasoning_tokens": 125,
+   "latency_ms": 636,
+   "n_candidates": 10,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  },
+  {
+   "query_id": "chip08",
+   "text": "men's blazer for the office",
+   "final_ids": [
+    "10092845924658",
+    "9300199145730",
+    "8228524392706",
+    "9325337837826",
+    "10040026530098"
+   ],
+   "shown_titles": [
+    "White Solid Blazer | Wyre (White blazer)",
+    "Men's's Navy Blue Solid Lachka Imported Suiting Blazer (Dark Blue blazer)",
+    "Men's Black Silk Blend Blazer (Black blazer)",
+    "Men's Black Solid Imported Suiting Blazer (Black blazer)",
+    "Black checked Regular Fit Blazer | JB X JB (Black blazer)"
+   ],
+   "outcome": "ok",
+   "finish_reason": "stop",
+   "prompt_tokens": 462,
+   "completion_tokens": 154,
+   "reasoning_tokens": 130,
+   "latency_ms": 625,
+   "n_candidates": 12,
+   "n_selected": 8,
+   "path": "primary",
+   "rules_removed": 0,
+   "diversity_swap": false,
+   "cached": false
+  }
+ ]
+}
