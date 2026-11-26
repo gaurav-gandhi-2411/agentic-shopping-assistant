@@ -684,14 +684,17 @@ async def run_chat_turn(
         # docs/grounding-v5-acceptance.md for the exact guarantee). Frame types are unchanged.
         # With the switch off, tokens are forwarded live exactly as before.
         _ground = grounded_rendering_enabled()
-        _ground_items = list(result.get("retrieved_items", []))[:5]
-        # GROUNDED_STREAM_MODE=sentence: emit whole judged sentences only (no lead-in fragments).
-        _grounder = StreamGrounder(
-            _ground_items,
-            user_text=message,
-            hold_sentences=os.environ.get("GROUNDED_STREAM_MODE", "token").strip().lower()
-            == "sentence",
-        )
+        _ground_items: list[dict] = []
+        _grounder: StreamGrounder | None = None
+        if _ground:  # built only with the switch on; the constructor does nothing that can raise
+            _ground_items = list(result.get("retrieved_items", []))[:5]
+            # GROUNDED_STREAM_MODE=sentence: whole judged sentences only (no lead-in fragments).
+            _grounder = StreamGrounder(
+                _ground_items,
+                user_text=message,
+                hold_sentences=os.environ.get("GROUNDED_STREAM_MODE", "token").strip().lower()
+                == "sentence",
+            )
         chunks: list[str] = []
         async for tok in _iter_tokens(llm, plan["prompt"]):
             if tok == STREAM_ERROR_SENTINEL:
@@ -701,12 +704,12 @@ async def run_chat_turn(
                 await send(WSCancelledMessage())
                 return TurnOutcome("cancelled")
             chunks.append(tok)
-            if _ground:
+            if _grounder is not None:
                 for _piece in _grounder.feed(tok):
                     await send(WSTokenMessage(text=_piece))
             else:
                 await send(WSTokenMessage(text=tok))
-        if _ground:
+        if _grounder is not None:
             for _piece in _grounder.finish():
                 await send(WSTokenMessage(text=_piece))
             if _grounder.flags:

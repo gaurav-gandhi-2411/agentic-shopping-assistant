@@ -172,6 +172,35 @@ def adversarial() -> list[dict[str, Any]]:
     add("delivery", "[item:1002] comes with free shipping across India.", ["free shipping"])
     add("delivery", "[item:1003] delivers in 3 days.", ["3 days"])
     add("delivery", "[item:1001] is available for pickup today.", ["pickup"])
+    # amendment 3: the same claims written with number words / fractions
+    add("word_number", "[item:1002] is a thousand bucks.", ["a thousand bucks"])
+    add(
+        "word_number",
+        "[item:1001] is priced at two thousand four hundred ninety nine.",
+        ["two thousand four hundred ninety nine"],
+    )
+    add(
+        "word_number",
+        "[item:1002] is priced at one thousand four hundred.",
+        ["one thousand four hundred"],
+    )
+    add("word_number", "Fifty percent off on [item:1002].", ["Fifty percent"])
+    add("word_number", "Twenty five per cent discount on [item:1001].", ["per cent"])
+    add("word_number", "Only two left of [item:1002].", ["two left"])
+    add("word_number", "Just one left of [item:1004].", ["one left"])
+    add("word_number", "[item:1003] is half the cost today.", ["half the cost"])
+    add("word_number", "Buy two get one on [item:1002].", ["Buy two"])
+    add("word_number", "Buy one get one free on [item:1005].", ["Buy one"])
+    add("word_number", "[item:1006] costs eight hundred rupees.", ["eight hundred rupees"])
+    add(
+        "word_number",
+        "Grab [item:1003] for one thousand five hundred and fifty.",
+        ["one thousand five hundred and fifty"],
+    )
+    add("word_number", "[item:1005] is a lakh rupees.", ["a lakh rupees"])
+    add("word_number", "[item:1002] is a quarter price.", ["quarter price"])
+    add("word_number", "[item:1001] is ½ price right now.", ["½ price"])
+    add("word_number", "Two for one on [item:1002].", ["Two for one"])
     for first, second, bad in (  # a good sentence next to a bad one: the good one must survive
         ("[item:1001] at [price:1001] is a lovely pick.", "It is also 25% off.", "25% off"),
         ("[item:1002] pairs well with a plain top.", "It is in stock in size M.", "in stock"),

@@ -275,3 +275,156 @@ def test_hold_mode_emits_whole_sentences_only() -> None:
     assert g.feed("Lovely breezy sundress for the be") == []
     assert g.feed("ach. Next one comes") == ["Lovely breezy sundress for the beach."]
     assert g.finish() == [" Next one comes"]
+
+
+# ------------------------------------------------------------------ amendment 3
+
+
+def _boom_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_check = gs.check
+    calls = {"n": 0}
+
+    def flaky(*a: Any, **k: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:  # fails once, then "recovers": a dead stream must stay dead anyway
+            raise RuntimeError("checker exploded")
+        return real_check(*a, **k)
+
+    monkeypatch.setattr(gs, "check", flaky)
+
+
+def test_error_after_a_kept_sentence_appends_the_template_and_pins_the_full_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    g = StreamGrounder(ITEMS, fallback="TEMPLATE")
+    seen = g.feed("Fine sentence. Another bit here. ")
+    _boom_once(monkeypatch)
+    seen += g.feed("Third bit is here. And")
+    seen += g.feed("More text that must not pass.")
+    seen += g.finish()
+    assert g.text == "Fine sentence. Another bit here.\n\nTEMPLATE"
+    assert "".join(seen) == g.text  # what the caller was handed is exactly what is persisted
+    assert g.failed_closed and g.replaced and "template_after_error" in g.flags
+
+
+def test_error_with_a_dangling_lead_in_still_ends_in_the_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    g = StreamGrounder(ITEMS, fallback="TEMPLATE")
+    seen = g.feed("Fine sentence. And then the")
+    _boom_once(monkeypatch)
+    seen += g.feed(" skirt. Next")  # sentence 2 is judged here and the checker raises
+    seen += g.finish()
+    assert g.text.endswith("\n\nTEMPLATE") and g.text.startswith("Fine sentence.")
+    assert "Next" not in g.text and "".join(seen) == g.text
+
+
+def test_constructor_does_no_work_that_can_raise() -> None:
+    class Hostile:
+        def __iter__(self) -> Iterator[Any]:
+            raise RuntimeError("must not be touched by the constructor")
+
+    g = StreamGrounder(Hostile(), extra_amounts=Hostile())  # type: ignore[arg-type]
+    assert g.text == ""
+    g.feed("Hello there. More text.")  # the failure shows up inside the guarded path
+    g.finish()
+    assert g.failed_closed and g.text.strip() != ""
+
+
+# hard cap on the sentence in progress
+
+CAP = gs.MAX_OPEN_SENTENCE_CHARS
+
+
+def _drip(text: str, size: int = 7) -> StreamGrounder:
+    g = StreamGrounder(ITEMS, fallback="TEMPLATE")
+    for i in range(0, len(text), size):
+        g.feed(text[i : i + size])
+    g.finish()
+    return g
+
+
+def test_four_thousand_characters_without_a_boundary_finish_quickly() -> None:
+    import time
+
+    text = "word " * 800  # 4000 characters, no sentence boundary
+    t0 = time.perf_counter()
+    g = _drip(text)
+    assert time.perf_counter() - t0 < 1.0  # unbounded rescans took about 3.7 s here
+    assert "overlong_sentence" in g.flags
+    assert len(g.text) <= CAP + len("\n\nTEMPLATE")
+
+
+def test_one_giant_chunk_is_capped_too() -> None:
+    import time
+
+    t0 = time.perf_counter()
+    g = StreamGrounder(ITEMS, fallback="TEMPLATE")
+    g.feed("word " * 800)
+    g.finish()
+    assert time.perf_counter() - t0 < 1.0 and "overlong_sentence" in g.flags
+
+
+def test_claim_inside_the_first_cap_characters_is_still_removed_and_the_tail_is_discarded() -> None:
+    text = "word " * 60 + "it is 40% off today " + "word " * 300 + "ENDMARK"
+    g = _drip(text)
+    assert "40%" not in g.text and "ENDMARK" not in g.text
+    assert g.text.endswith("\n\nTEMPLATE") and g.replaced
+    assert "overlong_sentence" in g.flags
+
+
+def test_a_clean_overlong_sentence_is_kept_up_to_the_cut_and_the_rest_discarded() -> None:
+    text = "Nice. " + "calm " * 400 + "ENDMARK"
+    g = _drip(text)
+    assert g.text.startswith("Nice. calm calm") and "ENDMARK" not in g.text
+    assert "TEMPLATE" not in g.text  # something was kept, so no template
+    assert len(g.text) <= CAP + 10 and "overlong_sentence" in g.flags
+
+
+def test_a_sentence_just_under_the_cap_streams_normally() -> None:
+    text = ("calm " * 150).strip() + "."  # 749 characters
+    assert len(text) < CAP
+    g = _drip(text)
+    assert g.text == text and "overlong_sentence" not in g.flags
+
+
+# trigger vocabulary (amendment 3): each group holds the sentence from the trigger
+
+
+@pytest.mark.parametrize(
+    ("chunk", "emitted"),
+    [
+        ("It has 3 pockets and more ", "It has"),  # digit
+        ("Nice dress at ₹ ", "Nice dress at"),  # currency symbol
+        ("Nice dress at $ ", "Nice dress at"),
+        ("The skirt is two thousand ", "The skirt is"),  # number word
+        ("The skirt is a hundred ", "The skirt is a"),
+        ("Quick note: ½ ", "Quick note:"),  # fraction character
+        ("Quick note: Buy ", "Quick note:"),  # buy
+        ("Sixty per cent ", ""),  # the number word is the trigger itself
+        ("It is 20 percent ", "It is"),
+        ("A quarter ", "A"),  # quarter
+        ("It is a third ", "It is a"),
+        ("Lovely breezy sundress for ", "Lovely breezy sundress for"),  # no trigger: streams
+    ],
+)
+def test_trigger_vocabulary_holds_a_sentence_from_the_trigger(chunk: str, emitted: str) -> None:
+    g = StreamGrounder(ITEMS)
+    assert "".join(g.feed(chunk)) == emitted
+
+
+@pytest.mark.parametrize(
+    ("chunks", "must_not_leak"),
+    [
+        (["The Gloss Wrap Skirt is two thousand ", "bucks today."], ["two", "thousand"]),
+        (["Quick note: ", "Buy one get one free."], ["Buy", "get one"]),
+        (["Quick note: ", "½ price today."], ["½"]),
+        (["The skirt is ", "sixty per cent off."], ["sixty", "per"]),
+        (["Only ", "two left of the skirt."], ["two left"]),
+    ],
+)
+def test_word_number_claims_leave_no_fragment_of_the_claim(
+    chunks: list[str], must_not_leak: list[str]
+) -> None:
+    out, _ = run_stream(chunks)
+    assert all(s not in out for s in must_not_leak), out
