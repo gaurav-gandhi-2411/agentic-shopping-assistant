@@ -19,7 +19,12 @@ from typing import Any, Protocol
 import numpy as np
 import pandas as pd
 
-from src.refresh.gender_hygiene import AMBIGUOUS, CORRECTED, resolve_gender
+from src.refresh.gender_hygiene import (
+    AMBIGUOUS,
+    CORRECTED,
+    HYPHENATED_REASON,
+    resolve_gender,
+)
 from src.refresh.state import IndexState, StateRow
 
 OK = "ok"
@@ -126,6 +131,7 @@ def _empty_store_report(slug: str, status: str) -> dict[str, Any]:
         "carry_reason": "",
         "gender_corrected": 0,
         "gender_ambiguous": 0,
+        "gender_ambiguous_hyphenated": 0,
         "texts_embedded": 0,
         "images_embedded": 0,
         "images_deferred": 0,
@@ -220,6 +226,8 @@ def build_incremental(
                 )
             elif d.outcome == AMBIGUOUS:
                 rep["gender_ambiguous"] += 1
+                if d.reason == HYPHENATED_REASON:
+                    rep["gender_ambiguous_hyphenated"] += 1
 
         new_ids = sorted(set(prepared) - set(prev_rows))
         changed_ids = sorted(set(prepared) & set(prev_rows))
@@ -292,6 +300,7 @@ def build_incremental(
         "carried_over",
         "gender_corrected",
         "gender_ambiguous",
+        "gender_ambiguous_hyphenated",
         "texts_embedded",
         "images_embedded",
         "images_deferred",
@@ -320,6 +329,8 @@ def to_markdown(report: dict[str, Any]) -> str:
         "dropped",
         "carried_over",
         "gender_corrected",
+        "gender_ambiguous",
+        "gender_ambiguous_hyphenated",
         "images_embedded",
         "images_deferred",
     )

@@ -139,6 +139,49 @@ def test_product_type_decides_first():
     assert d.outcome == gh.CORRECTED
 
 
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("Man-Made Silk Saree", "women"),
+        ("Woman-Owned Brand Tee", "men"),
+        ("Men-in-Black Tee", "women"),
+        ("Boy-friend Fit Jeans", "women"),
+    ],
+)
+def test_hyphenated_leading_word_never_corrects(name, label):
+    d = gh.resolve_gender(name, label, "", [])
+    assert (d.outcome, d.after, d.reason) == (gh.AMBIGUOUS, label, gh.HYPHENATED_REASON)
+    assert gh.leading_gender(name) is None
+
+
+@pytest.mark.parametrize(
+    ("name", "label"), [("Man Repeller Tee", "women"), ("Ladies Man Tee", "men")]
+)
+def test_denylisted_phrase_never_corrects(name, label):
+    d = gh.resolve_gender(name, label, "", [])
+    assert (d.outcome, d.after) == (gh.NO_CONFLICT, label)
+
+
+@pytest.mark.parametrize(
+    ("name", "label", "after"),
+    [
+        ("Men's Kurta", "women", "men"),
+        ("Men’s Kurta", "women", "men"),
+        ("Women Kurta", "men", "women"),
+        ("Boys Shorts", "women", "men"),
+    ],
+)
+def test_genuine_leading_gender_still_corrected(name, label, after):
+    d = gh.resolve_gender(name, label, "", [])
+    assert (d.outcome, d.after) == (gh.CORRECTED, after)
+
+
+def test_hyphenated_without_conflict_is_not_counted():
+    # label already agrees with the hyphen piece: nothing the old rule would have changed
+    assert gh.resolve_gender("Man-Made Tee", "men", "", []).outcome == gh.NO_CONFLICT
+    assert gh.resolve_gender("T-Shirt Dress", "women", "", []).outcome == gh.NO_CONFLICT
+
+
 def test_tags_decide_when_type_silent():
     agree = gh.resolve_gender("Men Shirt", "women", "Shirt", ["Men", "formal"])
     assert (agree.outcome, agree.after, agree.reason) == (

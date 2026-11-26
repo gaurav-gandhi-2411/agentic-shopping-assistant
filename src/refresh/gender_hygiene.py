@@ -16,6 +16,11 @@ _LABELS = ("men", "women")
 CORRECTED = "corrected"
 NO_CONFLICT = "no_conflict"
 AMBIGUOUS = "ambiguous"
+HYPHENATED_REASON = "hyphenated_leading_word"
+
+# Leading two-word phrases whose first word is a gender word but not a gender signal
+# (rules doc 5a). Keep short; add only with a real product name as evidence.
+_NOT_A_SIGNAL = frozenset({"man repeller", "ladies man", "boy friend", "man made", "girl friday"})
 
 
 @dataclass(frozen=True)
@@ -41,12 +46,40 @@ def _gender_of_words(words: list[str]) -> set[str]:
     return found
 
 
+def _leading_token(name: object) -> str:
+    """First whitespace-delimited word, lowercased, one trailing possessive removed."""
+    parts = str(name or "").lower().split()
+    token = parts[0] if parts else ""
+    for suffix in ("'s", "’s"):
+        if token.endswith(suffix):
+            return token[: -len(suffix)]
+    return token
+
+
+def _is_denylisted(name: object) -> bool:
+    parts = str(name or "").lower().split()[:2]
+    return len(parts) == 2 and " ".join(parts) in _NOT_A_SIGNAL
+
+
 def leading_gender(name: object) -> str | None:
-    """Gender named by the FIRST word of ``name`` ("men"/"women"), else None."""
-    words = _words(name)
-    if not words:
+    """Gender named by the FIRST word of ``name`` ("men"/"women"), else None.
+
+    None also for a punctuated token ("Man-Made") or a denylisted phrase ("Man Repeller").
+    """
+    token = _leading_token(name)
+    if not token.isascii() or not token.isalpha() or _is_denylisted(name):
         return None
-    found = _gender_of_words(words[:1])
+    found = _gender_of_words([token])
+    return next(iter(found)) if found else None
+
+
+def _hyphen_piece_gender(name: object) -> str | None:
+    """Gender of the first piece of a punctuated leading token, else None."""
+    token = _leading_token(name)
+    if token.isalpha() and token.isascii():
+        return None
+    pieces = _words(token)
+    found = _gender_of_words(pieces[:1])
     return next(iter(found)) if found else None
 
 
@@ -56,6 +89,9 @@ def resolve_gender(
     """Apply the registered rule to one row; see the rules doc for the order of the steps."""
     before = str(label or "").strip().lower()
     g = leading_gender(name)
+    piece = _hyphen_piece_gender(name)
+    if g is None and piece is not None and before in _LABELS and before != piece:
+        return GenderDecision(AMBIGUOUS, before, before, HYPHENATED_REASON)
     if g is None or before not in _LABELS or before == g:
         return GenderDecision(NO_CONFLICT, before, before, "no_conflict")
     type_words = _words(product_type)

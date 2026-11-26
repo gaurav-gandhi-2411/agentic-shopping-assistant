@@ -257,6 +257,27 @@ def test_gender_correction_is_applied_logged_and_counted_per_store():
     assert res2.report["gender_corrections"] == []
 
 
+def test_hyphenated_and_denylisted_names_are_left_alone_and_counted_per_store():
+    a = [
+        prod(1, title="Man-Made Silk Saree"),  # label women: hyphenated, unchanged
+        prod(2, title="Man Repeller Tee"),  # denylisted: unchanged, not counted
+        prod(3, title="Men's Kurta", ptype="Kurta"),  # genuine: corrected
+    ]
+    b = [prod(9, title="Boy-friend Fit Jeans")]
+    res, _ = run([feed("a", a), feed("b", b)])
+    rows = {r.article_id: r.row["gender"] for r in res.state.rows}
+    assert rows == {"1": "women", "2": "women", "3": "men", "9": "women"}
+    ra, rb = store_rep(res, "a"), store_rep(res, "b")
+    assert (ra["gender_corrected"], ra["gender_ambiguous"], ra["gender_ambiguous_hyphenated"]) == (
+        1,
+        1,
+        1,
+    )
+    assert rb["gender_ambiguous_hyphenated"] == 1
+    assert res.report["totals"]["gender_ambiguous_hyphenated"] == 2
+    assert "gender_ambiguous_hyphenated" in inc.to_markdown(res.report)
+
+
 def test_deterministic_and_state_survives_a_file_round_trip(tmp_path):
     feeds = [feed("b", [prod(2), prod(1)]), feed("a", [prod(3)])]
     r1, _ = run(feeds)
