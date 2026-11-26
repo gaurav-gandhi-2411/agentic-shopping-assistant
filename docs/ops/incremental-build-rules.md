@@ -73,3 +73,24 @@ Applies to rows that are new or changed in this run (stored rows were corrected 
   4. No gender evidence in product_type or tags -> correct to G (the leading word decides).
 - Every correction is logged `(article_id, store, name, before, after, reason)`; the report carries
   per-store correction counts and the unchanged-but-conflicting ("ambiguous") count.
+
+### 5a. Leading-word guards (amendment, verifier finding M1)
+
+Pre-registered before the code change. The leading-word fallback (and the correction it drives)
+must not fire on names where the first word is not a reliable gender signal.
+
+- The leading token is the first WHITESPACE-delimited word (not a letters-only regex split). After
+  removing one trailing possessive (`'s` or a curly `'s`), it must be purely `a-z`. A hyphen or any
+  other punctuation inside it ("Man-Made", "Woman-Owned", "Men-in-Black", "Boy-friend") means the
+  name evidence is unreliable: label unchanged, outcome ambiguous (reason
+  `hyphenated_leading_word`), and counted as `gender_ambiguous_hyphenated` (per store and total)
+  only when the first hyphen piece is a gender word naming a gender different from the label (i.e.
+  the old rule would have corrected it). Such rows are also included in `gender_ambiguous`.
+- Denylist of leading two-word phrases whose first word is a gender word but not a gender signal:
+  `man repeller`, `ladies man`, `boy friend`, `man made`, `girl friday`. A match stops the
+  fallback (label unchanged, no conflict, reason `denylisted_phrase`). Keep this list short; add an
+  entry only with a real product name as evidence.
+- Product_type/tags evidence still decides first for names that pass both guards, as in section 5.
+- Known residual: a name whose first word is a genuine gender word used non-semantically but not in
+  the denylist is still corrected when no product_type/tags evidence exists. The correction log
+  (`gender_corrections`) is the audit trail for that.
